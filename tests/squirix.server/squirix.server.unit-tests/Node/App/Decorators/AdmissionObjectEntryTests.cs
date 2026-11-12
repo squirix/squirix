@@ -47,7 +47,7 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
         var entry = new NodeCacheEntry<object?> { Value = new AdmissionDataPayload { Data = new string('y', 250_000) }, Version = 1 };
 
         _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, cancellationToken)).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
 

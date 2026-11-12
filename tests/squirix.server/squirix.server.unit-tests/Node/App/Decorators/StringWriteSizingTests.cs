@@ -45,7 +45,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var cache = Create(physical, meter, 1_000_000);
 
         await cache.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
-        var stored = await Assert.That(await physical.GetEntryAsync(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
+        var stored = await Assert.That(physical.GetEntry(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
 
         _ = await Assert.That(stored.Value).IsEqualTo(value);
         _ = await Assert.That(stored.Version).IsEqualTo(7L);
@@ -73,11 +73,11 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tight = Create(refused, meter, expectedBytes);
 
         await fits.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fitting)).IsEqualTo(expectedBytes);
         _ = await Assert.That(BytesOf(refused)).IsEqualTo(0L);
-        _ = await Assert.That(await refused.GetValueAsync(new CacheKey("cache", "key"), cancellationToken)).IsEqualTo(new NodeCacheValueResult<object?>(false, null));
+        _ = await Assert.That(refused.GetValue(new CacheKey("cache", "key"), cancellationToken)).IsEqualTo(new NodeCacheValueResult<object?>(false, null));
     }
 
     /// <summary>Payload checks fall back to exact sizing and include both deadline fields and tag bytes at the limit.</summary>
@@ -90,7 +90,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var empty = new NodeCacheEntry<object?>(string.Empty, 1, deadline, TimeSpan.FromMinutes(1), tags);
-        var length = EntryLimits.MaxEntrySizeBytes - JournalEntryPayload.MeasureSerializedBytes(empty);
+        var length = EntryLimits.MaxEntrySizeBytes - PreparedJournalEntry.MeasureEncodedLength(empty);
         var value = unicode ? new string('\u754c', length / 3) + new string('x', length % 3) : new string('x', length);
         var fitting = new NodeCacheEntry<object?>(value, 1, deadline, TimeSpan.FromMinutes(1), tags);
         var oversized = new NodeCacheEntry<object?>(value + "x", 1, deadline, TimeSpan.FromMinutes(1), tags);
@@ -98,7 +98,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(fitting);
         var error = NodeExceptionAssert.For<SquirixException>().Throws(oversized, static entry => JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry));
 
-        _ = await Assert.That(JournalEntryPayload.MeasureSerializedBytes(fitting)).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
+        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(fitting)).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
     }
 

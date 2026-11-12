@@ -8,5 +8,17 @@
     "ReplicatedCacheValueReadBenchmarks.LocalEntryReadAsync": 72,
     "ReplicatedCacheValueReadBenchmarks.LocalValueReadAsync": 0,
     "ReplicatedCacheValueReadBenchmarks.ReplicatedValueReadAsync": 0
-  }
+  },
+  "release": "develop",
+  "measurement": "Rounded arithmetic mean of three independent successful Ubuntu develop CI runs; limits checked against each source run.",
+  "sourceRuns": [
+    "https://github.com/squirix/squirix/actions/runs/41298680753",
+    "https://github.com/squirix/squirix/actions/runs/41274847911",
+    "https://github.com/squirix/squirix/actions/runs/41273596456"
+  ],
+  "sourceCommits": [
+    "915b08e752f2a5fb60094ef02d2e9eaa6e00f5f8",
+    "265659f6d25c478d5b3a01b4cb49cf9544c3ba9f",
+    "73bd1aa0ad6b12e30ae12099f1c54860b7597541"
+  ]
 }

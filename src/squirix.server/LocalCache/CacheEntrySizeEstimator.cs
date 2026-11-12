@@ -33,24 +33,6 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// </remarks>
     private const int FixedPerEntryOverheadBytes = StoreNodeBytes + BucketSlotsBytes;
 
-    /// <summary>One item of the deadline index, padded: node reference, deadline ticks and generation; the node holds the key.</summary>
-    private const int DeadlineIndexItemBytes = 24;
-
-    /// <summary>One slot of the deadline index heap: an item and its priority.</summary>
-    private const int DeadlineIndexSlotBytes = DeadlineIndexItemBytes + sizeof(long);
-
-    /// <summary>The most slots the deadline index holds per entry with a deadline: its live item and, until the heap is rebuilt, one stale item.</summary>
-    private const int MaxDeadlineIndexSlotsPerEntry = 2;
-
-    /// <summary>Bytes the deadline index adds for an entry with a deadline.</summary>
-    /// <remarks>
-    /// The share follows the entry, so every node accounts it alike. A stale item left by an entry that lost its deadline is not counted: it is
-    /// dropped at its old deadline or when the heap is rebuilt, which bounds the heap at twice the entries plus 1024 items. Measured with one
-    /// million entries and no stale items, a deadline grew the heap 33.6 bytes per entry, one slot; the second slot is the bound on stale items.
-    /// The entry node stores the deadline in a field every entry has, so a deadline adds nothing to the node.
-    /// </remarks>
-    private const int DeadlineIndexBytes = DeadlineIndexSlotBytes * MaxDeadlineIndexSlotsPerEntry;
-
     /// <summary>The width the entry codec stores every integer (as an Int64) and every floating-point number (as a Double) at.</summary>
     private const int EncodedNumberBytes = sizeof(long);
 
@@ -79,12 +61,12 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// <summary>Gets the additional index bytes when an entry gains an absolute deadline.</summary>
     /// <param name="entry">The stored entry.</param>
     /// <returns>The additional index bytes.</returns>
-    internal static long DeadlineIndexGrowthOf(NodeCacheEntry<T> entry) => DeadlineIndexBytes - DeadlineIndexBytesOf(entry);
+    internal static long DeadlineIndexGrowthOf(NodeCacheEntry<T> entry) => CacheEntryDeadlineSize.IndexBytes - DeadlineIndexBytesOf(entry);
 
     /// <summary>Gets the bytes the deadline index adds for <paramref name="entry" />.</summary>
     /// <param name="entry">The entry.</param>
     /// <returns>The deadline index share for an entry with a deadline; otherwise zero.</returns>
-    private static long DeadlineIndexBytesOf(NodeCacheEntry<T> entry) => HasDeadline(entry) ? DeadlineIndexBytes : 0;
+    private static long DeadlineIndexBytesOf(NodeCacheEntry<T> entry) => HasDeadline(entry) ? CacheEntryDeadlineSize.IndexBytes : 0;
 
     /// <summary>Tells whether the entry is stored with a deadline.</summary>
     /// <param name="entry">The entry.</param>
@@ -96,7 +78,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         long n = FixedPerEntryOverheadBytes;
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
-        n += HasDeadline(entry) ? DeadlineIndexBytes : 0;
+        n += DeadlineIndexBytesOf(entry);
         n += EstimateTagsBytes(entry.Tags);
         n += payloadBytes;
         return n;

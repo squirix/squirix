@@ -4,14 +4,37 @@ Build, test, limitations, and roadmap for squirix 0.1.0 preview.
 
 ## Build and test
 
-Prerequisite: .NET SDK as pinned in [`global.json`](../global.json) (minimum **10.0.203**).
+Install the .NET 11 SDK selected by [`global.json`](../global.json) and the .NET and ASP.NET Core runtimes for the target you
+want to run. Run the commands below from the repository root. The solution builds for `net10.0` by default.
 
 ```bash
 dotnet restore squirix.slnx
 dotnet build squirix.slnx --configuration Release
 dotnet dev-certs https --trust
-dotnet test squirix.slnx --configuration Release --no-build
+dotnet test --solution squirix.slnx --configuration Release --no-build
 ```
+
+To build and test on .NET 11:
+
+```bash
+dotnet build squirix.slnx --configuration Release -p:SquirixTargetFramework=net11.0
+dotnet test --solution squirix.slnx --configuration Release --framework net11.0 --no-build -p:SquirixTargetFramework=net11.0
+```
+
+## Release packages
+
+The release workflow packs the client, server, caching adapter, and CLI with `net10.0` and `net11.0` in each NuGet package.
+Framework-specific Microsoft packages use the release line for the selected target. Shared dependencies such as gRPC and Protobuf use the same versions on both.
+It tests consumption from a local feed and installs and runs the CLI for each framework before publication.
+Use a new package version for the first release that includes both targets.
+Install both sets of runtimes to run the same validation locally:
+
+```bash
+dotnet run --file tools/internal/sqr-release-validate.cs --
+```
+
+The standalone ZIP and Docker images continue to use .NET 10. For the CLI package, use `dotnet tool install --framework net11.0`
+with the normal package ID and version arguments to select the .NET 11 build explicitly.
 
 ## Current limitations
 
@@ -20,27 +43,19 @@ dotnet test squirix.slnx --configuration Release --no-build
 - **Automatic failover is opt-in** — RF=1 durability is per node; RF>=3 elects a new leader only with
   [automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads) on
 - **Static topology** — peers are configured explicitly; dynamic membership is future work
-- **Replica group start and lost disks (RF>1)** — a replica group of a new cluster starts once every member of it is up. A
-  member that starts on an empty data directory while its group runs holds an unseeded copy that grants no vote and takes
-  no entries until the leader of the group repairs it by a state transfer, with no operator action, once the other
-  members confirm no higher term. Two wiped members of three, or three of five, are not repaired, and the cluster is
-  recreated. Do not restore the data directory of a replicated node from an older backup. See
-  [starting a replica group](clustering.md#starting-a-replica-group)
+- **Replica group start and lost disks (RF>1)** — every member must start before a new group is ready.
+  An empty copy can rejoin a running group only after repair. Never restore an older data directory into a live
+  replicated cluster. See [starting a replica group](clustering.md#starting-a-replica-group)
 - **Single-key operations** — cross-key or multi-node atomicity is out of scope for v0.1
-- **Narrow client API** — basic KV + expiration; no batch, scan, watch, counters, or tag invalidation yet
-- **Replica group log compaction (RF>1 opt-in)** — each node compacts the group logs it leads and its copies of the
-  groups it follows. A follower that is down, or that missed an entry, blocks compaction of the leader's group log
-  until it is verified again, so that log keeps growing meanwhile, up to `ReplicaLogRetentionMaxMb` (default 1 GiB).
-  Past it the leader compacts without that follower, or without a ready follower that stayed behind, while a write
-  majority remains. A follower that needs entries the leader already compacted is
-  repaired by a state transfer: the leader sends it the data of the group and the follower catches up from the log, with
-  no operator action. A node that lost its disk is repaired the same way (see the lost disks item above). All
-  nodes of a replica group must run the same replica log codec version. See
-  [replication consensus](architecture/replication-consensus.md#group-log-retention-and-compaction)
+- **Narrow `ICache<T>` API** — basic KV and expiration. The SDK has no batch, scan, watch, counters, or
+  tag-invalidation methods. Microsoft HybridCache provides its own [tag invalidation](distributed-cache.md#hybridcache-across-processes)
+- **Replica group log compaction (RF>1 opt-in)** — a lagging or unavailable follower can delay compaction.
+  See [retention limits and compaction](architecture/replication-consensus.md#group-log-retention-and-compaction)
+  and the [state transfer runbook](operational-runbook.md#state-transfer)
 - **Journal disk quota is per node** — `JournalMaxTotalBytesMb` (host default 2048 MiB; not a settings JSON section
   in v0.1 public hosting) covers journal segments on that node only
 - **0.x compatibility** — no promise of upgrade or on-disk persistence compatibility until 1.0.0
-- **.NET 10 only** — older TFMs are intentionally out of scope for the preview line
+- **Runtime support** — `net10.0` and `net11.0`
 
 See [consistency](consistency.md) and [operational runbook](operational-runbook.md) before any production-like
 evaluation.
@@ -74,10 +89,3 @@ Early feedback is especially valuable:
 ## Naming conventions
 
 Package ids, CLI commands, and documentation naming: [naming-conventions.md](naming-conventions.md).
-
-## Benchmarks
-
-Internal benchmark notes (not user-facing product docs):
-
-- [benchmarks/e2e-benchmarks.md](benchmarks/e2e-benchmarks.md)
-- [benchmarks/read-path-optimization-notes.md](benchmarks/read-path-optimization-notes.md)

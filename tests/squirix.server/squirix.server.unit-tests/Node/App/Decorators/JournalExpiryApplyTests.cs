@@ -74,7 +74,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
 
             await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken);
 
-            _ = await Assert.That(await harness.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+            _ = await Assert.That(harness.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
         }
 
         var journaled = ReadJournaledPut(cancellationToken);
@@ -128,24 +128,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         {
             var prepare = new JournalPayloadPrepareCacheDecorator<string>(harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
             await prepare.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken);
-            await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
-        }
-
-        await AssertJournaledPutDeadlineAsync(cancellationToken);
-    }
-
-    /// <summary>A touch decided from a raw read applies the journaled deadline even when the clock advances before memory applies it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RawReadTouchAppliesJournaledDeadline(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider(Start);
-        await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
-        {
-            var seeding = harness.CreateDecorator(harness.Real);
-            _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken)).IsTrue();
-            var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock), true);
-            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -227,14 +209,14 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
 
     private static async Task AssertMemoryDeadlineAsync(PhysicalCache<string> physical, CancellationToken cancellationToken)
     {
-        var entry = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(Start.UtcDateTime.Add(Ttl));
     }
 
     private static async Task AssertMemoryTaggedAsync(PhysicalCache<string> physical, CancellationToken cancellationToken)
     {
-        var memory = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var memory = physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(memory).IsNotNull();
         _ = await Assert.That(memory!.Version).IsEqualTo(3);
         _ = await Assert.That(memory.Tags).IsNotNull();
@@ -284,7 +266,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
         while (records.MoveNext())
         {
-            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry))
+            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry, out _))
                 last = entry;
         }
 
@@ -331,11 +313,11 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             return new Harness(manifestStore, journal, clock);
         }
 
-        internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner, bool useRawReader = false) => new(
+        internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner) => new(
             inner,
             Journal,
             new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance),
             _clock,
-            useRawReader ? Physical.RawReader : null);
+            Physical.RawReader);
     }
 }

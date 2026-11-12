@@ -89,7 +89,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
                       : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
         await using var registry = await OpenRegistryAsync(GroupDir(), cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
-        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         journal.Writer.Flush.Arm();
         bool flushEntered;
         try
@@ -176,11 +176,12 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         await SequenceAssert.EqualAsync(["k1", "k2", "k3", "k4"], memory.Applied.ToArray(), StringComparer.Ordinal);
     }
 
-    private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, ILogicalNamespacedCache<object?> memory) => new(
+    private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, StubCache memory) => new(
         memory,
         journal.Journal,
         new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance),
-        TimeProvider.System);
+        TimeProvider.System,
+        memory);
 
     private static async Task ReapplyAsync(ReplicaGroupApplier applier, byte[][] payloads, CancellationToken cancellationToken)
     {

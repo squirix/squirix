@@ -39,8 +39,9 @@ public sealed class OperationDeadlineTests
     }
 
     /// <summary>A caller token that is never cancelled does not lift the deadline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerTokenStillBoundedByDeadline()
+    public async Task CallerTokenStillBoundedByDeadline(CancellationToken cancellationToken)
     {
         using var callerSource = new CancellationTokenSource();
         await using var harness = new Harness("deadline-token", ShortDeadline, TransportMode.Hang, TransportMode.Hang);
@@ -49,7 +50,7 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         var pending = !operation.IsCompleted;
         harness.Clock.Advance(ShortDeadline);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation);
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -99,8 +100,9 @@ public sealed class OperationDeadlineTests
     }
 
     /// <summary>Caller cancellation is still reported as cancellation, not as a deadline failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerCancelSurfacesOperationCanceled()
+    public async Task CallerCancelSurfacesOperationCanceled(CancellationToken cancellationToken)
     {
         using var callerSource = new CancellationTokenSource();
         await using var harness = new Harness("deadline-cancel", LongDeadline, TransportMode.Hang, TransportMode.Hang);
@@ -109,12 +111,13 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         await callerSource.CancelAsync();
 
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(operation);
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>The deadline budget metric is recorded when the deadline ends a call.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DeadlineBudgetMetricIsRecorded()
+    public async Task DeadlineBudgetMetricIsRecorded(CancellationToken cancellationToken)
     {
         var peer = $"deadline-metric-{Guid.NewGuid():N}";
         using var sink = new MeasurementSink("Squirix");
@@ -123,20 +126,21 @@ public sealed class OperationDeadlineTests
         var operation = GetAsync(harness.Cache, CancellationToken.None);
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         harness.Clock.Advance(ShortDeadline);
-        _ = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation);
+        _ = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsTrue();
     }
 
     /// <summary>A gRPC deadline expiry that coincides with the budget is reported as budget expiry, not retried.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task GrpcDeadlineFirstRecordsBudgetMetric()
+    public async Task GrpcDeadlineFirstRecordsBudgetMetric(CancellationToken cancellationToken)
     {
         var peer = $"deadline-grpc-{Guid.NewGuid():N}";
         using var sink = new MeasurementSink("Squirix");
         await using var harness = new Harness(peer, ShortDeadline, TransportMode.GrpcDeadline, TransportMode.GrpcDeadline, 64, true);
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(harness.Cache, CancellationToken.None));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(harness.Cache, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
@@ -166,8 +170,9 @@ public sealed class OperationDeadlineTests
     }
 
     /// <summary>Two hung endpoints end with a deadline failure far below the per-attempt timeout.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task HungEndpointsFailWithDeadlineExceeded()
+    public async Task HungEndpointsFailWithDeadlineExceeded(CancellationToken cancellationToken)
     {
         await using var harness = new Harness("deadline-hung", ShortDeadline, TransportMode.Hang, TransportMode.Hang);
 
@@ -175,7 +180,7 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         var pending = !operation.IsCompleted;
         harness.Clock.Advance(ShortDeadline);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation);
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -197,8 +202,9 @@ public sealed class OperationDeadlineTests
     }
 
     /// <summary>A call queued on a saturated peer fails with the deadline, not a raw cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task QueuedCallExpiresAsDeadlineExceeded()
+    public async Task QueuedCallExpiresAsDeadlineExceeded(CancellationToken cancellationToken)
     {
         using var holderSource = new CancellationTokenSource();
         await using var harness = new Harness("deadline-queued", LongDeadline, TransportMode.Hang, TransportMode.Hang, 1, true);
@@ -214,10 +220,10 @@ public sealed class OperationDeadlineTests
         var pending = !queued.IsCompleted;
         harness.Clock.Advance(TimeSpan.FromTicks(1));
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(new ValueTask<bool>(queued.AsTask().WaitAsync(CompletionBound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(new ValueTask<bool>(queued.AsTask()), CompletionBound, TimeProvider.System, cancellationToken);
 
         await holderSource.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder);
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -226,8 +232,9 @@ public sealed class OperationDeadlineTests
     }
 
     /// <summary>A caller token cancelled while queued on the peer semaphore is cancellation, not a deadline failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerCancelWhileQueuedIsCancellation()
+    public async Task CallerCancelWhileQueuedIsCancellation(CancellationToken cancellationToken)
     {
         var peer = $"deadline-queued-cancel-{Guid.NewGuid():N}";
         using var sink = new MeasurementSink("Squirix");
@@ -241,10 +248,10 @@ public sealed class OperationDeadlineTests
 
         var queued = GetAsync(harness.Cache, queuedSource.Token);
         await queuedSource.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(queued);
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await holderSource.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder);
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.FirstTransport.Calls.Count).IsEqualTo(callsBeforeQueued);
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsFalse();

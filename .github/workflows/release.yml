@@ -36,9 +36,9 @@ jobs:
           fetch-depth: 0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        uses: ./.github/actions/setup-sdk
         with:
-          global-json-file: global.json
+          net10-runtime: "true"
 
       - name: Verify .NET 10 baseline
         run: dotnet run --file ./tools/internal/sqr-net10-verify.cs --
@@ -71,19 +71,6 @@ jobs:
           fi
 
           dotnet run --file ./tools/internal/sqr-release-validate.cs -- "${arguments[@]}"
-
-      - name: Pack standalone server tool
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          PACKAGE_VERSION: ${{ inputs.packageVersion }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            version="${PACKAGE_VERSION#v}"
-          fi
-
-          dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release
-          dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release --output out/packages -p:SquirixPackageVersion="$version"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -129,7 +116,7 @@ jobs:
             return "${exit_code}"
           }
 
-          for package_id in squirix squirix.server squirix.server.tool; do
+          for package_id in squirix squirix.extensions.caching squirix.server squirix.server.tool; do
             pkg="out/packages/${package_id}.${version}.nupkg"
             symbol_pkg="out/packages/${package_id}.${version}.snupkg"
             if [ ! -f "${pkg}" ]; then
@@ -222,7 +209,7 @@ jobs:
       - name: Create GitHub Release
         if: github.event_name == 'push'
         id: create_release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}

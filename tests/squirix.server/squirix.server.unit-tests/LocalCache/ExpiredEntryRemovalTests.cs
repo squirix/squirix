@@ -27,9 +27,9 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
         var estimator = new CacheEntrySizeEstimator<object?>();
         var (cache, clock) = Create(CacheExpiryAuthority.LocalClock, estimator);
         foreach (var key in new[] { "a", "b", "c" })
-            await SetAsync(cache, key, TimeSpan.FromSeconds(5), cancellationToken);
+            Set(cache, key, TimeSpan.FromSeconds(5), cancellationToken);
 
-        await cache.SetAsync(CacheKey.Default("forever"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        cache.Set(CacheKey.Default("forever"), new NodeCacheEntry<object?>("v"), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(5));
 
         var removed = cache.ExpiredKeys.RemoveExpired();
@@ -47,10 +47,10 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task KeepsEntriesWhoseDeadlineMovedLater(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.LocalClock);
-        await SetAsync(cache, "overwritten", TimeSpan.FromSeconds(5), cancellationToken);
-        await SetAsync(cache, "touched", TimeSpan.FromSeconds(5), cancellationToken);
-        await SetAsync(cache, "overwritten", TimeSpan.FromSeconds(60), cancellationToken);
-        _ = await cache.TouchAsync(CacheKey.Default("touched"), TimeSpan.FromSeconds(60), cancellationToken);
+        Set(cache, "overwritten", TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "touched", TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "overwritten", TimeSpan.FromSeconds(60), cancellationToken);
+        _ = cache.Touch(CacheKey.Default("touched"), TimeSpan.FromSeconds(60), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(10));
 
         var early = cache.ExpiredKeys.RemoveExpired();
@@ -67,10 +67,10 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task RemovesEntriesWhoseDeadlineMovedEarlier(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.LocalClock);
-        await SetAsync(cache, "shortened", TimeSpan.FromHours(1), cancellationToken);
-        await SetAsync(cache, "shortened", TimeSpan.FromSeconds(5), cancellationToken);
-        await cache.SetAsync(CacheKey.Default("bounded"), new NodeCacheEntry<object?>("v"), cancellationToken);
-        _ = await cache.TouchAsync(CacheKey.Default("bounded"), TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "shortened", TimeSpan.FromHours(1), cancellationToken);
+        Set(cache, "shortened", TimeSpan.FromSeconds(5), cancellationToken);
+        cache.Set(CacheKey.Default("bounded"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        _ = cache.Touch(CacheKey.Default("bounded"), TimeSpan.FromSeconds(5), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(10));
 
         var removed = cache.ExpiredKeys.RemoveExpired();
@@ -85,11 +85,11 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task KeepsEntriesWithoutDeadline(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.LocalClock);
-        await SetAsync(cache, "persisted", TimeSpan.FromSeconds(5), cancellationToken);
-        await SetAsync(cache, "replaced", TimeSpan.FromSeconds(5), cancellationToken);
-        _ = await cache.RemoveExpirationAsync(CacheKey.Default("persisted"), cancellationToken);
-        _ = await cache.RemoveAsync(CacheKey.Default("replaced"), cancellationToken);
-        await cache.SetAsync(CacheKey.Default("replaced"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        Set(cache, "persisted", TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "replaced", TimeSpan.FromSeconds(5), cancellationToken);
+        _ = cache.RemoveExpiration(CacheKey.Default("persisted"), cancellationToken);
+        _ = cache.Remove(CacheKey.Default("replaced"), cancellationToken);
+        cache.Set(CacheKey.Default("replaced"), new NodeCacheEntry<object?>("v"), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(10));
 
         var removed = cache.ExpiredKeys.RemoveExpired();
@@ -105,7 +105,7 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     {
         var (cache, clock) = Create(CacheExpiryAuthority.LocalClock);
         for (var i = 0; i < 2049; i++)
-            await SetAsync(cache, "k" + i.ToString(CultureInfo.InvariantCulture), TimeSpan.FromSeconds(5), cancellationToken);
+            Set(cache, "k" + i.ToString(CultureInfo.InvariantCulture), TimeSpan.FromSeconds(5), cancellationToken);
 
         clock.Advance(TimeSpan.FromSeconds(5));
 
@@ -121,7 +121,7 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task RemovesNothingUnderCommittedRecords(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
-        await SetAsync(cache, "a", TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "a", TimeSpan.FromSeconds(5), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(10));
 
         var removed = cache.ExpiredKeys.RemoveExpired();
@@ -137,8 +137,8 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task ListsExtendedEntryAtNewDeadline(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
-        await SetAsync(cache, "a", TimeSpan.FromSeconds(5), cancellationToken);
-        await SetAsync(cache, "a", TimeSpan.FromSeconds(60), cancellationToken);
+        Set(cache, "a", TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "a", TimeSpan.FromSeconds(60), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(10));
         var early = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true).Count;
         clock.Advance(TimeSpan.FromSeconds(60));
@@ -154,12 +154,12 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task ListsToggledDeadlineOnce(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
-        await SetAsync(cache, "toggled", TimeSpan.FromSeconds(10), cancellationToken);
-        await cache.SetAsync(CacheKey.Default("toggled"), new NodeCacheEntry<object?>("v"), cancellationToken);
-        await SetAsync(cache, "toggled", TimeSpan.FromSeconds(60), cancellationToken);
-        await SetAsync(cache, "moved", TimeSpan.FromSeconds(10), cancellationToken);
-        await SetAsync(cache, "moved", TimeSpan.FromSeconds(5), cancellationToken);
-        await SetAsync(cache, "moved", TimeSpan.FromSeconds(60), cancellationToken);
+        Set(cache, "toggled", TimeSpan.FromSeconds(10), cancellationToken);
+        cache.Set(CacheKey.Default("toggled"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        Set(cache, "toggled", TimeSpan.FromSeconds(60), cancellationToken);
+        Set(cache, "moved", TimeSpan.FromSeconds(10), cancellationToken);
+        Set(cache, "moved", TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "moved", TimeSpan.FromSeconds(60), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(70));
 
         var first = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true);
@@ -177,18 +177,19 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task FindsDueEntriesAfterIndexRebuild(bool localClock, CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(localClock ? CacheExpiryAuthority.LocalClock : CacheExpiryAuthority.CommittedRecords);
-        await SetAsync(cache, "due", TimeSpan.FromSeconds(30), cancellationToken);
-        await SetAsync(cache, "later", TimeSpan.FromHours(1), cancellationToken);
+        Set(cache, "due", TimeSpan.FromSeconds(30), cancellationToken);
+        Set(cache, "later", TimeSpan.FromHours(1), cancellationToken);
+        cache.Set(CacheKey.Default("permanent"), new NodeCacheEntry<object?>("v"), cancellationToken);
         for (var i = 1; i <= 3000; i++)
-            await SetAsync(cache, "churn", TimeSpan.FromSeconds(3000 - i + 1), cancellationToken);
+            Set(cache, "churn", TimeSpan.FromSeconds(3000 - i + 1), cancellationToken);
 
-        await SetAsync(cache, "churn", TimeSpan.FromSeconds(10), cancellationToken);
+        Set(cache, "churn", TimeSpan.FromSeconds(10), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(40));
 
         if (localClock)
         {
             ILocalCacheStats stats = cache;
-            _ = await Assert.That((cache.ExpiredKeys.RemoveExpired(), stats.EntryCount)).IsEqualTo((2, 1));
+            _ = await Assert.That((cache.ExpiredKeys.RemoveExpired(), stats.EntryCount)).IsEqualTo((2, 2));
             return;
         }
 
@@ -207,10 +208,10 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
     public async Task SkippedKeyWithLaterDeadlineListedOnce(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
-        await SetAsync(cache, "a", TimeSpan.FromSeconds(5), cancellationToken);
+        Set(cache, "a", TimeSpan.FromSeconds(5), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(10));
         var skipped = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => false).Count;
-        await SetAsync(cache, "a", TimeSpan.FromSeconds(60), cancellationToken);
+        Set(cache, "a", TimeSpan.FromSeconds(60), cancellationToken);
         var before = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true).Count;
         clock.Advance(TimeSpan.FromSeconds(60));
 
@@ -225,6 +226,6 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
         return (new PhysicalCache<object?>(clock, estimator ?? new CacheEntrySizeEstimator<object?>(), expiry: expiry), clock);
     }
 
-    private static ValueTask SetAsync(PhysicalCache<object?> cache, string key, TimeSpan ttl, CancellationToken cancellationToken) =>
-        cache.SetAsync(CacheKey.Default(key), new NodeCacheEntry<object?>("v", 1, null, ttl), cancellationToken);
+    private static void Set(PhysicalCache<object?> cache, string key, TimeSpan ttl, CancellationToken cancellationToken) =>
+        cache.Set(CacheKey.Default(key), new NodeCacheEntry<object?>("v", 1, null, ttl), cancellationToken);
 }

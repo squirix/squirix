@@ -82,8 +82,8 @@ public sealed class ReplicaExpirationCoordinatorTests : ServerUnitTestBase
 
         var waits = expiration.ExpireMany([(CacheName, "key-a"), (CacheName, "key-b")], cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[0].WaitAsync(cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[1].WaitAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[0], TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[1], TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var later = await expiration.ExpireAsync(CacheName, "key-c", cancellationToken);
 
         _ = await Assert.That(later).IsNull();

@@ -38,7 +38,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         var budget = new RerouteBudget(new DateTimeOffset(deadlineUtc, TimeSpan.Zero), TimeProvider.System);
         using var scope = ServerRpcDeadlineContext.Push(deadlineUtc, TimeProvider.System);
 
-        var transportRemaining = ServerRpcDeadlineContext.GetRemainingBudget();
+        var transportRemaining = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
         _ = await Assert.That(transportRemaining).IsNotNull();
         var rerouteRemaining = budget.GetRemaining();
         _ = await Assert.That(rerouteRemaining > TimeSpan.Zero).IsTrue();
@@ -67,7 +67,10 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
                     var attempt = counter.Increment();
                     return ValueTask.FromResult(attempt);
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(attempts.Count).IsEqualTo(0);
     }
@@ -111,11 +114,11 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
 
         clock.StepWallClock(TimeSpan.FromHours(2));
-        var afterStep = ServerRpcDeadlineContext.GetRemainingBudget();
+        var afterStep = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
         clock.Advance(TimeSpan.FromMinutes(10));
 
         _ = await Assert.That(afterStep).IsEqualTo(TimeSpan.FromHours(1));
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromMinutes(50));
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromMinutes(50));
     }
 
     /// <summary>The operation budget expires on the clock its deadline was pushed with, with no real delay.</summary>
@@ -133,7 +136,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         clock.StepWallClock(TimeSpan.FromHours(2));
         var pendingAfterStep = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pendingAfterStep).IsTrue();
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -152,7 +155,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         pushClock.Advance(TimeSpan.FromHours(1));
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
@@ -170,7 +173,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
     }

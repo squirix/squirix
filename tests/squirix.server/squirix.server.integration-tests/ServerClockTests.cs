@@ -14,6 +14,7 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -89,7 +90,7 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         // The attempt starts synchronously, so its timeout is already armed on the server clock.
         var attemptTimers = clock.RecordedTimers;
         clock.Advance(TimeSpan.FromSeconds(3));
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(execute.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(execute, Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(attemptTimers).IsEqualTo(1);
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -106,14 +107,14 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node_clock_snapshot", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
         var node = cluster["node_clock_snapshot"];
         var snapshot = node.GetRequiredService<Coordinator>();
-        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
+        var ledger = node.GetRequiredService<Ledger>();
+        var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
         await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "clock:k1", BuildEntry("v"), cancellationToken);
 
         // The trigger service may subscribe to journal appends only after this write and then ticks on the unmoving test clock, so
         // request the first snapshot directly; if the service already runs one, this call returns and that snapshot is awaited.
-        _ = await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
-        await published.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        if (!await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken))
+            await SnapshotPublicationWait.WaitAsync(ledger, snapshot, previousIndex, Bound, cancellationToken);
         var fresh = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(90));
         var aged = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);

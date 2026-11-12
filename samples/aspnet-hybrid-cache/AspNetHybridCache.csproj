@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
+        <Nullable>enable</Nullable>
+        <IsAotCompatible>false</IsAotCompatible>
+        <RootNamespace>Squirix.AspNetHybridCache</RootNamespace>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../../src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid"/>
+    </ItemGroup>
+</Project>

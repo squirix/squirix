@@ -40,7 +40,10 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
                     var attempt = counter.Increment();
                     return ValueTask.FromResult(attempt);
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(attempts.Count).IsEqualTo(0);
     }

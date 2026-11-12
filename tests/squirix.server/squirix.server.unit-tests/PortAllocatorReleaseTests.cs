@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -87,6 +88,28 @@ public sealed class PortAllocatorReleaseTests
         allocator.ReturnPort(port);
 
         _ = await Assert.That(single.ReserveOne(1)).IsEqualTo(port);
+    }
+
+    /// <summary>Overlapping candidates are skipped and both returned ranges remain independently held.</summary>
+    [Test]
+    public async Task RangeRetriesKeepHeldPortsDistinct()
+    {
+        var (start, end) = ConsumerPortSlicer.Slice(HostPortRegion.ServerUnitTests);
+        using var allocator = new PortAllocator(start, end);
+        var first = allocator.ReserveRange(3);
+        var second = allocator.ReserveRange(3);
+        var distinct = new HashSet<int>();
+
+        _ = await Assert.That((first.Length, second.Length)).IsEqualTo((3, 3));
+        for (var i = 0; i < first.Length; i++)
+        {
+            _ = await Assert.That(first[i]).IsEqualTo(first[0] + i);
+            _ = await Assert.That(second[i]).IsEqualTo(second[0] + i);
+            _ = await Assert.That(distinct.Add(first[i])).IsTrue();
+            _ = await Assert.That(distinct.Add(second[i])).IsTrue();
+            _ = NodeExceptionAssert.For<SocketException>().Throws(first[i], static port => BindExclusively(port));
+            _ = NodeExceptionAssert.For<SocketException>().Throws(second[i], static port => BindExclusively(port));
+        }
     }
 
     private static void BindExclusively(int port)

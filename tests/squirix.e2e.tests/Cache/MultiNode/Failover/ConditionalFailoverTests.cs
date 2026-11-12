@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// Conditional operations keep the result of their first execution across a leader change: every acknowledged TryAdd, Update, Remove and
 /// GetOrAdd returns what one execution in order would return, no client operation is committed twice, and acknowledged effects survive.
 /// </summary>
-public sealed class ConditionalFailoverTests : EndToEndTestBase
+public sealed class ConditionalFailoverTests
 {
     private const string CacheName = "conditional-failover";
 

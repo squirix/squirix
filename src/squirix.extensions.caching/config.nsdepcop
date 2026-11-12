@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NsDepCopConfig IsEnabled="true" CheckAssemblyDependencies="true">
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+  <DisallowedAssembly From="Squirix.Extensions.Caching" To="Squirix.Server" />
+  <Disallowed From="Squirix.Extensions.Caching.*" To="Squirix.Transport.*" />
+  <Disallowed From="Microsoft.Extensions.DependencyInjection" To="Squirix.Internal.*" />
+</NsDepCopConfig>

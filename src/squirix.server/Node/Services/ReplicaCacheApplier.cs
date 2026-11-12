@@ -43,8 +43,7 @@ internal static class ReplicaCacheApplier
     internal static byte[] EncodeEntry(NodeCacheEntry<object?> entry)
     {
         var prepared = JournalEntryPayload.PrepareEncode(entry);
-        using var pooled = JournalEntryPayload.Encode(in prepared);
-        return pooled.Memory.ToArray();
+        return JournalEntryPayload.EncodeOwned(in prepared);
     }
 
     /// <summary>Executes the effect of a record that <see cref="Resolve" /> accepted.</summary>
@@ -66,16 +65,15 @@ internal static class ReplicaCacheApplier
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(cache);
-        var key = Encoding.UTF8.GetString(record.KeyPayload.Span);
         switch (effect)
         {
             case ReplicaEffectKind.Upsert:
                 ArgumentNullException.ThrowIfNull(entry);
-                await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, encodedLength, cancellationToken).ConfigureAwait(false);
+                await cache.SetEntryAsync(record.OperationId, record.CacheName, Encoding.UTF8.GetString(record.KeyPayload.Span), entry, encodedLength, cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Delete:
                 // The result reflects the local liveness of the key, not the committed outcome.
-                _ = await cache.RemoveAsync(record.OperationId, record.CacheName, key, cancellationToken).ConfigureAwait(false);
+                _ = await cache.RemoveAsync(record.OperationId, record.CacheName, Encoding.UTF8.GetString(record.KeyPayload.Span), cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Unchanged or ReplicaEffectKind.NoCacheEffect:
                 break;
@@ -112,7 +110,13 @@ internal static class ReplicaCacheApplier
     /// passed deadline. Update, Touch and RemoveExpiration that found the key expired carry the same shape and delete it too. A leader-term
     /// no-op touches no cache: not applied, under the leader-term scope, with no cache, key, payload or deadline.
     /// </remarks>
-    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _, out _);
+    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record)
+    {
+        var effect = ResolveShape(in record);
+        return effect == ReplicaEffectKind.Upsert && !JournalEntryPayload.IsWellFormed(record.MutationPayload.Span)
+            ? throw Inconsistent(in record, "the entry payload is undecodable", true)
+            : effect;
+    }
 
     /// <summary>Determines the effect of a record and checks its fields against its outcome, without decoding the entry an upsert writes.</summary>
     /// <param name="record">The record to check.</param>
@@ -179,6 +183,7 @@ internal static class ReplicaCacheApplier
 
     private static ReplicaEffectKind ResolveMutationKind(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) => record.MutationKind switch
     {
+        ReplicaMutationKinds.DistributedGet or ReplicaMutationKinds.DistributedRefresh => ResolveDistributedAccess(in record, applied, previous),
         ReplicaMutationKinds.LeaderNoop => ResolveLeaderNoop(in record, applied, previous),
         ReplicaMutationKinds.Remove => ResolveRemove(in record, applied, previous),
         ReplicaMutationKinds.Expire => ResolveExpire(in record, applied, previous),
@@ -189,6 +194,24 @@ internal static class ReplicaCacheApplier
             ReplicaEffectKind.Delete,
         _ => ResolveConditional(in record, applied, previous),
     };
+
+    private static ReplicaEffectKind ResolveDistributedAccess(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> value)
+    {
+        var refresh = string.Equals(record.MutationKind, ReplicaMutationKinds.DistributedRefresh, StringComparison.Ordinal);
+        if (refresh ? !value.IsEmpty : !ReplicaOutcomeCodec.IsAccessValue(value) || (applied && value.IsEmpty))
+            throw Inconsistent(in record, "the distributed access outcome is invalid", applied);
+
+        if (IsExpiryShape(in record, applied, value))
+            return ReplicaEffectKind.Delete;
+
+        if (applied && !record.MutationPayload.IsEmpty && record.ExpiresUtcTicks != 0)
+            return ReplicaEffectKind.Upsert;
+
+        var unchanged = !applied && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0;
+        return unchanged
+            ? ReplicaEffectKind.Unchanged
+            : throw Inconsistent(in record, "the distributed access effect is invalid", applied);
+    }
 
     private static ReplicaEffectKind ResolveRemove(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
     {

@@ -29,10 +29,10 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
     public async Task ListsDueKeysEarliestFirst(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
-        await SetAsync(cache, "late", TimeSpan.FromSeconds(3), cancellationToken);
-        await SetAsync(cache, "early", TimeSpan.FromSeconds(1), cancellationToken);
-        await SetAsync(cache, "live", TimeSpan.FromHours(1), cancellationToken);
-        await cache.SetAsync(CacheKey.Default("forever"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        Set(cache, "late", TimeSpan.FromSeconds(3), cancellationToken);
+        Set(cache, "early", TimeSpan.FromSeconds(1), cancellationToken);
+        Set(cache, "live", TimeSpan.FromHours(1), cancellationToken);
+        cache.Set(CacheKey.Default("forever"), new NodeCacheEntry<object?>("v"), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(5));
 
         var all = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true);
@@ -51,8 +51,8 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
     public async Task ListingLeavesKeysDue(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
-        await SetAsync(cache, "a", TimeSpan.FromSeconds(1), cancellationToken);
-        await SetAsync(cache, "b", TimeSpan.FromSeconds(2), cancellationToken);
+        Set(cache, "a", TimeSpan.FromSeconds(1), cancellationToken);
+        Set(cache, "b", TimeSpan.FromSeconds(2), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(5));
         var now = clock.GetUtcNow().UtcDateTime;
 
@@ -73,9 +73,9 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
         for (var i = 1; i <= 10; i++)
-            await SetAsync(cache, "skipped" + i.ToString(CultureInfo.InvariantCulture), TimeSpan.FromSeconds(i), cancellationToken);
+            Set(cache, "skipped" + i.ToString(CultureInfo.InvariantCulture), TimeSpan.FromSeconds(i), cancellationToken);
 
-        await SetAsync(cache, "wanted", TimeSpan.FromSeconds(11), cancellationToken);
+        Set(cache, "wanted", TimeSpan.FromSeconds(11), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(20));
 
         var calls = 0;
@@ -99,12 +99,12 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
     {
         var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
         foreach (var key in new[] { "touched", "persisted", "removed", "rewritten", "kept" })
-            await SetAsync(cache, key, TimeSpan.FromSeconds(1), cancellationToken);
+            Set(cache, key, TimeSpan.FromSeconds(1), cancellationToken);
 
-        _ = await cache.TouchAsync(CacheKey.Default("touched"), TimeSpan.FromHours(1), cancellationToken);
-        _ = await cache.RemoveExpirationAsync(CacheKey.Default("persisted"), cancellationToken);
-        _ = await cache.RemoveAsync(CacheKey.Default("removed"), cancellationToken);
-        await SetAsync(cache, "rewritten", TimeSpan.FromHours(1), cancellationToken);
+        _ = cache.Touch(CacheKey.Default("touched"), TimeSpan.FromHours(1), cancellationToken);
+        _ = cache.RemoveExpiration(CacheKey.Default("persisted"), cancellationToken);
+        _ = cache.Remove(CacheKey.Default("removed"), cancellationToken);
+        Set(cache, "rewritten", TimeSpan.FromHours(1), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(5));
 
         var listed = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true);
@@ -118,7 +118,7 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
     public async Task LocalClockCacheListsNone(CancellationToken cancellationToken)
     {
         var (cache, clock) = Create(CacheExpiryAuthority.LocalClock);
-        await SetAsync(cache, "a", TimeSpan.FromSeconds(1), cancellationToken);
+        Set(cache, "a", TimeSpan.FromSeconds(1), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(5));
 
         _ = await Assert.That(cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true).Count).IsEqualTo(0);
@@ -130,8 +130,8 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
         return (new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: expiry), clock);
     }
 
-    private static ValueTask SetAsync(PhysicalCache<object?> cache, string key, TimeSpan ttl, CancellationToken cancellationToken) =>
-        cache.SetAsync(CacheKey.Default(key), new NodeCacheEntry<object?>("v", 1, null, ttl), cancellationToken);
+    private static void Set(PhysicalCache<object?> cache, string key, TimeSpan ttl, CancellationToken cancellationToken) =>
+        cache.Set(CacheKey.Default(key), new NodeCacheEntry<object?>("v", 1, null, ttl), cancellationToken);
 
     private static string[] Keys(IReadOnlyList<CacheKey> keys)
     {

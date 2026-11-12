@@ -57,18 +57,26 @@ internal static class ReplicaOutcomeRecovery
 
         // Expiration tombstones and leader-term no-ops carry no outcome and take no place in the store, so they do not count toward the
         // frames read: the read goes on past them until it has seen as many client outcomes as the store holds.
-        _ = await log.ReadRecentCommittedAsync(
+        _ = await log.VisitRecentCommittedAsync(
                 int.MaxValue,
-                entry =>
+                (logIndex, term, payload) =>
                 {
-                    var record = Rebuild(in entry, out var decidedUtc);
-                    if (now - decidedUtc >= readHorizon)
+                    var decoded = DecodeCommitted(logIndex, term, payload);
+                    var decidedUtc = ReadDecisionTime(in decoded);
+                    var age = now - decidedUtc;
+                    if (age >= readHorizon)
                         return false;
 
-                    if (record.Kind is GroupRecordKind.Expiration or GroupRecordKind.LeaderTerm)
+                    var kind = GroupRecordKinds.FromScope(decoded.OperationScope);
+                    if (kind is GroupRecordKind.Expiration or GroupRecordKind.LeaderTerm)
                         return true;
 
-                    var result = idempotency.RestoreOutcome(in record, now - decidedUtc);
+                    var outcomeAge = age > TimeSpan.Zero ? age : TimeSpan.Zero;
+                    if (retention != TimeSpan.MaxValue && outcomeAge >= retention && !idempotency.OutcomesRebuilt)
+                        return ++clientOutcomes < idempotency.Capacity;
+
+                    var record = CopyOutcome(in decoded, kind, decidedUtc);
+                    var result = idempotency.RestoreOutcome(in record, outcomeAge);
                     if (result == GroupOutcomeRestoreResult.Restored)
                         restored++;
 
@@ -88,18 +96,18 @@ internal static class ReplicaOutcomeRecovery
     /// <exception cref="InvalidDataException">The record carries no valid decision time.</exception>
     internal static GroupIdempotencyRecord OutcomeOf(in ReplicaLogRecord decoded)
     {
-        if (!WireBounds.IsUtcTicks(decoded.DecidedUtcTicks))
-            throw new InvalidDataException($"Committed group log entry {decoded.LogIndex} does not carry a readable decision time.");
+        var decidedUtc = ReadDecisionTime(in decoded);
+        return CopyOutcome(in decoded, GroupRecordKinds.FromScope(decoded.OperationScope), decidedUtc);
+    }
 
-        var decidedUtc = new DateTime(decoded.DecidedUtcTicks, DateTimeKind.Utc);
-        var kind = GroupRecordKinds.FromScope(decoded.OperationScope);
-
-        // The decoder hands out owned buffers, so the record keeps them as they are.
+    private static GroupIdempotencyRecord CopyOutcome(in ReplicaLogRecord decoded, GroupRecordKind kind, DateTime decidedUtc)
+    {
+        // Only the fingerprint and outcome outlive the borrowed log entry.
         return new GroupIdempotencyRecord(
             decoded.OperationScope,
             decoded.OperationId,
-            decoded.OperationFingerprint,
-            decoded.OutcomePayload,
+            decoded.OperationFingerprint.ToArray(),
+            decoded.OutcomePayload.ToArray(),
             kind,
             decidedUtc,
             decidedUtc,
@@ -107,13 +115,13 @@ internal static class ReplicaOutcomeRecovery
             decoded.Term);
     }
 
-    private static GroupIdempotencyRecord Rebuild(in FollowerLogEntry entry, out DateTime decidedUtc)
-    {
-        if (ReplicaLogCodec.Decode(entry.Payload) is not { } decoded || decoded.LogIndex != entry.LogIndex || decoded.Term != entry.Term)
-            throw new InvalidDataException($"Committed group log entry {entry.LogIndex} does not carry a readable record of its position.");
+    private static ReplicaLogRecord DecodeCommitted(ulong logIndex, ulong term, ReadOnlyMemory<byte> payload) =>
+        ReplicaLogCodec.DecodeBorrowed(payload) is { } decoded && decoded.LogIndex == logIndex && decoded.Term == term
+            ? decoded
+            : throw new InvalidDataException($"Committed group log entry {logIndex} does not carry a readable record of its position.");
 
-        var record = OutcomeOf(in decoded);
-        decidedUtc = record.CreatedUtc;
-        return record;
-    }
+    private static DateTime ReadDecisionTime(in ReplicaLogRecord decoded) =>
+        WireBounds.IsUtcTicks(decoded.DecidedUtcTicks)
+            ? new DateTime(decoded.DecidedUtcTicks, DateTimeKind.Utc)
+            : throw new InvalidDataException($"Committed group log entry {decoded.LogIndex} does not carry a readable decision time.");
 }

@@ -15,7 +15,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// An entry a client saw expire stays expired after its group fails over to a leader whose wall clock runs behind: the new leader does not
 /// bring it back, though by its own clock the entry is still live.
 /// </summary>
-public sealed class ExpiryFailoverTests : EndToEndTestBase
+public sealed class ExpiryFailoverTests
 {
     private const string CacheName = "expiry-failover";
 

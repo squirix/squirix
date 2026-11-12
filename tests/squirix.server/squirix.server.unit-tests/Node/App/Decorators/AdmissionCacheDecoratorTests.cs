@@ -169,7 +169,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             index => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, index == 0 ? small : large, cancellationToken).AsTask(),
             cancellationToken);
 
-        var stored = await physical.GetEntryAsync(new CacheKey(CacheName, key), cancellationToken);
+        var stored = physical.GetEntry(new CacheKey(CacheName, key), cancellationToken);
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(EstimateEntryBytes(estimator, CacheName, key, stored!));

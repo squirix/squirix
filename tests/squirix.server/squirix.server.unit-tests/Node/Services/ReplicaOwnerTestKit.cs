@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
@@ -448,7 +449,7 @@ internal static class ReplicaOwnerTestKit
 
     /// <summary>In-memory local cache double that records the key of every applied write, in order.</summary>
     /// <remarks>A stateful fake: the leader reads a key back before deciding a conditional add, so the double has to hold what it wrote, which a Rocks mock without state cannot model.</remarks>
-    internal sealed class StubCache : ILogicalNamespacedCache<object?>
+    internal sealed class StubCache : ILogicalNamespacedCache<object?>, ILocalCacheRawReader<object?>
     {
         private readonly ConcurrentDictionary<string, NodeCacheEntry<object?>> _entries = new(StringComparer.Ordinal);
 
@@ -456,6 +457,9 @@ internal static class ReplicaOwnerTestKit
 
         /// <summary>Gets or sets a hook that runs after every applied write.</summary>
         internal Action? OnApplied { get; set; }
+
+        public NodeCacheEntry<object?>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
+            _entries.TryGetValue(key.Key, out var entry) ? entry : null;
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_entries.TryGetValue(key, out var entry) ? entry : null);

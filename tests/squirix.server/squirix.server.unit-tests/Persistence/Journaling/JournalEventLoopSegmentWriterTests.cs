@@ -313,7 +313,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
         _ = await Assert.That(ack.Task.IsCompletedSuccessfully).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>
@@ -476,8 +476,9 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     }
 
     /// <summary>A failed frame write truncates the segment and then flushes the truncation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WriteFailureFlushesTruncatedSegment()
+    public async Task WriteFailureFlushesTruncatedSegment(CancellationToken cancellationToken)
     {
         var writeFailure = new IOException("write failed");
         var segmentWriter = new RecordingSegmentWriter { WriteFailure = writeFailure };
@@ -490,7 +491,10 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         var thrown = NodeExceptionAssert.For<IOException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
 
+        var acknowledgementFailure = await NodeAsyncAssert.ThrowsAsync<IOException>(ack.Task, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
         _ = await Assert.That(thrown).IsSameReferenceAs(writeFailure);
+        _ = await Assert.That(acknowledgementFailure).IsSameReferenceAs(writeFailure);
         _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
     }
 
@@ -524,13 +528,16 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>A drain during a multi-frame write faults every ack and leaves no frame to replay or resource to return twice.</summary>
+    /// <summary>A drain during a write faults every ack and leaves no frame to replay or resource to return twice.</summary>
+    /// <param name="frameCount">The number of staged frames.</param>
     [Test]
-    public async Task BatchDrainedDuringWriteIsTruncated()
+    [Arguments(1)]
+    [Arguments(32)]
+    public async Task BatchDrainedDuringWriteIsTruncated(int frameCount)
     {
         var segmentWriter = new RecordingSegmentWriter();
         using var setup = CreateSetup(batchCapacityBytes: 4096, segmentWriter: segmentWriter);
-        var items = new JournalWorkItem[32];
+        var items = new JournalWorkItem[frameCount];
         for (var i = 0; i < items.Length; i++)
         {
             var buffer = ArrayPool<byte>.Shared.Rent(64);
@@ -555,6 +562,47 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(items.Length);
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
+    }
+
+    /// <summary>Faulting waiters before or during a write leaves their staged frames writable and owned by the journal thread.</summary>
+    /// <param name="duringWrite">Whether the waiter failure occurs inside the writer.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FaultedWaitersDoNotDiscardStagedBatch(bool duringWrite)
+    {
+        var segmentWriter = new RecordingSegmentWriter();
+        using var setup = CreateSetup(segmentWriter: segmentWriter);
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = JournalWorkItem.Append(buffer, 64, ack);
+        setup.Registry.Track(item, buffer, 64, ack);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
+        _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+        _ = await Assert.That(deferred).IsFalse();
+        var reason = new InvalidOperationException("waiter failed");
+        if (duringWrite)
+        {
+            segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, Exception Reason), Action>(
+                (setup.Registry, reason),
+                static state => () => state.Registry.FaultWaiters(state.Reason));
+        }
+        else
+        {
+            setup.Registry.FaultWaiters(reason);
+        }
+
+        setup.Writer.FlushWriteBatch();
+
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write");
+        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
+        _ = await Assert.That(setup.Registry.Failure).IsNull();
+        _ = await Assert.That(setup.Registry.WasDrained()).IsFalse();
+        _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(setup.Registry.PendingBytes).IsEqualTo(0L);
+        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+        _ = await Assert.That(setup.Batch.IsEmpty).IsTrue();
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 

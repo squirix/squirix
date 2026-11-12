@@ -4,11 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
-using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -48,22 +46,18 @@ public sealed class CommitOutcomeUnknownClientTests
     /// <summary>Surfaces an ambiguous outcome immediately without consuming the retry budget, keeping the operation id.</summary>
     /// <param name="suspend">Whether the transport response suspends before reporting the failure.</param>
     /// <param name="expireBudget">Whether the operation deadline elapses before the response arrives.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false, false)]
     [Arguments(true, false)]
     [Arguments(true, true)]
-    public async Task UnknownOutcomeStopsWithoutRetryingAsync(bool suspend, bool expireBudget)
+    public async Task UnknownOutcomeStopsWithoutRetryingAsync(bool suspend, bool expireBudget, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var transport = new UnknownOutcomeTransport(suspend ? release.Task : Task.CompletedTask);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
-        var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
-        _ = poolExpectations.Setups.BeginDrain();
-        _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-        await using var pool = poolExpectations.Instance();
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
         var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromHours(1), clock), pool, RemoteClientSessionFactory.CreateSerializer());
 
         var operation = SetAndProjectAsync(cache).AsTask();
@@ -71,7 +65,7 @@ public sealed class CommitOutcomeUnknownClientTests
         if (expireBudget)
             clock.Advance(TimeSpan.FromHours(1));
         _ = release.TrySetResult();
-        var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(new ValueTask<bool>(operation.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(new ValueTask<bool>(operation), TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsEqualTo(suspend);
         _ = await Assert.That(error.Message).IsEqualTo(CommitOutcomeUnknownException.StableDetail);

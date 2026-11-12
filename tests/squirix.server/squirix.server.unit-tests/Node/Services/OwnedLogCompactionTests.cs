@@ -32,21 +32,22 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
     private static readonly ReplicaLogCompactionPolicy AnyEntry = new(long.MaxValue, 1);
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
-    /// <summary>A committed, applied log every follower holds compacts to its header, and keeps its last term from the snapshot baseline.</summary>
+    /// <summary>The first compaction retains the entire WAL and keeps its last term from the snapshot baseline.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CompactsToHeaderOnly(CancellationToken cancellationToken)
+    public async Task FirstCompactionRetainsFullWal(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-owned-compaction");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await WriteAsync(committer, 3, cancellationToken);
+        var before = await OwnedLog(registry).GetRetentionAsync(cancellationToken);
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.Compacted);
 
         var log = OwnedLog(registry);
         var status = await log.GetStatusAsync(cancellationToken);
-        _ = await Assert.That(await log.GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(HeaderLength(), 0, 0, 3UL));
+        _ = await Assert.That(await log.GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, 3UL) { CompactionBytes = HeaderLength() });
         _ = await Assert.That((status.LastLogIndex, status.LastLogTerm, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 1UL, 3UL, 3UL));
         _ = await Assert.That(await log.GetTermAtAsync(3UL, cancellationToken)).IsEqualTo(1UL);
     }
@@ -92,7 +93,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-owned-compaction-pending");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
-        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
+        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var outcome = await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken);
 
@@ -190,8 +191,9 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         await WriteAsync(committer, 1, cancellationToken);
         _ = await committer.Probe.Repairs.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
+        var before = await OwnedLog(registry).GetRetentionAsync(cancellationToken);
         _ = await Assert.That(await committer.CompactOwnedLogAsync(PastLimit, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
-        _ = await Assert.That(await OwnedLog(registry).GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(HeaderLength(), 0, 0, 2UL));
+        _ = await Assert.That(await OwnedLog(registry).GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, 2UL) { CompactionBytes = HeaderLength() });
     }
 
     /// <summary>Below the retention limit a follower that is not ready keeps the log; one byte later it no longer does.</summary>
@@ -294,5 +296,55 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(2UL);
         _ = await Assert.That(await log.GetTermAtAsync(2UL, cancellationToken)).IsEqualTo(1UL);
         _ = await Assert.That(gateway.Appends).Contains(("n2", 2UL, 1));
+    }
+
+    /// <summary>Writes can reach a quorum while the captured snapshot file is being prepared.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteDuringSnapshotPreparation(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owned-compaction-background");
+        using var release = new ManualResetEventSlim(false);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var publishingCalls = 0;
+        var hooks = new IFollowerLogFaultHooksCreateExpectations();
+        _ = hooks.Setups.OnFrameWritten();
+        _ = hooks.Setups.OnFramesScheduling();
+        _ = hooks.Setups.OnCommitAdvanced();
+        _ = hooks.Setups.OnBeforeMemoryApply();
+        _ = hooks.Setups.OnFlushed();
+        _ = hooks.Setups.OnMetaPublishing();
+        _ = hooks.Setups.OnSnapshotPublishing().Callback(() =>
+        {
+            if (Interlocked.Increment(ref publishingCalls) != 1)
+                return;
+
+            _ = entered.TrySetResult();
+            if (!release.Wait(Bound, cancellationToken))
+                throw new TimeoutException("Snapshot preparation was not released.");
+        });
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() };
+        await using var registry = await OpenRegistryAsync(dir, options, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        await WriteAsync(committer, 2, cancellationToken);
+
+        var compaction = Task.Run(() => committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken), cancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+            await committer.CommitSetAsync(NewOperationId(), "cache", "after-capture", Entry("after-capture"), cancellationToken)
+                .WaitAsync(Bound, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(compaction.IsCompleted).IsFalse();
+            var status = await OwnedLog(registry).GetStatusAsync(cancellationToken);
+            _ = await Assert.That(status.CommitIndex).IsEqualTo(3UL);
+        }
+        finally
+        {
+            release.Set();
+            _ = await Assert.That(await compaction.WaitAsync(Bound, TimeProvider.System, cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.Compacted);
+        }
+
+        var retention = await OwnedLog(registry).GetRetentionAsync(cancellationToken);
+        _ = await Assert.That(retention.SnapshotIndex).IsEqualTo(2UL);
     }
 }

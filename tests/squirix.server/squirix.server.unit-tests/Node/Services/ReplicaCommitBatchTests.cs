@@ -22,6 +22,39 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>Concurrent writes of one replica group are committed as batches: one append and one majority for the writes that queued while a commit was running.</summary>
 public sealed class ReplicaCommitBatchTests : IsolatedStorageTestBase
 {
+    /// <summary>A canceled submission is unlinked before the active commit completes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledSubmissionIsUnlinkedTest(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingGateway();
+        gateway.ArmForEntries();
+        await using var registry = await OpenRegistryAsync(DefaultOptions(), cancellationToken);
+        await using var committer = CreateCommitter(registry, RecoveredCache(), gateway, TimeProvider.System);
+        var first = SetAsync(committer, "k0", cancellationToken);
+        try
+        {
+            await gateway.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            var request = new ReplicaStateCommitRequest<int>(
+                ("cache", "canceled-operation", "k1"),
+                0,
+                static _ => [],
+                static (_, _, _, _) => ValueTask.FromException<PreparedReplicaMutation>(new InvalidOperationException("The canceled request must not be prepared.")));
+            using var cancellation = new CancellationTokenSource();
+            var pending = committer.SubmitAsync(request, cancellation.Token);
+            _ = await Assert.That(request.QueueNode).IsNotNull();
+            await cancellation.CancelAsync();
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(request.QueueNode).IsNull();
+            _ = await Assert.That(first.IsCompleted).IsFalse();
+        }
+        finally
+        {
+            gateway.Release();
+            await first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        }
+    }
+
     /// <summary>A write that arrives while the leader is committing waits for the leadership, and the writes that queue behind it are committed by it as one batch.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -142,7 +175,7 @@ public sealed class ReplicaCommitBatchTests : IsolatedStorageTestBase
         gateway.Release();
 
         await Task.WhenAll(first, firstUse, after).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(reuse.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(reuse, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(Applied(local)).IsEqualTo("k0,k1,k3");
         _ = await Assert.That((await GetOwnedLog(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);

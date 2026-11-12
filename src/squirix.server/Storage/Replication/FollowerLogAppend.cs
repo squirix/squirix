@@ -39,18 +39,18 @@ internal static class FollowerLogAppend
         CancellationToken cancellationToken)
     {
         // Commit index moves only monotonically.
-        if (commitIndex <= owner.Meta.CommitIndex)
+        if (commitIndex <= owner.Meta.CommitIndex && journal.Metadata.DurableCommitIndex >= owner.Meta.CommitIndex)
             return new FollowerLogCommitResult(true, string.Empty, owner.Meta.CommitIndex);
 
         // Never beyond the locally durable last index.
         if (commitIndex > owner.LastLogIndex)
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, owner.Meta.CommitIndex);
 
-        var candidate = owner.Meta with { CommitIndex = commitIndex };
+        var candidate = owner.Meta with { CommitIndex = Math.Max(commitIndex, owner.Meta.CommitIndex) };
         await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
         owner.Meta = candidate;
         owner.Faults.OnCommitAdvanced();
-        return new FollowerLogCommitResult(true, string.Empty, commitIndex);
+        return new FollowerLogCommitResult(true, string.Empty, candidate.CommitIndex);
     }
 
     internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(
@@ -74,7 +74,8 @@ internal static class FollowerLogAppend
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         FollowerLogAppendRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onScheduled = null)
     {
         // Validate the whole batch for contiguity and conflicts before writing anything.
         var entries = request.Entries;
@@ -85,11 +86,6 @@ internal static class FollowerLogAppend
         var error = PrepareAppendBatch(journal, owner, in request, out var toAppend, out var truncateAtIndex);
         if (error != null)
             return error.Value;
-
-        // Materialize payload ownership for the appending set synchronously, before the first awaits: once
-        // the durable writing is scheduled, it must never reference the caller's buffer, and a cancellation
-        // during truncation aborts the batch without writing any frame.
-        var ownedToAppend = toAppend is { Count: > 0 } ? MaterializeOwnedEntries(toAppend) : null;
 
         if (truncateAtIndex != null)
         {
@@ -104,8 +100,8 @@ internal static class FollowerLogAppend
             }
         }
 
-        if (ownedToAppend != null)
-            await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, ownedToAppend, cancellationToken).ConfigureAwait(false);
+        if (toAppend != null)
+            await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, toAppend, cancellationToken, onScheduled).ConfigureAwait(false);
 
         // The frames are durable and the announced commit index only moves in memory, so nothing after them can fail.
         return CompleteAppend(owner, request.LeaderCommitIndex, lastVerifiedIndex);
@@ -188,20 +184,15 @@ internal static class FollowerLogAppend
         {
             await AwaitPendingMirrorAsync(journal, cancellationToken).ConfigureAwait(false);
             var (firstCopy, mirror) = FollowerLogDurable.PersistMetaDeferredMirror(journal, owner, in candidate, cancellationToken);
-            try
-            {
-                await firstCopy.ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                // The mirror ack of a failed first copy is faulted with the same failure and has no other reader.
-                _ = mirror.ContinueWith(
-                    static finished => finished.Exception,
-                    CancellationToken.None,
-                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-                throw;
-            }
+
+            // The owner retains the mirror for readiness and shutdown reporting, but a timed-out shutdown faults its ack
+            // after abandoning the drain. Keep observation from scheduling onward, including a failed first copy.
+            _ = mirror.ContinueWith(
+                static finished => finished.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            await firstCopy.ConfigureAwait(false);
 
             journal.Metadata.PendingMirror = mirror;
         }
@@ -323,17 +314,6 @@ internal static class FollowerLogAppend
                              existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan);
         var appliedSatisfied = candidate.LogIndex <= owner.Meta.LastAppliedIndex && journal.TryGetEntryOffset(candidate.LogIndex, out var loc) && loc.Term == candidate.Term;
         return localSatisfied || appliedSatisfied;
-    }
-
-    private static List<FollowerLogEntry> MaterializeOwnedEntries(List<FollowerLogEntry> source)
-    {
-        // Ownership is needed only for what will actually hit disk or be retained above the applied
-        // watermark; duplicates satisfied by local state and refused batches are never copied.
-        var owned = new List<FollowerLogEntry>(source.Count);
-        for (var i = 0; i < source.Count; i++)
-            owned.Add(new FollowerLogEntry(source[i].LogIndex, source[i].Term, source[i].Payload.ToArray()));
-
-        return owned;
     }
 
     private static FollowerLogAppendResult? PrepareAppendBatch(

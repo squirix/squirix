@@ -36,8 +36,7 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
         var pipeline = node.GetRequiredService<ISquirixServerEntryCachePipeline<object?>>();
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var after = await log.GetStatusAsync(cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
@@ -56,9 +55,8 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
         var pipeline = node.GetRequiredService<ISquirixServerEntryCachePipeline<object?>>();
 
-        var read = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(pipeline.GetValueAsync(CacheName, key, cancellationToken));
-        var write = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken));
+        var read = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(pipeline.GetValueAsync(CacheName, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var write = await NodeAsyncAssert.ThrowsAsync<RpcException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(read.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(read.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");

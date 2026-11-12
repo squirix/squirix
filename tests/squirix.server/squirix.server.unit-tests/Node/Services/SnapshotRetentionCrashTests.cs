@@ -39,22 +39,6 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
 
     private readonly Meter _testMeter = new("test");
 
-    /// <summary>A crash after the snapshot file was published and before the manifest names it recovers from the whole journal and ignores the snapshot.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SnapshotFileWithoutManifestIsIgnored(CancellationToken cancellationToken)
-    {
-        using var scenario = CreateJournal("squirix-retention-crash-file-only");
-        await WriteSnapshotFileAsync(scenario, cancellationToken);
-        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 2, NextSequence = 6 }, cancellationToken);
-
-        await RunRecoveryAsync(scenario, scenario.Ledger, cancellationToken);
-
-        _ = await Assert.That(await FoundAsync(scenario, CoveredKey, cancellationToken)).IsTrue();
-        _ = await Assert.That(await FoundAsync(scenario, TailKey, cancellationToken)).IsTrue();
-        _ = await Assert.That(await FoundAsync(scenario, SnapshotKey, cancellationToken)).IsFalse();
-    }
-
     /// <summary>A crash after the manifest names the snapshot and before retention ran leaves the covered segment on disk, and recovery ignores it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -67,27 +51,9 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
 
         await RunRecoveryAsync(scenario, recoveryLedger, cancellationToken);
 
-        _ = await Assert.That(await FoundAsync(scenario, CoveredKey, cancellationToken)).IsFalse();
-        _ = await Assert.That(await FoundAsync(scenario, SnapshotKey, cancellationToken)).IsTrue();
-        _ = await Assert.That(await FoundAsync(scenario, TailKey, cancellationToken)).IsTrue();
-    }
-
-    /// <summary>After retention deleted the covered segment, recovery restores the same state from the snapshot and the tail.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RecoveryAfterRetentionMatchesLeftover(CancellationToken cancellationToken)
-    {
-        using var scenario = CreateJournal("squirix-retention-crash-after-retention");
-        await WriteSnapshotFileAsync(scenario, cancellationToken);
-        await PublishManifestWithoutRetentionAsync(scenario, cancellationToken);
-        File.Delete(BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1));
-        using var recoveryLedger = CreateRecoveryLedger(scenario, out _);
-
-        await RunRecoveryAsync(scenario, recoveryLedger, cancellationToken);
-
-        _ = await Assert.That(await FoundAsync(scenario, CoveredKey, cancellationToken)).IsFalse();
-        _ = await Assert.That(await FoundAsync(scenario, SnapshotKey, cancellationToken)).IsTrue();
-        _ = await Assert.That(await FoundAsync(scenario, TailKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, CoveredKey, cancellationToken)).IsFalse();
+        _ = await Assert.That(Found(scenario, SnapshotKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, TailKey, cancellationToken)).IsTrue();
     }
 
     /// <summary>A crash before retention plus a damaged snapshot recovers by full replay, and the covered segment stays: it is the only copy.</summary>
@@ -106,8 +72,42 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
 
         _ = await Assert.That(passed).IsFalse();
         _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1))).IsTrue();
-        _ = await Assert.That(await FoundAsync(scenario, CoveredKey, cancellationToken)).IsTrue();
-        _ = await Assert.That(await FoundAsync(scenario, TailKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, CoveredKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, TailKey, cancellationToken)).IsTrue();
+    }
+
+    /// <summary>After retention deleted the covered segment, recovery restores the same state from the snapshot and the tail.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveryAfterRetentionMatchesLeftover(CancellationToken cancellationToken)
+    {
+        using var scenario = CreateJournal("squirix-retention-crash-after-retention");
+        await WriteSnapshotFileAsync(scenario, cancellationToken);
+        await PublishManifestWithoutRetentionAsync(scenario, cancellationToken);
+        File.Delete(BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1));
+        using var recoveryLedger = CreateRecoveryLedger(scenario, out _);
+
+        await RunRecoveryAsync(scenario, recoveryLedger, cancellationToken);
+
+        _ = await Assert.That(Found(scenario, CoveredKey, cancellationToken)).IsFalse();
+        _ = await Assert.That(Found(scenario, SnapshotKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, TailKey, cancellationToken)).IsTrue();
+    }
+
+    /// <summary>A crash after the snapshot file was published and before the manifest names it recovers from the whole journal and ignores the snapshot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotFileWithoutManifestIsIgnored(CancellationToken cancellationToken)
+    {
+        using var scenario = CreateJournal("squirix-retention-crash-file-only");
+        await WriteSnapshotFileAsync(scenario, cancellationToken);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 2, NextSequence = 6 }, cancellationToken);
+
+        await RunRecoveryAsync(scenario, scenario.Ledger, cancellationToken);
+
+        _ = await Assert.That(Found(scenario, CoveredKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, TailKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, SnapshotKey, cancellationToken)).IsFalse();
     }
 
     /// <summary>A crash before retention plus a good snapshot: once recovery loaded it, the startup pass deletes the covered segment and hands it to the journal.</summary>
@@ -129,7 +129,7 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
         _ = await Assert.That(segments).IsEqualTo(1);
         _ = await Assert.That(bytes).IsEqualTo(coveredLength);
         _ = await Assert.That(File.Exists(coveredPath)).IsFalse();
-        _ = await Assert.That(await FoundAsync(scenario, SnapshotKey, cancellationToken)).IsTrue();
+        _ = await Assert.That(Found(scenario, SnapshotKey, cancellationToken)).IsTrue();
     }
 
     /// <inheritdoc />
@@ -156,8 +156,8 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
         return new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Instance());
     }
 
-    private static async Task<bool> FoundAsync(RecoveryScenarioBuilder scenario, string key, CancellationToken cancellationToken) =>
-        (await scenario.Cache.GetValueAsync(CacheKey.Default(key), cancellationToken)).Found;
+    private static bool Found(RecoveryScenarioBuilder scenario, string key, CancellationToken cancellationToken) =>
+        scenario.Cache.GetValue(CacheKey.Default(key), cancellationToken).Found;
 
     private static PersistenceOptions OptionsOf(RecoveryScenarioBuilder scenario) => new() { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 
@@ -179,15 +179,6 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
             cancellationToken);
     }
 
-    private static async Task WriteSnapshotFileAsync(RecoveryScenarioBuilder scenario, CancellationToken cancellationToken)
-    {
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
-        {
-            (CacheKey.Default(SnapshotKey), new NodeCacheEntry<object?> { Value = "snap" }),
-        };
-        _ = await StoreFactory.CreateWriter(OptionsOf(scenario)).WriteAsync(1, items, [], cancellationToken);
-    }
-
     /// <summary>Waits a bounded real-time window for a retention pass; the window only bounds how long the test waits for a pass that must not come.</summary>
     /// <param name="passes">The passes reported by the ledger.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -203,6 +194,15 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
         {
             return false;
         }
+    }
+
+    private static async Task WriteSnapshotFileAsync(RecoveryScenarioBuilder scenario, CancellationToken cancellationToken)
+    {
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default(SnapshotKey), new NodeCacheEntry<object?> { Value = "snap" }),
+        };
+        _ = await StoreFactory.CreateWriter(OptionsOf(scenario)).WriteAsync(1, items, [], cancellationToken);
     }
 
     private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, Ledger ledger, CancellationToken cancellationToken)

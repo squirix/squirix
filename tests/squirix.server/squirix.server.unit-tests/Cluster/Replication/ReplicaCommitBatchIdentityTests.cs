@@ -29,7 +29,7 @@ public sealed class ReplicaCommitBatchIdentityTests : ServerUnitTestBase
         _ = await coordinator.CommitAsync(committed, StallTimeout, cancellationToken);
         PreparedReplicaMutation[] run = [Mutation(2), Mutation(3), Mutation(4, 1, 1)];
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.BatchIdentityKnownCode, StringComparison.Ordinal);
         _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("MMF");
@@ -49,7 +49,7 @@ public sealed class ReplicaCommitBatchIdentityTests : ServerUnitTestBase
         await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
         PreparedReplicaMutation[] run = [Mutation(1), Mutation(2), Mutation(3, 1, 1)];
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.BatchIdentityKnownCode, StringComparison.Ordinal);
         _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("MMM");
@@ -75,7 +75,7 @@ public sealed class ReplicaCommitBatchIdentityTests : ServerUnitTestBase
             await fanOutStarted.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             PreparedReplicaMutation[] run = [Mutation(2), Mutation(3), Mutation(4, 1, 1)];
 
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.BatchIdentityKnownCode, StringComparison.Ordinal);
             _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("MMU");

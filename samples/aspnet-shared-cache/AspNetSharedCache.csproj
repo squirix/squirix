@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Squirix.AspNetSharedCache</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="squirix" VersionOverride="0.1.0-preview.10" Condition="'$(ManagePackageVersionsCentrally)' == 'true'" />
+    <PackageReference Include="squirix" Version="0.1.0-preview.10" Condition="'$(ManagePackageVersionsCentrally)' != 'true'" />
+  </ItemGroup>
+
+</Project>

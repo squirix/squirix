@@ -82,7 +82,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
         await journal.Journal.AppendPutUnderGateAsync(key, Payload, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
         var writerDisposedWhileStalled = journal.Writer.DisposeCount;
         journal.Writer.Flush.Release();
         await journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -110,7 +110,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         var parked = journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("parked"), Payload, cancellationToken).AsTask();
         await WaitUntilAsync(() => journal.Journal.PendingAppends.PendingCount > RingCapacity + 1, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
         var writerDisposedOnFullRing = journal.Writer.DisposeCount;
         var timedOutStages = log.Count(QuiescenceTimedOutEventId) + log.Count(MarkerTimedOutEventId);
         journal.Writer.Write.Release();
@@ -168,7 +168,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
 
         var stop = journal.Journal.StopAsync().AsTask();
         var dispose = journal.Journal.DisposeAsync().AsTask();
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(stop, StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.Release();
         await dispose.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -209,7 +209,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
 
         await journal.Journal.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var logged = log.Find(StopFailedOnDisposeEventId);
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.Release();
         await journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 

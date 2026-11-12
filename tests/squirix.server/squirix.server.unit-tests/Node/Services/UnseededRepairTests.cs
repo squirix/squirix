@@ -49,61 +49,13 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
         var transfer = new ScriptedTransferGateway { OnEnd = Bind.To<Leader, Action>(leader, static l => () => l.Gateway.Set("n3", FollowerMode.Behind, 3)) };
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
 
-        var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), await TransfersAsync(transfer, statuses, cancellationToken), cancellationToken);
+        var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), Transfers(transfer, statuses, cancellationToken), cancellationToken);
 
         _ = await Assert.That(admitted).IsTrue();
         _ = await Assert.That(string.Join(',', transfer.Calls)).IsEqualTo("begin,snapshot,wipe,entries,end");
         _ = await Assert.That(transfer.Baseline?.CeilingChecked).IsTrue();
         _ = await Assert.That(string.Join(',', statuses.Calls)).IsEqualTo("n2");
         _ = await Assert.That(leader.Registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
-    }
-
-    /// <summary>A member at a term above the leader's stops the repair before anything is captured or sent.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task HigherTermStopsRepair(CancellationToken cancellationToken)
-    {
-        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
-        await using var leader = await OpenLeaderAsync(registry, cancellationToken);
-        var statuses = new ScriptedStatusGateway();
-        statuses.Set("n2", GroupMemberState.Complete, 2UL);
-        var transfer = new ScriptedTransferGateway();
-        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
-
-        var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), await TransfersAsync(transfer, statuses, cancellationToken), cancellationToken);
-
-        _ = await Assert.That(admitted).IsFalse();
-        _ = await Assert.That(transfer.Calls.IsEmpty).IsTrue();
-        _ = await Assert.That(leader.Committer.TransferPin.IsHeld).IsFalse();
-    }
-
-    /// <summary>
-    /// Without an answer from a member that kept its term, the ceiling does not hold and nothing is sent: n2 down, refusing, or itself without its
-    /// disk, which has no term to tell.
-    /// </summary>
-    /// <param name="answer">How n2 answers the status call.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Arguments("down")]
-    [Arguments("refused")]
-    [Arguments("unseeded")]
-    public async Task TooFewAnswersSendNothing(string answer, CancellationToken cancellationToken)
-    {
-        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
-        await using var leader = await OpenLeaderAsync(registry, cancellationToken);
-        var statuses = new ScriptedStatusGateway();
-        if (string.Equals(answer, "refused", StringComparison.Ordinal))
-            statuses.Refuse("n2", 1UL);
-        else if (string.Equals(answer, "unseeded", StringComparison.Ordinal))
-            statuses.Set("n2", GroupMemberState.Unseeded, 0UL);
-
-        var transfer = new ScriptedTransferGateway();
-        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
-
-        var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), await TransfersAsync(transfer, statuses, cancellationToken), cancellationToken);
-
-        _ = await Assert.That(admitted).IsFalse();
-        _ = await Assert.That(transfer.Calls.IsEmpty).IsTrue();
     }
 
     /// <summary>
@@ -150,6 +102,25 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
         _ = await Assert.That((two.Answers, two.Needed, two.Suffices)).IsEqualTo((2, 2, true));
     }
 
+    /// <summary>A member at a term above the leader's stops the repair before anything is captured or sent.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HigherTermStopsRepair(CancellationToken cancellationToken)
+    {
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var leader = await OpenLeaderAsync(registry, cancellationToken);
+        var statuses = new ScriptedStatusGateway();
+        statuses.Set("n2", GroupMemberState.Complete, 2UL);
+        var transfer = new ScriptedTransferGateway();
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+
+        var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), Transfers(transfer, statuses, cancellationToken), cancellationToken);
+
+        _ = await Assert.That(admitted).IsFalse();
+        _ = await Assert.That(transfer.Calls.IsEmpty).IsTrue();
+        _ = await Assert.That(leader.Committer.TransferPin.IsHeld).IsFalse();
+    }
+
     /// <summary>
     /// The repair-ceiling counterexample of the protocol model: a node voted in a term and lost its disk; a stale leader of an earlier term repaired
     /// it without the term ceiling, which put the node back to the earlier term, so it voted again in the later term and a second leader was elected
@@ -177,10 +148,39 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
         statuses.Set("n2", GroupMemberState.Complete, 3UL);
         var transfer = new ScriptedTransferGateway();
 
-        _ = await committer.CatchUpFollowersAsync(Reporter("n2"), await TransfersAsync(transfer, statuses, cancellationToken), cancellationToken);
+        _ = await committer.CatchUpFollowersAsync(Reporter("n2"), Transfers(transfer, statuses, cancellationToken), cancellationToken);
 
         _ = await Assert.That(transfer.Calls.IsEmpty).IsTrue();
         _ = await Assert.That(registry.StateFor("n2").HighestObservedTerm).IsEqualTo(3UL);
+    }
+
+    /// <summary>
+    /// Without an answer from a member that kept its term, the ceiling does not hold and nothing is sent: n2 down, refusing, or itself without its
+    /// disk, which has no term to tell.
+    /// </summary>
+    /// <param name="answer">How n2 answers the status call.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments("down")]
+    [Arguments("refused")]
+    [Arguments("unseeded")]
+    public async Task TooFewAnswersSendNothing(string answer, CancellationToken cancellationToken)
+    {
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var leader = await OpenLeaderAsync(registry, cancellationToken);
+        var statuses = new ScriptedStatusGateway();
+        if (string.Equals(answer, "refused", StringComparison.Ordinal))
+            statuses.Refuse("n2", 1UL);
+        else if (string.Equals(answer, "unseeded", StringComparison.Ordinal))
+            statuses.Set("n2", GroupMemberState.Unseeded, 0UL);
+
+        var transfer = new ScriptedTransferGateway();
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+
+        var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), Transfers(transfer, statuses, cancellationToken), cancellationToken);
+
+        _ = await Assert.That(admitted).IsFalse();
+        _ = await Assert.That(transfer.Calls.IsEmpty).IsTrue();
     }
 
     private static IJournalDurabilityCoordinator Durable()
@@ -188,23 +188,6 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         return durability.Instance();
-    }
-
-    private static ReplicaCatchUpReporter Reporter(string groupId = GroupId) => new(groupId, NullLogger.Instance, null);
-
-    private static async Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, ScriptedStatusGateway statuses, CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        for (var i = 1; i <= 3; i++)
-            await cache.SetAsync(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
-
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
-        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null)
-        {
-            TermCeiling = new ReplicaTermCeiling(statuses, HangGuard),
-        };
     }
 
     /// <summary>Opens the owner of group n1 with three committed and applied writes; n2 holds the log and n3 lost its disk.</summary>
@@ -229,6 +212,23 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
             await leader.DisposeAsync();
             throw;
         }
+    }
+
+    private static ReplicaCatchUpReporter Reporter(string groupId = GroupId) => new(groupId, NullLogger.Instance, null);
+
+    private static ReplicaStateTransfers Transfers(ScriptedTransferGateway gateway, ScriptedStatusGateway statuses, CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        for (var i = 1; i <= 3; i++)
+            cache.Set(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
+
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
+        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null)
+        {
+            TermCeiling = new ReplicaTermCeiling(statuses, HangGuard),
+        };
     }
 
     /// <summary>The owner of a group with its committer and the follower transport.</summary>

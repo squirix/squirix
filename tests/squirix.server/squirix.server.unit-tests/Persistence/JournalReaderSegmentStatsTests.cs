@@ -24,6 +24,7 @@ public sealed class JournalReaderSegmentStatsTests : IsolatedStorageTestBase
         await WriteSegmentAsync(Dir, 1, 10, cancellationToken);
         await WriteSegmentAsync(Dir, 2, 25, cancellationToken);
         await WriteSegmentAsync(Dir, 3, 7, cancellationToken);
+        await WriteSegmentAsync(Dir, 0, 100, cancellationToken);
         await File.WriteAllTextAsync(PathKit.Combine(Dir, "not-a-journal.txt"), "ignored", cancellationToken);
 
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Dir);

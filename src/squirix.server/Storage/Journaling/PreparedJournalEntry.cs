@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
@@ -19,6 +20,23 @@ internal sealed record PreparedJournalEntry
 
     internal NodeCacheEntry<object?> ObjectEntry { get; }
 
+    /// <summary>Prepares the deadline-free replica payload and checks the size the entry will have when applied with its deadline.</summary>
+    /// <param name="value">The requested value.</param>
+    /// <param name="version">The entry version.</param>
+    /// <param name="tags">The entry tags.</param>
+    /// <param name="expiresUtc">The absolute deadline stored separately in the replica record.</param>
+    /// <returns>The measured entry for the mutation payload.</returns>
+    internal static PreparedJournalEntry ForReplicaUpsert(object? value, long version, FrozenDictionary<string, string>? tags, DateTime? expiresUtc)
+    {
+        EntryTagsGuard.EnsureWithinLimits(tags);
+        var normalized = NodeCacheEntry<object?>.NormalizeValue(value);
+        var valueLength = CacheEntryCodec.ComputeValueLength(normalized);
+        var payloadLength = CacheEntryCodec.ComputeEncodedLength(null, null, tags, valueLength);
+        var appliedLength = expiresUtc != null ? CacheEntryCodec.ComputeEncodedLength(expiresUtc, null, tags, valueLength) : payloadLength;
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(appliedLength);
+        return new PreparedJournalEntry(new NodeCacheEntry<object?>(normalized, version, null, null, tags), payloadLength);
+    }
+
     internal static PreparedJournalEntry From<T>(NodeCacheEntry<T> entry)
     {
         var objectEntry = ToObjectEntry(entry, JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration));
@@ -31,16 +49,19 @@ internal sealed record PreparedJournalEntry
     /// <param name="encodedLength">The encoded length of <paramref name="entry" />, as <see cref="From{T}(NodeCacheEntry{T})" /> would measure it.</param>
     /// <returns>The prepared entry.</returns>
     /// <exception cref="InvalidOperationException">The entry has a relative expiration.</exception>
-    internal static PreparedJournalEntry From<T>(NodeCacheEntry<T> entry, int encodedLength) =>
-        new(ToObjectEntry(entry, JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration)), encodedLength);
+    internal static PreparedJournalEntry From<T>(NodeCacheEntry<T> entry, int encodedLength) => new(
+        ToObjectEntry(entry, JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration)),
+        encodedLength);
 
     /// <summary>Measures the encoded length the journal frame of <paramref name="entry" /> will have, before its expiration is resolved.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="entry">The entry to measure.</param>
     /// <returns>The encoded length.</returns>
-    internal static int MeasureEncodedLength<T>(NodeCacheEntry<T> entry) =>
-        CacheEntryCodec.ComputeEncodedLength(
-            JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration), null, entry.Tags, CacheEntryCodec.ComputeValueLength(entry.Normalize()));
+    internal static int MeasureEncodedLength<T>(NodeCacheEntry<T> entry) => CacheEntryCodec.ComputeEncodedLength(
+        JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration),
+        null,
+        entry.Tags,
+        CacheEntryCodec.ComputeValueLength(entry.Normalize()));
 
     private static NodeCacheEntry<object?> ToObjectEntry<T>(NodeCacheEntry<T> entry, DateTime? expiresUtc)
     {

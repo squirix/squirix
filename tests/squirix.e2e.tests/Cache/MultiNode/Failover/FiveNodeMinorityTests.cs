@@ -21,7 +21,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// read and acknowledge no write, while the three elect a leader in a later term and keep serving through the SDK. Once the links heal, the
 /// former leader follows the majority, no acknowledged write is lost, reads stay linearizable, and the five members retain one committed log.
 /// </summary>
-public sealed class FiveNodeMinorityTests : EndToEndTestBase
+public sealed class FiveNodeMinorityTests
 {
     private const string CacheName = "five-node-minority";
 
@@ -113,22 +113,22 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
         var (split, healed) = outcome;
         var (majority, formerTerm) = expected;
         var dump = Eventually.Dump(split.Attempts);
-        _ = await Assert.That(IsRefusal(split.LeaderWrite)).IsTrue().Because($"the cut-off leader must refuse the write, got {Describe(split.LeaderWrite)}");
-        _ = await Assert.That(IsRefusal(split.FollowerWrite)).IsTrue().Because($"the cut-off follower must refuse the write, got {Describe(split.FollowerWrite)}");
+        _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.LeaderWrite)).IsTrue().Because($"the cut-off leader must refuse the write, got {FailoverSteps.DescribeRefusal(split.LeaderWrite)}");
+        _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.FollowerWrite)).IsTrue().Because($"the cut-off follower must refuse the write, got {FailoverSteps.DescribeRefusal(split.FollowerWrite)}");
         _ = await Assert.That(split.HeldAuthority).IsTrue().Because("the cut-off leader must still believe it leads when the calls are issued, or they do not cover that window");
-        _ = await Assert.That(IsRefusal(split.LeaderRead)).IsTrue().Because($"the cut-off leader must refuse the read, got {Describe(split.LeaderRead)}");
-        _ = await Assert.That(IsRefusal(split.FollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {Describe(split.FollowerRead)}");
-        _ = await Assert.That(IsRefusal(split.DeposedLeaderRead)).IsTrue().Because($"the deposed leader must refuse the read, got {Describe(split.DeposedLeaderRead)}");
-        _ = await Assert.That(IsRefusal(split.DeposedFollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {Describe(split.DeposedFollowerRead)}");
-        _ = await Assert.That(split.DeposedLeaderRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed leader must refuse by itself before the call deadline, got {Describe(split.DeposedLeaderRead)}");
-        _ = await Assert.That(split.DeposedFollowerRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the cut-off follower must refuse by itself before the call deadline, got {Describe(split.DeposedFollowerRead)}");
+        _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.LeaderRead)).IsTrue().Because($"the cut-off leader must refuse the read, got {FailoverSteps.DescribeRefusal(split.LeaderRead)}");
+        _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.FollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {FailoverSteps.DescribeRefusal(split.FollowerRead)}");
+        _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.DeposedLeaderRead)).IsTrue().Because($"the deposed leader must refuse the read, got {FailoverSteps.DescribeRefusal(split.DeposedLeaderRead)}");
+        _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.DeposedFollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {FailoverSteps.DescribeRefusal(split.DeposedFollowerRead)}");
+        _ = await Assert.That(split.DeposedLeaderRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed leader must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(split.DeposedLeaderRead)}");
+        _ = await Assert.That(split.DeposedFollowerRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the cut-off follower must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(split.DeposedFollowerRead)}");
         _ = await Assert.That(split.ProbeRead).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
         _ = await Assert.That(split.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
         _ = await Assert.That(majority).Contains(split.Leader.NodeId);
         _ = await Assert.That(split.Leader.Term).IsGreaterThan(formerTerm);
         _ = await Assert.That(majority).Contains(healed.Leader.NodeId);
         _ = await Assert.That(healed.Leader.Term).IsGreaterThanOrEqualTo(split.Leader.Term);
-        _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
+        _ = await Assert.That(history.Check(CancellationToken.None)).IsEmpty().Because(history.Summary());
         _ = await Assert.That(healed.Lost.ByLeader).IsEqualTo(new CacheValueResult<long>(false, 0L)).Because("a write the cut-off leader refused must not surface after the links heal");
         _ = await Assert.That(healed.Lost.ByFollower).IsEqualTo(new CacheValueResult<long>(false, 0L)).Because("a write the cut-off follower refused must not surface after the links heal");
         _ = await Assert.That(healed.Stale.ByLeader).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(dump);
@@ -165,14 +165,6 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
         var report = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.FiveNodes, FailoverSteps.Bound, cancellationToken);
         return new Healed(leader, (lostByLeader, lostByFollower), (staleByLeader, staleByFollower), report.ClientEntries);
     }
-
-    private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
-
-    /// <summary>Tells whether a failure is a refusal the client can act on: an unavailable, timed out or shed call, or a commit with an unknown outcome.</summary>
-    /// <param name="exception">The failure.</param>
-    /// <returns><see langword="true" /> for a refusal; otherwise <see langword="false" />.</returns>
-    private static bool IsRefusal(Exception exception) =>
-        exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.ResourceExhausted };
 
     /// <summary>
     /// Cuts every link between the two sides, probes both cut-off nodes right after the cut and once the majority leads, waits for the
@@ -230,12 +222,12 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
             calls.Add(deposedLeaderReading);
             var deposedFollowerReading = wires.Follower.ReadAsync(CacheName, singles.Stale, DeposedReadDeadline, cancellationToken);
             calls.Add(deposedFollowerReading);
-            leaderWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderWriting);
-            followerWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerWriting);
-            leaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderReading);
-            followerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerReading);
-            deposedLeaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedLeaderReading);
-            deposedFollowerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedFollowerReading);
+            leaderWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(leaderWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            followerWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(followerWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            leaderRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(leaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            followerRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(followerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            deposedLeaderRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(deposedLeaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            deposedFollowerRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(deposedFollowerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         catch
         {

@@ -163,7 +163,7 @@ public sealed class ReplicaGroupBootstrapTests : ServerUnitTestBase
         gateway.Report("n2", Unseeded());
         gateway.FailStatus("n3", new RpcException(new Status(StatusCode.Cancelled, "canceled")), stopping.Cancel);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(gateway.Offers).IsEqualTo(0);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Unseeded);
@@ -182,7 +182,7 @@ public sealed class ReplicaGroupBootstrapTests : ServerUnitTestBase
         gateway.Report("n3", Unseeded());
         gateway.FailOffer("n3", new RpcException(new Status(StatusCode.Cancelled, "canceled")), stopping.Cancel);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Unseeded);
     }

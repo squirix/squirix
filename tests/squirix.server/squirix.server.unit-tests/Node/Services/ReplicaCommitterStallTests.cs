@@ -84,7 +84,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         await using var committer = CreateCommitter(registry, local, (log, log), metrics: new ReplicationMetrics(meter));
         var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
 
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var transport = error.ToRpcException();
 
         // The remote owner reports the stable commit-unknown contract over gRPC.
@@ -92,7 +92,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         _ = remoteOwner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                        .Callback(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToRpcException()));
         var forwarded = new DomainErrorMappingCacheDecorator<object?>(remoteOwner.Instance());
-        var remote = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
+        var remote = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(transport.StatusCode).IsEqualTo(StatusCode.Unavailable);
@@ -136,7 +136,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             // and moving the clock past it ends the commit.
             await gateway.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             clock.Advance(ShortCommitBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(defaults.CommitBudget).IsEqualTo(TimeSpan.FromSeconds(5));
             _ = await Assert.That(committer.CommitBudget).IsEqualTo(ShortCommitBudget);
@@ -169,7 +169,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             await local.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
             _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
             _ = await Assert.That(log.LeakCount).IsEqualTo(1);
@@ -205,7 +205,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
             await registry.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
             _ = await Assert.That(log.UnknownCause?.InnerException).IsTypeOf<ObjectDisposedException>();
             _ = await Assert.That(log.Count(LeakedOnShutdownEventId)).IsEqualTo(1);
@@ -240,7 +240,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
             await registry.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
             _ = await Assert.That(log.UnknownCause?.InnerException).IsTypeOf<GroupLogAppendUnconfirmedException>();
             _ = await Assert.That(log.UnknownCause?.InnerException?.InnerException).IsTypeOf<ObjectDisposedException>();
@@ -307,7 +307,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             clock.Advance(LogShutdownBudget);
             await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(append, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
             _ = await Assert.That(log.Count(LogLeakedOnShutdownEventId)).IsEqualTo(1);
         }
@@ -333,10 +333,10 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance));
-        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(first.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(refused.ToRpcException().StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
@@ -378,7 +378,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance));
         await FailFirstWriteThenDropMajorityAsync(committer, registry, cancellationToken);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry(), cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
 
@@ -412,7 +412,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var recorded = NewOperationId();
         await committer.CommitSetAsync(recorded, "cache", "k1", Entry(), cancellationToken);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var logIndex = await LastLogIndexAsync(registry, cancellationToken);
         await committer.CommitSetAsync(recorded, "cache", "k1", Entry(), cancellationToken);
 
@@ -429,13 +429,13 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     /// <returns>An asynchronous operation.</returns>
     private static async Task FailFirstWriteThenDropMajorityAsync(ReplicaGroupCommitter committer, ReplicaGroupRegistry registry, CancellationToken cancellationToken)
     {
-        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
+        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(unknown.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
 
         // Invalid progress demotes a ready follower to catching up: the next write has no verified majority and drops the started
         // state, so the write after it resyncs (a new coordinator whose start re-verifies the follower).
         _ = registry.EligibilityFor("n1").TryMarkCatchingUp(1, default);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 

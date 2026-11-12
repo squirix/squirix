@@ -28,6 +28,7 @@ public sealed class SquirixServer : IAsyncDisposable
     /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
     /// <returns>A server host lifetime handle.</returns>
+    /// <exception cref="PlatformNotSupportedException">Thrown on Linux or macOS when the .NET 10 runtime is older than 10.0.15.</exception>
     public static ValueTask<SquirixServer> StartAsync(CancellationToken cancellationToken = default) => StartAsync(null, cancellationToken);
 
     /// <summary>

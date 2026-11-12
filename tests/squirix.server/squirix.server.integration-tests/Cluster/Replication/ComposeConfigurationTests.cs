@@ -3,7 +3,6 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -12,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Validates the RF=3 compose demos: three nodes with persistence and mTLS.</summary>
-public sealed class ComposeConfigurationTests : NodeIntegrationTestBase
+public sealed class ComposeConfigurationTests
 {
     /// <summary>Release compose matches the RF=3 layout with homogeneous images.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -22,20 +21,23 @@ public sealed class ComposeConfigurationTests : NodeIntegrationTestBase
         var root = RepositoryRootFinder.Find();
         var releaseCompose = await AssertComposeFileAsync(root, "docker-compose.release.yml", "SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=", "${", false, cancellationToken);
         await AssertHomogeneousImageVersionAsync(releaseCompose);
-
-        await AssertSettingsAsync(Path.Join(root, "docker", "node-a", "Squirix.settings.json"), "A", cancellationToken);
-        await AssertSettingsAsync(Path.Join(root, "docker", "node-b", "Squirix.settings.json"), "B", cancellationToken);
-        await AssertSettingsAsync(Path.Join(root, "docker", "node-c", "Squirix.settings.json"), "C", cancellationToken);
     }
 
-    /// <summary>Three compose nodes share RF=3 peers, persistence, and homogeneous mTLS.</summary>
+    /// <summary>Development compose matches the RF=3 layout with mTLS.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ThreeNodesUseRfThreePersistenceAndMtls(CancellationToken cancellationToken)
+    public async Task DevComposeMatchesRfThreeLayout(CancellationToken cancellationToken)
     {
         var root = RepositoryRootFinder.Find();
         _ = await AssertComposeFileAsync(root, "docker-compose.yml", "SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=", "dev-docker-mtls", true, cancellationToken);
+    }
 
+    /// <summary>All compose node settings enable persistence and agree on the RF=3 topology.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SharedSettingsMatchRfThreeLayout(CancellationToken cancellationToken)
+    {
+        var root = RepositoryRootFinder.Find();
         await AssertSettingsAsync(Path.Join(root, "docker", "node-a", "Squirix.settings.json"), "A", cancellationToken);
         await AssertSettingsAsync(Path.Join(root, "docker", "node-b", "Squirix.settings.json"), "B", cancellationToken);
         await AssertSettingsAsync(Path.Join(root, "docker", "node-c", "Squirix.settings.json"), "C", cancellationToken);
@@ -79,8 +81,8 @@ public sealed class ComposeConfigurationTests : NodeIntegrationTestBase
         while ((index = compose.IndexOf(prefix, index, StringComparison.Ordinal)) >= 0 && count < starts.Length)
         {
             var valueStart = index + prefix.Length;
-            var lineEnd = compose.IndexOf('\n', valueStart);
-            var valueEnd = lineEnd < 0 ? compose.Length : lineEnd;
+            var lineEnd = compose.AsSpan(valueStart).IndexOf('\n');
+            var valueEnd = lineEnd < 0 ? compose.Length : valueStart + lineEnd;
             var isEmpty = compose.AsSpan(valueStart, valueEnd - valueStart).Trim().IsEmpty;
             _ = await Assert.That(isEmpty).IsFalse().Because("Image version value must not be empty.");
             starts[count] = valueStart;

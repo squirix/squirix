@@ -739,7 +739,6 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         return (Leader: leaderLog!, Follower: followerLog!).WaitUntilValueAsync(
             static async (logs, token) => (await logs.Follower.GetStatusAsync(token)).LastLogIndex >= (await logs.Leader.GetStatusAsync(token)).LastLogIndex,
             Bound,
-            TimeProvider.System,
             cancellationToken);
     }
 

@@ -1,0 +1,295 @@
+{
+  "baselineTag": "develop@e71f8975f519",
+  "baselineCommit": "e71f8975f5190cde997b9d4a2cd067ae8dc57144",
+  "timeTolerance": 0.2,
+  "allocationTolerance": 0.05,
+  "maxRelativeStandardError": 0.05,
+  "minSamples": 10,
+  "suites": [
+    {
+      "name": "server",
+      "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
+      "entryPoint": "tools/ci/performance-guard/Program.cs",
+      "sources": [
+        "PhysicalCacheValueReadBenchmarks.cs",
+        "ReplicatedCacheValueReadBenchmarks.cs",
+        "CacheWriteSizingBenchmarks.cs",
+        "CacheMetricsListenerBenchmarks.cs",
+        "IdempotencyResponseBufferBenchmarks.cs",
+        "JournalFrameEncodeBenchmarks.cs",
+        "ReplicaLogCodecEncodeBenchmarks.cs",
+        "ReplicaLogDecodeBenchmarks.cs",
+        "RemoteInvocationScopeBenchmarks.cs",
+        "CacheEntryJsonValueBenchmarks.cs"
+      ],
+      "filters": [
+        "*PhysicalCacheValueReadBenchmarks.*",
+        "*ReplicatedCacheValueReadBenchmarks.*",
+        "*CacheWriteSizingBenchmarks.*",
+        "*CacheMetricsListenerBenchmarks.*",
+        "*IdempotencyResponseBufferBenchmarks.*",
+        "*JournalFrameEncodeBenchmarks.*",
+        "*ReplicaLogCodecEncodeBenchmarks.*",
+        "*ReplicaLogDecodeBenchmarks.*",
+        "*RemoteInvocationScopeBenchmarks.*",
+        "*CacheEntryJsonValueBenchmarks.*"
+      ],
+      "cases": [
+        {
+          "name": "PhysicalCacheValueReadBenchmarks.ValueHitAsync",
+          "checkTime": true
+        },
+        {
+          "name": "PhysicalCacheValueReadBenchmarks.LruValueHitAsync",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicatedCacheValueReadBenchmarks.LocalEntryReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicatedCacheValueReadBenchmarks.LocalValueReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicatedCacheValueReadBenchmarks.ReplicatedValueReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=16&Unicode=False)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=16&Unicode=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=4096&Unicode=False)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=4096&Unicode=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=65536&Unicode=False)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=65536&Unicode=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=0)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=1)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=2)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=3)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=0)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=1)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=2)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=3)",
+          "checkTime": true
+        },
+        {
+          "name": "IdempotencyResponseBufferBenchmarks.Empty",
+          "checkTime": false
+        },
+        {
+          "name": "IdempotencyResponseBufferBenchmarks.Nonempty",
+          "checkTime": false
+        },
+        {
+          "name": "JournalFrameEncodeBenchmarks.EncodePutWithOperationId",
+          "checkTime": true
+        },
+        {
+          "name": "JournalFrameEncodeBenchmarks.EncodeRemoveWithOperationId",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogCodecEncodeBenchmarks.EncodeTypical",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogCodecEncodeBenchmarks.EncodeLargeMutation",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=0)",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=32)",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=4096)",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=65536)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterAndLeave(InternalOwner=False)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterAndLeave(InternalOwner=True)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterNested(InternalOwner=False)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterNested(InternalOwner=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Encode(PropertyCount=4)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Encode(PropertyCount=64)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Decode(PropertyCount=4)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Decode(PropertyCount=64)",
+          "checkTime": true
+        }
+      ]
+    },
+    {
+      "name": "client",
+      "project": "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj",
+      "sources": [
+        "Program.cs",
+        "Config/SquirixBenchmarkConfig.cs",
+        "Client/PolicyOverheadBenchmarks.cs"
+      ],
+      "filters": [
+        "*PolicyOverheadBenchmarks.CallPolicyCompletedValueTaskBatchedAsync",
+        "*PolicyOverheadBenchmarks.BootstrapCallPolicyDoneVtBatchedAsync"
+      ],
+      "cases": [
+        {
+          "name": "PolicyOverheadBenchmarks.CallPolicyCompletedValueTaskBatchedAsync",
+          "checkTime": true
+        },
+        {
+          "name": "PolicyOverheadBenchmarks.BootstrapCallPolicyDoneVtBatchedAsync",
+          "checkTime": true
+        }
+      ]
+    },
+    {
+      "name": "server-extended",
+      "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
+      "entryPoint": "tools/ci/performance-guard/Program.cs",
+      "sources": [
+        "CachePipelineDecoratorBenchmarks.cs",
+        "AdmissionGateBenchmarks.cs",
+        "KeyedAsyncLockBenchmarks.cs",
+        "ReplicaStateTransferApplyBenchmarks.cs",
+        "SnapshotLoadBenchmarks.cs",
+        "JournalRecoveryScanBenchmarks.cs",
+        "KeyValidationBenchmarks.cs"
+      ],
+      "filters": [
+        "*CachePipelineDecoratorBenchmarks.*",
+        "*AdmissionGateBenchmarks.*",
+        "*KeyedAsyncLockBenchmarks.DistinctKeysAsync(Workers: 1)",
+        "*ReplicaStateTransferApplyBenchmarks.ParsePooledMessage",
+        "*SnapshotLoadBenchmarks.LoadSmall100KAsync",
+        "*SnapshotLoadBenchmarks.LoadJson100KAsync",
+        "*JournalRecoveryScanBenchmarks.DetermineNextSequence",
+        "*KeyValidationBenchmarks.ValidateKey*",
+        "*KeyValidationBenchmarks.ForCacheRepeatedName(KeyLength: 16)"
+      ],
+      "cases": [
+        {
+          "name": "CachePipelineDecoratorBenchmarks.ReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "CachePipelineDecoratorBenchmarks.GetOrAddExistingAsync",
+          "checkTime": true
+        },
+        {
+          "name": "CachePipelineDecoratorBenchmarks.SuspendingSetAsync",
+          "checkTime": false
+        },
+        {
+          "name": "CachePipelineDecoratorBenchmarks.SuspendingTryAddAsync",
+          "checkTime": false
+        },
+        {
+          "name": "AdmissionGateBenchmarks.AcquireAndDisposeAsync",
+          "checkTime": true
+        },
+        {
+          "name": "KeyedAsyncLockBenchmarks.DistinctKeysAsync(Workers=1)",
+          "checkTime": false
+        },
+        {
+          "name": "ReplicaStateTransferApplyBenchmarks.ParsePooledMessage",
+          "checkTime": true
+        },
+        {
+          "name": "SnapshotLoadBenchmarks.LoadSmall100KAsync",
+          "checkTime": false
+        },
+        {
+          "name": "SnapshotLoadBenchmarks.LoadJson100KAsync",
+          "checkTime": false
+        },
+        {
+          "name": "JournalRecoveryScanBenchmarks.DetermineNextSequence",
+          "checkTime": false
+        },
+        {
+          "name": "KeyValidationBenchmarks.ValidateKey(KeyLength=16)",
+          "checkTime": true
+        },
+        {
+          "name": "KeyValidationBenchmarks.ValidateKey(KeyLength=128)",
+          "checkTime": true
+        },
+        {
+          "name": "KeyValidationBenchmarks.ValidateKey(KeyLength=1024)",
+          "checkTime": true
+        },
+        {
+          "name": "KeyValidationBenchmarks.ForCacheRepeatedName(KeyLength=16)",
+          "checkTime": true
+        }
+      ]
+    }
+  ]
+}

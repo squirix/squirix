@@ -84,7 +84,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             var operation = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellation.Token);
             _ = await pipeline.LocalAppended.Task.WaitAsync(cancellationToken);
             await cancellation.CancelAsync();
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(0);
 
@@ -125,7 +125,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             var stalledCommit = stalled.CommitAsync(CreateMutation(), stalledBudget, cancellationToken).AsTask();
             _ = await stalledPipeline.LocalAppended.Task.WaitAsync(TimeSpan.FromSeconds(10), provider, cancellationToken);
             stalledClock.Advance(stalledBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stalledCommit.WaitAsync(TimeSpan.FromSeconds(10), provider, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stalledCommit, TimeSpan.FromSeconds(10), provider, cancellationToken);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         }
         finally
@@ -171,7 +171,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
             // Budget expiry faults the parked resolution after abandonment, running the attached observer.
             // Disposal left the gates with the running commit, so it unwinds with its own budget expiry, not ObjectDisposedException.
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(error.InnerException).IsAssignableTo<OperationCanceledException>();
         }
@@ -201,7 +201,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             _ = await Assert.That(disposal.IsCompleted).IsFalse();
 
             var rejected = coordinator.CommitAsync(CreateMutation(2, "fedcba9876543210fedcba9876543210"), TimeSpan.FromSeconds(5), cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException, ReadOnlyMemory<byte>>(rejected);
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException, ReadOnlyMemory<byte>>(rejected, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             pipeline.ReleaseLocalAppend();
             _ = await current;
@@ -231,7 +231,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         try
         {
             var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             disposal = coordinator.DisposeAsync().AsTask();
             _ = await Assert.That(disposal.IsCompleted).IsFalse();
@@ -256,7 +256,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         try
         {
             var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
-            var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
+            var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
@@ -338,7 +338,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             var operation = coordinator.CommitAsync(CreateMutation(), budget, cancellationToken).AsTask();
             await pipeline.FollowersStarted.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             budgetClock.Advance(budget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             // Wait for the observable deadline signal so late responses truly arrive after the deadline.
@@ -368,7 +368,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             // relying on the racy 100ms-budget-versus-background-observe ordering.
             pipeline.ReleaseFollowers();
             var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
-            var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
+            var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
@@ -486,8 +486,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var retry = CreateMutation(3, TailOperationA);
         try
         {
-            var unknown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
-                coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken));
+            var unknown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(unknown.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(idempotency.Lookup(retry.OperationScope, retry.OperationId, retry.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
 
@@ -554,7 +553,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         {
             var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
 
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(0);
         }
@@ -578,7 +577,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         {
             var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(100), cancellationToken);
             _ = await pipeline.LocalAppended.Task.WaitAsync(cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReadOnlyMemory<byte>>(operation);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReadOnlyMemory<byte>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(0);
         }
         finally
@@ -961,7 +960,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
         {
-            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record)
+            if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } record)
                 throw new InvalidOperationException("Test tail entry is undecodable.");
 
             var identity = new ReplicaOperationIdentity("group-a", record.OperationScope, record.OperationId, record.OperationFingerprint);

@@ -52,12 +52,6 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         await AssertEdgeAsync(policy, "Squirix.Server.Node.App.Decorators", "Squirix.Server.Storage.Replication.Child", true);
     }
 
-    /// <summary>Replication sources must not contain debug output or dumping dependencies.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public Task ReplicationUsesNoDumpingNamespaces(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(
-        ReplicationSourceRules.DebugOutput, cancellationToken);
-
     /// <summary>Replication sources must not declare writable static fields.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -72,7 +66,7 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
             cancellationToken.ThrowIfCancellationRequested();
             var type = metadata.GetTypeDefinition(handle);
             var typeName = metadata.GetString(type.Name);
-            if (typeName.StartsWith('<'))
+            if (typeName is ['<', ..])
                 continue;
 
             var owner = type;
@@ -80,7 +74,8 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
                 owner = metadata.GetTypeDefinition(owner.GetDeclaringType());
 
             var ns = metadata.GetString(owner.Namespace);
-            if (!string.Equals(ns, "Squirix.Server.Cluster.Replication", StringComparison.Ordinal) && !ns.StartsWith("Squirix.Server.Cluster.Replication.", StringComparison.Ordinal))
+            if (!string.Equals(ns, "Squirix.Server.Cluster.Replication", StringComparison.Ordinal) &&
+                !ns.StartsWith("Squirix.Server.Cluster.Replication.", StringComparison.Ordinal))
                 continue;
 
             foreach (var fieldHandle in type.GetFields())
@@ -95,11 +90,15 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
 
+    /// <summary>Replication sources must not contain debug output or dumping dependencies.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task ReplicationUsesNoDumpingNamespaces(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(ReplicationSourceRules.DebugOutput, cancellationToken);
+
     /// <summary>Replication sources must not resolve services through a locator.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(
-        ReplicationSourceRules.ServiceLocator, cancellationToken);
+    public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(ReplicationSourceRules.ServiceLocator, cancellationToken);
 
     /// <summary>Shared proto contracts must not declare the server-only replication service.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -122,29 +121,13 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         var disallowed = false;
         foreach (XmlNode node in policy.GetElementsByTagName("Disallowed"))
         {
-            if (node is XmlElement edge && NamespaceMatches(edge.GetAttribute("From"), from) && NamespaceMatches(edge.GetAttribute("To"), to))
-            {
-                disallowed = true;
-                break;
-            }
+            if (node is not XmlElement edge || !NamespaceMatches(edge.GetAttribute("From"), from) || !NamespaceMatches(edge.GetAttribute("To"), to))
+                continue;
+            disallowed = true;
+            break;
         }
 
         _ = await Assert.That(disallowed).IsEqualTo(expectedDisallowed).Because($"Dependency '{from}' to '{to}' has an unexpected policy.");
-    }
-
-    private static bool NamespaceMatches(string pattern, string name)
-    {
-        if (pattern.Length >= 2 && pattern[0] == '/' && pattern[^1] == '/')
-            return Regex.IsMatch(name, pattern[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-        if (string.Equals(pattern, "*", StringComparison.Ordinal))
-            return true;
-        if (pattern.EndsWith(".*", StringComparison.Ordinal))
-        {
-            var prefix = pattern[..^2];
-            return string.Equals(name, prefix, StringComparison.Ordinal) || name.StartsWith(prefix + ".", StringComparison.Ordinal);
-        }
-
-        return string.Equals(pattern, name, StringComparison.Ordinal);
     }
 
     private static async Task AssertSourcesDoNotMatchAsync(Regex pattern, CancellationToken cancellationToken)
@@ -155,5 +138,17 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
             var source = await File.ReadAllTextAsync(path, cancellationToken);
             _ = await Assert.That(ReplicationSourceRules.HasViolation(pattern, source)).IsFalse().Because(path);
         }
+    }
+
+    private static bool NamespaceMatches(string pattern, string name)
+    {
+        if (pattern is ['/', _, ..] && pattern[^1] == '/')
+            return Regex.IsMatch(name, pattern[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        if (string.Equals(pattern, "*", StringComparison.Ordinal))
+            return true;
+        if (!pattern.EndsWith(".*", StringComparison.Ordinal))
+            return string.Equals(pattern, name, StringComparison.Ordinal);
+        var prefix = pattern[..^2];
+        return string.Equals(name, prefix, StringComparison.Ordinal) || name.StartsWith(prefix + ".", StringComparison.Ordinal);
     }
 }

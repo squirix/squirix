@@ -69,6 +69,7 @@ dotnet_diagnostic.IDE0036.severity = warning # modifiers are not ordered
 dotnet_diagnostic.IDE0041.severity = warning # use is null / is not null check
 dotnet_diagnostic.IDE0045.severity = none # do not convert if statement to switch statement
 dotnet_diagnostic.IDE0055.severity = error # enforce code-style formatting in build
+dotnet_diagnostic.IDE0062.severity = error # make local functions static when they do not capture state
 dotnet_diagnostic.IDE0063.severity = warning # use simple using statement
 dotnet_diagnostic.IDE0066.severity = warning # use switch expression
 dotnet_diagnostic.IDE0074.severity = warning # use coalesce compound assignment
@@ -165,6 +166,8 @@ dotnet_diagnostic.SA1134.severity = error # each attribute on its own line
 dotnet_diagnostic.SA1200.severity = none # using directives placement
 dotnet_diagnostic.SA1202.severity = error # elements should be ordered by access (private after public/internal/protected)
 dotnet_diagnostic.SA1309.severity = none # allow leading underscore fields
+dotnet_diagnostic.SA1412.severity = none # UTF-8 BOM is not required
+dotnet_diagnostic.SX1412.severity = warning # require UTF-8 without BOM
 dotnet_diagnostic.SA1503.severity = none # always-require-braces conflicts with nested-loop no-braces style
 dotnet_diagnostic.SA1519.severity = none # multi-line-child braces conflict with nested-loop no-braces style
 dotnet_diagnostic.SA1520.severity = error # if/else siblings must use braces consistently (multi-statement if => braced else)
@@ -192,11 +195,11 @@ dotnet_diagnostic.CA1816.severity = error # dispose methods should call base
 dotnet_diagnostic.CA1822.severity = error # mark members as static
 dotnet_diagnostic.CA1823.severity = warning # unused private fields
 dotnet_diagnostic.CA1825.severity = warning # avoid unnecessary zero-length array allocations
-dotnet_diagnostic.CA1834.severity = error # use Span-based string append
+dotnet_diagnostic.CA1834.severity = error # use StringBuilder.Append(char) for single-character strings
 dotnet_diagnostic.CA1845.severity = warning # use span-based overloads
 dotnet_diagnostic.CA1852.severity = warning # seal types for performance
-dotnet_diagnostic.CA1861.severity = error # use SearchValues for char search
-dotnet_diagnostic.CA1869.severity = warning # cache and reuse Regex
+dotnet_diagnostic.CA1861.severity = error # avoid repeated constant array allocations in arguments
+dotnet_diagnostic.CA1869.severity = warning # cache and reuse JsonSerializerOptions
 dotnet_diagnostic.CA2000.severity = error # dispose objects before losing scope
 dotnet_diagnostic.CA2012.severity = error # use ValueTask correctly
 dotnet_diagnostic.CA2016.severity = warning # forward CancellationToken
@@ -556,6 +559,7 @@ resharper_redundant_switch_expression_arms_highlighting = none # exhaustive swit
 resharper_redundant_suppress_nullable_warning_expression_highlighting = warning # flag redundant nullable suppress
 resharper_redundant_pattern_parentheses_highlighting = none # flag redundant parentheses suppress
 resharper_remove_redundant_braces_highlighting = none # do not remove redundant braces
+resharper_single_with_into_object_creation_highlighting = none # do not suggest object creation from collection expressions (conflicts with IDE0300/IDE0305)
 resharper_suggest_var_or_type_built_in_types_highlighting = warning # align Rider var-for-built-in-types with csharp_style_var_for_built_in_types
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning # flag switch missing enum cases with default
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning # flag switch missing enum cases no default
@@ -616,6 +620,9 @@ resharper_csharp_wrap_ternary_expr_style = chop_if_long # SA1143: chop before '?
 # ===========================================================================
 # Scoped overrides
 # ===========================================================================
+[src/**/*.cs]
+dotnet_diagnostic.ZA0503.severity = error # detect boxing arguments outside loops; disabled by default, so category severity does not enable it
+
 [tools/**]
 dotnet_diagnostic.MA0047.severity = none # Types must be declared inside a namespace (file-based scripts use top-level statements)
 dotnet_diagnostic.MA0048.severity = none # File name must match the primary type name (script file names differ from inline types)

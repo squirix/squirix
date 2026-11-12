@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -64,16 +63,32 @@ internal sealed class ReplicaEntryCatchUpSession
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the session by throwing.</param>
     /// <returns>The outcome and what the follower is verified to hold.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal async Task<ReplicaCatchUpResult> RunAsync(ReplicaFollowerCatchUp lease, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(lease);
+    internal Task<ReplicaCatchUpResult> RunAsync(ReplicaFollowerCatchUp lease, CancellationToken cancellationToken) =>
+        RunCoreAsync(lease, false, int.MaxValue, cancellationToken);
 
-        var target = (await _leaderLog.GetStatusAsync(cancellationToken).ConfigureAwait(false)).LastLogIndex;
-        var state = new Progress(target + 1UL);
-        while (true)
+    /// <summary>Copies a fixed prefix without its final confirmation, so the owner can release the sender before taking its admission gate.</summary>
+    /// <param name="lease">The leased follower sender.</param>
+    /// <param name="cancellationToken">The session cancellation token.</param>
+    /// <returns>The copy outcome; a copied prefix is not an admission verdict.</returns>
+    internal Task<ReplicaCatchUpResult> CopyPrefixAsync(ReplicaFollowerCatchUp lease, CancellationToken cancellationToken) =>
+        RunCoreAsync(lease, true, int.MaxValue, cancellationToken);
+
+    /// <summary>Bounds a finalization attempt to three requests and the supplied deadline.</summary>
+    /// <param name="lease">The leased follower sender.</param>
+    /// <param name="timing">The deadline duration and clock.</param>
+    /// <param name="cancellationToken">The owner cancellation token.</param>
+    /// <returns>The confirmation outcome, or a yield requiring replay outside the admission gate.</returns>
+    internal async Task<ReplicaCatchUpResult> FinalizeAsync(ReplicaFollowerCatchUp lease, (TimeSpan Budget, TimeProvider Clock) timing, CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(timing.Budget, timing.Clock);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        try
         {
-            if (await RoundAsync(lease, state, target, cancellationToken).ConfigureAwait(false) is { } outcome)
-                return state.End(outcome);
+            return await RunCoreAsync(lease, false, 3, linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0);
         }
     }
 
@@ -104,38 +119,56 @@ internal sealed class ReplicaEntryCatchUpSession
         _ => ReplicaCatchUpOutcome.Refused,
     };
 
+    private async Task<ReplicaCatchUpResult> RunCoreAsync(ReplicaFollowerCatchUp lease, bool copyOnly, int maxRounds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+
+        var target = (await _leaderLog.GetStatusAsync(cancellationToken).ConfigureAwait(false)).LastLogIndex;
+        var state = new Progress(target + 1UL);
+        for (var round = 0; round < maxRounds; round++)
+        {
+            if (copyOnly && round > 0 && state.Next > target)
+                return state.End(ReplicaCatchUpOutcome.PrefixCopied);
+            if (await RoundAsync(lease, state, target, cancellationToken).ConfigureAwait(false) is { } outcome)
+                return state.End(outcome);
+        }
+
+        return state.End(ReplicaCatchUpOutcome.Yielded);
+    }
+
     /// <summary>Applies the follower's answer: advances on a success, backs up on a log mismatch, ends on any other refusal.</summary>
     /// <param name="lease">The lease, told what the follower now holds.</param>
     /// <param name="state">The session position.</param>
     /// <param name="read">The leader read the request was built from.</param>
-    /// <param name="sent">The entries the request carried.</param>
     /// <param name="result">The follower's answer.</param>
+    /// <param name="termStart">The start of the mismatched retained term run, or the current next index when no jump is available.</param>
     /// <returns>The outcome that ends the session, or <see langword="null" /> to run another round.</returns>
     private ReplicaCatchUpOutcome? Apply(
         ReplicaFollowerCatchUp lease,
         Progress state,
         in FollowerLogEntriesRead read,
-        FollowerLogEntry[] sent,
-        in FollowerLogAppendResult result)
+        in FollowerLogAppendResult result,
+        ulong termStart)
     {
         if (result.Success)
         {
-            if (sent.Length == 0 && result.LastLogIndex != read.PrevLogIndex)
+            var sent = read.Entries;
+            if (sent.Count == 0 && result.LastLogIndex != read.PrevLogIndex)
                 return ReplicaCatchUpOutcome.Diverged;
 
-            if (sent.Length == 0)
+            if (sent.Count == 0)
                 state.Advance(read.PrevLogIndex, read.PrevLogTerm, 0);
             else
-                state.Advance(sent[^1].LogIndex, sent[^1].Term, sent.Length);
+                state.Advance(sent[^1].LogIndex, sent[^1].Term, sent.Count);
 
             lease.MarkHeld(state.HeldThrough);
-            return sent.Length == 0 ? ReplicaCatchUpOutcome.CaughtUp : null;
+            return sent.Count == 0 ? ReplicaCatchUpOutcome.CaughtUp : null;
         }
 
         switch (result.RefusalCode)
         {
             case RefusalCodes.LogMismatch:
-                var candidate = ReplicaRepairPlanner.BackUpNextIndex(state.Next, result.LastLogIndex);
+                var candidate = Math.Min(ReplicaRepairPlanner.BackUpNextIndex(state.Next, result.LastLogIndex), termStart);
                 if (candidate >= state.Next || ++state.BackUps > _maxBackUps)
                     return ReplicaCatchUpOutcome.Diverged;
 
@@ -161,7 +194,8 @@ internal sealed class ReplicaEntryCatchUpSession
         try
         {
             // Past the target the read carries nothing: the empty probe at the target ends the session.
-            read = await _leaderLog.ReadEntriesAsync(state.Next, state.Next > target ? 0 : _maxBatchEntries, cancellationToken).ConfigureAwait(false);
+            var maxCount = state.Next > target ? 0 : int.CreateChecked(Math.Min(ulong.CreateChecked(_maxBatchEntries), target - state.Next + 1));
+            read = await _leaderLog.ReadEntriesAsync(state.Next, maxCount, cancellationToken, _maxBatchBytes).ConfigureAwait(false);
         }
         catch (InvalidDataException)
         {
@@ -171,10 +205,14 @@ internal sealed class ReplicaEntryCatchUpSession
         if (!read.Retained)
             return read.PrevLogIndex > read.LastLogIndex ? ReplicaCatchUpOutcome.Diverged : ReplicaCatchUpOutcome.Compacted;
 
-        if (!TryTakeBatch(read.Entries, target, out var taken))
-            return ReplicaCatchUpOutcome.Corrupt;
+        for (var i = 0; i < read.Entries.Count; i++)
+        {
+            var entry = read.Entries[i];
+            if (!ReplicaLogCodec.IsWellFormed(entry.Payload.Span, entry.LogIndex, entry.Term))
+                return ReplicaCatchUpOutcome.Corrupt;
+        }
 
-        var batch = new FollowerBatch(taken, _leaderNodeId, _leaderTerm, read.PrevLogIndex, read.PrevLogTerm, read.CommitIndex);
+        var batch = new FollowerBatch(read.Entries, _leaderNodeId, _leaderTerm, read.PrevLogIndex, read.PrevLogTerm, read.CommitIndex);
         state.Rounds++;
         FollowerLogAppendResult result;
         try
@@ -186,35 +224,10 @@ internal sealed class ReplicaEntryCatchUpSession
             return outcome;
         }
 
-        return Apply(lease, state, in read, taken, in result);
-    }
-
-    /// <summary>Takes the entries of one request: those through the target that fit the byte cap, a single larger entry alone.</summary>
-    /// <param name="entries">The entries read, in index order.</param>
-    /// <param name="target">The last index the session sends.</param>
-    /// <param name="taken">The entries of the request.</param>
-    /// <returns><see langword="false" /> when an entry carries a payload that is not a canonical record at its position.</returns>
-    private bool TryTakeBatch(IReadOnlyList<FollowerLogEntry> entries, ulong target, out FollowerLogEntry[] taken)
-    {
-        var count = 0;
-        var bytes = 0L;
-        while (count < entries.Count && entries[count].LogIndex <= target && (count == 0 || bytes + entries[count].Payload.Length <= _maxBatchBytes))
-        {
-            bytes += entries[count].Payload.Length;
-            count++;
-        }
-
-        taken = count == 0 ? [] : new FollowerLogEntry[count];
-        for (var i = 0; i < count; i++)
-        {
-            var entry = entries[i];
-            if (!ReplicaLogCodec.IsWellFormed(entry.Payload.Span, entry.LogIndex, entry.Term))
-                return false;
-
-            taken[i] = entry;
-        }
-
-        return true;
+        var termStart = !result.Success && read.PrevLogIndex > 0UL && string.Equals(result.RefusalCode, RefusalCodes.LogMismatch, StringComparison.Ordinal) && result.LastLogIndex >= read.PrevLogIndex
+            ? await _leaderLog.GetTermStartAsync(read.PrevLogIndex, cancellationToken).ConfigureAwait(false)
+            : state.Next;
+        return Apply(lease, state, in read, in result, termStart);
     }
 
     /// <summary>The position of one running session.</summary>

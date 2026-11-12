@@ -165,7 +165,12 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true, ManualMaintenanceInterval), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[OwnerId], cancellationToken);
         var operations = await OverwriteAsync(cluster[OwnerId], Followers(cluster), overwrites, cancellationToken);
-        await CompactAsync(cluster[OwnerId], cancellationToken);
+        var owner = cluster[OwnerId];
+        await CompactAsync(owner, cancellationToken);
+        var compacted = await OwnerLog(owner).GetStatusAsync(cancellationToken);
+        var ownerKey = owner.FindKeyOwnedBy(CacheName, OwnerId);
+        await owner.GetCache<object?>(CacheName).SetEntryAsync(operations[1], CacheName, ownerKey, Entry(2), cancellationToken);
+        _ = await Assert.That((await OwnerLog(owner).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(compacted.LastLogIndex);
 
         await cluster.StopNodeAsync(OwnerId);
         var restarted = await cluster.StartNodeAsync(OwnerId, Options(scope, false, ManualMaintenanceInterval), cancellationToken);
@@ -253,8 +258,17 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await fabric.IsolateAsync("node-c");
         _ = await OverwriteAsync(owner, [], Threshold * 3, cancellationToken);
 
+        var log = OwnerLog(owner);
+        var refused = await CompactOnceAsync(owner, cancellationToken);
+        _ = await Assert.That(refused is ReplicaLogCompactionOutcome.FollowerBehind or ReplicaLogCompactionOutcome.FollowerNotReady).IsTrue();
+        _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(0UL);
+        var before = (await log.GetStatusAsync(cancellationToken)).CommitIndex;
+        _ = await OverwriteAsync(owner, [], Threshold, cancellationToken);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(before + Threshold);
+
         fabric.HealAll();
-        await CompactAsync(owner, cancellationToken);
+        var writing = OverwriteAsync(owner, [], Threshold * 12, cancellationToken);
+        await Task.WhenAll(writing, CompactAsync(owner, cancellationToken));
 
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-c", cluster["node-c"])], cancellationToken);
         _ = await Assert.That((await OwnerLog(owner).GetRetentionAsync(cancellationToken)).SnapshotIndex > 0).IsTrue();
@@ -348,7 +362,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                     return retention.SnapshotIndex > 0 && retention.RetainedEntries <= retained;
                 },
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -415,7 +428,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                     return outcome == ReplicaLogCompactionOutcome.Compacted;
                 },
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -438,7 +450,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
             await committer.WaitUntilValueAsync(
                 static async (replicaCommitter, token) => await replicaCommitter.VerifyReplicasAsync(token) == ReplicaVerification.AllReady,
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)

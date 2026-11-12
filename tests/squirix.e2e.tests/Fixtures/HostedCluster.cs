@@ -185,7 +185,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         }
         finally
         {
-            _ = await Cluster.RestartWipedNodeAsync(id, null, cancellationToken);
+            _ = await Cluster.RestartWipedNodeAsync(id, cancellationToken);
         }
     }
 

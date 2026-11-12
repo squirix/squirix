@@ -12,7 +12,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>Release evidence for RF=3 quorum authority and RF=2 mirror-only limits.</summary>
-public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
+public sealed class ReplicaSetsReleaseE2ETests
 {
     /// <summary>RF=3 current reads keep quorum authority while a majority remains.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -65,7 +65,7 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
         using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bound.Token);
         var started = Stopwatch.GetTimestamp();
-        var exception = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cache.SetAsync(key, "v2", cancellationToken: linked.Token));
+        var exception = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(cache.SetAsync(key, "v2", cancellationToken: linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         // The framework token cancelling first means the harness tore down, not that mirror loss was observed.

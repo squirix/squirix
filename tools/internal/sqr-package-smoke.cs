@@ -4,6 +4,7 @@
 #:property ImplicitUsings=disable
 #:include shared/SqrTool.cs
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -23,10 +24,12 @@ if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-package-smoke.cs --", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-package-smoke.cs -- --use-existing-packages <configuration> <version>", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
-if (argv.Length > 0)
+var reusePackages = argv is ["--use-existing-packages", _, _];
+if (argv.Length > 0 && !reusePackages)
 {
     await Console.Error.WriteLineAsync($"ERROR: unknown argument '{argv[0]}'", CancellationToken.None).ConfigureAwait(false);
     return 1;
@@ -48,20 +51,26 @@ _ = Directory.CreateDirectory(packageCacheRoot);
 _ = Directory.CreateDirectory(packageCacheDir);
 
 Environment.SetEnvironmentVariable("NUGET_PACKAGES", packageCacheDir);
-foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.nupkg", SearchOption.TopDirectoryOnly))
-    File.Delete(packagePath);
-foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snupkg", SearchOption.TopDirectoryOnly))
-    File.Delete(packagePath);
+if (!reusePackages)
+{
+    foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.nupkg", SearchOption.TopDirectoryOnly))
+        File.Delete(packagePath);
+    foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snupkg", SearchOption.TopDirectoryOnly))
+        File.Delete(packagePath);
 
-var coreProject = Path.Join(repoRoot, "src", "squirix", "Squirix.csproj");
-var serverProject = Path.Join(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
-var corePackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
-if (corePackCode != 0)
-    return corePackCode;
-
-var serverPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
-if (serverPackCode != 0)
-    return serverPackCode;
+    foreach (var project in new[]
+             {
+                 "src/squirix/Squirix.csproj",
+                 "src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj",
+                 "src/squirix.server/Squirix.Server.csproj",
+             })
+    {
+        var exitCode = await RunDotnetAsync(
+            dotnetPath, repoRoot, ["pack", project, "-c", "Release", "-o", packageDir, "-p:SquirixPackAllFrameworks=true"], CancellationToken.None).ConfigureAwait(false);
+        if (exitCode != 0)
+            return exitCode;
+    }
+}
 
 if (!HasClientPackage(packageDir))
 {
@@ -75,6 +84,12 @@ if (!HasServerPackage(packageDir))
     return 1;
 }
 
+if (!HasCachingPackage(packageDir))
+{
+    await Console.Error.WriteLineAsync("ERROR: squirix.extensions.caching package was not produced.", CancellationToken.None).ConfigureAwait(false);
+    return 1;
+}
+
 var sampleDir = Path.Join(repoRoot, "samples", "external-package-smoke");
 var settingsPath = Path.Join(sampleDir, "Squirix.settings.json");
 var hadSettings = File.Exists(settingsPath);
@@ -83,19 +98,29 @@ var settingsBackup = hadSettings ? await File.ReadAllBytesAsync(settingsPath, Ca
 try
 {
     const int maxAttempts = 5;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+    var configuration = reusePackages ? argv[1] : "Release";
+    foreach (var framework in new[] { "net10.0", "net11.0" })
     {
-        var port = GetFreeTcpPort();
-        var url = $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
-        var json = BuildSettingsJson(url);
-        await File.WriteAllTextAsync(settingsPath, json, CancellationToken.None).ConfigureAwait(false);
+        List<string> runArguments = ["run", "-c", configuration, "-p:SmokeUsePackages=true", $"-p:SquirixTargetFramework={framework}"];
+        if (reusePackages)
+            runArguments.Add($"-p:SquirixPackageVersion={argv[2]}");
 
-        var exitCode = await RunDotnetAsync(dotnetPath, sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"], CancellationToken.None).ConfigureAwait(false);
-        if (exitCode == 0 || attempt == maxAttempts)
-            return exitCode;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var port = GetFreeTcpPort();
+            var url = $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
+            var json = BuildSettingsJson(url);
+            await File.WriteAllTextAsync(settingsPath, json, CancellationToken.None).ConfigureAwait(false);
+
+            var exitCode = await RunDotnetAsync(dotnetPath, sampleDir, runArguments, CancellationToken.None).ConfigureAwait(false);
+            if (exitCode == 0)
+                break;
+            if (attempt == maxAttempts)
+                return exitCode;
+        }
     }
 
-    return 1;
+    return 0;
 }
 finally
 {
@@ -153,7 +178,8 @@ static bool HasClientPackage(string directory)
     {
         var name = Path.GetFileName(path);
         if (name.StartsWith("squirix.", StringComparison.Ordinal)
-            && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
+            && !name.StartsWith("squirix.server.", StringComparison.Ordinal)
+            && !name.StartsWith("squirix.extensions.", StringComparison.Ordinal))
             return true;
     }
 
@@ -163,5 +189,11 @@ static bool HasClientPackage(string directory)
 static bool HasServerPackage(string directory)
 {
     using var enumerator = Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
+    return enumerator.MoveNext();
+}
+
+static bool HasCachingPackage(string directory)
+{
+    using var enumerator = Directory.EnumerateFiles(directory, "squirix.extensions.caching.*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
     return enumerator.MoveNext();
 }

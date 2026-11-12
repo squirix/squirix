@@ -68,7 +68,7 @@ public sealed class GroupIdempotencyWindowTests
         var clock = new FakeTimeProvider(Epoch);
         var state = NewState(clock);
         _ = state.Reserve(Scope, "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = state.TryResolve(Scope, "op", [2], 1UL, 1UL);
+        _ = state.TryResolve(Scope, "op", new byte[] { 2 }, 1UL, 1UL);
 
         clock.Advance(Window - Epsilon);
         var inside = state.Lookup(Scope, "op", [1], out _);
@@ -127,7 +127,7 @@ public sealed class GroupIdempotencyWindowTests
         var leader = new FakeTimeProvider(Epoch);
         var source = NewState(leader);
         _ = source.Reserve(Scope, "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = source.TryResolve(Scope, "op", [2], 1UL, 1UL);
+        _ = source.TryResolve(Scope, "op", new byte[] { 2 }, 1UL, 1UL);
         var ageAtCapture = Window / 3;
         leader.Advance(ageAtCapture);
         var outcomes = source.ExportResolved(out var capturedUtc);
@@ -149,7 +149,7 @@ public sealed class GroupIdempotencyWindowTests
     public async Task FlowBelowCountLimitIsNeverRefused()
     {
         var clock = new FakeTimeProvider(Epoch);
-        var state = new GroupIdempotencyState(SmallCapacity, Window, clock, Window, GroupIdempotencyState.DefaultMaxOutcomeBytes);
+        var state = new GroupIdempotencyState(SmallCapacity, Window, clock, Window);
 
         await AssertFlowNeverRefusedAsync(state, clock, 1);
     }
@@ -197,5 +197,5 @@ public sealed class GroupIdempotencyWindowTests
     }
 
     private static GroupIdempotencyState NewState(FakeTimeProvider clock) =>
-        new(PolicyOptions.RfIdempotencyMaxInFlightRecords, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks), clock, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks), PolicyOptions.RfIdempotencyMaxOutcomeBytes);
+        new(PolicyOptions.RfIdempotencyMaxInFlightRecords, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks), clock, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks));
 }

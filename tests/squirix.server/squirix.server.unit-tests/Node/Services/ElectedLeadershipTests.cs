@@ -84,7 +84,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         await inner.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, DateTime.UtcNow.AddMinutes(-1)), cancellationToken);
         var cache = new ReplicatedCache(inner, committers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
     }
@@ -342,7 +342,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
         GrantAuthority(registry, "n2", 2UL);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var pipeline = committer.RunningPipeline;
 
         // A follower that mismatches is queued for a catch-up by a verification pass that precedes the retirement.
@@ -379,7 +379,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
         GrantAuthority(registry, "n2", 2UL);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var refused = await committer.RetireAsync(cancellationToken);
         var leaseKept = !applier.DriverLease.TryEnterPass();
@@ -414,7 +414,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((1UL, 0UL));
 
         // A write that reaches the retired committer is refused like the write gate refuses it, never as an internal fault.
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
@@ -437,7 +437,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
         GrantAuthority(registry, "n2", 2UL);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var pipeline = committer.RunningPipeline;
         var eligibility = registry.EligibilityFor("n2");
         eligibility.Forget(0);
@@ -531,7 +531,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         var noops = new List<ReplicaLogRecord>(read.Entries.Count);
         foreach (var entry in read.Entries)
         {
-            var record = ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
+            var record = ReplicaLogCodec.DecodeBorrowed(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
             if (string.Equals(record.MutationKind, ReplicaMutationKinds.LeaderNoop, StringComparison.Ordinal))
                 noops.Add(record);
         }

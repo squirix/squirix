@@ -35,6 +35,12 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         new ReadKeyArgs(cacheName, key),
         cancellationToken);
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(
+        CacheOperationNames.GetEntry,
+        static (inner, args, ct) => inner.GetValueWithDeadlineAsync(args.CacheName, args.Key, ct),
+        new ReadKeyArgs(cacheName, key),
+        cancellationToken);
+
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(
         CacheOperationNames.Get,
         static (inner, args, ct) => inner.GetValueAsync(args.CacheName, args.Key, ct),

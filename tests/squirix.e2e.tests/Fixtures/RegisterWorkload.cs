@@ -125,14 +125,21 @@ internal sealed class RegisterWorkload
                 _ = await pacer.WaitForNextTickAsync(cancellationToken);
 
             var start = Stopwatch.GetTimestamp();
+            var succeeded = false;
             try
             {
                 var read = await _reader.GetValueAsync(key, cancellationToken);
                 History.RecordRead(new RegisterRead(key, start, Stopwatch.GetTimestamp(), read.Found ? read.Value : 0L));
+                succeeded = true;
             }
             catch (RpcException)
             {
-                History.RecordFailedRead();
+                // A failed read has no effect on the register model.
+            }
+            finally
+            {
+                if (!succeeded)
+                    History.RecordReadFailure(key, start, Stopwatch.GetTimestamp());
             }
         }
     }
@@ -159,8 +166,10 @@ internal sealed class RegisterWorkload
             {
                 // The write may or may not have taken effect: the history keeps it as ambiguous.
             }
-
-            History.RecordWrite(new RegisterWrite(key, value, start, Stopwatch.GetTimestamp(), acked));
+            finally
+            {
+                History.RecordWrite(new RegisterWrite(key, value, start, Stopwatch.GetTimestamp(), acked));
+            }
         }
     }
 }

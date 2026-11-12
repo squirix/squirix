@@ -43,6 +43,9 @@ public sealed class FailoverRetryTests
         _ = await Assert.That(observer.Observed[1].NodeId).IsEqualTo("endpoint-1");
         _ = await Assert.That(observer.Observed[0].OperationId).IsEqualTo(observer.OperationId);
         _ = await Assert.That(observer.Observed[1].OperationId).IsEqualTo(observer.OperationId);
+
+        var nextEndpoint = await failover.ExecuteAsync(static (nodeId, _, _, _) => ValueTask.FromResult(nodeId), 0, cancellationToken);
+        _ = await Assert.That(nextEndpoint).IsEqualTo("endpoint-1");
     }
 
     /// <summary>An expired shared deadline rejects the operation before the first attempt.</summary>
@@ -61,48 +64,34 @@ public sealed class FailoverRetryTests
                     return new ValueTask<int>(42);
                 },
                 observer,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(observer.Observed).IsEmpty();
     }
 
-    /// <summary>An HTTP transport failure reroutes to the next endpoint.</summary>
+    /// <summary>HTTP and I/O transport failures reroute to the next endpoint.</summary>
+    /// <param name="httpFailure">Whether to inject an HTTP failure instead of an I/O failure.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task HttpFailureFailsOverToNextEndpoint(CancellationToken cancellationToken)
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task TransportFailureSwitchesEndpoint(bool httpFailure, CancellationToken cancellationToken)
     {
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
-        var observer = new OperationObserver("operation-http-1");
+        var observer = new OperationObserver("operation-transport-1");
+        Exception error = httpFailure ? new HttpRequestException("down") : new IOException("down");
 
         var value = await failover.ExecuteAsync(
             static (nodeId, state, _, _) =>
             {
-                state.Observed.Add((nodeId, state.OperationId));
-                return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new HttpRequestException("down") : new ValueTask<int>(42);
+                state.Observer.Observed.Add((nodeId, state.Observer.OperationId));
+                return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw state.Error : new ValueTask<int>(42);
             },
-            observer,
-            cancellationToken);
-
-        _ = await Assert.That(value).IsEqualTo(42);
-        _ = await Assert.That(observer.Observed.Count).IsEqualTo(2);
-    }
-
-    /// <summary>An I/O failure reroutes to the next endpoint.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task IoFailureFailsOverToNextEndpoint(CancellationToken cancellationToken)
-    {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
-        var observer = new OperationObserver("operation-io-1");
-
-        var value = await failover.ExecuteAsync(
-            static (nodeId, state, _, _) =>
-            {
-                state.Observed.Add((nodeId, state.OperationId));
-                return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new IOException("down") : new ValueTask<int>(42);
-            },
-            observer,
+            (Observer: observer, Error: error),
             cancellationToken);
 
         _ = await Assert.That(value).IsEqualTo(42);
@@ -125,7 +114,10 @@ public sealed class FailoverRetryTests
                     throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"));
                 },
                 observer,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(observer.Observed.Count).IsEqualTo(2);

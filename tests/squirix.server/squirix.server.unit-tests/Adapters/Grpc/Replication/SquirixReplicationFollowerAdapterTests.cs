@@ -77,6 +77,23 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
     }
 
+    /// <summary>The status wire fingerprint has identical bytes and independent storage from the durable status.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StatusFingerprintOwnsWireBytes(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
+        var current = await GroupStatusAsync(follower, cancellationToken);
+        var request = new GetReplicaStatusRequest { Header = follower.Header };
+
+        var response = await follower.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That(current.TopologyFingerprint.IsEmpty).IsFalse();
+        await SequenceAssert.EqualAsync(current.TopologyFingerprint.ToArray(), response.TopologyFingerprint.ToByteArray());
+        _ = await Assert.That(current.TopologyFingerprint.Equals(response.TopologyFingerprint.Memory)).IsFalse();
+        _ = await Assert.That(response.ConfigurationGeneration).IsEqualTo(current.ConfigurationGeneration);
+    }
+
     /// <summary>Verifies that votes for the group this node statically leads are refused with failover on and leave its metadata unchanged.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

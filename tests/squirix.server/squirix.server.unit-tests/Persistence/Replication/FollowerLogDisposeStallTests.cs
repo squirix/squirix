@@ -45,7 +45,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             await DisposeStalledAsync(log, clock, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(advance.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(advance, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
 
             hooks.Release();
@@ -90,7 +90,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             await DisposeStalledAsync(log, clock, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(append, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
 
             hooks.Release();
@@ -160,10 +160,10 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
 
             await DisposeStalledAsync(log, clock, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(applied.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(applied, StallTimeout, TimeProvider.System, cancellationToken);
             await AssertUnconfirmedByShutdownAsync(append, logger, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AdvanceCommitAsync(1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AdvanceCommitAsync(1UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             hooks.Release();
             await hooks.Flushed.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         }
@@ -298,11 +298,10 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
 
             await DisposeStalledAsync(log, clock, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(2UL, "b"), cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(
-                log.AppendAsync(Append(2UL, "b"), ReadOnlyMemory<byte>.Empty, 0UL, cancellationToken));
-            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(holder.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(queued, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(2UL, "b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(2UL, "b"), ReadOnlyMemory<byte>.Empty, 0UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(holder, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(failure.InnerException).IsNotTypeOf<ReplicaShutdownRefusedException>();
             _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
             hooks.Release();
@@ -370,7 +369,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             await DisposeStalledAsync(log, clock, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
             _ = await Assert.That(state.Meta.CommitIndex).IsEqualTo(0UL);
 
@@ -395,7 +394,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
 
     private static async Task AssertUnconfirmedByShutdownAsync(Task append, EventRecordingLogger logger, CancellationToken cancellationToken)
     {
-        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(append, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(logger.Count(AppendUnconfirmedEventId)).IsEqualTo(1);

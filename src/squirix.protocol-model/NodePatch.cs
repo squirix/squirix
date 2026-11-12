@@ -5,11 +5,12 @@ namespace Squirix.ProtocolModel;
 
 /// <summary>Optional overrides applied by protocol-model transition patch helpers.</summary>
 [Immutable]
-internal sealed class NodePatch
+internal readonly record struct NodePatch
 {
     internal int? AppliedIndex { get; init; }
 
     internal int? CommitIndex { get; init; }
+    internal int? DurableCommitIndex { get; init; }
 
     internal int? CurrentTerm { get; init; }
 
@@ -26,6 +27,12 @@ internal sealed class NodePatch
     internal int? VotedFor { get; init; }
 
     internal int? VotesGranted { get; init; }
+
+    internal bool? Stopping { get; init; }
+
+    internal int? KnownLeaderTerm { get; init; }
+
+    internal int? KnownLeaderId { get; init; }
 
     internal bool? Unseeded { get; init; }
 }

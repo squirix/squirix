@@ -49,8 +49,9 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     }
 
     /// <summary>A failure recorded before the stop keeps parked and later waits failing, and the seal does not override it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task EarlierFailureStaysUnknown()
+    public async Task EarlierFailureStaysUnknown(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
         var groupCommit = new JournalDurabilityGroupCommit(static () => { }, static () => { }, static _ => { }, options, TimeProvider.System);
@@ -60,8 +61,8 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
         _ = await Assert.That(groupCommit.CancelPending(failure)).IsEqualTo(0);
         _ = await Assert.That(groupCommit.SealAfterFinalFlush()).IsEqualTo(0);
 
-        _ = await Assert.That(await NodeAsyncAssert.ThrowsAsync<IOException>(parked)).IsSameReferenceAs(failure);
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(groupCommit.AwaitCommitAsync(CancellationToken.None));
+        _ = await Assert.That(await NodeAsyncAssert.ThrowsAsync<IOException>(parked, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken)).IsSameReferenceAs(failure);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(groupCommit.AwaitCommitAsync(CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A failed final flush of the shutdown marker leaves the parked waiter faulted, never completed.</summary>
@@ -78,7 +79,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
 
         _ = await StopAsync(journal);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(parked.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(parked, Bound, TimeProvider.System, cancellationToken);
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
     }
 

@@ -53,11 +53,11 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         for (var worker = 0; worker < workers; worker++)
         {
             jobs[worker] = Task.Factory.StartNew(
-                RunMixedLoadWorkerAsync,
+                RunMixedLoadWorker,
                 new PhysicalCacheStressState(cache, keys, worker, iterations, null, worker, cancellationToken),
                 cancellationToken,
                 TaskCreationOptions.None,
-                TaskScheduler.Default).Unwrap();
+                TaskScheduler.Default);
         }
 
         var maxObserved = 0;
@@ -98,24 +98,24 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(time, estimator);
         var keys = CreateKeys(keyCount);
         for (var i = 0; i < keys.Length; i++)
-            await cache.SetAsync(keys[i], new NodeCacheEntry<string>(new string('v', 1 + (i * 13)), expiration: TimeSpan.FromHours(1)), cancellationToken);
+            cache.Set(keys[i], new NodeCacheEntry<string>(new string('v', 1 + (i * 13)), expiration: TimeSpan.FromHours(1)), cancellationToken);
 
         var failures = new int[workersPerRole * 2];
         var jobs = new Task[workersPerRole * 2];
         for (var worker = 0; worker < workersPerRole; worker++)
         {
             jobs[worker] = Task.Factory.StartNew(
-                RunTouchWorkerAsync,
+                RunTouchWorker,
                 new PhysicalCacheStressState(cache, keys, worker, iterations, failures, worker, cancellationToken),
                 cancellationToken,
                 TaskCreationOptions.None,
-                TaskScheduler.Default).Unwrap();
+                TaskScheduler.Default);
             jobs[worker + workersPerRole] = Task.Factory.StartNew(
-                RunResetExpirationWorkerAsync,
+                RunResetExpirationWorker,
                 new PhysicalCacheStressState(cache, keys, worker, iterations, failures, worker + workersPerRole, cancellationToken),
                 cancellationToken,
                 TaskCreationOptions.None,
-                TaskScheduler.Default).Unwrap();
+                TaskScheduler.Default);
         }
 
         await Task.WhenAll(jobs);
@@ -127,7 +127,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         _ = await Assert.That(totalFailures).IsEqualTo(0);
         _ = await Assert.That(EntryCountOf(cache)).IsEqualTo(keyCount);
         foreach (var key in keys)
-            _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNotNull();
+            _ = await Assert.That(cache.GetEntry(key, cancellationToken)).IsNotNull();
 
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(await SumOfLiveEntriesAsync(cache, estimator, cancellationToken));
     }
@@ -145,6 +145,15 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
 
+    private static async Task<int> CountLiveEntriesAsync(PhysicalCache<string> cache, CancellationToken cancellationToken)
+    {
+        var count = 0;
+        await foreach (var (_, _) in cache.EnumerateLiveAsync(cancellationToken))
+            count++;
+
+        return count;
+    }
+
     private static CacheKey[] CreateKeys(int keyCount)
     {
         var keys = new CacheKey[keyCount];
@@ -156,51 +165,58 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
     private static int EntryCountOf(ILocalCacheStats stats) => stats.EntryCount;
 
-    private static Task RunMixedLoadWorkerAsync(object? state)
+    private static void RunMixedLoadWorker(object? state)
     {
         var s = state as PhysicalCacheStressState ?? ThrowHelper.Throw<PhysicalCacheStressState>(new InvalidOperationException());
-        return RunMixedLoadWorkerCoreAsync(s);
+        RunMixedLoadWorkerCore(s);
     }
 
-    private static async Task RunMixedLoadWorkerCoreAsync(PhysicalCacheStressState s)
+    private static void RunMixedLoadWorkerCore(PhysicalCacheStressState s)
     {
         for (var i = 0; i < s.Iterations; i++)
         {
             var key = s.Keys[(i + s.Offset) % s.Keys.Length];
             var phase = (i + s.Offset) % 10;
             if (phase < 6)
-                await s.Cache.SetAsync(key, new NodeCacheEntry<string>(new string('v', 1 + (s.Offset * 11) + (i % 7))), s.Ct);
+                s.Cache.Set(key, new NodeCacheEntry<string>(new string('v', 1 + (s.Offset * 11) + (i % 7))), s.Ct);
             else if (phase < 8)
-                _ = await s.Cache.RemoveAsync(key, s.Ct);
+                _ = s.Cache.Remove(key, s.Ct);
             else if (phase < 9)
-                _ = await s.Cache.GetValueAsync(key, s.Ct);
+                _ = s.Cache.GetValue(key, s.Ct);
             else
-                _ = await s.Cache.TouchAsync(key, TimeSpan.FromMinutes(5), s.Ct);
+                _ = s.Cache.Touch(key, TimeSpan.FromMinutes(5), s.Ct);
         }
     }
 
-    private static Task RunResetExpirationWorkerAsync(object? state)
+    private static void RunResetExpirationWorker(object? state)
     {
         var s = state as PhysicalCacheStressState ?? ThrowHelper.Throw<PhysicalCacheStressState>(new InvalidOperationException());
-        return RunResetExpirationWorkerCoreAsync(s);
+        RunResetExpirationWorkerCore(s);
     }
 
-    private static async Task RunResetExpirationWorkerCoreAsync(PhysicalCacheStressState s)
+    private static void RunResetExpirationWorkerCore(PhysicalCacheStressState s)
     {
         for (var i = 0; i < s.Iterations; i++)
         {
             var key = s.Keys[(i + (s.Offset * 3)) % s.Keys.Length];
-            _ = await s.Cache.RemoveExpirationAsync(key, s.Ct);
+            _ = s.Cache.RemoveExpiration(key, s.Ct);
         }
     }
 
-    private static async Task<int> CountLiveEntriesAsync(PhysicalCache<string> cache, CancellationToken cancellationToken)
+    private static void RunTouchWorker(object? state)
     {
-        var count = 0;
-        await foreach (var (_, _) in cache.EnumerateLiveAsync(cancellationToken))
-            count++;
+        var s = state as PhysicalCacheStressState ?? ThrowHelper.Throw<PhysicalCacheStressState>(new InvalidOperationException());
+        RunTouchWorkerCore(s);
+    }
 
-        return count;
+    private static void RunTouchWorkerCore(PhysicalCacheStressState s)
+    {
+        for (var i = 0; i < s.Iterations; i++)
+        {
+            var key = s.Keys[(i + s.Offset) % s.Keys.Length];
+            if (!s.Cache.Touch(key, TimeSpan.FromMinutes(5), s.Ct))
+                s.Failures![s.FailureSlot]++;
+        }
     }
 
     private static async Task<long> SumOfLiveEntriesAsync(PhysicalCache<string> cache, CacheEntrySizeEstimator<string> estimator, CancellationToken cancellationToken)
@@ -210,22 +226,6 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
             sum += estimator.EstimateBytes(key, entry, false);
 
         return sum;
-    }
-
-    private static Task RunTouchWorkerAsync(object? state)
-    {
-        var s = state as PhysicalCacheStressState ?? ThrowHelper.Throw<PhysicalCacheStressState>(new InvalidOperationException());
-        return RunTouchWorkerCoreAsync(s);
-    }
-
-    private static async Task RunTouchWorkerCoreAsync(PhysicalCacheStressState s)
-    {
-        for (var i = 0; i < s.Iterations; i++)
-        {
-            var key = s.Keys[(i + s.Offset) % s.Keys.Length];
-            if (!await s.Cache.TouchAsync(key, TimeSpan.FromMinutes(5), s.Ct))
-                s.Failures![s.FailureSlot]++;
-        }
     }
 
     private sealed class PhysicalCacheStressState

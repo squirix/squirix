@@ -94,7 +94,7 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var heldMeanwhile = stalled.IsCompleted;
         budgetClock.Advance(TimeSpan.FromSeconds(5));
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(stalled.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(stalled, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(heldMeanwhile).IsFalse();
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
@@ -244,7 +244,7 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         try
         {
             // The service ends only once the loop of n2, which never fails on its own, has ended too.
-            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!, HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {

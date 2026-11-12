@@ -75,7 +75,7 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         var admission = CreateAdmission(new ReplicatedCache(cache, committers, true), meter);
 
         var refusing = StartAddAsync(admission, getOrAdd, NewOperationId(), cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(refusing);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(refusing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(gateway.Requests).IsEqualTo(sentBefore);
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
@@ -109,7 +109,7 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         var adding = StartAddAsync(admission, getOrAdd, NewOperationId(), cancellationToken);
         var waited = !adding.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(adding.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(adding, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waited).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
@@ -137,7 +137,7 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         var updating = admission.UpdateAsync(NewOperationId(), CacheName, "b", "c", cancellationToken).AsTask();
         var waited = !updating.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(updating.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(updating, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waited).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));

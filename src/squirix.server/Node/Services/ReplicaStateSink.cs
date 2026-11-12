@@ -128,7 +128,7 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxExamined);
         var work = _work[groupId];
-        var cursor = work.Cursor ??= _entries.EnumerateAsync(groupId, CancellationToken.None).GetAsyncEnumerator(CancellationToken.None);
+        var cursor = work.Cursor ??= _entries.EnumerateKeysAsync(groupId, CancellationToken.None).GetAsyncEnumerator(CancellationToken.None);
         for (var examined = 0; examined < maxExamined; examined++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -155,9 +155,14 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
 
     /// <inheritdoc />
     /// <exception cref="InvalidDataException">An entry belongs to another group, or does not decode; nothing of the batch is written for an entry of another group.</exception>
+    /// <remarks>A busy journal defers validation until a retry can write; no entry is accepted or checksummed while busy.</remarks>
     public async ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
     {
         var work = _work[groupId];
+        cancellationToken.ThrowIfCancellationRequested();
+        if (entries.IsEmpty || _journal.AtHighWater)
+            return 0;
+
         var keys = ArrayPool<string>.Shared.Rent(entries.Length);
         try
         {
@@ -233,13 +238,13 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <summary>Removes one key; a refusal of the journal quota leaves the key in place.</summary>
     /// <param name="current">The key to remove.</param>
     /// <returns><see langword="true" /> when the key is removed; <see langword="false" /> when the journal refused the removal.</returns>
-    private async ValueTask<bool> TryRemoveAsync(ReplicaGroupEntry current)
+    private async ValueTask<bool> TryRemoveAsync(CacheKey current)
     {
         using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
         {
             try
             {
-                _ = await _local.RemoveAsync(string.Empty, current.CacheName, current.Key, CancellationToken.None).ConfigureAwait(false);
+                _ = await _local.RemoveAsync(string.Empty, current.Namespace, current.Key, CancellationToken.None).ConfigureAwait(false);
                 return true;
             }
             catch (JournalCapacityExceededException)
@@ -255,12 +260,12 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
         /// <summary>Gets the running checksum of the entries written.</summary>
         internal ReplicaStateChecksum Checksum { get; } = new();
 
-        /// <summary>Gets or sets the walk over the entries of the group; <see langword="null" /> before the first wipe step and after the last.</summary>
-        /// <remarks>An iterator over the entries holds nothing that needs disposal, so dropping it on abort leaks nothing.</remarks>
-        internal IAsyncEnumerator<ReplicaGroupEntry>? Cursor { get; set; }
+        /// <summary>Gets or sets the walk over the keys of the group; <see langword="null" /> before the first wipe step and after the last.</summary>
+        /// <remarks>The walk holds no unmanaged resources and owns no pooled buffers.</remarks>
+        internal IAsyncEnumerator<CacheKey>? Cursor { get; set; }
 
         /// <summary>Gets or sets the key taken from the walk whose removal the journal refused; the next wipe step removes it first.</summary>
-        internal ReplicaGroupEntry? PendingKey { get; set; }
+        internal CacheKey? PendingKey { get; set; }
 
         /// <summary>Forgets the walk, the pending key and the checksum.</summary>
         internal void Reset()

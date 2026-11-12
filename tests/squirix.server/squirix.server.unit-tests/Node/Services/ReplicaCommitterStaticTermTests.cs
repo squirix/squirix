@@ -63,7 +63,7 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         }
 
@@ -146,8 +146,8 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
         await RaiseTermAsync(registry, 2, cancellationToken);
         var sent = gateway.Appends.Count;
 
-        var stale = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
-        var restarted = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken));
+        var stale = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var restarted = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((stale.StatusCode, stale.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
         _ = await Assert.That((restarted.StatusCode, restarted.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));

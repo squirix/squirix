@@ -118,18 +118,19 @@ public sealed class JournalAppendGateTests : IsolatedStorageTestBase
     {
         var call = (Journal: journal, Ownership: ownership, Payload: JournalEntryPayloadKit.EncodePut("a"), Token: cancellationToken);
 
-        await AssertGateRefusalAsync(call, static s => s.Journal.AppendPutAsync(s.Ownership, Key, s.Payload, s.Token));
-        await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveAsync(s.Ownership, Key, s.Token));
+        await AssertGateRefusalAsync(call, static s => s.Journal.AppendPutAsync(s.Ownership, Key, s.Payload, s.Token), cancellationToken);
+        await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveAsync(s.Ownership, Key, s.Token), cancellationToken);
     }
 
     /// <summary>Asserts that <paramref name="append" /> faults with the gate refusal, not with any other invalid operation.</summary>
     /// <typeparam name="TState">Type of the append arguments.</typeparam>
     /// <param name="state">Arguments passed to <paramref name="append" />.</param>
     /// <param name="append">Append to run.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The assertions.</returns>
-    private static async Task AssertGateRefusalAsync<TState>(TState state, Func<TState, ValueTask> append)
+    private static async Task AssertGateRefusalAsync<TState>(TState state, Func<TState, ValueTask> append, CancellationToken cancellationToken)
     {
-        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunAsync(state, append));
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunAsync(state, append), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.Message).IsEqualTo(GateRefusalMessage);
     }
 

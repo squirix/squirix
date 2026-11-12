@@ -157,7 +157,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(Request(scope, 0U, static _ => { }), scope.Context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(Request(scope, 0U, static _ => { }), scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
@@ -172,7 +172,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         request.Header.SenderNodeId = "n9";
         request.Header.LeaderNodeId = "n9";
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -186,7 +186,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var request = BeginRequest(scope, TransferFixtures.Image());
         request.Header.LeaderNodeId = "n9";
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
     }

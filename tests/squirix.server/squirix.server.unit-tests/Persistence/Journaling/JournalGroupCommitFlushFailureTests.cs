@@ -47,13 +47,13 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
         var key = new CacheKey("ns", "k");
 
         await journal.AppendPutUnderGateAsync(key, Payload, cancellationToken);
-        var first = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask(), Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(first).IsSameReferenceAs(writer.Failure);
 
         // The pipeline failure is latched before the batch acks fault, so the faulted waiter already observes it.
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsSameReferenceAs(writer.Failure);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAgainAsync(journal, key, cancellationToken).WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAgainAsync(journal, key, cancellationToken), Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(writer.FlushCount).IsEqualTo(1);
     }
 
@@ -75,7 +75,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
             TimeProvider.System);
 
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
-        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask(), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(writer.Failure);
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsSameReferenceAs(writer.Failure);

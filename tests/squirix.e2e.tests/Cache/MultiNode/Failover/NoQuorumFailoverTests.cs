@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// With two of three replicas gone no majority exists: a write through the surviving node, whether it led the group or followed it, ends
 /// with a failure the client can retry within the operation deadline of the SDK, and is never acknowledged.
 /// </summary>
-public sealed class NoQuorumFailoverTests : EndToEndTestBase
+public sealed class NoQuorumFailoverTests
 {
     private const string CacheName = "no-quorum";
 
@@ -68,10 +68,10 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
         await using var wire = WireClient.Connect(cluster.GetUri(survivor));
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         attempt.CancelAfter(AttemptTimeout);
-        var refusal = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refusal is RpcException { StatusCode: StatusCode.Unavailable } unavailable && string.Equals(unavailable.Status.Detail, WireClient.NoLeaderRefusalDetail, StringComparison.Ordinal))
-            .IsTrue()
+        _ = await Assert.That((refusal.StatusCode, refusal.Status.Detail))
+            .IsEqualTo((StatusCode.Unavailable, WireClient.NoLeaderRefusalDetail))
             .Because($"a node without a leader must refuse the read as unavailable within one attempt, got {Describe(refusal)}");
     }
 
@@ -105,7 +105,7 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
         using var guard = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         guard.CancelAfter(FailoverSteps.Bound);
         var started = Stopwatch.GetTimestamp();
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cache.SetAsync(key, 2L, cancellationToken: guard.Token));
+        var failure = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(cache.SetAsync(key, 2L, cancellationToken: guard.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         if (!leaderSurvives)

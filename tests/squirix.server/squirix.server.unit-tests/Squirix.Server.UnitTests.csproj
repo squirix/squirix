@@ -6,6 +6,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="..\..\shared\GoldenSnapshotAssert.cs" Link="Shared\GoldenSnapshotAssert.cs"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="all"/>
     </ItemGroup>
@@ -19,6 +20,7 @@
 
     <ItemGroup>
         <Compile Include="..\..\shared\LoggerArchitectureScanner.cs" Link="Architecture\LoggerArchitectureScanner.cs"/>
+        <Compile Include="..\..\shared\LoggerScanResult.cs" Link="Architecture\LoggerScanResult.cs"/>
     </ItemGroup>
 
     <ItemGroup>

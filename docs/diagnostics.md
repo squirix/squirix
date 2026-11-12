@@ -40,9 +40,10 @@ diagnostics surfaces currently exposed by the node host.
   state; do not treat this boolean as a live rejection latch.
 - `journalDisk` (persistence enabled): journal on-disk size pressure for the configured `JournalMaxTotalBytesMb` cap —
   `state` (`normal` / `high` / `critical`), `maxBytes`, `usedBytes`, `highWaterBytes` (80% soft mark), and
-  `writeRejectionActive`. Soft high-water is observability only; hard-cap oversize durable appends fail with
-  `JOURNAL_DISK_QUOTA` while `/health/ready` stays healthy. See
-  [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
+  `writeRejectionActive`. At the soft mark, ordinary writes that fit under the hard cap can continue. The node
+  can trigger a snapshot and pause incoming replica state transfer. A durable append that would exceed the hard
+  cap fails with `JOURNAL_DISK_QUOTA`. Quota pressure alone does not change `/health/ready`. See
+  [Journal disk quota](operational-runbook.md#journal-disk-quota) for thresholds and operator actions.
 - `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
   `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
 - `replicaGroups` (RF>1): one entry per member group log (a replica group this node belongs to) — `groupId`, `logBytes` (size of the active group log file),
@@ -80,8 +81,8 @@ Readiness behavior (`GET /health/ready`):
 - **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on
   `/health/ready/details` (`memoryPressure`) and metrics for visibility. Treat **critical** plus rising
   `rejectedWriteCount` as a capacity incident; see [operational-runbook.md](operational-runbook.md).
-- Journal disk at the hard quota similarly keeps `/health/ready` healthy and surfaces pressure on
-  `/health/ready/details` (`journalDisk`) so operators can reclaim space without a membership flap.
+- Check `journalDisk` on `/health/ready/details` when durable writes fail with `JOURNAL_DISK_QUOTA`. See
+  [Journal disk quota](operational-runbook.md#journal-disk-quota) for cleanup steps.
 
 Privacy and bounds:
 
@@ -99,8 +100,8 @@ Current limitation:
 This route is a readiness/diagnostics payload, not a complete observability surface.
 
 Access control matches `/metrics`: loopback clients may scrape anonymously; remote clients must authenticate with
-the same JWT bearer token used for cache routes when server auth is enabled. `/health`, `/health/live`, and
-`/health/ready` stay anonymous for probes.
+a valid JWT bearer token accepted by the server. A remote unauthenticated request receives `401`, including when JWT
+authentication is not configured. `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
 
 ## Logical operation tracing
 
@@ -197,7 +198,10 @@ writes were grouped, not how many committed.
 The counter `squirix_replication_unknown_commit_total` (labels `operation`, `scope="replication"`) counts the commits that
 ended with an unknown outcome (`COMMIT_OUTCOME_UNKNOWN`) after the local append, by the kind of record: `user_mutation` or
 `expiration`. An expiry run counts once; of a batch of writes, each write whose outcome is unknown counts once. The affected operation may
-still commit; clients must retry it under the same operation identifier.
+still commit. A raw gRPC client can retry the identical request under the same operation identifier within the
+[documented replay window](api.md). The public SDK does not expose an operation-id parameter: repeating an `ICache<T>`
+mutation creates a new identifier, and `COMMIT_OUTCOME_UNKNOWN` is not automatically retried or failed over.
+Reconcile the outcome with application state before deciding whether to issue another mutation; do not blindly repeat it.
 
 ### State transfer metrics and events
 
@@ -310,7 +314,7 @@ other `MeterListener` exporters.
 - `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
 - `/health/ready/details` and `/metrics` are served on the primary HTTPS listener only.
 - Loopback `/metrics` and `/health/ready/details` scrapes stay anonymous by design (loopback is trusted); remote
-  clients must present a JWT bearer token when server auth is enabled. See
+  clients must authenticate with a valid JWT bearer token; unauthenticated remote requests receive `401`. See
   [Metrics route — Loopback trust](#metrics-loopback-trust) for multi-tenant risk and mitigations.
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.

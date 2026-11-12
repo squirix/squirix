@@ -45,7 +45,7 @@ public sealed class JournalStopFailureTests : IsolatedStorageTestBase
         journal.Writer.Write.ReleaseWithFailure(failure);
         _ = await Assert.That(await journal.Journal.DurabilityPipeline.TryJoinJournalThreadAsync(StallTimeout)).IsTrue();
 
-        var reported = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var reported = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(reported).IsSameReferenceAs(failure);
         _ = await Assert.That(log.Count(MarkerTimedOutEventId)).IsEqualTo(0);
@@ -66,7 +66,7 @@ public sealed class JournalStopFailureTests : IsolatedStorageTestBase
         var stop = journal.Journal.StopAsync().AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(failure);
-        var reported = await NodeAsyncAssert.ThrowsAsync<IOException>(stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var reported = await NodeAsyncAssert.ThrowsAsync<IOException>(stop, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(reported).IsSameReferenceAs(failure);
         _ = await Assert.That(log.Find(FailureSurfacedEventId)?.Level).IsEqualTo(LogLevel.Error);
@@ -133,8 +133,8 @@ public sealed class JournalStopFailureTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, false, TimeSpan.FromSeconds(5), new EventRecordingLogger(), cancellationToken);
         TrackFrameNeverEnqueued(journal);
 
-        var first = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-        var later = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
+        var later = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(first.Message).Contains("1 accepted journal frames", StringComparison.Ordinal);
         _ = await Assert.That(later).IsSameReferenceAs(first);

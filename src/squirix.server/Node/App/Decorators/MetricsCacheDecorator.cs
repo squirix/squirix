@@ -34,6 +34,14 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyNullableReferenceResult,
         cancellationToken);
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
+        cacheName,
+        CacheOperationNames.GetEntry,
+        static (inner, args, ct) => inner.GetValueWithDeadlineAsync(args.CacheName, args.Key, ct),
+        new ReadKeyArgs(cacheName, key),
+        static result => result.Found ? CacheOperationResults.Ok : CacheOperationResults.NotFound,
+        cancellationToken);
+
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Get,

@@ -66,7 +66,7 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
             {
                 var entry = EnqueueAsync(sender, i);
                 (await BoundedAsync(gateway.CallAsync(int.CreateChecked(i) - 1), cancellationToken)).Refuse("log mismatch");
-                _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(entry);
+                _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(entry, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
                 await AwaitRetryStateAsync(sender, (int.CreateChecked(i), false));
             }
 

@@ -19,6 +19,7 @@ public static class AspNetCoreExtensions
     /// <param name="configureExtensions">Optional package extension configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application builder.</returns>
+    /// <exception cref="PlatformNotSupportedException">Thrown on Linux or macOS when the .NET 10 runtime is older than 10.0.15.</exception>
     public static Task<WebApplicationBuilder> AddSquirixServerAsync(
         this WebApplicationBuilder builder,
         Action<SquirixServerOptions>? configure = null,
@@ -59,15 +60,19 @@ public static class AspNetCoreExtensions
     /// <param name="configureComposition">Optional composition overrides applied last, for example cluster mTLS material in tests.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application builder.</returns>
+    /// <exception cref="PlatformNotSupportedException">Thrown on Linux or macOS when the .NET 10 runtime is older than 10.0.15.</exception>
     internal static async Task<WebApplicationBuilder> ConfigureSquirixServerBuilderAsync(
         WebApplicationBuilder builder,
         Action<SquirixServerOptions>? configure,
         string? settingsPath,
         bool loadDiscoveredSettings,
         Action<ExtensionOptions>? configureExtensions,
-        Action<ICompositionArgs>? configureComposition,
+        Action<CompositionArgs>? configureComposition,
         CancellationToken cancellationToken)
     {
+        if ((OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) && Environment.Version is { Major: 10, Build: < 15 })
+            throw new PlatformNotSupportedException($"Squirix.Server requires .NET 10.0.15 or later on Linux and macOS to report disk flush failures. The current runtime is {Environment.Version}.");
+
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
         var extensions = new ExtensionOptions();
         configureExtensions?.Invoke(extensions);

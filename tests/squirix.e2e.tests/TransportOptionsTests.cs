@@ -15,12 +15,12 @@ namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.</summary>
 [Immutable]
-public sealed class TransportOptionsTests : EndToEndTestBase
+public sealed class TransportOptionsTests
 {
-    /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.</summary>
+    /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs and omitting it is rejected.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ConnectsWithBearerTokenProvider(CancellationToken cancellationToken)
+    public async Task CacheRequestsRequireBearerToken(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -32,7 +32,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         };
 
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(ConnectsWithBearerTokenProvider),
+            nameof(CacheRequestsRequireBearerToken),
             security,
             timeProvider: TimeProvider.System,
             cancellationToken: cancellationToken);
@@ -44,31 +44,10 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         var cache = await client.GetCacheAsync<string>("default", cancellationToken);
         await cache.SetAsync("jwt-e2e", "ok", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("jwt-e2e", cancellationToken)).Value).IsEqualTo("ok");
-    }
 
-    /// <summary>Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FailsWhenJwtRequiredButUnconfigured(CancellationToken cancellationToken)
-    {
-        var credentials = JwtHelper.CreateSymmetricCredentials();
-        var security = new TestNodeSecurityOptions
-        {
-            JwtSigningKey = credentials.Base64SigningKey,
-            JwtIssuer = credentials.Issuer,
-            JwtAudience = credentials.Audience,
-        };
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(FailsWhenJwtRequiredButUnconfigured),
-            security,
-            timeProvider: TimeProvider.System,
-            cancellationToken: cancellationToken);
-        var uri = cluster.GetUri("nodeA");
-
-        await using var client = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
-        var cache = await client.GetCacheAsync<string>("default", cancellationToken);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync("jwt-missing", "v", cancellationToken: cancellationToken));
+        await using var anonymousClient = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
+        var anonymousCache = await anonymousClient.GetCacheAsync<string>("default", cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(anonymousCache.SetAsync("jwt-missing", "v", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 

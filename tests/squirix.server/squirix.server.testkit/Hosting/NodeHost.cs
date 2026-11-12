@@ -14,14 +14,14 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
 
 internal static class NodeHost
 {
-    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions? options = null, CancellationToken cancellationToken = default)
+    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions options, CancellationToken cancellationToken)
     {
-        options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
         var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
         if (options.ServerCertificate == null)
@@ -84,7 +84,7 @@ internal static class NodeHost
             _nodeId = nodeId;
         }
 
-        internal void Configure(ICompositionArgs args)
+        internal void Configure(CompositionArgs args)
         {
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ConfigureGrpc = _options.ConfigureGrpc;

@@ -23,26 +23,42 @@ internal sealed class ServerCallPolicyMetrics
         _retriesTotal = new Counter2Labels(meter.CreateCounter<long>("squirix_call_policy_retries_total"), "peer", "reason");
     }
 
-    internal void IncrementBackoffLabel(string peer, int increment) => _backoffsTotal.WithLabels(peer).Inc(increment);
+    internal void IncrementBackoffLabel(string peer, int increment) => _backoffsTotal.Add(peer, increment);
 
-    internal void IncrementBusyRejectsTotal(string peer, int increment) => _busyRejectsTotal.WithLabels(peer).Inc(increment);
+    internal void IncrementBusyRejectsTotal(string peer, int increment) => _busyRejectsTotal.Add(peer, increment);
 
-    internal void IncrementDrainRejectsTotal(string peer, int increment) => _drainRejectsTotal.WithLabels(peer).Inc(increment);
+    internal void IncrementDrainRejectsTotal(string peer, int increment) => _drainRejectsTotal.Add(peer, increment);
 
-    internal void IncrementRetriesTotal(string peer, string reason, int increment = 1) => _retriesTotal.WithLabels(peer, reason).Inc(increment);
+    internal void IncrementRetriesTotal(string peer, string reason, int increment = 1) => _retriesTotal.Add(peer, reason, increment);
 
     internal void ObserveBackoffSeconds(string peer, TimeSpan value) => _backoffSeconds.Observe(peer, value);
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)
     {
-        internal ServerCounterLabelBinding WithLabels(string v1) => new(Counter, Key1, v1, "scope", "policy");
+        internal void Add(string v1, long value = 1)
+        {
+            var tags = new TagList
+            {
+                { Key1, v1 },
+                { "scope", "policy" },
+            };
+            Counter.Add(value, in tags);
+        }
     }
 
     [Immutable]
     private sealed record Counter2Labels(Counter<long> Counter, string Key1, string Key2)
     {
-        internal ServerCounterLabelBinding WithLabels(string v1, string v2) => new(Counter, Key1, v1, Key2, v2);
+        internal void Add(string v1, string v2, long value = 1)
+        {
+            var tags = new TagList
+            {
+                { Key1, v1 },
+                { Key2, v2 },
+            };
+            Counter.Add(value, in tags);
+        }
     }
 
     [Immutable]

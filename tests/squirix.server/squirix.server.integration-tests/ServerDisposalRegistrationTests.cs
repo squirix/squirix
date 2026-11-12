@@ -44,11 +44,14 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
             ReplicaCount = 1,
         };
 
-        var offenders = new List<string>(64);
-        offenders.AddRange(await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, null, cancellationToken));
-        offenders.AddRange(await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.FoundationOnly = true, cancellationToken));
-        offenders.AddRange(await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.SecurityOptions = new SecurityOptions(), cancellationToken));
-        offenders.AddRange(await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.Extensions = new ExtensionOptions(), cancellationToken));
+        List<string> offenders =
+        [
+            with(64),
+            .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, null, cancellationToken),
+            .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.FoundationOnly = true, cancellationToken),
+            .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.SecurityOptions = new SecurityOptions(), cancellationToken),
+            .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.Extensions = new ExtensionOptions(), cancellationToken),
+        ];
 
         _ = await Assert.That(offenders).IsEmpty();
     }
@@ -58,7 +61,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
         MtlsCertificate mtls,
         MtlsOptions options,
         PersistenceOptions persistence,
-        Action<ICompositionArgs>? extra,
+        Action<CompositionArgs>? extra,
         CancellationToken cancellationToken)
     {
         var applicationOptions = new WebApplicationOptions
@@ -90,7 +93,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
 
         return offenders;
 
-        void Configure(ICompositionArgs args)
+        void Configure(CompositionArgs args)
         {
             args.Certificate = mtls;
             args.MtlsOptions = options;

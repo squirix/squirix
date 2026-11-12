@@ -6,18 +6,18 @@
     <!-- Solution-wide Roslyn analyzers (see Directory.Build.props / GlobalAnalyzers). -->
     <ItemGroup Label="Analyzers">
         <PackageVersion Include="ErrorProne.NET.CoreAnalyzers" Version="0.9.0-beta.4"/>
-        <PackageVersion Include="Meziantou.Analyzer" Version="3.0.317"/>
+        <PackageVersion Include="Meziantou.Analyzer" Version="3.0.325"/>
         <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0"/>
         <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0"/>
         <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0"/>
-        <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="11.0.100-rc.3.26522.148"/>
+        <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="11.0.100"/>
         <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.12.1"/>
         <PackageVersion Include="Rocks" Version="10.3.4"/>
         <PackageVersion Include="Roslynator.Analyzers" Version="5.0.1"/>
-        <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.35.0.4138"/>
-        <PackageVersion Include="StyleCop.Analyzers" Version="1.3.151-beta"/>
-        <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.12.0"/>
-        <PackageVersion Include="NsDepCop" Version="3.2.0"/>
+        <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.36.0.15337"/>
+        <PackageVersion Include="StyleCop.Analyzers" Version="1.3.180"/>
+        <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.13.0"/>
+        <PackageVersion Include="NsDepCop" Version="3.3.0"/>
         <PackageVersion Include="squirix.analyzers" Version="0.1.18"/>
     </ItemGroup>
     <!-- Library-specific analyzers (see Directory.Build.props / TestAnalyzers): none remain. -->
@@ -27,8 +27,23 @@
         <PackageVersion Include="Grpc.Net.Client" Version="2.85.0"/>
         <PackageVersion Include="Grpc.Tools" Version="2.85.0"/>
     </ItemGroup>
-    <ItemGroup Label="AspNetCore">
-        <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14"/>
+    <ItemGroup Label="Net10Dependencies" Condition="'$(TargetFramework)' == 'net10.0'">
+        <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.15"/>
+        <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.15"/>
+        <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.11.0"/>
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15"/>
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.15"/>
+        <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.15"/>
+        <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0"/>
+    </ItemGroup>
+    <ItemGroup Label="Net11Dependencies" Condition="'$(TargetFramework)' == 'net11.0'">
+        <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="11.0.0"/>
+        <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="11.0.0"/>
+        <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="11.0.0"/>
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0"/>
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0"/>
+        <PackageVersion Include="Microsoft.Extensions.Options" Version="11.0.0"/>
+        <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="11.0.0"/>
     </ItemGroup>
     <ItemGroup Label="Authentication">
         <PackageVersion Include="Microsoft.IdentityModel.Protocols" Version="8.23.0"/>
@@ -37,11 +52,10 @@
         <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0"/>
     </ItemGroup>
     <ItemGroup Label="Testing">
-        <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0"/>
         <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0"/>
-        <PackageVersion Include="Microsoft.Testing.Extensions.HangDump" Version="2.5.2"/>
-        <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.2"/>
-        <PackageVersion Include="TUnit" Version="1.76.45"/>
+        <PackageVersion Include="Microsoft.Testing.Extensions.HangDump" Version="2.5.3"/>
+        <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.3"/>
+        <PackageVersion Include="TUnit" Version="1.83.8"/>
     </ItemGroup>
     <ItemGroup Label="Benchmarks">
         <PackageVersion Include="BenchmarkDotNet" Version="0.15.8"/>
@@ -49,6 +63,7 @@
     </ItemGroup>
     <ItemGroup Label="SquirixPackages">
         <PackageVersion Include="squirix" Version="[$(SquirixPackageVersion)]"/>
+        <PackageVersion Include="squirix.extensions.caching" Version="[$(SquirixPackageVersion)]"/>
         <PackageVersion Include="squirix.server" Version="[$(SquirixPackageVersion)]"/>
     </ItemGroup>
     <ItemGroup Label="Misc">

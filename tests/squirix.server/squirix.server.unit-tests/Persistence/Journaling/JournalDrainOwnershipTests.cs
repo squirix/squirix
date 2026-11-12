@@ -24,8 +24,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
 {
     /// <summary>A canceled flush reports cancellation when the caller wins the ack removal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancelledFlushCancelsWhenCallerWins()
+    public async Task CancelledFlushCancelsWhenCallerWins(CancellationToken cancellationToken)
     {
         using var fake = new FakeCoordinatorState(CreateOptions());
         var pipeline = CreatePipeline(fake);
@@ -33,12 +34,13 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         var pending = pipeline.EnqueueFlushAsync(cancelled.Token);
         await cancelled.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A canceled flush propagates the drain failure when the drain wins the ack removal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancelledFlushPropagatesDrainFailure()
+    public async Task CancelledFlushPropagatesDrainFailure(CancellationToken cancellationToken)
     {
         using var fake = new FakeCoordinatorState(CreateOptions());
         var pipeline = CreatePipeline(fake);
@@ -49,7 +51,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         _ = pipeline.FailPendingDurabilityAcks(reason);
         await cancelled.CancelAsync();
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pending);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(thrown).IsSameReferenceAs(reason);
     }
 
@@ -64,7 +66,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         var reason = new InvalidOperationException("pipeline failed");
         _ = state.DurabilityAcks.TakeAll(reason, out _);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.EnqueueFlushAsync(cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.EnqueueFlushAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(thrown).IsSameReferenceAs(reason);
     }
 

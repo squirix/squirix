@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -14,9 +15,11 @@ namespace Squirix.Server.Node.Services;
 /// the commit-and-apply of entries a late majority or a later drive covers), except
 /// <see cref="RecordLaggingReplica" />, which the coordinator also invokes from background follower
 /// observation. The coordinator serializes whole commit bodies under its commit gate, and the committer
-/// drives one commit at a time. The local append of a run queues every entry of it on every follower sender right after it succeeds, with nothing
-/// in between that could throw, so a locally appended entry always reaches the followers; the fan-out of the coordinator then
-/// only takes the queued acknowledgements. Only the commit watermark is shared across the background path and stays monotonic;
+/// drives one commit at a time. For an elected tenure, after validation and storage scheduling, the local append of a run queues every entry on every follower sender,
+/// overlapping replication with the local flush. The local append still waits for durability before the coordinator counts its leader acknowledgement.
+/// A failure after scheduling is unconfirmed, so entries that may have reached followers never produce a definite refusal. The fan-out of the coordinator then
+/// only takes the queued acknowledgements. A static leader queues its entries only after local durability, since restart reuses its term.
+/// Only the commit watermark is shared across the background path and stays monotonic;
 /// every other field is written solely by the serialized body. Each follower slot has a <see cref="ReplicaFollowerSender" /> that
 /// owns the order of its appends: the sender never sends N+1 before the request that carries N has been answered, so a slow
 /// follower is never handed N+1 ahead of N.
@@ -27,6 +30,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private readonly ReplicaLaggingFollowers _lagging;
     private readonly IFollowerLog _log;
     private readonly string _selfId;
+    private readonly Action _onAppendScheduled;
     private readonly ReplicaFollowerSender[] _senders;
     private readonly ReplicaSlots _slots;
     private ulong _commitIndex;
@@ -35,6 +39,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private ulong _enqueuedFirstIndex;
     private ulong _prevLogIndex;
     private ulong _prevLogTerm;
+    private (IReadOnlyList<PreparedReplicaMutation>? Run, ulong CommitIndex, bool Started) _pendingAppend;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
     /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
@@ -61,6 +66,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         _applier = applier;
         _log = log;
         _selfId = leader.SelfId;
+        _onAppendScheduled = StartPendingReplication;
         _slots = new ReplicaSlots(leader.ReplicaIndex);
         _senders = senders;
         _lagging = lagging;
@@ -81,18 +87,37 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <remarks>The pipeline closes them together with its senders.</remarks>
     internal ReplicaReadIndexRound? ReadIndex { private get; init; }
 
+    /// <summary>Initializes a value indicating whether an elected tenure prevents reuse of a lost local index in the same term after restart.</summary>
+    internal bool AllowEarlyReplication { private get; init; }
+
+    /// <summary>Initializes the election tenure whose authorized writes may defer the commit checkpoint.</summary>
+    internal ReplicaLeaderTenure? Tenure { private get; init; }
+
     /// <summary>Initializes the record of the local appends, which the committer owns so it outlives this pipeline; a pipeline of its own records for itself.</summary>
     internal ReplicaLocalAppends LocalAppends { private get; init; } = new();
+
+    /// <summary>Gets the index published to concurrent reads and heartbeats.</summary>
+    private ulong CurrentCommitIndex => Volatile.Read(ref _commitIndex);
 
     /// <inheritdoc />
     public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
     {
         var result = await _log.AdvanceCommitAsync(commitIndex, cancellationToken).ConfigureAwait(false);
-        if (!result.Success)
-            throw new InvalidOperationException($"Local group commit advance was refused: {result.RefusalCode}.");
+        PublishCommitIndex(in result);
+    }
 
-        Volatile.Write(ref _commitIndex, result.CommitIndex);
-        SendCommitIndex(result.CommitIndex);
+    /// <inheritdoc />
+    public async ValueTask<bool> AdvanceWriteCommitAsync(ulong commitIndex, CancellationToken cancellationToken)
+    {
+        if (Tenure is not { Authorized: true, Term: > 1 } tenure || _log is not FollowerLog log)
+        {
+            await AdvanceCommitIndexAsync(commitIndex, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        var result = await log.AdvanceCommitInMemoryAsync(commitIndex, tenure.Term, cancellationToken).ConfigureAwait(false);
+        PublishCommitIndex(in result);
+        return false;
     }
 
     /// <inheritdoc />
@@ -124,7 +149,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
     /// <inheritdoc />
     /// <remarks>
-    /// The entries go to the log as one request. Once it succeeded, every entry is queued on every follower sender in log order, each
+    /// The entries go to the log as one request. Once validated frames are scheduled, every entry is queued on every follower sender in log order, each
     /// naming its predecessor, before anything else runs: queueing never waits and never throws, so an exception later in the commit
     /// cannot leave a locally appended entry unsent. The append is not atomic on disk: a crash can leave a durable prefix of the run,
     /// which recovery keeps as a tail. A rejected run changes nothing: the next index and the last-run lookup stay as they were. If a
@@ -155,9 +180,30 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
         var commitIndex = _commitIndex;
         var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
-        var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
-        ThrowIfRefused(in result, first.Term);
-        EnqueueRun(mutations, commitIndex);
+        _pendingAppend = (mutations, commitIndex, false);
+        try
+        {
+            var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
+            ThrowIfRefused(in result, first.Term);
+
+            // An already durable duplicate scheduled no frames and therefore issued no notification.
+            if (!_pendingAppend.Started)
+                StartPendingReplication();
+
+            _prevLogIndex = mutations[^1].LogIndex;
+            _prevLogTerm = mutations[^1].Term;
+        }
+        catch
+        {
+            if (_pendingAppend.Started)
+                _ = ObserveFailedRunAsync(_enqueued);
+
+            throw;
+        }
+        finally
+        {
+            _pendingAppend.Run = null;
+        }
     }
 
     /// <inheritdoc />
@@ -174,7 +220,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <remarks>Called outside the commit gate; it never waits and never throws, and a closed sender sends nothing.</remarks>
     internal void Heartbeat(bool deferWhileBusy = false)
     {
-        var commitIndex = ReadCommitIndex();
+        var commitIndex = CurrentCommitIndex;
         for (var i = 0; i < _senders.Length; i++)
             _ = _senders[i].TryEnqueueHeartbeat(commitIndex, deferWhileBusy);
     }
@@ -186,7 +232,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <exception cref="InvalidOperationException">The pipeline leads statically and confirms no read index.</exception>
     /// <remarks>Called outside the commit gate; readers that arrive while a round is in flight share the next round.</remarks>
     internal ValueTask<ulong> ConfirmReadIndexAsync(CancellationToken cancellationToken) =>
-        ReadIndex?.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(true), cancellationToken) ??
+        ReadIndex?.ConfirmAsync(this, static pipeline => pipeline.CurrentCommitIndex, static pipeline => pipeline.Heartbeat(true), cancellationToken) ??
         ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
@@ -226,8 +272,21 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         return null;
     }
 
-    private static Task<ReplicaDurableAcknowledgement> FailedLikeAsync(Task<ReplicaDurableAcknowledgement> refused) =>
-        Task.FromException<ReplicaDurableAcknowledgement>(refused.Exception?.InnerException ?? new InvalidOperationException("Follower append was refused."));
+    private static async Task ObserveFailedRunAsync(Task<ReplicaDurableAcknowledgement>[] acknowledgements)
+    {
+        for (var index = 0; index < acknowledgements.Length; index++)
+        {
+            Task acknowledgement = acknowledgements[index];
+            await acknowledgement.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    private static void FailRemaining(Task<ReplicaDurableAcknowledgement>[] enqueued, int position, int senderCount, Task<ReplicaDurableAcknowledgement> refused)
+    {
+        var failure = Task.FromException<ReplicaDurableAcknowledgement>(refused.Exception?.InnerException ?? new InvalidOperationException("Follower append was refused."));
+        for (var i = position; i < enqueued.Length; i += senderCount)
+            enqueued[i] = failure;
+    }
 
     private static ReplicaLocalAppends.Outcome Classify(in FollowerLogAppendResult result) =>
         true switch
@@ -239,18 +298,23 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         };
 
     /// <summary>Hands a static leader's new commit index to every follower, which would otherwise see it only with the next write.</summary>
-    /// <param name="commitIndex">The commit index that was just made durable.</param>
+    /// <param name="result">The result of advancing the local index.</param>
+    /// <exception cref="InvalidOperationException">The log refused the advance.</exception>
     /// <remarks>
     /// An elected leader heartbeats on its own schedule and sends nothing here. Each sender arms a debounce and sends one empty append
     /// only if no append carried the index by then; it never waits and never throws.
     /// </remarks>
-    private void SendCommitIndex(ulong commitIndex)
+    private void PublishCommitIndex(in FollowerLogCommitResult result)
     {
+        if (!result.Success)
+            throw new InvalidOperationException($"Local group commit advance was refused: {result.RefusalCode}.");
+
+        Volatile.Write(ref _commitIndex, result.CommitIndex);
         if (ReadIndex != null)
             return;
 
         for (var i = 0; i < _senders.Length; i++)
-            _senders[i].ScheduleCommitIndex(commitIndex);
+            _senders[i].ScheduleCommitIndex(result.CommitIndex);
     }
 
     private void ThrowIfRefused(in FollowerLogAppendResult result, ulong term)
@@ -277,13 +341,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         var prevLogTerm = _prevLogTerm;
         for (var i = 0; i < count; i++)
         {
-            for (var sender = 0; sender < _senders.Length; sender++)
-            {
-                // A sender that already refused an earlier entry never got the predecessor of this one.
-                enqueued[(i * _senders.Length) + sender] = i > 0 && enqueued[((i - 1) * _senders.Length) + sender] is { IsFaulted: true } refused
-                    ? FailedLikeAsync(refused)
-                    : _senders[sender].EnqueueAsync(mutations[i], prevLogIndex, prevLogTerm, commitIndex, count == 1);
-            }
+            EnqueueEntry(mutations, enqueued, i, (prevLogIndex, prevLogTerm), commitIndex);
 
             prevLogIndex = mutations[i].LogIndex;
             prevLogTerm = mutations[i].Term;
@@ -299,8 +357,37 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         _enqueued = enqueued;
         _enqueuedFirstIndex = mutations[0].LogIndex;
         _enqueuedCount = count;
-        _prevLogIndex = prevLogIndex;
-        _prevLogTerm = prevLogTerm;
+    }
+
+    private void EnqueueEntry(
+        IReadOnlyList<PreparedReplicaMutation> mutations,
+        Task<ReplicaDurableAcknowledgement>[] enqueued,
+        int i,
+        (ulong Index, ulong Term) previous,
+        ulong commitIndex)
+    {
+        for (var sender = 0; sender < _senders.Length; sender++)
+        {
+            var position = (i * _senders.Length) + sender;
+            if (enqueued[position] != null)
+                continue;
+
+            // A sender that already refused an earlier entry never got the predecessor of this one.
+            if (i > 0 && enqueued[position - _senders.Length] is { IsFaulted: true } refused)
+            {
+                FailRemaining(enqueued, position, _senders.Length, refused);
+                continue;
+            }
+
+            enqueued[position] = _senders[sender].EnqueueAsync(mutations[i], previous.Index, previous.Term, commitIndex, mutations.Count == 1);
+        }
+    }
+
+    private void StartPendingReplication()
+    {
+        var run = ThrowHelper.Required(_pendingAppend.Run, "No leader append is being scheduled.");
+        EnqueueRun(run, _pendingAppend.CommitIndex);
+        _pendingAppend.Started = true;
     }
 
     /// <summary>Appends to the owned group log and records how the append ended.</summary>
@@ -318,7 +405,10 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         var outcome = ReplicaLocalAppends.Outcome.Ignored;
         try
         {
-            var result = await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+            // A static owner reuses term one after restart, so its lost local suffix must never already exist on followers.
+            var result = AllowEarlyReplication
+                ? await _log.AppendLeaderAsync(request, _onAppendScheduled, cancellationToken).ConfigureAwait(false)
+                : await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
             outcome = Classify(in result);
             return result;
         }
@@ -333,8 +423,4 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
             LocalAppends.End(outcome);
         }
     }
-
-    /// <summary>Reads the commit index, which the commit path advances while heartbeats and reads run outside the commit gate.</summary>
-    /// <returns>The commit index.</returns>
-    private ulong ReadCommitIndex() => Volatile.Read(ref _commitIndex);
 }

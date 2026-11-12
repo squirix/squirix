@@ -104,13 +104,13 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var record = Record(7UL, 3UL);
         var bytes = ReplicaLogCodec.Encode(in record);
 
-        var decoded = await Assert.That(ReplicaLogCodec.Decode(bytes)).IsNotNull();
+        var decoded = await Assert.That(ReplicaLogCodec.DecodeBorrowed(bytes)).IsNotNull();
         await SequenceAssert.EqualAsync(bytes, ReplicaLogCodec.Encode(in decoded));
-        _ = await Assert.That(ReplicaLogCodec.Decode(bytes.AsMemory(0, bytes.Length - 1))).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(bytes.AsMemory(0, bytes.Length - 1))).IsNull();
 
         var trailed = new byte[bytes.Length + 1];
         bytes.CopyTo(trailed, 0);
-        _ = await Assert.That(ReplicaLogCodec.Decode(trailed)).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(trailed)).IsNull();
     }
 
     /// <summary>A higher-term vote from a candidate whose log trails is refused, yet reports the stepped durable term.</summary>

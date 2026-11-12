@@ -117,7 +117,7 @@ public sealed class GroupMemberStateLogTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, image, cancellationToken);
 
         await using var log = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("written by an earlier build and is not supported", StringComparison.Ordinal);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);

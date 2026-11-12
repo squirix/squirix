@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
@@ -23,16 +26,24 @@ internal sealed class FollowerLogJournal
         Paths = paths;
         Snapshot = snapshot;
         Metadata = metadata;
+        Entries = new ReadOnlyDictionary<ulong, FollowerLogEntry>(_entries);
+        EntryOffsets = new ReadOnlyDictionary<ulong, (long Offset, ulong Term)>(_entryOffsets);
     }
 
-    internal ReadOnlySortedDictionary<ulong, FollowerLogEntry> Entries => new(_entries);
+    internal IReadOnlyDictionary<ulong, FollowerLogEntry> Entries { get; }
 
-    internal ReadOnlySortedDictionary<ulong, (long Offset, ulong Term)> EntryOffsets => new(_entryOffsets);
+    internal IReadOnlyDictionary<ulong, (long Offset, ulong Term)> EntryOffsets { get; }
 
     /// <summary>Gets the store of the durable group metadata; owned by the log, which disposes it.</summary>
     internal GroupMetadataStore Metadata { get; }
 
     internal FollowerLogPaths Paths { get; }
+
+    /// <summary>Gets or sets the snapshot and copy task that own the standby slot under the log gate.</summary>
+    internal (Guid Snapshot, Task? Copy) PreparedWal { get; set; }
+
+    /// <summary>Gets the standby preparation shutdown signal, owned by the follower log.</summary>
+    internal CancellationTokenSource WalShutdown { get; } = new();
 
     internal IFollowerLogSnapshotStore Snapshot { get; }
 
@@ -45,7 +56,27 @@ internal sealed class FollowerLogJournal
     /// <summary>Gets the slot index of the active group log file.</summary>
     internal int LogSlot { get; private set; }
 
+    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) SnapshotWalPosition { get; set; }
+
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
+
+    /// <summary>Enumerates retained committed frame locations newest first without preparing unvisited locations.</summary>
+    /// <param name="commitIndex">The durable committed boundary.</param>
+    /// <param name="maxCount">The maximum number of frame locations to yield.</param>
+    /// <returns>The retained committed locations in descending index order.</returns>
+    /// <remarks>The caller holds the log gate throughout enumeration and frame reads.</remarks>
+    /// <exception cref="System.IO.InvalidDataException">A committed index inside the retained range has no frame.</exception>
+    internal IEnumerable<(ulong LogIndex, long Offset)> RecentCommittedFrames(ulong commitIndex, int maxCount)
+    {
+        var index = commitIndex;
+        for (var remaining = maxCount; remaining > 0 && index > SnapshotBaseline.LastIncludedIndex; remaining--, index--)
+        {
+            if (!_entryOffsets.TryGetValue(index, out var location))
+                throw new System.IO.InvalidDataException($"Committed group log index {index} has no retained frame.");
+
+            yield return (index, location.Offset);
+        }
+    }
 
     internal void AddEntry(in FollowerLogEntry entry, long offset, ulong term)
     {
@@ -61,6 +92,17 @@ internal sealed class FollowerLogJournal
         // Callers hold _gate; this is the single paired mutation of the baseline and both indexes.
         RemoveEntriesThroughCore(baseline.LastIncludedIndex);
         SnapshotBaseline = baseline;
+    }
+
+    internal void ShiftOffsets(long removedBytes)
+    {
+        ulong[] indexes = [.. _entryOffsets.Keys];
+        for (var i = 0; i < indexes.Length; i++)
+        {
+            var index = indexes[i];
+            var (offset, term) = _entryOffsets[index];
+            _entryOffsets[index] = (offset - removedBytes, term);
+        }
     }
 
     internal void ClearEntries()
@@ -114,6 +156,21 @@ internal sealed class FollowerLogJournal
         return result;
     }
 
+    /// <summary>Checks for an uncommitted entry of a term without copying its payload or the tail list.</summary>
+    /// <param name="commitIndex">The durable committed boundary.</param>
+    /// <param name="term">The leader term to find.</param>
+    /// <returns>Whether an entry above the boundary has the requested term.</returns>
+    internal bool HasUncommittedTerm(ulong commitIndex, ulong term)
+    {
+        foreach (var pair in _entries)
+        {
+            if (pair.Key > commitIndex && pair.Value.Term == term)
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Collects the uncommitted tail above <paramref name="commitIndex" />.</summary>
     /// <param name="commitIndex">The committed index bounding the tail below.</param>
     /// <returns>The uncommitted tail entries.</returns>
@@ -138,8 +195,10 @@ internal sealed class FollowerLogJournal
         var released = new List<ulong>();
         foreach (var key in _entries.Keys)
         {
-            if (key <= index)
-                released.Add(key);
+            if (key > index)
+                break;
+
+            released.Add(key);
         }
 
         for (var i = 0; i < released.Count; i++)
@@ -164,6 +223,25 @@ internal sealed class FollowerLogJournal
     /// </summary>
     /// <param name="baseline">The restored snapshot baseline.</param>
     internal void RestoreBaseline(SnapshotBaseline baseline) => SnapshotBaseline = baseline;
+
+    /// <summary>Finds the start of a retained consecutive term run, without crossing the snapshot boundary.</summary>
+    /// <param name="index">The index whose run is sought.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The retained run start, or the input index when it is not retained.</returns>
+    internal ulong GetTermStart(ulong index, CancellationToken cancellationToken)
+    {
+        if (!_entryOffsets.TryGetValue(index, out var current))
+            return index;
+
+        var start = index;
+        while (start > 0UL && _entryOffsets.TryGetValue(start - 1UL, out var previous) && previous.Term == current.Term)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            start--;
+        }
+
+        return start;
+    }
 
     /// <summary>Reads the entry payload at <paramref name="index" /> without materializing a read-only wrapper.</summary>
     /// <param name="index">The journal index to look up.</param>
@@ -213,13 +291,18 @@ internal sealed class FollowerLogJournal
         var expired = new List<ulong>();
         foreach (var key in _entryOffsets.Keys)
         {
-            if (key <= index)
-                expired.Add(key);
+            if (key > index)
+                break;
+
+            expired.Add(key);
         }
 
         foreach (var key in _entries.Keys)
         {
-            if (key <= index && !_entryOffsets.ContainsKey(key))
+            if (key > index)
+                break;
+
+            if (!_entryOffsets.ContainsKey(key))
                 expired.Add(key);
         }
 

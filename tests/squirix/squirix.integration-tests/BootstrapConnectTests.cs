@@ -10,7 +10,7 @@ namespace Squirix.IntegrationTests;
 
 /// <summary>Exported-client coverage for bootstrap connect against an unreachable endpoint.</summary>
 [Immutable]
-public sealed class BootstrapConnectTests : NodeTestBase
+public sealed class BootstrapConnectTests
 {
     /// <summary>Verifies caller cancellation ends a connect that is still retrying an unreachable bootstrap endpoint.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -21,6 +21,10 @@ public sealed class BootstrapConnectTests : NodeTestBase
         using var connectWindow = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         connectWindow.CancelAfter(TimeSpan.FromMilliseconds(200));
 
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, ISquirixClient>(SquirixClient.ConnectAsync(new Uri("https://127.0.0.1:1"), connectWindow.Token));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, ISquirixClient>(
+            SquirixClient.ConnectAsync(new Uri("https://127.0.0.1:1"), connectWindow.Token),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
     }
 }

@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
@@ -34,7 +33,7 @@ public sealed class RemoteCacheHugeExpirationTests
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
 
         _ = await CreateCache(pool).TryAddAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
 
@@ -51,7 +50,7 @@ public sealed class RemoteCacheHugeExpirationTests
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
 
         await CreateCache(pool).SetAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
 
@@ -68,7 +67,7 @@ public sealed class RemoteCacheHugeExpirationTests
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
 
         _ = await CreateCache(pool).TouchAsync(Key, TimeSpan.FromTicks(ticks), cancellationToken);
 
@@ -82,16 +81,6 @@ public sealed class RemoteCacheHugeExpirationTests
         RemoteClientSessionFactory.CreateSerializer());
 
     private static CallPolicy CreatePolicy() => new(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "huge-expiration");
-
-    private static IClientPool CreatePool(CaptureTransport transport, CallPolicy policy)
-    {
-        var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
-        var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
-        _ = poolExpectations.Setups.BeginDrain();
-        _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-        return poolExpectations.Instance();
-    }
 
     private sealed class CaptureTransport : CallInvoker
     {

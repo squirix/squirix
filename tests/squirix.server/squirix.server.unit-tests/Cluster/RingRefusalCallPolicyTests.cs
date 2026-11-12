@@ -44,7 +44,10 @@ public sealed class RingRefusalCallPolicyTests : DisposableServerUnitTestBase
                     state.Attempts[0]++;
                     return ValueTask.FromException<int>(state.Mismatch ? RingMismatchFailure.Mismatch() : RingMismatchFailure.Fenced());
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(RingMismatchFailure.IsRefusal(ex)).IsTrue();
         _ = await Assert.That(attempts[0]).IsEqualTo(1);

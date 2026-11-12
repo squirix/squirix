@@ -29,7 +29,7 @@ public sealed class TrackedConnectionStreamTests : ServerUnitTestBase
         using var invoker = new HttpMessageInvoker(handler, false);
         using var message = new HttpRequestMessage(HttpMethod.Get, new Uri($"https://127.0.0.1:{ReserveClosedPort()}/"));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(invoker.SendAsync(message, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(invoker.SendAsync(message, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
@@ -45,7 +45,7 @@ public sealed class TrackedConnectionStreamTests : ServerUnitTestBase
         using var invoker = new HttpMessageInvoker(handler, false);
         using var message = new HttpRequestMessage(HttpMethod.Get, new Uri($"https://127.0.0.1:{ReserveClosedPort()}/"));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(invoker.SendAsync(message, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(invoker.SendAsync(message, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(connections.Pending).IsEqualTo(0);

@@ -157,7 +157,7 @@ internal static class GroupLogAudit
 
         try
         {
-            await (Hosts: hosts, Group: groupId).WaitUntilValueAsync(static (s, token) => IsQuietAsync(s.Hosts, s.Group, token), bound, TimeProvider.System, cancellationToken).ConfigureAwait(false);
+            await (Hosts: hosts, Group: groupId).WaitUntilValueAsync(static (s, token) => IsQuietAsync(s.Hosts, s.Group, token), bound, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException exception)
         {
@@ -265,7 +265,7 @@ internal static class GroupLogAudit
 
     private static AuditedLogEntry ToAudited(in FollowerLogEntry entry)
     {
-        if (ReplicaLogCodec.Decode(entry.Payload) is not { } record)
+        if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } record)
             throw new InvalidOperationException($"The entry at {entry.LogIndex} of a group log does not decode.");
 
         Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];

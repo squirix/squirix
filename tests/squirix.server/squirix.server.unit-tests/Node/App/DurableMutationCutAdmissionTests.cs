@@ -4,7 +4,9 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -95,7 +97,7 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
                 static (_, _, barrier, _) => new ValueTask<ulong>(barrier),
                 cutCancellation.Token).AsTask();
             await cutCancellation.CancelAsync();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(cutTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(cutTask, StallTimeout, TimeProvider.System, cancellationToken);
             admittedAfterCancel = journal.Journal.InFlightApplyGate.TryEnter();
             if (admittedAfterCancel)
                 journal.Journal.InFlightApplyGate.Exit();
@@ -128,7 +130,7 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
                 static (_, _, _) => ValueTask.FromException(new NotSupportedException("encode failed")),
                 static (_, _) => ValueTask.FromResult(1)),
             cancellationToken).AsTask();
-        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(failing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(failing, StallTimeout, TimeProvider.System, cancellationToken);
 
         var watermark = await journal.Journal.ExecuteSnapshotCutAsync(
             0,
@@ -174,10 +176,10 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
             _ = await Assert.That(await PendingProbe.StaysPendingAsync(second)).IsTrue();
             _ = await Assert.That(journal.Journal.NextSequence).IsEqualTo(allocatedBefore);
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            cutError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cutTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            waitingError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(second.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(first, StallTimeout, TimeProvider.System, cancellationToken);
+            cutError = await NodeAsyncAssert.ThrowsAsync<JournalShutdownRefusedException>(cutTask, StallTimeout, TimeProvider.System, cancellationToken);
+            waitingError = await NodeAsyncAssert.ThrowsAsync<JournalShutdownRefusedException>(second, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {

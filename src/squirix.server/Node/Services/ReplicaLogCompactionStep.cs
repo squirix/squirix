@@ -9,8 +9,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>The checks and the durable sequence of one compaction of a replica group log this node serves.</summary>
 /// <remarks>
-/// The committer runs <see cref="RunAsync" /> under its commit gate, so no write appends, commits, or applies while the step decides and
-/// compacts: the commit index it reads stays the last log index, and the applied index it persists stays the commit index. A follower
+/// The committer runs <see cref="RunAsync" /> under its commit gate to persist and capture the applied boundary, then prepares the file
+/// outside the gate. It reenters the gate for <see cref="FinishAsync" /> and checks follower retention at the captured boundary. A follower
 /// group runs <see cref="RunFollowerAsync" /> instead, which compacts through the durable applied index and keeps every entry above it.
 /// </remarks>
 internal static class ReplicaLogCompactionStep
@@ -82,7 +82,7 @@ internal static class ReplicaLogCompactionStep
         return KeepsWriteMajority(eligibility, behind) ? (null, behind) : (ReplicaLogCompactionOutcome.FollowerBehind, NoSlots);
     }
 
-    /// <summary>Compacts the owned log through its commit index when nothing may still need the covered entries.</summary>
+    /// <summary>Makes the owned log's applied boundary durable and runs the supplied compaction action at that boundary.</summary>
     /// <param name="log">The owned group log.</param>
     /// <param name="coordinator">The running commit coordinator.</param>
     /// <param name="slots">
@@ -91,12 +91,9 @@ internal static class ReplicaLogCompactionStep
     /// </param>
     /// <param name="appliedIndex">The committer's in-memory applied index.</param>
     /// <param name="durability">The node cache journal the applies wrote to.</param>
-    /// <param name="clock">Time source bounding the wait for followers.</param>
+    /// <param name="compact">The action to take once the applied boundary is durable.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> and <see cref="ReplicaLogCompactionOutcome.CompactedPastFollower" />
-    /// change the log.
-    /// </returns>
+    /// <returns>The mapped result of the action, or a refusal from the checks before it ran.</returns>
     /// <remarks>
     /// The covered entries must be committed and applied, their idempotency outcomes resolved, and durably held by every ready follower.
     /// Below the retention limit every follower must be ready too, so a member that was down catches up from the log; past it, a follower
@@ -119,7 +116,7 @@ internal static class ReplicaLogCompactionStep
         (ReplicaEligibility Eligibility, bool PastLimit, int LeaveBehind) slots,
         ulong appliedIndex,
         IJournalDurabilityCoordinator durability,
-        TimeProvider clock,
+        Func<ulong, CancellationToken, Task<GroupCompactionOutcome>> compact,
         CancellationToken cancellationToken)
     {
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -129,10 +126,10 @@ internal static class ReplicaLogCompactionStep
             (false, _, _) => ReplicaLogCompactionOutcome.NotReady,
             (true, false, _) => ReplicaLogCompactionOutcome.UncommittedTail,
             (true, true, false) => ReplicaLogCompactionOutcome.PendingApply,
-            (true, true, true) when slots.PastLimit && slots.LeaveBehind != NoSlots => await AwaitUnadvisedFollowersAsync(coordinator, slots.Eligibility, slots.LeaveBehind, commit, clock, cancellationToken).ConfigureAwait(false),
-            (true, true, true) => await AwaitFollowersAsync(coordinator, slots.Eligibility, slots.PastLimit, commit, clock, cancellationToken).ConfigureAwait(false),
+            (true, true, true) => FollowerRefusal(coordinator, slots.Eligibility, slots.PastLimit, commit),
         };
-        var demotes = refusal == ReplicaLogCompactionOutcome.FollowerBehind && slots.PastLimit && slots.LeaveBehind != NoSlots;
+        var demotes = refusal == ReplicaLogCompactionOutcome.FollowerBehind && slots.PastLimit && slots.LeaveBehind != NoSlots &&
+                      CanLeaveBehind(slots.Eligibility, slots.LeaveBehind, BehindFollowers(coordinator, slots.Eligibility, commit));
         if (refusal is { } refused && !demotes)
             return refused;
 
@@ -147,7 +144,33 @@ internal static class ReplicaLogCompactionStep
             return stillRefused;
 
         var leavesFollowerBehind = HasFollowerNotReady(coordinator, slots.Eligibility);
-        var outcome = Map(await log.CompactThroughAsync(commit, cancellationToken).ConfigureAwait(false));
+        var outcome = Map(await compact(commit, cancellationToken).ConfigureAwait(false));
+        return outcome == ReplicaLogCompactionOutcome.Compacted && leavesFollowerBehind ? ReplicaLogCompactionOutcome.CompactedPastFollower : outcome;
+    }
+
+    /// <summary>Rechecks follower retention at the captured boundary before publishing a prepared compaction.</summary>
+    /// <param name="log">The owning group log.</param>
+    /// <param name="coordinator">The running commit coordinator.</param>
+    /// <param name="eligibility">The current replica slot eligibility.</param>
+    /// <param name="pastLimit">Whether the log exceeded its retention limit.</param>
+    /// <param name="capture">The captured durable boundary.</param>
+    /// <param name="prepared">The verified generation for that boundary.</param>
+    /// <param name="cancellationToken">The cancellation token before publication.</param>
+    /// <returns>The compaction outcome.</returns>
+    internal static async Task<ReplicaLogCompactionOutcome> FinishAsync(
+        IFollowerLog log,
+        ReplicaCommitCoordinator coordinator,
+        ReplicaEligibility eligibility,
+        bool pastLimit,
+        GroupSnapshotCompaction capture,
+        GroupSnapshotCheckpointStore.PreparedSnapshot prepared,
+        CancellationToken cancellationToken)
+    {
+        if (FollowerRefusal(coordinator, eligibility, pastLimit, capture.Snapshot.LastIncludedIndex) is { } refusal)
+            return refusal;
+
+        var leavesFollowerBehind = HasFollowerNotReady(coordinator, eligibility);
+        var outcome = Map(await log.CompactPreparedAsync(capture, prepared, cancellationToken).ConfigureAwait(false));
         return outcome == ReplicaLogCompactionOutcome.Compacted && leavesFollowerBehind ? ReplicaLogCompactionOutcome.CompactedPastFollower : outcome;
     }
 
@@ -160,8 +183,8 @@ internal static class ReplicaLogCompactionStep
     /// The group's flush persists the applied index only after the cache journal holds the applied entries durably, and the commit index
     /// may run ahead of it: every entry above the applied index, committed or not, stays in the log for the group's applier.
     /// The step waits as <see cref="ReplicaLogCompactionOutcome.PendingApply" /> while the group's applier has not rebuilt the idempotency
-    /// outcomes of the applied entries, which the snapshot would otherwise lose with their frames, and while nothing was applied past the
-    /// last snapshot.
+    /// outcomes of the applied entries or nothing was applied past the last snapshot. The log gate is released during preparation so
+    /// the leader can continue appending to this replica. Publication rechecks the captured boundary and preserves the current tail.
     /// </remarks>
     internal static async Task<ReplicaLogCompactionOutcome> RunFollowerAsync(IFollowerLog log, ReplicaLogCompactionPolicy policy, CancellationToken cancellationToken)
     {
@@ -171,38 +194,27 @@ internal static class ReplicaLogCompactionStep
             return ReplicaLogCompactionOutcome.BelowThreshold;
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        return (IsReadyAndComplete(in status), log.Idempotency.OutcomesRebuilt && status.LastAppliedIndex > retention.SnapshotIndex) switch
-        {
-            (false, _) => ReplicaLogCompactionOutcome.NotReady,
-            (true, false) => ReplicaLogCompactionOutcome.PendingApply,
-            (true, true) => Map(await log.CompactThroughAsync(status.LastAppliedIndex, cancellationToken).ConfigureAwait(false)),
-        };
-    }
+        if (!IsReadyAndComplete(in status))
+            return ReplicaLogCompactionOutcome.NotReady;
 
-    /// <summary>Waits, bounded, until every follower that is ready and was not named by the advisory check holds <paramref name="commit" />.</summary>
-    /// <param name="coordinator">The running commit coordinator recording the follower acknowledgements.</param>
-    /// <param name="eligibility">The participation state of the owned group slots.</param>
-    /// <param name="advised">The follower slots the advisory check named; they are lagging by definition and are not waited for.</param>
-    /// <param name="commit">The commit index.</param>
-    /// <param name="clock">Time source bounding the wait.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The refusal after the wait, as <see cref="FollowerRefusal" /> reports it.</returns>
-    private static async Task<ReplicaLogCompactionOutcome?> AwaitUnadvisedFollowersAsync(
-        ReplicaCommitCoordinator coordinator,
-        ReplicaEligibility eligibility,
-        int advised,
-        ulong commit,
-        TimeProvider clock,
-        CancellationToken cancellationToken)
-    {
-        var refusal = FollowerRefusal(coordinator, eligibility, true, commit);
-        for (var waited = TimeSpan.Zero; refusal == ReplicaLogCompactionOutcome.FollowerBehind && (BehindFollowers(coordinator, eligibility, commit) & ~advised) != NoSlots && waited < FollowerWait; waited += FollowerPoll)
+        if (!log.Idempotency.OutcomesRebuilt || status.LastAppliedIndex <= retention.SnapshotIndex)
+            return ReplicaLogCompactionOutcome.PendingApply;
+
+        var (outcome, captured) = await log.CaptureCompactionAsync(status.LastAppliedIndex, cancellationToken).ConfigureAwait(false);
+        if (captured is not { } capture)
+            return Map(outcome);
+
+        try
         {
-            await Task.Delay(FollowerPoll, clock, cancellationToken).ConfigureAwait(false);
-            refusal = FollowerRefusal(coordinator, eligibility, true, commit);
+            using var prepared = await log.PrepareCompactionAsync(capture, cancellationToken).ConfigureAwait(false);
+            return prepared == null
+                ? ReplicaLogCompactionOutcome.NotReady
+                : Map(await log.CompactPreparedAsync(capture, prepared, cancellationToken).ConfigureAwait(false));
         }
-
-        return refusal;
+        catch (GroupSnapshotTooLargeException)
+        {
+            return ReplicaLogCompactionOutcome.SnapshotTooLarge;
+        }
     }
 
     /// <summary>Demotes the ready followers that stayed behind <paramref name="commit" /> when that is safe, and decides again.</summary>
@@ -218,7 +230,7 @@ internal static class ReplicaLogCompactionStep
     private static ReplicaLogCompactionOutcome? LeaveBehind(ReplicaCommitCoordinator coordinator, ReplicaEligibility eligibility, int advised, ulong commit)
     {
         var behind = BehindFollowers(coordinator, eligibility, commit);
-        if ((behind & ~advised) != NoSlots || !KeepsWriteMajority(eligibility, behind))
+        if (!CanLeaveBehind(eligibility, advised, behind))
             return ReplicaLogCompactionOutcome.FollowerBehind;
 
         for (var i = 0; i < eligibility.ReplicaCount; i++)
@@ -229,6 +241,9 @@ internal static class ReplicaLogCompactionStep
 
         return FollowerRefusal(coordinator, eligibility, true, commit);
     }
+
+    private static bool CanLeaveBehind(ReplicaEligibility eligibility, int advised, int behind) =>
+        (behind & ~advised) == NoSlots && KeepsWriteMajority(eligibility, behind);
 
     /// <summary>Returns the ready follower slots that have not durably acknowledged <paramref name="commit" />.</summary>
     /// <param name="coordinator">The running commit coordinator recording the follower acknowledgements.</param>

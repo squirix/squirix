@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
@@ -29,7 +28,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([11]);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
         var cache = CreateCache(pool);
         var factoryGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var owner = new CancellationTokenSource();
@@ -37,7 +36,7 @@ public sealed class RemoteCacheGetOrAddTests
         var first = cache.GetOrAddAsync(Key, (_, _) => GatedValueAsync(factoryGate, 1), cancellationToken: owner.Token);
         var second = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("a joiner must not run its factory"), cancellationToken: cancellationToken);
         await owner.CancelAsync();
-        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, CacheValueResult<long>>(new ValueTask<CacheValueResult<long>>(first));
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, CacheValueResult<long>>(new ValueTask<CacheValueResult<long>>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         factoryGate.SetResult();
 
         _ = await Assert.That((await second.WaitAsync(cancellationToken)).Value).IsEqualTo(11L);
@@ -52,7 +51,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([11, 22], true);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
         var cache = CreateCache(pool);
 
         var first = cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(1), cancellationToken: cancellationToken);
@@ -74,7 +73,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([11, 22]);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
         var cache = CreateCache(pool);
 
         var first = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(1), cancellationToken: CancellationToken.None);
@@ -92,7 +91,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([], answerAsAdded: true);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
         var cache = CreateCache(pool);
 
         var result = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(7), cancellationToken: CancellationToken.None);
@@ -103,16 +102,17 @@ public sealed class RemoteCacheGetOrAddTests
     }
 
     /// <summary>Ensures a value factory that throws synchronously does not block a later get-or-add on the same key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SyncFactoryFailureDoesNotBlockNext()
+    public async Task SyncFactoryFailureDoesNotBlockNext(CancellationToken cancellationToken)
     {
         var transport = new GetOrAddTransport([5]);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
         var cache = CreateCache(pool);
 
         var failing = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("factory failed"), cancellationToken: CancellationToken.None);
-        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing));
+        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var next = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(9), cancellationToken: CancellationToken.None);
 
         _ = await Assert.That(next.Value).IsEqualTo(5L);
@@ -127,16 +127,6 @@ public sealed class RemoteCacheGetOrAddTests
 
     private static RemoteCache<long> CreateCache(IClientPool pool) =>
         new("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
-
-    private static IClientPool CreatePool(GetOrAddTransport transport, CallPolicy policy)
-    {
-        var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
-        var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
-        _ = poolExpectations.Setups.BeginDrain();
-        _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-        return poolExpectations.Instance();
-    }
 
     private static async Task<long> GatedValueAsync(TaskCompletionSource gate, long value)
     {

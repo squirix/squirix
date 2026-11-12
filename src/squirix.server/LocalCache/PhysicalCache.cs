@@ -32,7 +32,7 @@ namespace Squirix.Server.LocalCache;
 /// sweep removes them.</para>
 /// </remarks>
 [Immutable]
-internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
+internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
 {
     private readonly EvictionOptions _eviction;
     private readonly DeadlineIndex _deadlines;
@@ -64,6 +64,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _expiry = expiry;
         _deadlines = new DeadlineIndex(this);
         RawReader = new PhysicalCacheRawReader(this);
+        DistributedAccess = new DistributedAccessOperations(this);
     }
 
     /// <summary>What a read without the cache lock found.</summary>
@@ -124,54 +125,79 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken)
+    public NodeCacheEntry<T>? GetEntry(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryRead(key, true, out var read) ? read.ToEntry() : null);
+        return TryRead(key, true, out var read) ? read.ToEntry() : null;
     }
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
+    async IAsyncEnumerable<CacheKey> ILocalCacheSnapshotReader<T>.EnumerateLiveKeysAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        const int yieldEvery = 256;
+        CacheKey[] keys;
+        lock (_lock)
+            keys = _store.CopyKeysLocked();
+
+        var produced = 0;
+        foreach (var key in keys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!TryRead(key, false, out var read) || IsExpired(read.ExpiresUtc))
+                continue;
+
+            yield return key;
+            produced++;
+            if (produced % yieldEvery == 0)
+                await Task.Yield();
+        }
+    }
+
+    public NodeCacheValueResult<T> GetValue(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryRead(key, true, out var read) ? new NodeCacheValueResult<T>(true, read.Value) : new NodeCacheValueResult<T>(false, default));
+        return TryRead(key, true, out var read) ? new NodeCacheValueResult<T>(true, read.Value) : new NodeCacheValueResult<T>(false, default);
     }
 
-    ValueTask<NodeCacheValueRead<T>> ILocalCacheReadOperations<T>.GetValueWithDeadlineAsync(CacheKey key, CancellationToken cancellationToken)
+    NodeCacheValueRead<T> ILocalCacheReadOperations<T>.GetValueWithDeadline(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryRead(key, true, out var read) ? new NodeCacheValueRead<T>(true, read.Value, read.ExpiresUtc) : default);
+        return TryRead(key, true, out var read) ? new NodeCacheValueRead<T>(true, read.Value, read.ExpiresUtc) : default;
     }
 
-    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null) =>
-        SetAsync(key, entry, cancellationToken, encodedLength);
+    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
+    {
+        Set(key, entry, cancellationToken, encodedLength);
+        return ValueTask.CompletedTask;
+    }
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(CacheKey key, CancellationToken cancellationToken)
+    public CacheRemoveResult<T> Remove(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             var (removed, value) = RemoveLocked(key);
-            return ValueTask.FromResult(new CacheRemoveResult<T>(removed, value));
+            return new CacheRemoveResult<T>(removed, value);
         }
     }
 
-    public ValueTask<bool> RemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken)
+    public bool RemoveExpiration(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
-                return ValueTask.FromResult(false);
+                return false;
 
             var hadDeadline = node.ExpiresUtc != null;
             if (hadDeadline)
             {
-                _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, tags: node.Tags)));
+                _footprint.ResizeForDeadline(key, node, null);
                 node.WriteExpiresUtc(null);
             }
 
             TouchOrderLocked(key, node);
-            return ValueTask.FromResult(hadDeadline);
+            return hadDeadline;
         }
     }
 
@@ -182,56 +208,55 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(RemoveLocked(key).Removed);
     }
 
-    public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
+    public void Set(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
         lock (_lock)
             _ = UpsertLocked(key, normalized, bytes, false);
-        return ValueTask.CompletedTask;
     }
 
-    public ValueTask<bool> TouchAsync(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
+    public bool Touch(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
-                return ValueTask.FromResult(false);
+                return false;
 
             var expiresUtc = UtcNow.SaturatedAdd(expiration);
             if (node.ExpiresUtc == null)
-                _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
+                _footprint.ResizeForDeadline(key, node, expiresUtc);
 
             var previous = node.ExpiresUtc;
             node.WriteExpiresUtc(expiresUtc);
             _deadlines.MovedLocked(node, previous);
             TouchOrderLocked(key, node);
-            return ValueTask.FromResult(true);
+            return true;
         }
     }
 
-    public ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
+    public bool TryAdd(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
         lock (_lock)
-            return ValueTask.FromResult(UpsertLocked(key, normalized, bytes, true));
+            return UpsertLocked(key, normalized, bytes, true);
     }
 
-    public ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken)
+    public bool Update(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var measuredValue = _footprint.MeasureValue(value);
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
-                return ValueTask.FromResult(false);
+                return false;
 
             _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
             node.WriteValue(value);
             TouchOrderLocked(key, node);
-            return ValueTask.FromResult(true);
+            return true;
         }
     }
 
@@ -275,24 +300,25 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
     private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
-        if (candidate is { Version: > 0, Expiration: null })
+        if (candidate.Value is DistributedCacheWrite write)
+            candidate = write.Materialize<T>(UtcNow);
+
+        if (candidate is not { Version: > 0, Expiration: null })
         {
-            var candidateBytes = knownEncodedLength is { } candidateLength ? _footprint.Estimate(key, candidate, candidateLength) : _footprint.Estimate(key, candidate);
-            return (candidate, candidateBytes);
+            var version = candidate.Version > 0 ? candidate.Version : 1;
+            var expires = candidate.ExpiresUtc;
+            if (candidate.Expiration is { } expiration)
+            {
+                var relativeDeadline = UtcNow.SaturatedAdd(expiration);
+                if (expires == null || relativeDeadline < expires)
+                    expires = relativeDeadline;
+            }
+
+            candidate = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
         }
 
-        var version = candidate.Version > 0 ? candidate.Version : 1;
-        var expires = candidate.ExpiresUtc;
-        if (candidate.Expiration is { } expiration)
-        {
-            var relativeDeadline = UtcNow.SaturatedAdd(expiration);
-            if (expires == null || relativeDeadline < expires)
-                expires = relativeDeadline;
-        }
-
-        var normalized = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
-        var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, normalized, length) : _footprint.Estimate(key, normalized);
-        return (normalized, bytes);
+        var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, candidate, length) : _footprint.Estimate(key, candidate);
+        return (candidate, bytes);
     }
 
     private (bool Removed, T? Value) RemoveLocked(CacheKey key)
@@ -313,7 +339,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         if (_eviction.Policy is EvictionPolicyType.Lfu)
         {
-            node.Frequency++;
+            node.Frequency = CacheAccessFrequency.Increment(node.Frequency);
             return;
         }
 
@@ -328,7 +354,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             node.OrderNode = _order.AddFirst(key);
         }
 
-        node.Frequency++;
+        node.Frequency = CacheAccessFrequency.Increment(node.Frequency);
     }
 
     private bool TryGetLiveLocked(CacheKey key, bool touchOrder, [NotNullWhen(true)] out Node? node)
@@ -457,8 +483,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <remarks>
     /// <see cref="Resize" /> and <see cref="Release" /> run only under the cache lock, so the total always equals the sum of
     /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock. Update measures its value before the lock and
-    /// combines the measurement with the entry metadata under it; touch and remove-expiration estimate the stored entry under the lock, so on
-    /// hosts without persistence their estimator cost is paid while the lock is held.
+    /// combines the measurement with the entry metadata under it. Deadline changes reuse the stored estimate when only the deadline share changes.
     /// </remarks>
     [ThreadSafe]
     private sealed class Footprint
@@ -482,6 +507,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal long Read() => Volatile.Read(ref _total);
 
         internal void Release(Node node) => Resize(node, 0);
+
+        internal void ResizeForDeadline(CacheKey key, Node node, DateTime? expiresUtc)
+        {
+            if (_estimator is CacheEntrySizeEstimator<T> ||
+                (_estimator is ObjectCacheEntrySizeEstimator && !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(node.Value)))
+            {
+                const int deadlineBytes = CacheEntryDeadlineSize.IndexBytes;
+                Resize(node, node.Bytes + (expiresUtc != null ? deadlineBytes : -deadlineBytes));
+                return;
+            }
+
+            Resize(node, Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
+        }
 
         internal void Resize(Node node, long bytes)
         {
@@ -759,7 +797,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         /// <summary>Gets an enumerator over the stored nodes; use under the cache lock.</summary>
         /// <returns>The enumerator.</returns>
-        public Enumerator GetEnumerator() => new(_buckets);
+        internal Enumerator GetEnumerator() => new(_buckets);
 
         /// <summary>Links a node whose key is not stored; call under the cache lock.</summary>
         /// <param name="node">The node.</param>
@@ -778,6 +816,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <returns>The keys.</returns>
         internal CacheKey[] CopyKeysLocked()
         {
+            if (Count == 0)
+                return [];
+
             var keys = new CacheKey[Count];
             var index = 0;
             var nodes = GetEnumerator();
@@ -797,11 +838,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             for (var node = order.Last; node != null; node = node.Previous)
             {
-                if (!TryGetLocked(node.Value, out var entry) || entry.Frequency >= minFrequency)
+                if (!TryGetLocked(node.Value, out var entry) || (chosen != null && entry.Frequency >= minFrequency))
                     continue;
 
                 minFrequency = entry.Frequency;
                 chosen = node.Value;
+                if (minFrequency == 1)
+                    break;
             }
 
             return chosen;
@@ -952,11 +995,11 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             }
 
             /// <summary>Gets the current node.</summary>
-            public Node Current => _current!;
+            internal Node Current => _current!;
 
             /// <summary>Moves to the next node.</summary>
             /// <returns><see langword="false" /> when every node was visited.</returns>
-            public bool MoveNext()
+            internal bool MoveNext()
             {
                 if (_current?.Next is { } next)
                 {
@@ -1071,20 +1114,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             // The rebuild reads the current deadline of every entry, this one included.
             _heap.Clear();
-            var nodes = store.GetEnumerator();
-            while (nodes.MoveNext())
-            {
-                var stored = nodes.Current;
-                if (stored.ExpiresUtc is { } expires)
-                {
-                    Index(stored, expires.Ticks);
-                }
-                else
-                {
-                    stored.IndexedTicks = long.MaxValue;
-                    stored.IndexedGeneration++;
-                }
-            }
+            _heap.EnqueueRange(CurrentDeadlines());
         }
 
         /// <summary>Pops the top item when it is due.</summary>
@@ -1100,6 +1130,25 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             _ = heap.Dequeue();
             return true;
+        }
+
+        private IEnumerable<(Deadline Element, long Priority)> CurrentDeadlines()
+        {
+            var nodes = _owner._store.GetEnumerator();
+            while (nodes.MoveNext())
+            {
+                var stored = nodes.Current;
+                stored.IndexedGeneration++;
+                if (stored.ExpiresUtc is { } expires)
+                {
+                    stored.IndexedTicks = expires.Ticks;
+                    yield return (new Deadline(stored, expires.Ticks, stored.IndexedGeneration), expires.Ticks);
+                }
+                else
+                {
+                    stored.IndexedTicks = long.MaxValue;
+                }
+            }
         }
 
         /// <summary>Pushes the canonical item of an entry, which makes every other item of the entry stale.</summary>
@@ -1212,10 +1261,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             _owner = owner;
         }
 
-        public ValueTask<NodeCacheEntry<T>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken)
+        public NodeCacheEntry<T>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(_owner.TryRead(key, false, out var read) ? read.ToEntry() : null);
+            return _owner.TryRead(key, false, out var read) ? read.ToEntry() : null;
         }
     }
 }

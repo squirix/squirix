@@ -148,7 +148,7 @@ internal static class SquirixEndpointMapping
             "/health/ready/details",
             static async ctx =>
             {
-                if (!ConnectionSecurity.IsRequestAuthorized(ctx))
+                if (!await ConnectionSecurity.IsRequestAuthorizedAsync(ctx).ConfigureAwait(false))
                 {
                     ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return;

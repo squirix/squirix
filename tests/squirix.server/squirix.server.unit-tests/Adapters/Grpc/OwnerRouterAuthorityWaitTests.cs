@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
@@ -40,13 +41,14 @@ public sealed class OwnerRouterAuthorityWaitTests
     }
 
     /// <summary>A forwarded call whose node does not get authority within the wait is refused as before, without running.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task InternalCallWithoutAuthorityIsRefused()
+    public async Task InternalCallWithoutAuthorityIsRefused(CancellationToken cancellationToken)
     {
         var table = new FakeLeaderTable(Self, default) { LedWithoutAuthority = true, LedTerm = 3 };
         var attempts = new OwnerRouterRerouteTests.Attempts();
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, true, TimeProvider.System)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, true, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         _ = await Assert.That(table.AuthorityWaits.Count).IsEqualTo(1);

@@ -19,7 +19,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// A follower that restarts on an empty data directory holds unseeded copies until the leaders repair them (#1126): clients keep reading and
 /// writing through the other members meanwhile, and the node reports ready again once every copy is repaired.
 /// </summary>
-public sealed class WipedFollowerTests : EndToEndTestBase
+public sealed class WipedFollowerTests
 {
     private const string CacheName = "wiped-follower";
 
@@ -50,7 +50,6 @@ public sealed class WipedFollowerTests : EndToEndTestBase
         await cluster.Cluster[follower].WaitUntilValueAsync(
             static async (host, token) => (await host.ReplicaGroupsAsync(token)).Status == HealthStatus.Healthy,
             FailoverSteps.Bound,
-            TimeProvider.System,
             cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();
         using var invoker = new HttpMessageInvoker(handler, false);

@@ -24,8 +24,7 @@ public sealed class SymmetricJwtConfigurationTests : NodeIntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var security = new TestNodeSecurityOptions { JwtSigningKey = credentials.Base64SigningKey, JwtIssuer = credentials.Issuer };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
-            StartClusterAsync(NodeId, new IntegrationStartOptions { Security = security }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(NodeId, new IntegrationStartOptions { Security = security }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("SQUIRIX_JWT_SIGNING_KEY requires SQUIRIX_JWT_AUDIENCE", StringComparison.Ordinal);
     }
 
@@ -36,8 +35,7 @@ public sealed class SymmetricJwtConfigurationTests : NodeIntegrationTestBase
     {
         var security = CreateSecurity("not-base64-passphrase!!");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
-            StartClusterAsync(NodeId, new IntegrationStartOptions { Security = security }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(NodeId, new IntegrationStartOptions { Security = security }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("SQUIRIX_JWT_SIGNING_KEY must be base64", StringComparison.Ordinal);
     }
 
@@ -48,8 +46,7 @@ public sealed class SymmetricJwtConfigurationTests : NodeIntegrationTestBase
     {
         var security = CreateSecurity(Convert.ToBase64String(new byte[ShortKeyBytes]));
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
-            StartClusterAsync(NodeId, new IntegrationStartOptions { Security = security }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(NodeId, new IntegrationStartOptions { Security = security }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("at least 32 bytes", StringComparison.Ordinal);
     }
 

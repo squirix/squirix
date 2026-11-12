@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- The Docker build copies this project without the repository build props. -->
+    <SquirixTargetFramework Condition="'$(SquirixTargetFramework)' == ''">net10.0</SquirixTargetFramework>
+    <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Squirix.DockerClient</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="squirix" VersionOverride="0.1.0-preview.10" Condition="'$(ManagePackageVersionsCentrally)' == 'true'" />
+    <PackageReference Include="squirix" Version="0.1.0-preview.10" Condition="'$(ManagePackageVersionsCentrally)' != 'true'" />
+  </ItemGroup>
+</Project>

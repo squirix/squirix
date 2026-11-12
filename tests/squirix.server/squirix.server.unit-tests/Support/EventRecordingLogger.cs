@@ -30,10 +30,11 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
-        _events.Enqueue((eventId.Id, logLevel, exception, formatter(state, exception)));
+        var message = formatter(state, exception);
+        _events.Enqueue((eventId.Id, logLevel, exception, message));
         foreach (var awaited in _awaited)
         {
-            if (awaited.Key.EventId == eventId.Id && Logged(awaited.Key.EventId, awaited.Key.Fragment))
+            if (!awaited.Value.Task.IsCompleted && awaited.Key.EventId == eventId.Id && message.Contains(awaited.Key.Fragment, StringComparison.Ordinal))
                 _ = awaited.Value.TrySetResult();
         }
     }

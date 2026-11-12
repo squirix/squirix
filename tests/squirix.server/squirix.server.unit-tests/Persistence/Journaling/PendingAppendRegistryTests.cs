@@ -23,7 +23,7 @@ public sealed class PendingAppendRegistryTests
 {
     /// <summary>Draining marks tracked appends abandoned so staged batches are dropped, not written.</summary>
     [Test]
-    public async Task AnyAbandonedTrueAfterDrain()
+    public async Task DrainLatchesFailureForStagedWrites()
     {
         var registry = new PendingAppendRegistry();
         var counter = new MutableInt32();
@@ -32,11 +32,14 @@ public sealed class PendingAppendRegistryTests
         var item = JournalWorkItem.Append(buffer, 64, ack);
         registry.Track(item, buffer, 64, ack);
         _ = Interlocked.Increment(ref counter.Value);
+        _ = await Assert.That(registry.Failure).IsNull();
+        _ = await Assert.That(registry.WasDrained()).IsFalse();
 
         var failure = new InvalidOperationException("pipeline failed");
         _ = registry.FailAll(failure, NullLogger.Instance, counter);
 
-        _ = await Assert.That(registry.AnyAbandoned([item])).IsTrue();
+        _ = await Assert.That(registry.Failure).IsSameReferenceAs(failure);
+        _ = await Assert.That(registry.WasDrained()).IsTrue();
         _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(failure);
         _ = await Assert.That(counter.Value).IsEqualTo(0);
         _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
@@ -83,6 +86,8 @@ public sealed class PendingAppendRegistryTests
         _ = await Assert.That(registry.PendingCount).IsEqualTo(2);
 
         _ = await Assert.That(registry.Untrack(first, out _)).IsTrue();
+        _ = await Assert.That(registry.Failure).IsNull();
+        _ = await Assert.That(registry.WasDrained()).IsFalse();
         _ = await Assert.That(registry.PendingBytes).IsEqualTo(100L);
         _ = await Assert.That(registry.PendingCount).IsEqualTo(1);
 
@@ -178,9 +183,11 @@ public sealed class PendingAppendRegistryTests
         _ = Interlocked.Decrement(ref counter.Value);
         ArrayPool<byte>.Shared.ReturnCleared(buffer);
 
+        _ = await Assert.That(registry.WasDrained()).IsFalse();
         var drained = registry.FailAll(new InvalidOperationException("pipeline failed"), NullLogger.Instance, counter);
 
         _ = await Assert.That(drained).IsEqualTo(0);
+        _ = await Assert.That(registry.WasDrained()).IsTrue();
         _ = await Assert.That(ack.Task.IsCompleted).IsFalse();
         _ = await Assert.That(counter.Value).IsEqualTo(0);
         _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(0);

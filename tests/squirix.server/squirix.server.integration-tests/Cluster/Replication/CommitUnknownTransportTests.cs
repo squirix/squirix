@@ -43,7 +43,7 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
 
             _ = await localAppended.Task.WaitAsync(cancellationToken);
             await cancellation.CancelAsync();
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             var transport = ServerOpContract.CommitOutcomeUnknown();

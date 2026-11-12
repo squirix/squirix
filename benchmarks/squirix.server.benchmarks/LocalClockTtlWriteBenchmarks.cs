@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.Threading;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -26,28 +25,26 @@ public class LocalClockTtlWriteBenchmarks
     public int Stored { get; set; }
 
     /// <summary>Overwrites stored entries, each with a new deadline.</summary>
-    /// <returns>A task that completes when the writes finish.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark was not initialized.</exception>
     [Benchmark(OperationsPerInvoke = WritesPerInvocation)]
-    public async Task SetWithTtlAsync()
+    public void SetWithTtl()
     {
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
         var ttl = TimeSpan.FromDays(1);
         for (var i = 0; i < WritesPerInvocation; i++)
-            await cache.SetAsync(_keys[i % _keys.Length], new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None).ConfigureAwait(false);
+            cache.Set(_keys[i % _keys.Length], new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None);
     }
 
     /// <summary>Stores the entries, each with a deadline a day away.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
     [GlobalSetup]
-    public async Task SetupAsync()
+    public void Setup()
     {
         _cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
         _keys = new CacheKey[Stored];
         for (var i = 0; i < Stored; i++)
         {
             _keys[i] = CacheKey.Default("k" + i.ToString(CultureInfo.InvariantCulture));
-            await _cache.SetAsync(_keys[i], new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromDays(1)), CancellationToken.None).ConfigureAwait(false);
+            _cache.Set(_keys[i], new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromDays(1)), CancellationToken.None);
         }
     }
 }

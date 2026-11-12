@@ -36,12 +36,12 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
     {
         var estimator = new CacheEntrySizeEstimator<string>();
         var entry = new NodeCacheEntry<string>("v", 1, null, TimeSpan.FromMinutes(1));
-        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, false, entry, false, estimator, out _);
+        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, entry, estimator, out _);
         var (fitting, fittingCache) = Create(growth + 1, estimator);
         var (tight, tightCache) = Create(growth, estimator);
 
         await fitting.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetAsync(tight, entry, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetAsync(tight, entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fittingCache)).IsEqualTo(growth);
         _ = await Assert.That(BytesOf(tightCache)).IsEqualTo(0L);
@@ -54,12 +54,12 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
     {
         var estimator = new ObjectCacheEntrySizeEstimator();
         var entry = new NodeCacheEntry<object?>(new AdmissionDataPayload { Data = new string('y', 2000) }, 1, null, TimeSpan.FromMinutes(1));
-        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, false, entry, false, estimator, out _);
+        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, entry, estimator, out _);
         var (fitting, fittingCache) = Create(growth + 1, estimator);
         var (tight, tightCache) = Create(growth, estimator);
 
         await fitting.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetAsync(tight, entry, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetAsync(tight, entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fittingCache)).IsEqualTo(growth);
         _ = await Assert.That(BytesOf(tightCache)).IsEqualTo(0L);
@@ -79,11 +79,11 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
         var growth = estimator.EstimateBytes(key, updated, false) - seededBytes;
         var (fitting, fittingCache) = Create(seededBytes + growth + 1, estimator);
         var (tight, tightCache) = Create(seededBytes + growth, estimator);
-        await fittingCache.SetAsync(key, seeded, cancellationToken);
-        await tightCache.SetAsync(key, seeded, cancellationToken);
+        fittingCache.Set(key, seeded, cancellationToken);
+        tightCache.Set(key, seeded, cancellationToken);
 
         _ = await Assert.That(await fitting.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, updated.Value, cancellationToken)).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(UpdateAsync(tight, updated.Value, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(UpdateAsync(tight, updated.Value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fittingCache)).IsEqualTo(seededBytes + growth);
         _ = await Assert.That(BytesOf(tightCache)).IsEqualTo(seededBytes);

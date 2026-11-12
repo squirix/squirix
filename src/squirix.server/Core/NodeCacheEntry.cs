@@ -95,8 +95,12 @@ public sealed class NodeCacheEntry<T>
     /// An object is serialized through <see cref="object" /> so STJ resolves the runtime type, not the declared entry type <typeparamref name="T" />;
     /// otherwise base/interface-declared entries lose derived properties before persistence.
     /// </remarks>
-    private static object? NormalizeStructured(T value) =>
-        value is JsonElement element ? NormalizeElement(element) : ServerJsonSerializer.SerializeToJsonValue<object?>(value);
+    private static object? NormalizeStructured(T value) => value switch
+    {
+        JsonElement element => NormalizeElement(element),
+        DistributedCacheWrite write => write.Envelope,
+        _ => ServerJsonSerializer.SerializeToJsonValue<object?>(value),
+    };
 
     private static object? NormalizeElement(JsonElement element) => element.ValueKind switch
     {

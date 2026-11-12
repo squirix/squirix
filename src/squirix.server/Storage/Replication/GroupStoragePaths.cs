@@ -116,7 +116,7 @@ internal static class GroupStoragePaths
     internal static string GetSnapshotSlotPath(string persistenceRoot, string groupId, int slot)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(slot);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, GroupSnapshotSlots.SlotCount);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, 2);
         return Path.Join(GetGroupDirectory(persistenceRoot, groupId), slot == 0 ? SnapshotSlot0FileName : SnapshotSlot1FileName);
     }
 

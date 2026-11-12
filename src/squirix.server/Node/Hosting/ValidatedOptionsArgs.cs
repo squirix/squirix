@@ -13,11 +13,11 @@ internal sealed class ValidatedOptionsArgs
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
-    internal MtlsCertificate? Certificate { get; init; }
+    internal required MtlsCertificate Certificate { get; init; }
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
 
-    internal MtlsOptions? MtlsOptions { get; init; }
+    internal required MtlsOptions MtlsOptions { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
 }

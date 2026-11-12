@@ -47,6 +47,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
             await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             var acknowledgement = await pipeline.AppendFollowerAsync(2, mutation, cancellationToken).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             _ = await Assert.That(acknowledgement.LogIndex).IsEqualTo(1UL);
+            _ = await Assert.That((await FanOutAsync(pipeline, 1, mutation, cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).LogIndex).IsEqualTo(1UL);
         }
         finally
         {
@@ -67,7 +68,8 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendFollowerAsync(1, Mutation(2), cancellationToken).AsTask());
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendFollowerAsync(1, Mutation(2), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            await AssertFollowersAcknowledgedAsync(pipeline, cancellationToken);
         }
         finally
         {
@@ -133,6 +135,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
             await AwaitAppendedAsync(routing, cancellationToken);
+            await AssertFollowersAcknowledgedAsync(pipeline, cancellationToken);
 
             await pipeline.AdvanceCommitIndexAsync(1, cancellationToken);
             var early = routing.Heartbeats.Reader.Count;
@@ -162,11 +165,12 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var routing = new FollowerLogRoutingGateway(followers);
         await using var registry = await OpenRegistryAsync(Path.Join(Dir, "owner"), cancellationToken);
         var time = new FakeTimeProvider();
-        var pipeline = await CreateTimedPipelineAsync(registry, routing, (GroupId, 0), new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance), time, cancellationToken, new ReplicaReadIndexRound(1, 3, 0));
+        var pipeline = await CreateTimedPipelineAsync(registry, routing, (GroupId, 0), new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance), time, cancellationToken, (new ReplicaReadIndexRound(1, 3, 0), true));
         try
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
             await AwaitAppendedAsync(routing, cancellationToken);
+            await AssertFollowersAcknowledgedAsync(pipeline, cancellationToken);
 
             await pipeline.AdvanceCommitIndexAsync(1, cancellationToken);
             time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
@@ -187,7 +191,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new ObjectDisposedException("log")), appends);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, false, false));
     }
@@ -200,7 +204,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new OperationCanceledException()), appends);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, false));
     }
@@ -213,7 +217,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new IOException("write failed")), appends, FollowerLogReadiness.Failed);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
     }
@@ -241,7 +245,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends, FollowerLogReadiness.Ready, true);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
     }
@@ -254,9 +258,18 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends, FollowerLogReadiness.Ready, false);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+    }
+
+    private static async Task AssertFollowersAcknowledgedAsync(ReplicaGroupCommitPipeline pipeline, CancellationToken cancellationToken)
+    {
+        for (var replica = 1; replica <= 2; replica++)
+        {
+            var acknowledgement = await FanOutAsync(pipeline, replica, Mutation(1), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(acknowledgement.LogIndex).IsEqualTo(1UL);
+        }
     }
 
     private static async Task AwaitAppendedAsync(FollowerLogRoutingGateway routing, CancellationToken cancellationToken)
@@ -273,7 +286,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
     private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready, bool? disposed = null)
     {
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
+        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
         _ = log.Setups.Readiness.Gets().ReturnValue(readiness);
         if (disposed is { } isDisposed)
             _ = log.Setups.IsDisposed.Gets().ReturnValue(isDisposed);
@@ -283,6 +296,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1)
         {
             LocalAppends = appends,
+            AllowEarlyReplication = true,
         };
     }
 }

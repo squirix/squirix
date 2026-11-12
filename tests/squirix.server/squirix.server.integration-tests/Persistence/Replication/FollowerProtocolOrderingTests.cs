@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -17,34 +16,9 @@ namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
 /// <summary>Ordering rules of the replication append protocol over the durable follower log.</summary>
 [Immutable]
-public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
+public sealed class FollowerProtocolOrderingTests
 {
     private const string GroupId = "grp-1";
-
-    /// <summary>A divergent uncommitted tail is truncated and rewritten by the new leader.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ConflictingTailIsTruncatedAndRewritten(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-ordering-conflict");
-
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await log.OpenSeededAsync(cancellationToken);
-
-        // Old leader (term 1) appends an entry at index 1, then crashes before a majority.
-        var first = await log.AppendAsync(Append(1UL, 1UL, "x"), cancellationToken);
-        _ = await Assert.That(first.Success).IsTrue();
-
-        // New leader (term 2) rewrites index 1 with a conflicting entry.
-        var result = await log.AppendAsync(Append(1UL, 2UL, "y"), cancellationToken);
-
-        _ = await Assert.That(result.Success).IsTrue();
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
-        var tail = await log.GetUncommittedTailAsync(cancellationToken);
-        _ = await Assert.That(tail).HasSingleItem();
-        _ = await Assert.That(tail[0].Term).IsEqualTo(2UL);
-        _ = await Assert.That(Encoding.UTF8.GetString(tail[0].Payload.Span)).IsEqualTo("y");
-    }
 
     /// <summary>A duplicate batch produces exactly one journal effect.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

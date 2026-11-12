@@ -119,14 +119,14 @@ public sealed class PartitionFabricTests
 
         _ = await Assert.That(fabric["a", "c"].ActiveConnections).IsEqualTo(0);
         _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
-        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken));
+        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(timedOut.InnerException).IsTypeOf<TimeoutException>();
         _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(1);
 
         fabric.HealAll();
 
         // The echo answers the request with its own bytes, which no HTTP response parses, so the dial fails once it was bridged.
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(DialAsync(fabric, "a", "c", cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(DialAsync(fabric, "a", "c", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(2);
     }
 
@@ -143,7 +143,7 @@ public sealed class PartitionFabricTests
 
         fabric.HealAll();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(dial);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(dial, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>
@@ -165,7 +165,7 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.ClientToUpstream)).IsTrue();
         _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.UpstreamToClient)).IsTrue();
         _ = await Assert.That(fabric["a", "b"].IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
-        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken));
+        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(timedOut.InnerException).IsTypeOf<TimeoutException>();
 
         fabric.HealAll();
@@ -207,7 +207,7 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "b"]).IsSameReferenceAs(first);
 
         var other = new IPEndPoint(IPAddress.Loopback, echo.EndPoint.Port == 1 ? 2 : 1);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(fabric, other, cancellationToken, static (f, o, ct) => _ = f.EnsureProxyAsync("a", "b", o, ct));
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(fabric, other, cancellationToken, static (f, o, ct) => _ = f.EnsureProxyAsync("a", "b", o, ct).AsTask());
         _ = NodeExceptionAssert.For<KeyNotFoundException>().Throws(fabric, static f => _ = f["b", "a"]);
     }
 

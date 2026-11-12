@@ -176,7 +176,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         var log = Log(leader);
         var status = await log.GetStatusAsync(cancellationToken);
         var read = await log.ReadEntriesAsync(index, 1, cancellationToken);
-        var record = read.Entries.Count == 1 ? ReplicaLogCodec.Decode(read.Entries[0].Payload) : null;
+        var record = read.Entries.Count == 1 ? ReplicaLogCodec.DecodeBorrowed(read.Entries[0].Payload) : null;
         return record is { } noop ? (noop, status.CommitIndex >= index) : throw new InvalidOperationException($"The group log {OwnerId} holds no decodable entry at {index}.");
     }
 

@@ -15,9 +15,9 @@ CRC32C uses the Castagnoli polynomial (`0x82F63B78`, reflected), matching journa
 
 The file stores no total length. Writer and reader address the file with 64-bit offsets, so its size is limited only by
 the file system; a single record body is at most 1 GiB. A reader accepts only the current format version `2`; a snapshot
-of any other version stops recovery with an error and is never skipped in favor of the journal. A snapshot is written to
-a temporary file next to the published one, so the data directory needs about twice the snapshot size free while a
-snapshot is taken.
+of any other version stops recovery with an error and is never skipped in favor of the journal. See
+[Publish semantics](#publish-semantics) for file creation and the
+[runbook](operational-runbook.md#snapshot-artifacts-and-memory-pressure) for disk headroom.
 
 ## Record layout
 
@@ -73,12 +73,34 @@ fails, and it copies the text into its own buffer. Value kinds that are not list
 
 ## Idempotency body
 
-| Field       | Encoding                              |
-| ----------- | ------------------------------------- |
-| operationId | `u16` length + UTF-8                  |
-| fingerprint | `u16` length + UTF-8                  |
-| createdUtc  | `i64` Unix milliseconds UTC           |
-| outcomeKind | `u16` length + UTF-8 (`insert` today) |
+The current writer starts each body with a state byte. All integer fields below are little-endian.
+
+| Field       | Encoding                                  |
+| ----------- | ----------------------------------------- |
+| state       | `u8`: `0` = completed, `1` = started      |
+| operationId | `u16` UTF-8 byte length + UTF-8 bytes     |
+
+A completed record (`state = 0`) continues with:
+
+| Field          | Encoding                              |
+| -------------- | ------------------------------------- |
+| fingerprint    | `u16` UTF-8 byte length + UTF-8 bytes |
+| createdUtc     | `i64` Unix milliseconds UTC           |
+| responseLength | `i32`, non-negative                   |
+| responseBytes  | `responseLength` raw bytes            |
+
+A started record (`state = 1`) continues with:
+
+| Field          | Encoding                                          |
+| -------------- | ------------------------------------------------- |
+| hasFingerprint | `u8`: `0` = absent, `1` = present                 |
+| fingerprint    | `u16` UTF-8 byte length + UTF-8 bytes, if present |
+| createdUtc     | `i64` Unix milliseconds UTC                       |
+
+The reader also accepts the legacy completed-record body without the leading state byte: `operationId`,
+`fingerprint`, `createdUtc`, `responseLength`, and `responseBytes` in that order. This record-level compatibility does
+not allow a different snapshot file version. The implementation is
+[`IdempotencyCodec`](../src/squirix.server/Storage/Snapshot/Binary/IdempotencyCodec.cs).
 
 ## Publish semantics
 
@@ -92,18 +114,16 @@ the next snapshot is published.
 
 ## Replica-group snapshots
 
-Replica-group recovery snapshots are separate from cache snapshots and are stored as two slot files,
-`group.snapshot.0` and `group.snapshot.1`, inside the group persistence directory. The snapshot image is:
+Replica-group recovery snapshots are separate from cache snapshots. Each immutable generation is stored as
+`group.checkpoint-<generation>.snapshot` in the group persistence directory. The snapshot image is:
 
 ```text
 SQRS | version:u8 | payloadLength:u32 | payload | CRC32C(payload):u32
 ```
 
-This image is also what a state transfer carries. A slot file wraps one image:
-
-```text
-SQGS | slotVersion:u8 | sequence:u64 | imageLength:i32 | image | CRC32C(all preceding bytes):u32
-```
+This image is also what a state transfer carries. The `group.snapshot.meta` file contains two 4 KiB pointer
+slots. Each stores a magic value, a publication sequence, a snapshot generation ID, local WAL offsets, zero
+padding, and a CRC32C over the preceding slot bytes. The empty generation ID represents recovery from the full WAL.
 
 All integer fields are little-endian. The payload begins with five fixed 64-bit fields (configuration generation,
 `lastIncludedTerm`, `lastIncludedIndex`, `commitIndex`, and `capturedUtc` in Unix milliseconds), followed by a
@@ -117,19 +137,10 @@ its own monotonic clock, so the retention window never depends on how far apart 
 spends at rest or in transit does not count: a restored outcome may stay replayable longer than its window, never
 shorter, and only while no newer outcome needs its place. A snapshot carrying an outcome resolved after `capturedUtc` is refused as corrupt.
 
-A slot file is valid when its magic, version, length, and CRC check, its sequence is not zero, and its image decodes.
-The slot CRC covers the slot header and the image, so a header persisted over an older image is not mistaken for a
-newer snapshot. A slot that fails a frame check is torn and ignored. A slot with an intact frame whose image does not
-decode, uses another image version, or is larger than the size bound plus the slot frame is refused as an error, as is
-a leftover `group.snapshot` file written by an earlier build. The valid slot with the higher sequence is the
-snapshot; two valid slots with one sequence must be byte-identical.
+Recovery checks the pointer slots and tries their referenced snapshots in descending publication order. A torn
+pointer or damaged snapshot can fall back to the preceding generation. Local compaction flushes and verifies the
+new snapshot before publishing its pointer. It retains the WAL from the preceding snapshot boundary so either
+generation can recover every committed index. The first compaction retains the full WAL for the same reason.
 
-Publication never renames, replaces, or deletes a file. It writes the new snapshot in place into the slot that is not
-current and flushes it, then writes it again into the slot that was current and flushes that, so both slots end up
-holding the snapshot. Before the first flush returns, a crash leaves either the previous snapshot or the new one; after
-it, the new one. When no snapshot exists yet, a publish that stopped after the first slot write leaves slot 0 torn or
-valid and slot 1 absent or torn. Recovery validates the slots as above before restoring the committed baseline. Journal compaction keeps
-the snapshot published and retains the log header plus entries after `lastIncludedIndex`, so a crash during or after
-compaction remains restartable. A replica that fell behind the compacted log is repaired by a state transfer: the
-leader sends the published image, the receiving replica checks it before it changes anything, and it publishes the same
-snapshot when the transfer completes.
+State transfer writes two independent copies at the incoming boundary before replacing the old WAL. The old
+snapshot file formats are rejected.

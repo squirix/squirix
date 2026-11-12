@@ -11,7 +11,7 @@ namespace Squirix.Server.Benchmarks;
 public class ReplicaOutcomeBenchmarks
 {
     private readonly DateTime _now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-    private NodeCacheEntry<object?> _entry = new(null, 1);
+    private NodeCacheEntry<object?> _entry = new(null);
     private byte[] _previous = [];
 
     /// <summary>Gets or sets the previous payload size in bytes.</summary>
@@ -26,13 +26,13 @@ public class ReplicaOutcomeBenchmarks
     /// <summary>Prepares a live remove, including protobuf serialization of the previous entry.</summary>
     /// <returns>The owned outcome bytes.</returns>
     [Benchmark]
-    public byte[] Remove() => ReplicaMutationDecisions.DecideRemove(_entry, _now).Outcome;
+    public ReadOnlyMemory<byte> Remove() => ReplicaMutationDecisions.DecideRemove(_entry, _now).Outcome;
 
     /// <summary>Creates the previous payload and the live entry outside the measurement.</summary>
     [GlobalSetup]
     public void Setup()
     {
         _previous = new byte[PayloadBytes];
-        _entry = new NodeCacheEntry<object?>(new string('x', PayloadBytes), 1);
+        _entry = new NodeCacheEntry<object?>(new string('x', PayloadBytes));
     }
 }

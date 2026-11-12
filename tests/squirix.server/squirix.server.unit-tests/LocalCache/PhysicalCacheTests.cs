@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -19,31 +20,31 @@ namespace Squirix.Server.UnitTests.LocalCache;
 [Immutable]
 public sealed class PhysicalCacheTests : ServerUnitTestBase
 {
-    private static readonly Func<object?, Task> RemoveExpOp = static async s =>
+    private static readonly Action<object?> RemoveExpOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
-        _ = await st.Cache.RemoveExpirationAsync(st.Key, st.Ct);
+        _ = st.Cache.RemoveExpiration(st.Key, st.Ct);
     };
 
-    private static readonly Func<object?, Task> RemoveOp = static async s =>
+    private static readonly Action<object?> RemoveOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
-        _ = await st.Cache.RemoveAsync(st.Key, st.Ct);
+        _ = st.Cache.Remove(st.Key, st.Ct);
     };
 
-    private static readonly Func<object?, Task> TouchOp = static async s =>
+    private static readonly Action<object?> TouchOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
-        _ = await st.Cache.TouchAsync(st.Key, TimeSpan.FromSeconds(10), st.Ct);
+        _ = st.Cache.Touch(st.Key, TimeSpan.FromSeconds(10), st.Ct);
     };
 
-    private static readonly Func<object?, Task> UpdateRaceOp = static async s =>
+    private static readonly Action<object?> UpdateRaceOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         for (var i = 0; i < 10000; i++)
         {
-            await st.Cache.SetAsync(st.Key, new NodeCacheEntry<string> { Value = "v" }, st.Ct);
-            if (await st.Cache.UpdateAsync(st.Key, "v", st.Ct) && await st.Cache.GetEntryAsync(st.Key, st.Ct) == null)
+            st.Cache.Set(st.Key, new NodeCacheEntry<string> { Value = "v" }, st.Ct);
+            if (st.Cache.Update(st.Key, "v", st.Ct) && st.Cache.GetEntry(st.Key, st.Ct) == null)
                 st.FalsePositives++;
         }
     };
@@ -60,9 +61,9 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     public async Task AddPreservesTags(CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        _ = await cache.TryAddAsync(new CacheKey("ns", "added"), new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
+        _ = cache.TryAdd(new CacheKey("ns", "added"), new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
-        var entry = await cache.GetEntryAsync(new CacheKey("ns", "added"), cancellationToken);
+        var entry = cache.GetEntry(new CacheKey("ns", "added"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
@@ -75,25 +76,37 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         await cache.InsertRecoveryAsync(new CacheKey("ns", "recovered"), new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
-        var entry = await cache.GetEntryAsync(new CacheKey("ns", "recovered"), cancellationToken);
+        var entry = cache.GetEntry(new CacheKey("ns", "recovered"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
 
-    /// <summary>Live enumeration exposes tags to the snapshot capture bridge.</summary>
+    /// <summary>Starting a snapshot of a grown and emptied cache does not allocate a key array or store enumerator.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task EnumerateLiveYieldsTags(CancellationToken cancellationToken)
+    public async Task EmptySnapshotMoveNextAllocatesNothing(CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        await cache.SetAsync(new CacheKey("ns", "a"), new NodeCacheEntry<string>("1", tags: TestTags), cancellationToken);
+        var keys = new CacheKey[32];
+        var entry = new NodeCacheEntry<string>("value");
+        for (var i = 0; i < keys.Length; i++)
+        {
+            keys[i] = new CacheKey("ns", i.ToString(CultureInfo.InvariantCulture));
+            cache.Set(keys[i], entry, cancellationToken);
+        }
 
-        var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
-        await foreach (var pair in cache.EnumerateLiveAsync(cancellationToken))
-            entries.Add(pair);
+        foreach (var key in keys)
+            _ = cache.Remove(key, cancellationToken);
 
-        var (_, singleEntry) = await Assert.That(entries).HasSingleItem();
-        await AssertTagsEqualAsync(TestTags, singleEntry.Tags);
+        await using var warmup = cache.EnumerateLiveAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
+        _ = await warmup.MoveNextAsync();
+        await using var snapshot = cache.EnumerateLiveAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var next = snapshot.MoveNextAsync();
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        _ = await Assert.That(await next).IsFalse();
+        _ = await Assert.That(allocated).IsEqualTo(0L);
     }
 
     /// <summary>Live enumeration skips an expired entry without removing it from the store.</summary>
@@ -103,7 +116,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var time = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
-        await cache.SetAsync(new CacheKey("ns", "expired"), new NodeCacheEntry<string>("old", expiration: TimeSpan.FromMinutes(1)), cancellationToken);
+        cache.Set(new CacheKey("ns", "expired"), new NodeCacheEntry<string>("old", expiration: TimeSpan.FromMinutes(1)), cancellationToken);
         time.Advance(TimeSpan.FromMinutes(2));
 
         var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
@@ -115,6 +128,22 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
     }
 
+    /// <summary>Live enumeration exposes tags to the snapshot capture bridge.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EnumerateLiveYieldsTags(CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        cache.Set(new CacheKey("ns", "a"), new NodeCacheEntry<string>("1", tags: TestTags), cancellationToken);
+
+        var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
+        await foreach (var pair in cache.EnumerateLiveAsync(cancellationToken))
+            entries.Add(pair);
+
+        var (_, singleEntry) = await Assert.That(entries).HasSingleItem();
+        await AssertTagsEqualAsync(TestTags, singleEntry.Tags);
+    }
+
     /// <summary>RemoveExpirationAsync clears the expiration and reports success on a live entry (CAS path works).</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -122,11 +151,11 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "rm_exp_live");
-        await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMinutes(5) }, cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMinutes(5) }, cancellationToken);
 
-        _ = await Assert.That(await cache.RemoveExpirationAsync(key, cancellationToken)).IsTrue();
+        _ = await Assert.That(cache.RemoveExpiration(key, cancellationToken)).IsTrue();
 
-        var entry = await cache.GetEntryAsync(key, cancellationToken);
+        var entry = cache.GetEntry(key, cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry.ExpiresUtc).IsNull();
     }
@@ -143,11 +172,11 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         {
             var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
             var key = new CacheKey("ns", "rm_exp");
-            await cache.SetAsync(key, new NodeCacheEntry<string>("v", expiration: TimeSpan.FromMinutes(5), tags: TestTags), cancellationToken);
+            cache.Set(key, new NodeCacheEntry<string>("v", expiration: TimeSpan.FromMinutes(5), tags: TestTags), cancellationToken);
 
             await RaceRemoveExpAsync(cache, key, cancellationToken);
 
-            var entry = await cache.GetEntryAsync(key, cancellationToken);
+            var entry = cache.GetEntry(key, cancellationToken);
             _ = await Assert.That(entry).IsNull();
         }
     }
@@ -159,9 +188,9 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "tagged");
-        await cache.SetAsync(key, new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
-        var entry = await cache.GetEntryAsync(key, cancellationToken);
+        var entry = cache.GetEntry(key, cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
@@ -173,11 +202,11 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "touch_live");
-        await cache.SetAsync(key, new NodeCacheEntry<string>("v"), cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string>("v"), cancellationToken);
 
-        _ = await Assert.That(await cache.TouchAsync(key, TimeSpan.FromMinutes(5), cancellationToken)).IsTrue();
+        _ = await Assert.That(cache.Touch(key, TimeSpan.FromMinutes(5), cancellationToken)).IsTrue();
 
-        var entry = await cache.GetEntryAsync(key, cancellationToken);
+        var entry = cache.GetEntry(key, cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry.ExpiresUtc).IsNotNull();
     }
@@ -191,11 +220,11 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         {
             var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
             var key = new CacheKey("ns", "touch");
-            await cache.SetAsync(key, new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
+            cache.Set(key, new NodeCacheEntry<string>("v", tags: TestTags), cancellationToken);
 
             await RaceTouchAsync(cache, key, cancellationToken);
 
-            var entry = await cache.GetEntryAsync(key, cancellationToken);
+            var entry = cache.GetEntry(key, cancellationToken);
             _ = await Assert.That(entry).IsNull();
         }
     }
@@ -206,7 +235,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     public async Task UpdateAsyncMissingKeyReturnsFalse(CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        _ = await Assert.That(await cache.UpdateAsync(new CacheKey("ns", "missing"), "v", cancellationToken)).IsFalse();
+        _ = await Assert.That(cache.Update(new CacheKey("ns", "missing"), "v", cancellationToken)).IsFalse();
     }
 
     /// <summary>Update replaces a live value and reports success.</summary>
@@ -216,10 +245,10 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "live");
-        await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "a", Version = 1 }, cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string> { Value = "a", Version = 1 }, cancellationToken);
 
-        _ = await Assert.That(await cache.UpdateAsync(key, "b", cancellationToken)).IsTrue();
-        var entry = await cache.GetEntryAsync(key, cancellationToken);
+        _ = await Assert.That(cache.Update(key, "b", cancellationToken)).IsTrue();
+        var entry = cache.GetEntry(key, cancellationToken);
         _ = await Assert.That(entry!.Value).IsEqualTo("b");
     }
 
@@ -230,9 +259,9 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "same");
-        await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "same", Version = 1 }, cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string> { Value = "same", Version = 1 }, cancellationToken);
 
-        _ = await Assert.That(await cache.UpdateAsync(key, "same", cancellationToken)).IsTrue();
+        _ = await Assert.That(cache.Update(key, "same", cancellationToken)).IsTrue();
     }
 
     /// <summary>Value-only update keeps the original entry tags.</summary>
@@ -242,10 +271,10 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "updated");
-        await cache.SetAsync(key, new NodeCacheEntry<string>("old", tags: TestTags), cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string>("old", tags: TestTags), cancellationToken);
 
-        _ = await Assert.That(await cache.UpdateAsync(key, "new", cancellationToken)).IsTrue();
-        var entry = await cache.GetEntryAsync(key, cancellationToken);
+        _ = await Assert.That(cache.Update(key, "new", cancellationToken)).IsTrue();
+        var entry = cache.GetEntry(key, cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry.Value).IsEqualTo("new");
         await AssertTagsEqualAsync(TestTags, entry.Tags);
@@ -263,10 +292,10 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
         // Seed the key before either concurrent task starts so the reclaimer races against a present
         // entry from the first iteration instead of finishing before the updater writes the key.
-        await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "v" }, cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string> { Value = "v" }, cancellationToken);
 
-        var updater = Task.Factory.StartNew(UpdateRaceOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        var reclaimer = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+        var updater = Task.Factory.StartNew(UpdateRaceOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
+        var reclaimer = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
 
         await Task.WhenAll(updater, reclaimer);
 
@@ -284,7 +313,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         var time = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("ns", "expired");
-        await cache.SetAsync(
+        cache.Set(
             key,
             new NodeCacheEntry<string>
             {
@@ -296,8 +325,8 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
         time.Advance(TimeSpan.FromMinutes(2));
 
-        _ = await Assert.That(await cache.UpdateAsync(key, "new", cancellationToken)).IsFalse();
-        _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNull();
+        _ = await Assert.That(cache.Update(key, "new", cancellationToken)).IsFalse();
+        _ = await Assert.That(cache.GetEntry(key, cancellationToken)).IsNull();
     }
 
     private static async Task AssertTagsEqualAsync(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
@@ -315,8 +344,8 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     private static Task RaceRemoveExpAsync(PhysicalCache<string> cache, CacheKey key, CancellationToken cancellationToken)
     {
         var st = new RaceState(cache, key, cancellationToken);
-        var op = Task.Factory.StartNew(RemoveExpOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+        var op = Task.Factory.StartNew(RemoveExpOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
+        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
         return Task.WhenAll(op, rem);
     }
 
@@ -327,8 +356,8 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     private static Task RaceTouchAsync(PhysicalCache<string> cache, CacheKey key, CancellationToken cancellationToken)
     {
         var st = new RaceState(cache, key, cancellationToken);
-        var op = Task.Factory.StartNew(TouchOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+        var op = Task.Factory.StartNew(TouchOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
+        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
         return Task.WhenAll(op, rem);
     }
 

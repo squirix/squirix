@@ -26,12 +26,12 @@ public sealed class ProtoExTests
     {
         var serializer = new SystemTextJsonSerializer();
 
-        _ = await Assert.That(await ProtoEx.ReadAsync<object>(new CacheValue { StringValue = "hello" }, serializer)).IsEqualTo("hello");
-        _ = await Assert.That(await ProtoEx.ReadAsync<object>(new CacheValue { BoolValue = true }, serializer) is true).IsTrue();
-        _ = await Assert.That(await ProtoEx.ReadAsync<object>(new CacheValue { Int64Value = 22L }, serializer)).IsTypeOf<long>();
-        _ = await Assert.That(await ProtoEx.ReadAsync<object>(new CacheValue { DoubleValue = 3.5d }, serializer)).IsEqualTo(3.5d);
-        _ = await Assert.That(await ProtoEx.ReadAsync<object>(new CacheValue { NullValue = NullValue.NullValue }, serializer)).IsNull();
-        var element = await Assert.That(await ProtoEx.ReadAsync<object>(JsonWire("""{"a":[1,2]}"""), serializer)).IsTypeOf<JsonElement>();
+        _ = await Assert.That(ProtoEx.Read<object>(new CacheValue { StringValue = "hello" }, serializer)).IsEqualTo("hello");
+        _ = await Assert.That(ProtoEx.Read<object>(new CacheValue { BoolValue = true }, serializer) is true).IsTrue();
+        _ = await Assert.That(ProtoEx.Read<object>(new CacheValue { Int64Value = 22L }, serializer)).IsTypeOf<long>();
+        _ = await Assert.That(ProtoEx.Read<object>(new CacheValue { DoubleValue = 3.5d }, serializer)).IsEqualTo(3.5d);
+        _ = await Assert.That(ProtoEx.Read<object>(new CacheValue { NullValue = NullValue.NullValue }, serializer)).IsNull();
+        var element = await Assert.That(ProtoEx.Read<object>(JsonWire("""{"a":[1,2]}"""), serializer)).IsTypeOf<JsonElement>();
         _ = await Assert.That(element.GetProperty("a").GetArrayLength()).IsEqualTo(2);
     }
 
@@ -41,7 +41,7 @@ public sealed class ProtoExTests
     {
         var serializer = new SystemTextJsonSerializer();
 
-        var element = await Assert.That(await ProtoEx.ReadAsync<object>(JsonWire("12345678901234567890"), serializer)).IsTypeOf<JsonElement>();
+        var element = await Assert.That(ProtoEx.Read<object>(JsonWire("12345678901234567890"), serializer)).IsTypeOf<JsonElement>();
 
         _ = await Assert.That(element.GetRawText()).IsEqualTo("12345678901234567890");
     }
@@ -52,12 +52,12 @@ public sealed class ProtoExTests
     {
         var serializer = new ISquirixSerializerCreateExpectations().Instance();
 
-        _ = await Assert.That(await ProtoEx.ReadAsync<string>(new CacheValue { StringValue = "hello" }, serializer)).IsEqualTo("hello");
-        _ = await Assert.That(await ProtoEx.ReadAsync<bool>(new CacheValue { BoolValue = true }, serializer)).IsTrue();
-        _ = await Assert.That(await ProtoEx.ReadAsync<int>(new CacheValue { Int64Value = 11L }, serializer)).IsEqualTo(11);
-        _ = await Assert.That(await ProtoEx.ReadAsync<long>(new CacheValue { Int64Value = 22L }, serializer)).IsEqualTo(22L);
-        _ = await Assert.That(await ProtoEx.ReadAsync<double>(new CacheValue { DoubleValue = 3.25d }, serializer)).IsEqualTo(3.25d);
-        _ = await Assert.That(await ProtoEx.ReadAsync<string>(new CacheValue { NullValue = NullValue.NullValue }, serializer)).IsNull();
+        _ = await Assert.That(ProtoEx.Read<string>(new CacheValue { StringValue = "hello" }, serializer)).IsEqualTo("hello");
+        _ = await Assert.That(ProtoEx.Read<bool>(new CacheValue { BoolValue = true }, serializer)).IsTrue();
+        _ = await Assert.That(ProtoEx.Read<int>(new CacheValue { Int64Value = 11L }, serializer)).IsEqualTo(11);
+        _ = await Assert.That(ProtoEx.Read<long>(new CacheValue { Int64Value = 22L }, serializer)).IsEqualTo(22L);
+        _ = await Assert.That(ProtoEx.Read<double>(new CacheValue { DoubleValue = 3.25d }, serializer)).IsEqualTo(3.25d);
+        _ = await Assert.That(ProtoEx.Read<string>(new CacheValue { NullValue = NullValue.NullValue }, serializer)).IsNull();
     }
 
     /// <summary>A typed cache deserializes JSON text straight from the received bytes.</summary>
@@ -67,7 +67,7 @@ public sealed class ProtoExTests
         ClientSerializerMetadata.RegisterContext(CustomCacheValueJsonContext.Default);
         var serializer = new SystemTextJsonSerializer();
 
-        var value = await ProtoEx.ReadAsync<CustomCacheValue>(JsonWire("""{"Count":7,"Name":"dto"}"""), serializer);
+        var value = ProtoEx.Read<CustomCacheValue>(JsonWire("""{"Count":7,"Name":"dto"}"""), serializer);
 
         _ = await Assert.That(value!.Count).IsEqualTo(7);
         _ = await Assert.That(value.Name).IsEqualTo("dto");
@@ -83,7 +83,7 @@ public sealed class ProtoExTests
         var wire = ProtoEx.MapEntryToProto(new CacheEntry<decimal> { Value = precise }, serializer);
 
         _ = await Assert.That(wire.Value.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
-        _ = await Assert.That(await ProtoEx.ReadAsync<decimal>(wire.Value, serializer)).IsEqualTo(precise);
+        _ = await Assert.That(ProtoEx.Read<decimal>(wire.Value, serializer)).IsEqualTo(precise);
     }
 
     /// <summary>A scalar read by a type that is not its native one is deserialized through the serializer.</summary>
@@ -92,8 +92,8 @@ public sealed class ProtoExTests
     {
         var serializer = new SystemTextJsonSerializer();
 
-        _ = await Assert.That(await ProtoEx.ReadAsync<double>(new CacheValue { Int64Value = 5L }, serializer)).IsEqualTo(5d);
-        _ = await Assert.That(await ProtoEx.ReadAsync<decimal>(new CacheValue { Int64Value = 9_007_199_254_740_993L }, serializer)).IsEqualTo(9_007_199_254_740_993m);
+        _ = await Assert.That(ProtoEx.Read<double>(new CacheValue { Int64Value = 5L }, serializer)).IsEqualTo(5d);
+        _ = await Assert.That(ProtoEx.Read<decimal>(new CacheValue { Int64Value = 9_007_199_254_740_993L }, serializer)).IsEqualTo(9_007_199_254_740_993m);
     }
 
     /// <summary>A value the server sent without a kind is a protocol failure, not a null.</summary>
@@ -102,7 +102,7 @@ public sealed class ProtoExTests
     {
         var serializer = new SystemTextJsonSerializer();
 
-        var failure = ExceptionAssert.For<RpcException>().Throws(serializer, static value => _ = ProtoEx.ReadAsync<string>(new CacheValue(), value).AsTask());
+        var failure = ExceptionAssert.For<RpcException>().Throws(serializer, static value => _ = ProtoEx.Read<string>(new CacheValue(), value));
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
     }
@@ -189,7 +189,7 @@ public sealed class ProtoExTests
         _ = await Assert.That(wire.ExpiresUtc.Seconds).IsEqualTo(1785578400L);
         _ = await Assert.That(wire.Expiration.Seconds).IsEqualTo(120L);
 
-        var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<string>(wire, serializer);
+        var roundTrip = ProtoEx.MapProtoEntryToCacheEntry<string>(wire, serializer);
 
         _ = await Assert.That(roundTrip.Value).IsEqualTo("payload");
         _ = await Assert.That(roundTrip.ExpiresUtc).IsEqualTo(entry.ExpiresUtc);
@@ -249,7 +249,7 @@ public sealed class ProtoExTests
 
         var failure = ExceptionAssert.For<RpcException>().Throws(
             (Wire: wire, Serializer: serializer),
-            static state => _ = ProtoEx.MapProtoEntryToCacheEntryAsync<string>(state.Wire, state.Serializer).AsTask());
+            static state => _ = ProtoEx.MapProtoEntryToCacheEntry<string>(state.Wire, state.Serializer));
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
     }

@@ -24,7 +24,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
     private const string CacheName = "cache";
     private const string Key = "key";
     private const string OperationId = "operation";
-    private static readonly NodeCacheEntry<string> Stored = new("stored", 1);
+    private static readonly NodeCacheEntry<string> Stored = new("stored");
     private readonly Meter _meter = new("get-or-add-admission-tests");
 
     /// <summary>A confirmed live value is returned without another read or an add, including stored null values.</summary>
@@ -38,11 +38,14 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         var inner = StoredCache();
         var confirmed = new NodeCacheEntry<string>(value, 2);
         var fences = 0;
-        var cache = Create(inner.Instance(), static (_, _, _) => false, (_, _, _) =>
-        {
-            fences++;
-            return ValueTask.FromResult(new NodeCacheEntryPeek<string>(confirmed, false));
-        });
+        var cache = Create(
+            inner.Instance(),
+            static (_, _, _) => false,
+            (_, _, _) =>
+            {
+                fences++;
+                return ValueTask.FromResult(new NodeCacheEntryPeek<string>(confirmed, false));
+            });
 
         var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken);
 
@@ -74,11 +77,14 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         var inner = StoredCache();
         _ = inner.Setups.TryAddEntryAsync(OperationId, CacheName, Key, Stored, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var recorded = false;
-        var cache = Create(inner.Instance(), (_, _, _) => recorded, (_, _, _) =>
-        {
-            recorded = true;
-            return ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, false));
-        });
+        var cache = Create(
+            inner.Instance(),
+            (_, _, _) => recorded,
+            (_, _, _) =>
+            {
+                recorded = true;
+                return ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, false));
+            });
 
         var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken);
 
@@ -114,7 +120,10 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         var cache = Create(StoredCache().Instance(), static (_, _, _) => false, (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(failure));
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, NodeCacheAddOrGetResult<string>>(
-            cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken));
+            cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
     }

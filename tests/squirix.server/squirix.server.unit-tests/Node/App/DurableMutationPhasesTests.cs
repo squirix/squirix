@@ -72,7 +72,7 @@ public sealed class DurableMutationPhasesTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var log = new List<string>();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(ExecuteAsync(journal, log, DurableMutationCondition<int>.Apply(7), cancellationToken, true));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(ExecuteAsync(journal, log, DurableMutationCondition<int>.Apply(7), cancellationToken, true), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(string.Join(',', log)).IsEqualTo("append,afterAppend:7,apply");
     }
@@ -99,7 +99,10 @@ public sealed class DurableMutationPhasesTests : IsolatedStorageTestBase
                         return ValueTask.FromResult(1);
                     },
                     static (_, _) => ValueTask.FromException(new InvalidOperationException("after-append failed"))),
-                cancellationToken).AsTask());
+                cancellationToken).AsTask(),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(log).IsEmpty();

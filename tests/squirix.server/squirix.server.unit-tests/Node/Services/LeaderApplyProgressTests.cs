@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -46,7 +47,7 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         var caughtUp = committer.ApplyProgress();
 
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var blocked = committer.ApplyProgress();
 
         cache.OnApplied = null;
@@ -76,7 +77,7 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
         GrantAuthority(registry, 2UL);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var first = await committer.TryApplyPendingAsync();
         var second = await committer.TryApplyPendingAsync();
@@ -86,7 +87,7 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         cache.OnApplied = null;
         var recovered = await committer.TryApplyPendingAsync();
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await committer.TryApplyPendingAsync();
         _ = await committer.TryApplyPendingAsync();
 
@@ -109,7 +110,7 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
         GrantAuthority(registry, 2UL);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var blocked = committer.ApplyProgress();
 
         cache.OnApplied = null;
@@ -134,7 +135,7 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
         GrantAuthority(registry, 2UL);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await committer.TryApplyPendingAsync();
         _ = await committer.TryApplyPendingAsync();
         var sameType = events.Count(PendingApplyFailedEventId);
@@ -163,7 +164,7 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         gateway.Set("n2", FollowerMode.Down);
         gateway.Set("n3", FollowerMode.Down);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var progress = committer.ApplyProgress();
 
         _ = await Assert.That(progress.IsBehind).IsFalse();

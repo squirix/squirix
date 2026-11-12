@@ -8,7 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 
-const string supportedTargetFramework = "net10.0";
+const string targetFrameworkProperty = "$(SquirixTargetFramework)";
+const string packageTargetFrameworks = "net10.0;net11.0";
 var projectExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".csproj", ".props", ".targets" };
 var skippedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "bin", "obj", ".git" };
 var scopedTopLevelDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "src", "tests", "benchmarks", "samples" };
@@ -18,7 +19,7 @@ if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
     var output = Console.Out;
-    await output.WriteLineAsync("sqr-net10-verify — verify that all project TFMs are net10.0.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-net10-verify — verify the repository build and package target frameworks.", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-net10-verify.cs -- [--root <path>]", CancellationToken.None).ConfigureAwait(false);
@@ -59,7 +60,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-await Console.Out.WriteLineAsync("squirix .NET baseline verified: all project TargetFramework entries are net10.0.", CancellationToken.None).ConfigureAwait(false);
+await Console.Out.WriteLineAsync("squirix .NET baseline verified: builds use the shared target framework and release packages support net10.0 and net11.0.", CancellationToken.None).ConfigureAwait(false);
 return 0;
 
 string ResolveDefaultRepoRoot()
@@ -144,18 +145,14 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
             continue;
 
         var localName = element.LocalName;
-        if (!string.Equals(localName, "TargetFramework", StringComparison.Ordinal) && !string.Equals(localName, "TargetFrameworks", StringComparison.Ordinal))
-            continue;
-
-        var frameworks = element.InnerText.AsSpan();
-        foreach (var range in frameworks.Split(';'))
+        var expected = localName switch
         {
-            var value = frameworks[range].Trim();
-            if (value.IsEmpty || value.SequenceEqual(supportedTargetFramework.AsSpan()))
-                continue;
-
-            outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: unsupported target framework '{value}'. squirix projects must target net10.0 only.");
-        }
+            "TargetFramework" => targetFrameworkProperty,
+            "TargetFrameworks" => packageTargetFrameworks,
+            _ => null,
+        };
+        if (expected != null && !string.Equals(element.InnerText.Trim(), expected, StringComparison.Ordinal))
+            outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: {localName} must be '{expected}'.");
     }
 }
 

@@ -1,0 +1,11 @@
+services:
+  client:
+    build:
+      context: ..
+      dockerfile: samples/docker-client/Dockerfile
+      additional_contexts:
+        server: service:node-a
+    networks:
+      - squirix-net
+    environment:
+      SQUIRIX_CLIENT_ENDPOINTS: https://squirix-node-a:5000;https://squirix-node-b:5000;https://squirix-node-c:5000

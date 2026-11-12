@@ -161,7 +161,6 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         await (Http: HttpClient, Uri: new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics")).WaitUntilValueAsync(
             static async (state, token) => (await state.Http.GetStringAsync(state.Uri, token)).Contains("reason=\"journal-full\"", StringComparison.Ordinal),
             Bound,
-            TimeProvider.System,
             cancellationToken);
         await sampling.CancelAsync();
         var highest = await peak;
@@ -184,7 +183,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     {
         const string scope = "state-transfer-tight-interrupted";
         await using var lag = await LagAsync(scope, null, cancellationToken, TightLaterKeys, TightValueBytes);
-        var afterSnapshot = new Hold(HoldPoint.WriteAfterSnapshot);
+        var afterSnapshot = new Hold(HoldPoint.WriteAfterSnapshot, lag.PreviousSnapshotIndex);
         await StartLaggingAsync(lag, afterSnapshot.Configure, cancellationToken, true);
         await afterSnapshot.Reached.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         await lag.Cluster[lag.Lagging].AbruptShutdownAsync();
@@ -396,7 +395,14 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = await lag.Cluster.StartNodeAsync(lag.Lagging, Options(lag.Scope, false, lag.Fabric, services, tightJournal, lag.StallBudget), cancellationToken);
     }
 
-    private static string ValueOf(int index, int paddingBytes = 0) => paddingBytes == 0 ? $"value-{index}" : $"value-{index}-{new string('x', paddingBytes)}";
+    private static string ValueOf(int index, int paddingBytes = 0)
+    {
+        if (paddingBytes == 0)
+            return $"value-{index}";
+
+        var prefix = $"value-{index}-";
+        return prefix.PadRight(prefix.Length + paddingBytes, 'x');
+    }
 
     /// <summary>Checks that the returned follower is complete, holds every key, accounts exactly for its entries, and that the leader counted the transfer.</summary>
     /// <param name="lag">The cluster, with the leader committed past the repair.</param>
@@ -406,9 +412,8 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     {
         var repaired = lag.Cluster[lag.Lagging];
         await (Host: repaired, Key: lag.Keys[^1]).WaitUntilValueAsync(
-            static async (state, token) => (await state.Host.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, state.Key), token)).Found,
+            static (state, token) => ValueTask.FromResult(state.Host.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, state.Key), token).Found),
             Bound,
-            TimeProvider.System,
             cancellationToken);
         var cache = repaired.GetRequiredService<PhysicalCache<object?>>();
         var status = await Log(repaired).GetStatusAsync(cancellationToken);
@@ -423,7 +428,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = await Assert.That((accounting.ReadEstimatedBytes(), accounting.ReadEntryCount())).IsEqualTo((bytes, entries));
         for (var i = 0; i < lag.Keys.Length; i++)
         {
-            var read = await cache.GetValueAsync(new CacheKey(CacheName, lag.Keys[i]), cancellationToken);
+            var read = cache.GetValue(new CacheKey(CacheName, lag.Keys[i]), cancellationToken);
             _ = await Assert.That(read.Found).IsTrue();
             _ = await Assert.That(read.Value).IsEqualTo(lag.ValueAt(i));
         }
@@ -462,13 +467,14 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
             await CommitKeysAsync(lag, (0, FirstKeys), cancellationToken);
             await ReplicaGroupFollowers.AwaitCaughtUpAsync(cluster[former], GroupId, [(lagging, cluster[lagging]), (lag.Survivor, cluster[lag.Survivor])], cancellationToken);
             var held = (await ReplicaLogReads.ReadAsync(cluster, lagging, GroupId, cancellationToken)).LastLogIndex;
+            var manifest = await cluster[lagging].GetRequiredService<Ledger>().ReadCurrentOrDefaultAsync(cancellationToken);
+            lag.PreviousSnapshotIndex = manifest.LastSnapshot?.Index ?? 0;
             await cluster.StopNodeAsync(lagging);
             await CommitKeysAsync(lag, (FirstKeys, FirstKeys + laterKeys), cancellationToken);
             await ReplicaGroupFollowers.AwaitCaughtUpAsync(cluster[former], GroupId, [(lag.Survivor, cluster[lag.Survivor])], cancellationToken);
             await (Cluster: cluster, Node: lag.Survivor, Held: held).WaitUntilValueAsync(
                 static async (state, token) => (await ReplicaLogReads.ReadAsync(state.Cluster, state.Node, GroupId, token)).SnapshotIndex > state.Held,
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
             return lag;
         }
@@ -497,14 +503,15 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     private sealed class Hold
     {
         private readonly HoldPoint _point;
+        private readonly int _previousSnapshotIndex;
         private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _snapshotted;
         private int _taken;
 
-        internal Hold(HoldPoint point)
+        internal Hold(HoldPoint point, int previousSnapshotIndex = 0)
         {
             _point = point;
+            _previousSnapshotIndex = previousSnapshotIndex;
         }
 
         internal Task Reached => _reached.Task;
@@ -525,16 +532,14 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
                 throw new InvalidOperationException("The node registers no state sink factory.");
 
             var factory = services[index].ImplementationFactory!;
-            services[index] = ServiceDescriptor.Singleton<IReplicaStateSink>(provider => Wrap(factory(provider), provider.GetRequiredService<Coordinator>()));
+            services[index] = ServiceDescriptor.Singleton<IReplicaStateSink>(provider => Wrap(factory(provider), provider));
         }
 
         internal void Release() => _ = _release.TrySetResult();
 
-        private void OnSnapshotCompleted(object? sender, CompletedEventArgs e) => _ = Interlocked.Exchange(ref _snapshotted, 1);
-
-        private async ValueTask WaitAsync(HoldPoint point, CancellationToken cancellationToken)
+        private async ValueTask WaitAsync(HoldPoint point, IServiceProvider provider, CancellationToken cancellationToken)
         {
-            var matches = point == _point || (point == HoldPoint.Write && _point == HoldPoint.WriteAfterSnapshot && Volatile.Read(ref _snapshotted) == 1);
+            var matches = point == _point || (point == HoldPoint.Write && _point == HoldPoint.WriteAfterSnapshot && await SnapshotPublicationWait.HasPublishedAsync(provider.GetRequiredService<Ledger>(), provider.GetRequiredService<Coordinator>(), _previousSnapshotIndex, cancellationToken));
             if (!matches || Interlocked.Exchange(ref _taken, 1) == 1)
                 return;
 
@@ -542,21 +547,20 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
             await _release.Task.WaitAsync(cancellationToken);
         }
 
-        private HeldSink Wrap(object inner, Coordinator coordinator)
-        {
-            coordinator.SnapshotCompleted += OnSnapshotCompleted;
-            return inner is IReplicaStateSink sink ? new HeldSink(sink, this) : throw new InvalidOperationException("The registered state sink is not a state sink.");
-        }
+        private HeldSink Wrap(object inner, IServiceProvider provider) =>
+            inner is IReplicaStateSink sink ? new HeldSink(sink, this, provider) : throw new InvalidOperationException("The registered state sink is not a state sink.");
 
         private sealed class HeldSink : IReplicaStateSink
         {
             private readonly Hold _hold;
             private readonly IReplicaStateSink _inner;
+            private readonly IServiceProvider _provider;
 
-            internal HeldSink(IReplicaStateSink inner, Hold hold)
+            internal HeldSink(IReplicaStateSink inner, Hold hold, IServiceProvider provider)
             {
                 _inner = inner;
                 _hold = hold;
+                _provider = provider;
             }
 
             public bool IsJournalBusy => _inner.IsJournalBusy;
@@ -565,7 +569,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
             public async ValueTask<bool> EnterAsync(string groupId, CancellationToken cancellationToken)
             {
-                await _hold.WaitAsync(HoldPoint.Enter, cancellationToken);
+                await _hold.WaitAsync(HoldPoint.Enter, _provider, cancellationToken);
                 return await _inner.EnterAsync(groupId, cancellationToken);
             }
 
@@ -579,7 +583,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
             public async ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
             {
-                await _hold.WaitAsync(HoldPoint.Write, cancellationToken);
+                await _hold.WaitAsync(HoldPoint.Write, _provider, cancellationToken);
                 return await _inner.WriteAsync(groupId, entries, cancellationToken);
             }
         }
@@ -607,6 +611,8 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         internal required string Lagging { get; init; }
 
         internal GroupAuthorityLedger<IntegrationStartOptions> Ledger { get; }
+
+        internal int PreviousSnapshotIndex { get; set; }
 
         internal string Scope { get; }
 

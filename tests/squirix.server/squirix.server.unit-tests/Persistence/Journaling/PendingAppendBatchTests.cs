@@ -117,6 +117,10 @@ public sealed class PendingAppendBatchTests
     public async Task RacingBatchAndDrainConserveEveryResource(CancellationToken cancellationToken)
     {
         for (var round = 0; round < 128; round++)
+            await RunRoundAsync(cancellationToken);
+        return;
+
+        static async Task RunRoundAsync(CancellationToken cancellationToken)
         {
             var registry = new PendingAppendRegistry();
             var counter = new MutableInt32();
@@ -152,6 +156,7 @@ public sealed class PendingAppendBatchTests
             _ = await Assert.That(registry.PendingBytes).IsEqualTo(0L);
             _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(items.Length - completed.Count);
             _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
+            return;
 
             async Task ClaimAsync()
             {

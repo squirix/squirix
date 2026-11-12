@@ -36,14 +36,29 @@ All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profi
 | [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity |
 | [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool |
+| `squirix.extensions.caching` (preview.11) | Microsoft `IDistributedCache` provider and HybridCache L2 |
 
-Install (pin the version from the [root README](../README.md) / nuget.org):
+Choose packages by process role. For Microsoft caching APIs, follow the [adapter guide](distributed-cache.md).
+For the native typed cache API, install the client SDK:
 
 ```bash
-dotnet add package squirix --version <version>
-dotnet add package squirix.server --version <version>
-dotnet tool install --global squirix.server.tool --version <version>
+dotnet add package squirix --version 0.1.0-preview.10
 ```
+
+Run the server separately with the global tool:
+
+```bash
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
+```
+
+Only a custom ASP.NET Core server host needs the server library:
+
+```bash
+dotnet add package squirix.server --version 0.1.0-preview.10
+```
+
+Run package commands in the corresponding existing project directory. These commands use the published preview.10;
+see [Getting started](getting-started.md) for complete project creation and server startup steps.
 
 During early preview evaluation you may reference `Squirix.Server.csproj` from a clone instead of the NuGet package.
 

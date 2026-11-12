@@ -81,8 +81,8 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         var applied = PrepareNoop(2UL, 1UL) with { OutcomePayload = ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty) };
         var cached = PrepareNoop(2UL, 1UL) with { CacheName = "cache" };
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in applied), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in cached), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in applied), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in cached), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
         _ = await Assert.That(cache.Applied.Count).IsEqualTo(0);
@@ -121,11 +121,11 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1)));
         _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = state.TryResolve("client", "first", [2], 1UL, 1UL);
+        _ = state.TryResolve("client", "first", new byte[] { 2 }, 1UL, 1UL);
 
         var reserved = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL, GroupReserveKit.Unlogged);
         var replayed = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL, GroupReserveKit.Unlogged);
-        var resolved = state.TryResolve(ReplicaLeaderOperationId.OperationScope, "term-1", [4], 2UL, 1UL);
+        var resolved = state.TryResolve(ReplicaLeaderOperationId.OperationScope, "term-1", new byte[] { 4 }, 2UL, 1UL);
 
         _ = await Assert.That(reserved).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(replayed).IsEqualTo(GroupIdempotencyReserveResult.Success);
@@ -203,5 +203,5 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         Decode(new ReplicaMutationFactory(new StubCache(), GroupId, 1UL, TimeProvider.System, NullLogger.Instance).PrepareSet(NewOperationId(), "cache", key, Entry(key), logIndex));
 
     private static ReplicaLogRecord Decode(PreparedReplicaMutation prepared) =>
-        ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
 }

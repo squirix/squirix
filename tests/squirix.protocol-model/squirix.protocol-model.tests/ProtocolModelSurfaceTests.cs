@@ -159,6 +159,49 @@ public sealed class ProtocolModelSurfaceTests
         _ = await Assert.That(SafetyChecker.Check(state)).IsNull();
     }
 
+    /// <summary>Verifies a run's cleanup removes only the reports this CLI can write, and only the ones this run did not write.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <remarks>
+    /// Two requirements meet in one directory. A report this run did not write is obsolete, because its name says a rule was
+    /// broken while the summary beside it says <c lang="json">"policyViolation":null</c>. And a file this CLI cannot write is
+    /// not the CLI's, whatever it is called: matching <c lang="text">policy-*.json</c> deleted a caller's
+    /// <c lang="text">policy-user-notes.json</c> on a run that produced no report at all, and the run still exited
+    /// successfully. The assertion on the stale report is the one that fails without the cleanup; the assertion on the
+    /// foreign file is the one that fails when the cleanup matches a pattern instead of the names it can produce.
+    /// </remarks>
+    [Test]
+    public async Task RunCliCleanupOnlyTouchesItsOwnAsync(CancellationToken cancellationToken)
+    {
+        const string foreignContent = "policy-user-notes.json — written by the caller, not by this CLI";
+        var output = CreateTempDir();
+        try
+        {
+            var foreign = Path.Join(output, "policy-user-notes.json");
+            await File.WriteAllTextAsync(foreign, foreignContent, cancellationToken);
+
+            var brokenCode = await ExploreRunner.RunCliAsync("transfer", output, BrokenMode.TransferHint);
+            _ = await Assert.That(brokenCode).IsEqualTo(0).Because("the injected fault manifests as a policy violation");
+            var staleReport = Path.Join(output, ProtocolPolicyChecker.PolicyReportFileName(ProtocolPolicyChecker.HintSourceRetired));
+            _ = await Assert.That(File.Exists(staleReport)).IsTrue().Because("the broken run must leave the report this test then expects to disappear");
+            _ = await Assert.That(File.Exists(foreign)).IsTrue()
+                .Because("the broken run writes one report and must leave every other file alone");
+
+            var cleanCode = await ExploreRunner.RunCliAsync("transfer", output, BrokenMode.None);
+            _ = await Assert.That(cleanCode).IsEqualTo(0);
+
+            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), cancellationToken);
+            _ = await Assert.That(summary).Contains("\"policyViolation\":null", StringComparison.Ordinal);
+            _ = await Assert.That(File.Exists(staleReport)).IsFalse()
+                .Because("a report this run did not write is obsolete, whichever rule it names");
+            _ = await Assert.That(await File.ReadAllTextAsync(foreign, cancellationToken)).IsEqualTo(foreignContent)
+                .Because("a name this CLI cannot produce is not its file, and the cleanup may not delete it");
+        }
+        finally
+        {
+            Directory.Delete(output, true);
+        }
+    }
+
     private static string CreateTempDir()
     {
         var path = Path.Join(Path.GetTempPath(), "squirix-protocol-model-" + Guid.NewGuid().ToString("N"));

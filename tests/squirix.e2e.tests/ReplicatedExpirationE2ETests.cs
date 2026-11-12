@@ -10,7 +10,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end replicated expiration: expired entries never reappear after failover.</summary>
-public sealed class ReplicatedExpirationE2ETests : EndToEndTestBase
+public sealed class ReplicatedExpirationE2ETests
 {
     /// <summary>Expired entry stays missing after peer loss instead of reappearing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

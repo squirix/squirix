@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -14,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Activated topology changes against an existing data directory are rejected at startup.</summary>
-public sealed class TopologyActivationE2ETests : EndToEndTestBase
+public sealed class TopologyActivationE2ETests
 {
     /// <summary>A live cluster refuses a restarted node whose peer set differs from the activated one.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -35,8 +34,7 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
 
         // NodeB stays live while nodeA restarts with a peer set that differs from the activated one.
         ClusterNode[] changedTopology = [new("nodeA", heldA.HttpUri), new("nodeC", heldC.HttpUri)];
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
-            cluster.StartNodeAsync(new ClusterNode("nodeA", heldA.HttpUri), changedTopology, optionsA, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync(new ClusterNode("nodeA", heldA.HttpUri), changedTopology, optionsA, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains("not supported in this release", StringComparison.Ordinal);
@@ -64,8 +62,7 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
         await cluster.StopNodeAsync("nodeB");
 
         // The whole cluster is stopped, yet the generation change is refused.
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
-            cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 }, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": generation changed (stamped 1, configured 2). ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains("not supported in this release", StringComparison.Ordinal);

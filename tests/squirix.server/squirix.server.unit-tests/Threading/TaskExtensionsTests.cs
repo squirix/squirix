@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
@@ -35,13 +36,13 @@ public sealed class TaskExtensionsTests
     }
 
     /// <summary>A failure the filter rejects propagates to the caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CaptureFailureRethrowsRejectedFailure()
+    public async Task CaptureFailureRethrowsRejectedFailure(CancellationToken cancellationToken)
     {
         var expected = new InvalidOperationException("unexpected");
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, Exception?>(
-            Task.FromException(expected).CaptureFailureAsync(static ex => ex is IOException));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, Exception?>(Task.FromException(expected).CaptureFailureAsync(static ex => ex is IOException), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(expected);
     }
@@ -70,7 +71,7 @@ public sealed class TaskExtensionsTests
     [Test]
     public async Task CaptureUnfilteredReturnsTaskCanceled()
     {
-        using var source = new System.Threading.CancellationTokenSource();
+        using var source = new CancellationTokenSource();
         await source.CancelAsync();
         var canceled = Task.FromCanceled(source.Token);
 
@@ -83,7 +84,7 @@ public sealed class TaskExtensionsTests
     [Test]
     public async Task CaptureFilteredReturnsTaskCanceled()
     {
-        using var source = new System.Threading.CancellationTokenSource();
+        using var source = new CancellationTokenSource();
         await source.CancelAsync();
 
         var failure = await Task.FromCanceled(source.Token).CaptureFailureAsync(static ex => ex is OperationCanceledException);

@@ -40,7 +40,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         var first = expiration.ExpireAsync("default", "key-a", leaving.Token);
         await leaving.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, string?>(new ValueTask<string?>(first));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, string?>(new ValueTask<string?>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var second = expiration.ExpireAsync("default", "key-a", cancellationToken);
         release.SetResult("live");
 
@@ -158,9 +158,12 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var first = ReplicaExpirationOperationId.Create("group-a", "default", "key-a", 7, expiresUtc);
         var repeated = ReplicaExpirationOperationId.Create("group-a", "default", "key-a", 7, expiresUtc);
         var boundary = ReplicaExpirationOperationId.Create("group-a", "defaul", "tkey-a", 7, expiresUtc);
+        var longKey = new string('я', 300);
+        var longId = ReplicaExpirationOperationId.Create("group-a", "default", longKey, 7, expiresUtc);
 
         _ = await Assert.That(repeated).IsEqualTo(first);
         _ = await Assert.That(first).IsEqualTo("f6e3fa560b869c4cfa8a26062a016ee9");
+        _ = await Assert.That(longId).IsEqualTo("e62c44f4f87954c89e05da4cab60523d");
         _ = await Assert.That(boundary).IsNotEqualTo(first, StringComparer.Ordinal);
         _ = await Assert.That(first.Length).IsEqualTo(32);
         _ = await Assert.That(first).Matches("^[0-9a-f]{32}$");
@@ -218,7 +221,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var second = expiration.ExpireAsync("default", "k2", cancellationToken);
 
         var overflow = expiration.ExpireAsync("default", "k3", cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(overflow);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(overflow, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         batches.Release();
 
         _ = await head;
@@ -265,7 +268,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var failed = expiration.ExpireAsync("default", "failed", cancellationToken);
 
         _ = await Assert.That(await live).IsEqualTo("entry");
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(failed);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(failed, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Keys queued but not yet taken fail at once with an object-disposed failure when the coordinator is disposed; the batch in flight finishes.</summary>
@@ -280,7 +283,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var queued = expiration.ExpireAsync("default", "queued", cancellationToken);
 
         var disposal = expiration.DisposeAsync().AsTask();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(disposal.IsCompleted).IsFalse();
         batches.Release();
         await disposal.WaitAsync(cancellationToken);
@@ -323,8 +326,8 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         batches.Release();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(head);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(queued);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(head, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(batches.Sizes.Count).IsEqualTo(1);
     }
 

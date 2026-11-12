@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -32,7 +33,7 @@ public sealed class OidcJwtAuthTests : ServerSurfaceTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = "oidc-smoke" };
 
-        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync);
+        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
 
         var validHeaders = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken(Audience)}" } };

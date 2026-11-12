@@ -42,28 +42,25 @@ public static class AsyncTestSupport
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the condition holds.</returns>
     public static Task WaitUntilValueAsync<T>(this T state, Func<T, CancellationToken, ValueTask<bool>> condition, CancellationToken cancellationToken) =>
-        state.WaitUntilValueAsync(condition, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        state.WaitUntilValueAsync(condition, TimeSpan.FromSeconds(10), cancellationToken);
 
-    /// <summary>Polls the asynchronous <paramref name="condition"/> until it holds or <paramref name="timeout"/> expires, using <paramref name="timeProvider"/>.</summary>
+    /// <summary>Polls the asynchronous <paramref name="condition"/> until it holds or <paramref name="timeout"/> expires, using system time.</summary>
     /// <typeparam name="T">Observed state type.</typeparam>
     /// <param name="state">Observed state.</param>
     /// <param name="condition">Asynchronous poll predicate.</param>
     /// <param name="timeout">Maximum time to keep polling.</param>
-    /// <param name="timeProvider">Clock used for the deadline and poll interval.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes when the condition holds.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition"/> or <paramref name="timeProvider"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="condition"/> is <see langword="null"/>.</exception>
     /// <exception cref="TimeoutException">Thrown when the condition stays unsatisfied past <paramref name="timeout"/>.</exception>
     public static Task WaitUntilValueAsync<T>(
         this T state,
         Func<T, CancellationToken, ValueTask<bool>> condition,
         TimeSpan timeout,
-        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(condition);
-        ArgumentNullException.ThrowIfNull(timeProvider);
-        return WaitUntilValueCoreAsync(state, condition, timeout, timeProvider, cancellationToken);
+        return WaitUntilValueCoreAsync(state, condition, timeout, cancellationToken);
     }
 
     private static async Task WaitUntilCoreAsync<T>(T state, Func<T, bool> condition, TimeSpan timeout, TimeProvider timeProvider, CancellationToken cancellationToken)
@@ -83,10 +80,9 @@ public static class AsyncTestSupport
         T state,
         Func<T, CancellationToken, ValueTask<bool>> condition,
         TimeSpan timeout,
-        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        using var timeoutSource = new CancellationTokenSource(timeout, timeProvider);
+        using var timeoutSource = new CancellationTokenSource(timeout, TimeProvider.System);
         using var linkedSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
         while (true)
         {
@@ -110,7 +106,7 @@ public static class AsyncTestSupport
 
             try
             {
-                await Task.Delay(PollInterval, timeProvider, linkedSource.Token).ConfigureAwait(false);
+                await Task.Delay(PollInterval, TimeProvider.System, linkedSource.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException exception) when (timeoutSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {

@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -18,7 +19,8 @@ internal static class FollowerLogDurable
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         List<FollowerLogEntry> toAppend,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onScheduled = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (toAppend.Count == 0)
@@ -27,7 +29,10 @@ internal static class FollowerLogDurable
         var (durable, offsets, logLength) = ScheduleFrames(owner, toAppend);
         try
         {
+            var notificationError = Isolated.Run(onScheduled, static callback => callback?.Invoke());
             await durable.ConfigureAwait(false);
+            if (notificationError != null)
+                ExceptionDispatchInfo.Throw(notificationError);
 
             // Only after the durable writing succeeds do the in-memory indexes gain the entries,
             // so a crash mid-appending can never leave the index ahead of the file.
@@ -63,16 +68,37 @@ internal static class FollowerLogDurable
         return new DeferredMirrorMetaDurableWork(owner.Acks, journal.Metadata, in meta).RunDeferredTracked();
     }
 
-    internal static async Task<(int Length, List<long> Offsets)> ReplaceLogAsync(
+    internal static Task StageWalAsync(FollowerLogJournal journal, GroupLogDurability durability, in GroupSnapshotCompaction capture, CancellationToken cancellationToken)
+    {
+        var standby = journal.Paths.GetLogSlotPath(1 - journal.LogSlot);
+        var snapshot = capture.Snapshot;
+        var retained = (capture.RetainedOffset, snapshot.WalPosition.Offset, capture.PreviousIndex + 1UL, snapshot.LastIncludedIndex);
+        var work = new GroupLogFrameCopy.Preparation(journal.LogPath, standby, durability, retained);
+        return work.RunAsync(journal.WalShutdown.Token, cancellationToken);
+    }
+
+    internal static async Task DrainStagedWalAsync(FollowerLogJournal journal, CancellationToken cancellationToken)
+    {
+        // A failed or canceled copy leaves an unsealed slot. Wait only for it to stop accessing the file.
+        if (journal.PreparedWal.Copy is { IsCompleted: false } copy)
+            _ = await Task.WhenAny(copy).WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<long> ReplaceLogAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
-        List<FollowerLogEntry> tail,
-        CancellationToken cancellationToken)
+        (long Start, long End, ulong First, ulong Last) retained,
+        ulong? rewrittenGeneration,
+        CancellationToken cancellationToken,
+        (long End, ulong Last) staged = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        await DrainStagedWalAsync(journal, cancellationToken).ConfigureAwait(false);
+        journal.PreparedWal = default;
         var standbySlot = 1 - journal.LogSlot;
-        var generation = journal.LogGeneration + 1;
-        var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, tail, owner.Faults);
+        var generation = rewrittenGeneration ?? checked(journal.LogGeneration + 1UL);
+        var work = new ReplaceDurableWork(
+            owner.Acks, owner.Durability, (journal.Paths.GetLogSlotPath(standbySlot), journal.LogPath), generation, retained, staged, owner.Faults);
         try
         {
             await work.RunTrackedAsync().ConfigureAwait(false);
@@ -84,7 +110,7 @@ internal static class FollowerLogDurable
                 journal.UseLog(standbySlot, generation);
         }
 
-        return (work.Length, work.Offsets);
+        return work.Length;
     }
 
     internal static async Task<int> TruncateFromAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong logIndex, CancellationToken cancellationToken)
@@ -404,43 +430,46 @@ internal static class FollowerLogDurable
         private readonly IFollowerLogFaultHooks _faults;
         private readonly ulong _generation;
         private readonly string _standbyPath;
-        private readonly List<FollowerLogEntry> _tail;
+        private readonly string _sourcePath;
+        private readonly (long Start, long End, ulong First, ulong Last) _retained;
+        private readonly (long End, ulong Last) _staged;
 
         internal ReplaceDurableWork(
             FollowerLogAckRegistry acks,
             GroupLogDurability durability,
-            string standbyPath,
+            (string Standby, string Source) paths,
             ulong generation,
-            List<FollowerLogEntry> tail,
+            (long Start, long End, ulong First, ulong Last) retained,
+            (long End, ulong Last) staged,
             IFollowerLogFaultHooks faults)
             : base(acks)
         {
             _durability = durability;
-            _standbyPath = standbyPath;
+            _standbyPath = paths.Standby;
             _generation = generation;
-            _tail = tail;
+            _sourcePath = paths.Source;
+            _retained = retained;
+            _staged = staged;
             _faults = faults;
         }
 
-        internal int Length { get; private set; }
-
-        internal List<long> Offsets { get; } = [];
+        internal long Length { get; private set; }
 
         internal bool Sealed { get; private set; }
 
         protected override void Run()
         {
-            long total = GroupLogSlots.HeaderSize;
-            for (var i = 0; i < _tail.Count; i++)
-                total += GroupLogCodec.ComputeFrameEncodedLength(_tail[i].Payload.Length);
-            if (total > int.MaxValue)
-                throw new InvalidOperationException($"Compaction tail of {total} bytes exceeds the maximum log size.");
-
-            var handle = _durability.OpenStandbyOnce(_standbyPath);
+            var total = GroupLogSlots.HeaderSize + _retained.End - _retained.Start;
+            var handle = _staged == default ? _durability.OpenStandbyOnce(_standbyPath) : GroupLogDurability.ReopenStandby(_standbyPath);
             try
             {
-                WriteTail(handle, total);
-                _faults.OnFlushed();
+                if (CopyRetained(handle))
+                {
+                    RandomAccess.SetLength(handle, total);
+                    RandomAccess.FlushToDisk(handle);
+                    _faults.OnFlushed();
+                }
+
                 GroupLogDurability.Seal(handle, _generation);
                 Sealed = true;
                 _faults.OnFlushed();
@@ -455,35 +484,36 @@ internal static class FollowerLogDurable
                 handle?.Dispose();
             }
 
-            Length = int.CreateTruncating(total);
+            Length = total;
         }
 
-        private void WriteTail(SafeFileHandle handle, long total)
+        private bool CopyRetained(SafeFileHandle destination)
         {
-            long position = GroupLogSlots.HeaderSize;
-            for (var i = 0; i < _tail.Count; i++)
-            {
-                var entry = _tail[i];
-                var frameLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
-                var frameBuffer = ArrayPool<byte>.Shared.Rent(frameLength);
-                try
-                {
-                    GroupLogCodec.EncodeFrame(frameBuffer.AsSpan(0, frameLength), in entry);
-                    RandomAccess.Write(handle, frameBuffer.AsSpan(0, frameLength), position);
-                }
-                finally
-                {
-                    // The frame bytes are in the open handle; release the pooled
-                    // buffer immediately, so a large tail never holds every frame buffer at once.
-                    ArrayPool<byte>.Shared.ReturnCleared(frameBuffer);
-                }
+            if (_staged != default)
+                return CopyStagedSuffix(destination);
 
-                Offsets.Add(position);
-                position += frameLength;
+            GroupLogFrameCopy.Copy(_sourcePath, destination, _retained, GroupLogSlots.HeaderSize, CancellationToken.None);
+            return true;
+        }
+
+        private bool CopyStagedSuffix(SafeFileHandle destination)
+        {
+            var start = _staged.End;
+            var outputStart = GroupLogSlots.HeaderSize + start - _retained.Start;
+            if (start > _retained.End || RandomAccess.GetLength(destination) != outputStart)
+                throw new InvalidDataException("The staged WAL does not reach the expected boundary.");
+
+            // A completed preparation already flushed these exact bytes. Avoid changing the file
+            // until sealing it if there are no new frames to append.
+            if (start == _retained.End)
+            {
+                return _staged.Last == _retained.Last
+                    ? false
+                    : throw new InvalidDataException("The staged WAL does not reach the expected last index.");
             }
 
-            RandomAccess.SetLength(handle, total);
-            RandomAccess.FlushToDisk(handle);
+            GroupLogFrameCopy.Copy(_sourcePath, destination, (start, _retained.End, _staged.Last + 1UL, _retained.Last), outputStart, CancellationToken.None);
+            return true;
         }
     }
 

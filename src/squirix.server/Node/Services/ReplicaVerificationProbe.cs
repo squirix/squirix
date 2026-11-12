@@ -147,28 +147,26 @@ internal sealed class ReplicaVerificationProbe
     internal async Task<ReplicaVerificationSnapshot> ProbeAsync(IFollowerLog log, ulong leaderTerm, bool untilMajority, CancellationToken cancellationToken)
     {
         var eligibility = _registry.EligibilityFor(_groupId);
-        var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
-        var status = read.Status;
+        var (status, canCommit) = await log.GetCommitReadinessAsync(leaderTerm == 0UL ? 1UL : leaderTerm, cancellationToken).ConfigureAwait(false);
         if (BlockedVerdict(in status, leaderTerm) is { } blocked)
             return new ReplicaVerificationSnapshot(blocked);
 
         if (!TryResolveTerm(in status, leaderTerm, out var term))
             return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
 
-        var tail = ReplicaLeaderTail.From(read);
-        if (!tail.IsCommittableIn(term))
+        if (!canCommit)
         {
             // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively. The state is
             // reported when it starts or changes; the readiness report keeps showing it as blocked on every pass.
-            if (ReportBlockedTail(new BlockedTail(tail.LastIndex, term, false)))
-                ServerLog.ReplicaTailOfOlderTerm(_log, tail.LastIndex, term);
+            if (ReportBlockedTail(new BlockedTail(status.LastLogIndex, term, false)))
+                ServerLog.ReplicaTailOfOlderTerm(_log, status.LastLogIndex, term);
 
             return new ReplicaVerificationSnapshot(ReplicaVerification.Blocked);
         }
 
         _ = ReportBlockedTail(null);
 
-        if (tail.IsEmpty && eligibility.AllCanCountInWriteQuorum())
+        if (status.LastLogIndex == status.CommitIndex && eligibility.AllCanCountInWriteQuorum())
             return new ReplicaVerificationSnapshot(ReplicaVerification.AllReady);
 
         var (members, header) = BuildMembership(term);

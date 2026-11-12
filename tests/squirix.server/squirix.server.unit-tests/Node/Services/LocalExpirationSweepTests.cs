@@ -41,9 +41,9 @@ public sealed class LocalExpirationSweepTests : ServerUnitTestBase
         var estimator = new CacheEntrySizeEstimator<object?>();
         var physical = new PhysicalCache<object?>(clock, estimator);
         ILocalCacheStats stats = physical;
-        await physical.SetAsync(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "b"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "b"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), cancellationToken);
         var liveBytes = estimator.EstimateBytes(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), false);
         clock.Advance(Ttl);
         using var sweep = new LocalExpirationSweepService(physical.ExpiredKeys, clock, new EventRecordingLogger());
@@ -70,8 +70,7 @@ public sealed class LocalExpirationSweepTests : ServerUnitTestBase
         foreach (var key in new[] { "a", "b", "c" })
             await admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(
-            admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new LocalExpirationSweepService(physical.ExpiredKeys, clock, new EventRecordingLogger());
         _ = sweep.SweepOnce();

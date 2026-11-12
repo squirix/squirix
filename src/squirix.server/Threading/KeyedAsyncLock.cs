@@ -79,14 +79,13 @@ internal sealed class KeyedAsyncLock<TKey>
         lock (_sync)
         {
             entry.Users--;
-            if (entry.Users == 0)
-            {
-                _ = _entries.Remove(key);
+            if (entry.Users != 0)
+                return;
+            _ = _entries.Remove(key);
 
-                // Every holder and canceled waiter has left before reuse; the lock generation is never reset.
-                if (_idleEntries.Count < MaxPooledEntries)
-                    _idleEntries.Push(entry);
-            }
+            // Every holder and canceled waiter has left before reuse; the lock generation is never reset.
+            if (_idleEntries.Count < MaxPooledEntries)
+                _idleEntries.Push(entry);
         }
     }
 

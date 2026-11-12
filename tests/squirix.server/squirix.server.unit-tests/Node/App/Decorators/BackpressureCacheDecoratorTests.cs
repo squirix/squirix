@@ -57,7 +57,7 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
 
-        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", cancellationToken));
+        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(rejected.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
 
         var otherClient = await cacheB.GetValueAsync("c", "k", cancellationToken);
@@ -99,7 +99,7 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
         var entry = new NodeCacheEntry<string>("value");
 
-        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, cancellationToken));
+        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(rejected.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(Volatile.Read(ref setEntryCalls)).IsEqualTo(0);
 

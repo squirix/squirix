@@ -38,7 +38,7 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
         var write = harness.SetThroughScopeAsync(operationId, "a", cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var framesWhileParked = harness.ReadFrames(cancellationToken);
-        var visibleWhileParked = (await harness.Physical.GetValueAsync(SharedKey, cancellationToken)).Found;
+        var visibleWhileParked = harness.Physical.GetValue(SharedKey, cancellationToken).Found;
         var retry = harness.SetThroughScopeAsync(operationId, "a", cancellationToken);
         var retryJoined = await PendingProbe.StaysPendingAsync(retry);
         journal.Writer.Flush.Release();
@@ -49,7 +49,7 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
         _ = await Assert.That(visibleWhileParked).IsFalse();
         _ = await Assert.That(retryJoined).IsTrue();
         _ = await Assert.That(replayed).IsEqualTo(response);
-        _ = await Assert.That((await harness.Physical.GetValueAsync(SharedKey, cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(harness.Physical.GetValue(SharedKey, cancellationToken).Found).IsTrue();
     }
 
     /// <summary>A graceful stop completes a parked write: the final flush covers both frames, so it applies and succeeds, and the restart replays it.</summary>
@@ -71,7 +71,7 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
         _ = await write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var (memory, store) = await harness.RecoverAsync(cancellationToken);
 
-        _ = await Assert.That((await memory.GetValueAsync(SharedKey, cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(memory.GetValue(SharedKey, cancellationToken).Found).IsTrue();
         _ = await Assert.That(store.TryReplay(operationId, "fp", SetAsyncResponse.Parser, out _)).IsTrue();
     }
 
@@ -85,7 +85,7 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
 
         var (memory, store) = await harness.RecoverAsync(cancellationToken);
 
-        _ = await Assert.That((await memory.GetValueAsync(SharedKey, cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(memory.GetValue(SharedKey, cancellationToken).Found).IsTrue();
         _ = await Assert.That(store.TryReplay(operationId, "fp", SetAsyncResponse.Parser, out _)).IsTrue();
     }
 
@@ -102,7 +102,7 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
 
         var (memory, store) = await harness.RecoverAsync(cancellationToken);
 
-        _ = await Assert.That((await memory.GetValueAsync(SharedKey, cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(memory.GetValue(SharedKey, cancellationToken).Found).IsTrue();
         _ = await Assert.That(store.TryReplay(operationId, "fp", SetAsyncResponse.Parser, out _)).IsFalse();
         _ = await Assert.That(store.RecordCount).IsEqualTo(1);
     }

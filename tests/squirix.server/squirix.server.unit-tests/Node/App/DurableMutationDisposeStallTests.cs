@@ -67,7 +67,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             journal.Writer.Flush.ReleaseWithFailure(failure);
         }
 
-        var observed = await NodeAsyncAssert.ThrowsAsync<IOException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var observed = await NodeAsyncAssert.ThrowsAsync<IOException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(completedWhileStalled).IsFalse();
         _ = await Assert.That(observed).IsSameReferenceAs(failure);
@@ -145,7 +145,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             journal.Journal.FailJournalPipeline(reason);
-            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -183,7 +183,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             // The put parks on the gate held here, before its frame is encoded or enqueued.
             var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -231,7 +231,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         // An applier that never leaves the gate: disposal must not wait for it beyond its bound.
         journal.Journal.InFlightApplyGate.Enter();
         await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var gateError = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(journal.Journal.MutationGate.LockAsync(cancellationToken));
+        var gateError = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(journal.Journal.MutationGate.LockAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(gateError).IsNotNull();
         _ = await Assert.That(log.Find(ApplyWaitTimedOutEventId)?.Level).IsEqualTo(LogLevel.Error);
@@ -308,7 +308,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             await journal.Journal.MutationGate.WaitUntilAsync(static g => g.HasWaiters, StallTimeout, TimeProvider.System, cancellationToken);
             completedWhileGated = !await PendingProbe.StaysPendingAsync(put);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -339,7 +339,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             journal.Journal.FailJournalPipeline(reason);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -431,8 +431,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         try
         {
-            var disposeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            var putError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var disposeError = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            var putError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
             return (disposeError, putError);
         }
         finally

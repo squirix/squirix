@@ -434,9 +434,10 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
                 _table[record.OperationId] = new Entry(Encoding.UTF8.GetString(record.OperationFingerprint.Span), record.LogIndex, record.Term, true, payload, _elapsed - age, ++_lastOrder);
             }
 
+            var retainedIndexes = new HashSet<ulong>(retained);
             foreach (var (id, entry) in previous)
             {
-                if (retained.Contains(entry.Index))
+                if (retainedIndexes.Contains(entry.Index))
                     _table[id] = entry;
             }
         }

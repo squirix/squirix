@@ -13,43 +13,40 @@ namespace Squirix.E2ETests;
 
 /// <summary>Integration tests for typed custom values restored through durable restart recovery.</summary>
 [Immutable]
-public sealed class DurableTypedValueRestartTests : EndToEndTestBase
+public sealed class DurableTypedValueRestartTests
 {
-    /// <summary>Verifies RestartRestoresCustomRecordFromJournal.</summary>
+    /// <summary>Verifies both custom value types are restored from the journal after a restart.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RestartRestoresCustomRecordFromJournal(CancellationToken cancellationToken)
+    public async Task RestartRestoresTypedValuesFromJournal(CancellationToken cancellationToken)
     {
-        const string name = nameof(RestartRestoresCustomRecordFromJournal);
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(name, persistence: true, timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
-        var cache = await cluster.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", cancellationToken: cancellationToken);
-        var expected = TypedValueFactory.CreateProfile("journal-record");
-        await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
-        await cluster.RestartNodeAsync("nodeA", cancellationToken);
-        var restartedCache = await cluster.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", cancellationToken: cancellationToken);
-        var result = await restartedCache.GetValueAsync("k", cancellationToken);
-        _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
-    }
-
-    /// <summary>Verifies RestartRestoresMutableClassFromJournal.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RestartRestoresMutableClassFromJournal(CancellationToken cancellationToken)
-    {
+        const string profileCacheName = "typed-durable-record";
+        const string cartCacheName = "typed-durable-cart";
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(RestartRestoresMutableClassFromJournal),
+            nameof(RestartRestoresTypedValuesFromJournal),
             persistence: true,
             timeProvider: TimeProvider.System,
             cancellationToken: cancellationToken);
-        var cache = await cluster.GetCacheAsync<TypedMutableCart>("typed-durable-cart", cancellationToken: cancellationToken);
-        var expected = TypedValueFactory.CreateCart("journal-cart");
-        await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
+        var profileCache = await cluster.GetCacheAsync<TypedCustomerProfile>(profileCacheName, cancellationToken: cancellationToken);
+        var cartCache = await cluster.GetCacheAsync<TypedMutableCart>(cartCacheName, cancellationToken: cancellationToken);
+        var expectedProfile = TypedValueFactory.CreateProfile("journal-record");
+        var expectedCart = TypedValueFactory.CreateCart("journal-cart");
+        await profileCache.SetAsync("k", expectedProfile, cancellationToken: cancellationToken);
+        await cartCache.SetAsync("k", expectedCart, cancellationToken: cancellationToken);
+        var cartBeforeRestart = await cartCache.GetValueAsync("k", cancellationToken);
+        await TypedValueAssertions.AssertCartEqualsAsync(expectedCart, cartBeforeRestart.Value!);
+
         await cluster.RestartNodeAsync("nodeA", cancellationToken);
-        var restartedCache = await cluster.GetCacheAsync<TypedMutableCart>("typed-durable-cart", cancellationToken: cancellationToken);
-        var result = await restartedCache.GetValueAsync("k", cancellationToken);
-        _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertCartEqualsAsync(expected, result.Value!);
+
+        var restartedProfileCache = await cluster.GetCacheAsync<TypedCustomerProfile>(profileCacheName, cancellationToken: cancellationToken);
+        var profile = await restartedProfileCache.GetValueAsync("k", cancellationToken);
+        _ = await Assert.That(profile.Found).IsTrue();
+        await TypedValueAssertions.AssertProfileEqualsAsync(expectedProfile, profile.Value!);
+
+        var restartedCartCache = await cluster.GetCacheAsync<TypedMutableCart>(cartCacheName, cancellationToken: cancellationToken);
+        var cart = await restartedCartCache.GetValueAsync("k", cancellationToken);
+        _ = await Assert.That(cart.Found).IsTrue();
+        await TypedValueAssertions.AssertCartEqualsAsync(expectedCart, cart.Value!);
     }
 
     /// <summary>Verifies RestartSkipsExpiredCustomRecord.</summary>

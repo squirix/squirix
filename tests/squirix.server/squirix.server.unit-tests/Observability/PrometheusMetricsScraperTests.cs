@@ -99,7 +99,7 @@ public sealed class PrometheusMetricsScraperTests
         const string metricName = "squirix_test_label_large";
         const int tagCount = 40;
         using var scraper = PrometheusMetricsScraper.CreateIsolated();
-        var tags = new KeyValuePair<string, object?>[tagCount];
+        var tags = new KeyValuePair<string, object?>[tagCount + 1];
         var expected = new StringBuilder();
         for (var i = 0; i < tagCount; i++)
         {
@@ -107,11 +107,15 @@ public sealed class PrometheusMetricsScraperTests
             tags[i] = new KeyValuePair<string, object?>("k" + index.ToString("D2", CultureInfo.InvariantCulture), new string('v', 20) + index.ToString(CultureInfo.InvariantCulture));
         }
 
+        tags[tagCount] = new KeyValuePair<string, object?>("k00", "duplicate");
+
         for (var i = 0; i < tagCount; i++)
         {
             if (i > 0)
                 _ = expected.Append(',');
             _ = expected.Append('k').Append(i.ToString("D2", CultureInfo.InvariantCulture)).Append("=\"").Append('v', 20).Append(i.ToString(CultureInfo.InvariantCulture)).Append('"');
+            if (i == 0)
+                _ = expected.Append(",k00=\"duplicate\"");
         }
 
         scraper.RecordMeasurement(metricName, false, tags, 2d);
@@ -250,6 +254,51 @@ public sealed class PrometheusMetricsScraperTests
         _ = await Assert.That(body).Contains("squirix_Test_Sanitize_Upper9", StringComparison.Ordinal);
         _ = await Assert.That(body).Contains("squirix:test:sanitize", StringComparison.Ordinal);
         _ = await Assert.That(body).Contains("squirix_test_sanitize_tags{a_b=\"v\"} ", StringComparison.Ordinal);
+    }
+
+    /// <summary>Finite extremes and negative zero keep the exact invariant representation under a decimal-comma culture.</summary>
+    /// <param name="kind">The numeric boundary case.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(3)]
+    [Arguments(4)]
+    [Arguments(5)]
+    [Arguments(6)]
+    [Arguments(7)]
+    [Arguments(8)]
+    public async Task ScrapePreservesInvariantFiniteNumbers(int kind)
+    {
+        var value = kind switch
+        {
+            0 => 0d,
+            1 => BitConverter.Int64BitsToDouble(long.MinValue),
+            2 => double.Epsilon,
+            3 => double.MaxValue,
+            4 => double.MinValue,
+            5 => 1.2345678901234567d,
+            6 => 1e-200d,
+            7 => 1e200d,
+            _ => 1234.5d,
+        };
+        using var scraper = PrometheusMetricsScraper.CreateIsolated();
+        var original = CultureInfo.CurrentCulture;
+        string body;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            scraper.RecordMeasurement("number", true, [], value);
+            scraper.RecordMeasurement("number", true, [], value);
+            body = scraper.Scrape();
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+
+        var expected = value.ToString(CultureInfo.InvariantCulture);
+        _ = await Assert.That(body).IsEqualTo($"number {expected}\nnumber_last {expected}\n");
     }
 
     private static int CountSeriesLines(string body, string metricName)

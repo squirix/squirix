@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
         <RootNamespace>Squirix.Server.TestKit</RootNamespace>
@@ -25,4 +25,7 @@
         <Compile Include="..\..\shared\PathKit.cs" Link="Shared\PathKit.cs"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <Compile Include="..\..\shared\ExceptionTypeGuard.cs" Link="ExceptionTypeGuard.cs"/>
+    </ItemGroup>
 </Project>

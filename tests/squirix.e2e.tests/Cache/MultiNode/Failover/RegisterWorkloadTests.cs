@@ -12,7 +12,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>The register workload records RPC and unknown-outcome failures as ambiguous writes or failed reads, and lets any other failure end it.</summary>
-public sealed class RegisterWorkloadTests : EndToEndTestBase
+public sealed class RegisterWorkloadTests
 {
     private static readonly string[] Keys = ["k"];
 
@@ -56,10 +56,11 @@ public sealed class RegisterWorkloadTests : EndToEndTestBase
                   .Callback(static (_, _, _, _) => Task.FromException(new InvalidOperationException("bug")));
         var workload = new RegisterWorkload(writer.Instance(), new ICacheCreateExpectations<long>().Instance(), Keys);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(1, 0, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(1, 0, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo("bug");
-        _ = await Assert.That(workload.History.Summary()).IsEqualTo("0 acknowledged and 0 failed writes, 0 successful and 0 failed reads");
+        _ = await Assert.That(workload.History.Summary()).IsEqualTo("0 acknowledged and 1 failed writes, 0 successful and 0 failed reads");
+        _ = await Assert.That(workload.History.Snapshot().Writes[0].Acked).IsFalse();
     }
 
     /// <summary>A workload bounded by a task runs until the task completes, then the given number of operations per writer and reader.</summary>
@@ -96,9 +97,10 @@ public sealed class RegisterWorkloadTests : EndToEndTestBase
                   .Callback(static (_, _) => Task.FromException<CacheValueResult<long>>(new InvalidOperationException("bug")));
         var workload = new RegisterWorkload(new ICacheCreateExpectations<long>().Instance(), reader.Instance(), Keys);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(0, 1, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(0, 1, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo("bug");
-        _ = await Assert.That(workload.History.FailedReads).IsEqualTo(0);
+        _ = await Assert.That(workload.History.FailedReads).IsEqualTo(1);
+        _ = await Assert.That(workload.History.Snapshot().FailedCalls[0].Key).IsEqualTo(Keys[0]);
     }
 }

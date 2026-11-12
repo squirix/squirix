@@ -34,7 +34,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// </para>
 /// <para>
 /// The provisional term one of the group this node owns needs no election: only the owner may lead it, so a complete log that never
-/// left it is led at term one at once; a copy that is not complete neither leads nor campaigns nor votes. The leadership reports a
+/// left it and has no committed history is led at term one at once; a recovered committed owner waits for a new election. A copy that
+/// is not complete neither leads nor campaigns nor votes. The leadership reports a
 /// failure to promote or retire as <see langword="false" />; anything it throws faults the step.
 /// </para>
 /// </remarks>
@@ -399,7 +400,7 @@ internal sealed class ReplicaGroupElection
         return new ElectionOutcome(retired ? ElectionEvent.SteppedDown : ElectionEvent.RetirePending, term);
     }
 
-    /// <summary>Starts driving the group: the own group still at the provisional term is led at once, every other group is followed.</summary>
+    /// <summary>Starts driving the group: an uncommitted own group may bootstrap at the provisional term; every other group is followed.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the start.</returns>
     private async Task<ElectionOutcome> StartAsync(CancellationToken cancellationToken)
@@ -413,7 +414,9 @@ internal sealed class ReplicaGroupElection
         if (own && ElectionHold.OnStart(in status) is { } held)
             return held;
 
-        if (!own || status.CurrentTerm > 1)
+        // An authorized term-one leader may have replicated entries it lost before local fsync. Reusing its term after restart
+        // could put a different entry at the same index and term. A committed leader-term entry precedes every admitted user write.
+        if (!own || status.CurrentTerm > 1 || status.CommitIndex > 0)
         {
             _started = true;
             _state.BecomeFollower(status.CurrentTerm, false);

@@ -49,7 +49,7 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken));
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         }
 
@@ -109,8 +109,8 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         await using var committers = LedGroupsTestKit.LeadOwn(committer);
         var replicated = new ReplicatedCache(cache, committers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(replicated.GetEntryAsync(CacheName, "k1", cancellationToken));
-        var valueRefused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(replicated.GetValueAsync(CacheName, "k1", cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(replicated.GetEntryAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var valueRefused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(replicated.GetValueAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = registry.TryGetLog("n1", out var log);
         await log!.CompleteBootstrapAsync(cancellationToken);
         var served = await replicated.GetEntryAsync(CacheName, "k1", cancellationToken);
@@ -174,7 +174,7 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var admission = QuorumReadTestKit.CreateAdmission(new ReplicatedCache(cache, committers), meter);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(admission.TryAddEntryAsync(NewOperationId(), CacheName, "k1", Entry("k2"), cancellationToken).AsTask());
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(admission.TryAddEntryAsync(NewOperationId(), CacheName, "k1", Entry("k2"), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }

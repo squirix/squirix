@@ -163,7 +163,7 @@ public class CachePipelineDecoratorBenchmarks
 
         internal SuspendingCache(bool hasEntry = false)
         {
-            _entry = hasEntry ? new NodeCacheEntry<object?>("existing", 1) : null;
+            _entry = hasEntry ? new NodeCacheEntry<object?>("existing") : null;
         }
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

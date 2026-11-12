@@ -85,7 +85,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         byte[] earlier = [0x53, 0x51, 0x4D, 0x43, 0x2A, 0x00, 0x00, 0x00, 0x5D, 0xB7, 0x56, 0x95];
         await File.WriteAllBytesAsync(path, earlier, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await SequenceAssert.EqualMemoryAsync<byte>(earlier, await File.ReadAllBytesAsync(path, cancellationToken));
     }
@@ -105,7 +105,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         image[SlotFormat.SlotSize + SlotFormat.RecordSize - 1] ^= 0xFF;
         await File.WriteAllBytesAsync(path, image, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await SequenceAssert.EqualMemoryAsync<byte>(image, await File.ReadAllBytesAsync(path, cancellationToken));
     }

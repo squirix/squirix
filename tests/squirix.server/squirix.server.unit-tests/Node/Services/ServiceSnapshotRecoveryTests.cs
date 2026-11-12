@@ -57,7 +57,7 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        var recovered = await scenario.Cache.GetValueAsync(CacheKey.Default("recovered"), cancellationToken);
+        var recovered = scenario.Cache.GetValue(CacheKey.Default("recovered"), cancellationToken);
         _ = await Assert.That(recovered.Found).IsTrue();
         _ = await Assert.That(recovered.Value).IsEqualTo("yes");
     }
@@ -95,11 +95,11 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        var entry = await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken);
+        var entry = scenario.Cache.GetValue(CacheKey.Default("base"), cancellationToken);
         _ = await Assert.That(entry.Found).IsTrue();
         _ = await Assert.That(entry.Value).IsEqualTo("from-snapshot");
 
-        var tailEntry = await scenario.Cache.GetValueAsync(CacheKey.Default("tail"), cancellationToken);
+        var tailEntry = scenario.Cache.GetValue(CacheKey.Default("tail"), cancellationToken);
         _ = await Assert.That(tailEntry.Found).IsTrue();
         _ = await Assert.That(tailEntry.Value).IsEqualTo("from-journal");
     }
@@ -131,7 +131,7 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 
         await RunRecoveryAsync(copy, cancellationToken);
 
-        var recovered = await copy.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken);
+        var recovered = copy.Cache.GetValue(CacheKey.Default("base"), cancellationToken);
         _ = await Assert.That(recovered.Found).IsTrue();
         _ = await Assert.That(recovered.Value).IsEqualTo("from-snapshot");
     }
@@ -171,9 +171,9 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        var baseEntry = await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken);
+        var baseEntry = scenario.Cache.GetValue(CacheKey.Default("base"), cancellationToken);
         _ = await Assert.That(baseEntry.Value).IsEqualTo("from-snapshot");
-        var tailEntry = await scenario.Cache.GetValueAsync(CacheKey.Default("tail"), cancellationToken);
+        var tailEntry = scenario.Cache.GetValue(CacheKey.Default("tail"), cancellationToken);
         _ = await Assert.That(tailEntry.Value).IsEqualTo("from-journal");
     }
 
@@ -188,10 +188,10 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-snapshot-version");
         await WriteUnsupportedSnapshotAsync(scenario, hasJournal, cancellationToken);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<UnsupportedSnapshotVersionException>(RunRecoveryAsync(scenario, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<UnsupportedSnapshotVersionException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).Contains($"version: {SnapshotCodec.Version - 1}", StringComparison.Ordinal);
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("base"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>A snapshot of another format version in a background recovery is logged with the exception that names the version.</summary>

@@ -136,7 +136,7 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
 
     private static async Task ExpectUnavailableAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken)).ResponseAsync);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 }

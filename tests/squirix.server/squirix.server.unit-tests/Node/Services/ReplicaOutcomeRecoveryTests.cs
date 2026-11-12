@@ -29,6 +29,21 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
     private static readonly byte[] Fingerprint = [1, 2, 3];
     private static readonly byte[] Key = [107];
 
+    /// <summary>Reusing the source buffer cannot change the fingerprint or result saved for retries.</summary>
+    [Test]
+    public async Task RecoveredOutcomeOwnsRetainedFields()
+    {
+        byte[] previous = [7, 8];
+        var record = new ReplicaLogRecord(1UL, 1UL, "op", Scope, Fingerprint, "UserMutation", "cache", Key, "remove", default, previous, 0, DateTime.UnixEpoch.Ticks, 0);
+        var source = ReplicaLogCodec.Encode(in record);
+        var decoded = ReplicaLogCodec.DecodeBorrowed(source).GetValueOrDefault();
+        var outcome = ReplicaOutcomeRecovery.OutcomeOf(in decoded);
+        Array.Clear(source);
+
+        await SequenceAssert.EqualMemoryAsync(Fingerprint, outcome.OperationFingerprint);
+        await SequenceAssert.EqualMemoryAsync(previous, outcome.OutcomePayload);
+    }
+
     /// <summary>
     /// Snapshot outcomes restore with their capture age and fill the store; the newest log outcomes take their places, so every retained
     /// log outcome replays and the stale snapshot outcomes are gone.
@@ -53,8 +68,14 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         var restored = await ReplicaOutcomeRecovery.RestoreAsync(reopened, clock, cancellationToken);
 
         _ = await Assert.That(restored).IsEqualTo(4);
-        foreach (var id in new[] { "e", "f", "g", "h" })
-            _ = await Assert.That(reopened.Idempotency.Lookup(Scope, id, Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        string[] restoredIds = ["e", "f", "g", "h"];
+        for (var i = 0; i < restoredIds.Length; i++)
+        {
+            _ = await Assert.That(reopened.Idempotency.Lookup(Scope, restoredIds[i], Fingerprint, out var outcome)).IsEqualTo(GroupIdempotencyLookup.Found);
+            _ = await Assert.That((outcome.LogIndex, outcome.Term, outcome.OutcomePayload.Length)).IsEqualTo((ulong.CreateChecked(i + 5), 1UL, 1));
+            _ = await Assert.That(outcome.OutcomePayload.Span[0]).IsEqualTo(byte.CreateChecked(i + 5));
+            await SequenceAssert.EqualMemoryAsync(Fingerprint, outcome.OperationFingerprint);
+        }
 
         foreach (var id in new[] { "a", "b", "c", "d" })
             _ = await Assert.That(reopened.Idempotency.Lookup(Scope, id, Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
@@ -140,28 +161,33 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "young", Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
-    /// <summary>An entry decided past the retention but within the skew allowance does not stop the read, so a younger outcome below it is restored.</summary>
+    /// <summary>The retention boundary controls whether the outcome is kept, while the read continues within the skew allowance.</summary>
+    /// <param name="offsetTicks">The decision age relative to retention, in ticks.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReadContinuesWithinSkewAllowance(CancellationToken cancellationToken)
+    [Arguments(-1L)]
+    [Arguments(0L)]
+    [Arguments(1L)]
+    public async Task ReadContinuesAcrossRetentionBoundary(long offsetTicks, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-outcome-recovery-skew");
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var withinSkew = Retention + (PolicyOptions.RfIdempotencyClockSkewAllowance / 2);
+        var age = Retention + TimeSpan.FromTicks(offsetTicks);
         await using (var log = await OpenAsync(dir, clock, cancellationToken))
         {
             await CommitAsync(log, clock, ["young"], 1UL, cancellationToken, TimeSpan.FromMinutes(1));
-            await CommitAsync(log, clock, ["skewed"], 2UL, cancellationToken, withinSkew);
+            await CommitAsync(log, clock, ["skewed"], 2UL, cancellationToken, age);
             await CommitAsync(log, clock, ["recent"], 3UL, cancellationToken);
         }
 
         await using var reopened = await OpenAsync(dir, clock, cancellationToken);
         var restored = await ReplicaOutcomeRecovery.RestoreAsync(reopened, clock, cancellationToken);
 
-        _ = await Assert.That(restored).IsEqualTo(2);
+        _ = await Assert.That(restored).IsEqualTo(offsetTicks < 0 ? 3 : 2);
         _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "recent", Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "young", Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
-        _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "skewed", Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "skewed", Fingerprint, out _))
+                        .IsEqualTo(offsetTicks < 0 ? GroupIdempotencyLookup.Found : GroupIdempotencyLookup.Miss);
     }
 
     /// <summary>An entry decided exactly the retention plus the clock skew allowance ago stops the read, so the entries below it are not restored.</summary>

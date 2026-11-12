@@ -59,9 +59,9 @@ public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
                 TimeProvider.System));
         await recovery.StartAsync(cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-a"), cancellationToken)).Found).IsTrue();
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-b"), cancellationToken)).Found).IsTrue();
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("seg2-c"), cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("seg1-a"), cancellationToken).Found).IsTrue();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("seg1-b"), cancellationToken).Found).IsTrue();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("seg2-c"), cancellationToken).Found).IsTrue();
     }
 
     /// <inheritdoc />

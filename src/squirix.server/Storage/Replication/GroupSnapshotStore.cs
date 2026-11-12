@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
@@ -13,16 +12,8 @@ namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Durable on-disk management of one replica group's installable snapshot.</summary>
 /// <remarks>
-///     <para>
-///     The snapshot lives in two in-place slot files (see <see cref="GroupSnapshotSlots" />). A publish writes the new snapshot into the slot that is
-///     not current, flushes it, and then writes it again into the slot that was current. Until the first flush returns, a crash leaves either the
-///     previous snapshot or the new one; after it, the new one. No file is ever renamed, replaced or deleted. Every slot is validated (frame,
-///     checksum, image, bounded size) before it is trusted.
-///     </para>
-///     <para>
-///     This type is a storage-only component: it writes and validates snapshot files but does not interpret the cache
-///     state. Coordinating group membership and installing snapshot payloads into memory belongs to an outer layer.
-///     </para>
+/// Snapshots are immutable files selected by the two slots of the pointer file. Local compaction keeps
+/// the preceding generation and its WAL. Installation mirrors the incoming snapshot at its new boundary.
 /// </remarks>
 [Immutable]
 internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
@@ -35,13 +26,10 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <summary>The format version of the published snapshot image.</summary>
     internal const byte PublishedVersion = GroupSnapshotCodec.SnapshotVersion;
 
-    /// <summary>The sharing a reader needs to open a slot file while the owning node writes it.</summary>
-    private const FileShare ReaderShare = FileShare.ReadWrite | FileShare.Delete;
-
-    private readonly IFollowerLogFaultHooks? _faults;
     private readonly string _groupId;
     private readonly string _legacyPath;
 
+    private readonly GroupSnapshotCheckpointStore _checkpoints;
     private readonly int _maxSnapshotBytes;
     private readonly string _slot0Path;
     private readonly string _slot1Path;
@@ -53,22 +41,22 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         _groupId = groupId;
-        _faults = faults;
         _slot0Path = GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 0);
         _slot1Path = GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 1);
         _legacyPath = GroupStoragePaths.GetLegacySnapshotPath(persistenceRoot, groupId);
         _maxSnapshotBytes = maxSnapshotBytes;
+        _checkpoints = new GroupSnapshotCheckpointStore(GroupStoragePaths.GetGroupDirectory(persistenceRoot, groupId), groupId, maxSnapshotBytes, faults);
     }
 
     /// <inheritdoc />
     bool IFollowerLogSnapshotStore.SnapshotExists => SnapshotExists;
 
     /// <inheritdoc />
-    string IFollowerLogSnapshotStore.SnapshotPath => _slot0Path;
+    string IFollowerLogSnapshotStore.SnapshotPath => _checkpoints.PointerPath;
 
     /// <summary>Gets a value indicating whether a published snapshot currently exists.</summary>
-    /// <remarks>True when either slot file exists, or the single snapshot file of an earlier build does, which a read then refuses.</remarks>
-    internal bool SnapshotExists => File.Exists(_slot0Path) || File.Exists(_slot1Path) || File.Exists(_legacyPath);
+    /// <remarks>True when the pointer file or an unsupported file from an earlier build exists.</remarks>
+    internal bool SnapshotExists => File.Exists(_checkpoints.PointerPath) || HasOldFormat();
 
     /// <inheritdoc />
     bool IFollowerLogSnapshotStore.Fits(GroupSnapshot snapshot) => Fits(in snapshot);
@@ -76,8 +64,23 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <inheritdoc />
     Task IFollowerLogSnapshotStore.PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) => PublishAsync(snapshot, cancellationToken);
 
+    Task<GroupSnapshot?> IFollowerLogSnapshotStore.PublishVerifiedAsync(GroupSnapshot snapshot, CancellationToken cancellationToken, ulong? previousIndex) =>
+        PublishCoreAsync(snapshot, true, cancellationToken, previousIndex);
+
     /// <inheritdoc />
     Task<GroupSnapshot?> IFollowerLogSnapshotStore.ReadPublishedAsync(CancellationToken cancellationToken) => ReadPublishedAsync(cancellationToken);
+
+    Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> IFollowerLogSnapshotStore.PrepareAsync(
+        GroupSnapshot snapshot, ulong previousIndex, CancellationToken cancellationToken)
+    {
+        if (HasOldFormat())
+            throw new InvalidDataException("The previous replica snapshot format is unsupported; the files were left unchanged.");
+
+        var stable = ValidateForPublish(in snapshot);
+        return _checkpoints.PrepareAsync(stable, previousIndex, cancellationToken);
+    }
+
+    bool IFollowerLogSnapshotStore.TryPublishPrepared(GroupSnapshotCheckpointStore.PreparedSnapshot prepared) => _checkpoints.TryPublishPrepared(prepared);
 
     /// <summary>Computes the byte length of the published file image of a snapshot.</summary>
     /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
@@ -115,8 +118,11 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="payloadLength">The length of the outcome payload in bytes.</param>
     /// <returns>The encoded length of the outcome, the same on every node for the same record contents.</returns>
     /// <remarks>Unlike the encoder it does not refuse an identity too long to encode, so a caller that only accounts for the size never throws.</remarks>
-    internal static long OutcomeEncodedLength(string scope, string operationId, int fingerprintLength, int payloadLength) =>
-        GroupSnapshotCodec.ComputeOutcomeEncodedLength(Encoding.UTF8.GetByteCount(scope), Encoding.UTF8.GetByteCount(operationId), fingerprintLength, payloadLength);
+    internal static long OutcomeEncodedLength(string scope, string operationId, int fingerprintLength, int payloadLength) => GroupSnapshotCodec.ComputeOutcomeEncodedLength(
+        Encoding.UTF8.GetByteCount(scope),
+        Encoding.UTF8.GetByteCount(operationId),
+        fingerprintLength,
+        payloadLength);
 
     /// <summary>Decodes complete snapshot file bytes without touching the published file.</summary>
     /// <param name="fileBytes">The entire snapshot file bytes.</param>
@@ -131,9 +137,10 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
     /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
     /// <param name="observedVersion">The format version byte read from the header, or <c language="csharp">0</c> when the header was not reached.</param>
+    /// <param name="materialize">Whether to copy the topology fingerprint and committed outcomes.</param>
     /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
-    internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion) =>
-        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion, out _);
+    internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, bool materialize = true) =>
+        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion, out _, materialize);
 
     /// <summary>Decodes a published image and reports the exact validation failure without changing storage.</summary>
     /// <param name="fileBytes">Complete published image.</param>
@@ -145,7 +152,30 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure) =>
         GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion, out failure);
 
-    /// <summary>Durably publishes a snapshot into both slot files, the one that is not current first.</summary>
+    /// <summary>Returns the canonical contents of a verified snapshot when all string fields are ASCII.</summary>
+    /// <param name="snapshot">The snapshot with a privately owned outcomes array.</param>
+    /// <returns>The canonical contents, or null when decoding the verified file is required.</returns>
+    internal static GroupSnapshot? CanonicalizeVerifiedSnapshot(in GroupSnapshot snapshot)
+    {
+        if (!Ascii.IsValid(snapshot.GroupId) || snapshot.CommittedOutcomes is not GroupIdempotencyRecord[] records)
+            return null;
+        for (var i = 0; i < records.Length; i++)
+        {
+            var record = records[i];
+            if (!Ascii.IsValid(record.OperationScope) || !Ascii.IsValid(record.OperationId))
+                return null;
+
+            records[i] = record with
+            {
+                CreatedUtc = GroupSnapshotEncoder.CanonicalUtc(record.CreatedUtc),
+                ResolvedUtc = GroupSnapshotEncoder.CanonicalUtc(record.ResolvedUtc.GetValueOrDefault()),
+            };
+        }
+
+        return snapshot with { CapturedUtc = GroupSnapshotEncoder.CanonicalUtc(snapshot.CapturedUtc) };
+    }
+
+    /// <summary>Durably publishes a transferred snapshot in two independent generations.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the snapshot is durably published.</returns>
@@ -153,67 +183,27 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants.</exception>
     /// <exception cref="GroupSnapshotTooLargeException">Thrown before anything is written when the snapshot exceeds the configured maximum size.</exception>
     /// <exception cref="InvalidDataException">Thrown when the existing slots are refused, so the unreadable snapshot is not overwritten.</exception>
-    /// <remarks>
-    ///     <para>
-    ///     Not thread-safe: callers serialize publication per group. For example, <c language="csharp">FollowerLog</c> invokes publication only while holding
-    ///     its single-writer gate (<c language="csharp">CompactThroughAsync</c> and <c language="csharp">CompleteStateInstallAsync</c>).
-    ///     </para>
-    ///     <para>
-    ///     A failure or crash before the first slot is flushed leaves either the previous snapshot (or none when there was none) or the new one, and the
-    ///     caller cannot tell which. After the first slot is flushed the new snapshot is in force, the second write ignores cancellation, and a failure of
-    ///     it is still reported to the caller.
-    ///     </para>
-    /// </remarks>
-    internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken)
-    {
-        var stableSnapshot = ValidateForPublish(in snapshot);
-
-        var imageLength = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
-
-        cancellationToken.ThrowIfCancellationRequested();
-        var (groupSnapshot, selectedSlot, sequence) = await ReadSelectionAsync(cancellationToken).ConfigureAwait(false);
-        var currentSlot = groupSnapshot == null ? 1 : selectedSlot;
-        var firstSlot = 1 - currentSlot;
-
-        long slotBytes = imageLength;
-        slotBytes += GroupSnapshotSlots.Overhead;
-        var slotLength = int.CreateChecked(slotBytes);
-        var bytes = ArrayPool<byte>.Shared.Rent(slotLength);
-        try
-        {
-            var slot = bytes.AsMemory(0, slotLength);
-            GroupSnapshotSlots.WriteHeader(slot.Span, sequence + 1UL);
-            EncodePublished(slot.Span.Slice(GroupSnapshotSlots.HeaderSize, imageLength), in stableSnapshot);
-            GroupSnapshotSlots.Seal(slot.Span, sequence + 1UL);
-            await WriteSlotAsync(firstSlot, slot, cancellationToken).ConfigureAwait(false);
-
-            GroupSnapshotSlots.Seal(slot.Span, sequence + 2UL);
-
-            // The first slot is flushed, so the new snapshot is durable and there is no way back: a cancellation must not stop the mirror.
-            await WriteSlotAsync(currentSlot, slot, CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.ReturnCleared(bytes);
-        }
-    }
+    /// <remarks>Cancellation cannot interrupt the mirror once the first generation pointer has been flushed.</remarks>
+    internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) =>
+        _ = await PublishCoreAsync(snapshot, false, cancellationToken).ConfigureAwait(false);
 
     /// <summary>Reads and validates the published snapshot, if any.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated snapshot, or <see langword="null" /> when no snapshot is published.</returns>
     /// <exception cref="InvalidDataException">Thrown when the published snapshot fails structural or CRC validation, or was written by an earlier build.</exception>
-    /// <remarks>Each slot opens with read, write and delete sharing, so a read neither blocks nor is interrupted by a publication writing the slot.</remarks>
-    internal async Task<GroupSnapshot?> ReadPublishedAsync(CancellationToken cancellationToken)
+    /// <remarks>The owning log serializes reads with publication and generation cleanup.</remarks>
+    internal Task<GroupSnapshot?> ReadPublishedAsync(CancellationToken cancellationToken)
     {
-        var selection = await ReadSelectionAsync(cancellationToken).ConfigureAwait(false);
-        return selection.Snapshot;
+        return HasOldFormat()
+            ? Task.FromException<GroupSnapshot?>(new InvalidDataException("The previous replica snapshot format is unsupported; the files were left unchanged."))
+            : _checkpoints.ReadAsync(cancellationToken);
     }
 
     /// <summary>Materializes the committed outcomes into a private copy validated against the snapshot boundary.</summary>
     /// <param name="snapshot">The snapshot whose committed outcomes are materialized.</param>
     /// <returns>The validated per-record copy safe to encode twice.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the snapshot committed outcomes are null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when an outcome is unresolved or its log index exceeds the boundary.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when an outcome is unresolved, resolved after capture, or its log index exceeds the boundary.</exception>
     private static GroupIdempotencyRecord[] MaterializeValidatedOutcomes(in GroupSnapshot snapshot)
     {
         const string message = "Snapshot committed outcomes must not be null.";
@@ -229,57 +219,15 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             if (record.LogIndex > snapshot.LastIncludedIndex)
                 throw new InvalidOperationException($"Replica group snapshot outcome log index {record.LogIndex} exceeds the last included index {snapshot.LastIncludedIndex}.");
 
+            if (record.ResolvedUtc > snapshot.CapturedUtc)
+                throw new InvalidOperationException("Replica group snapshot carries an outcome resolved after its capture time.");
+
             records[i] = record;
         }
 
         return records;
     }
 
-    /// <summary>Reads one slot file, at most one byte past the size bound, which is enough to tell it is oversize.</summary>
-    /// <param name="path">The slot file path.</param>
-    /// <param name="limit">The largest accepted slot file length.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The rented buffer, which the caller returns when the file exists, and how much of it holds the file.</returns>
-    private static async Task<SlotBytes> ReadSlotAsync(string path, long limit, CancellationToken cancellationToken)
-    {
-        // A group without a snapshot yet is common; the check avoids the open exception. The catch stays for a file removed between the check and the open.
-        if (!File.Exists(path))
-            return new SlotBytes([], 0, false);
-
-        try
-        {
-            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, ReaderShare);
-            var wanted = int.CreateChecked(Math.Min(RandomAccess.GetLength(handle), limit + 1L));
-            var bytes = ArrayPool<byte>.Shared.Rent(wanted);
-            try
-            {
-                var total = 0;
-                while (total < wanted)
-                {
-                    var read = await RandomAccess.ReadAsync(handle, bytes.AsMemory(total, wanted - total), total, cancellationToken).ConfigureAwait(false);
-                    if (read == 0)
-                        break;
-
-                    total += read;
-                }
-
-                return new SlotBytes(bytes, total, true);
-            }
-            catch
-            {
-                ArrayPool<byte>.Shared.ReturnCleared(bytes);
-                throw;
-            }
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        {
-            return new SlotBytes([], 0, false);
-        }
-    }
-
-    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
-    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
-    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
     private bool Fits(in GroupSnapshot snapshot)
     {
         long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
@@ -288,40 +236,17 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         return fileLength <= _maxSnapshotBytes;
     }
 
-    private async Task<GroupSnapshotSelection> ReadSelectionAsync(CancellationToken cancellationToken)
-    {
-        if (File.Exists(_legacyPath))
-        {
-            throw new InvalidDataException(
-                $"Replica group snapshot at '{_legacyPath}' was written by an earlier build and is not supported; the file was left unchanged.");
-        }
+    private bool HasOldFormat() => File.Exists(_slot0Path) || File.Exists(_slot1Path) || File.Exists(_legacyPath);
 
-        long limit = _maxSnapshotBytes;
-        limit += GroupSnapshotSlots.Overhead;
-        var first = await ReadSlotAsync(_slot0Path, limit, cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var second = await ReadSlotAsync(_slot1Path, limit, cancellationToken).ConfigureAwait(false);
-            try
-            {
-                return GroupSnapshotSlots.Select(
-                    first.Bytes.AsSpan(0, first.Length),
-                    first.Exists,
-                    second.Bytes.AsSpan(0, second.Length),
-                    second.Exists,
-                    new GroupSnapshotSlotContext(_groupId, _maxSnapshotBytes, _slot0Path, _slot1Path));
-            }
-            finally
-            {
-                if (second.Exists)
-                    ArrayPool<byte>.Shared.ReturnCleared(second.Bytes);
-            }
-        }
-        finally
-        {
-            if (first.Exists)
-                ArrayPool<byte>.Shared.ReturnCleared(first.Bytes);
-        }
+    private async Task<GroupSnapshot?> PublishCoreAsync(GroupSnapshot snapshot, bool verify, CancellationToken cancellationToken, ulong? previousIndex = null)
+    {
+        if (HasOldFormat())
+            throw new InvalidDataException("The previous replica snapshot format is unsupported; the files were left unchanged.");
+
+        var stableSnapshot = ValidateForPublish(in snapshot);
+        _ = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
+        stableSnapshot = await _checkpoints.PublishAsync(stableSnapshot, !verify, previousIndex, cancellationToken).ConfigureAwait(false);
+        return verify ? CanonicalizeVerifiedSnapshot(in stableSnapshot) : null;
     }
 
     /// <summary>Validates the snapshot boundary invariants and materializes a stable outcome list for encoding.</summary>
@@ -343,7 +268,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="snapshot">The snapshot about to be published.</param>
     /// <exception cref="InvalidOperationException">
     /// Thrown when the commit index is below the included index, the included term is zero for a non-empty snapshot,
-    /// an outcome is resolved after the capture time, or the snapshot belongs to another group.
+    /// or the snapshot belongs to another group.
     /// </exception>
     private void ValidatePublishBoundaryInvariants(in GroupSnapshot snapshot)
     {
@@ -358,41 +283,11 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         if (snapshot.LastIncludedIndex != 0 && snapshot.LastIncludedTerm == 0)
             throw new InvalidOperationException($"Replica group snapshot at included index {snapshot.LastIncludedIndex} has a zero included term.");
 
-        // The decoder refuses an outcome resolved after the capture time: its age would be negative, which only a wiring mistake produces.
-        if (GroupSnapshotCodec.HasOutcomeAfterCapture(snapshot.CommittedOutcomes, snapshot.CapturedUtc))
-            throw new InvalidOperationException("Replica group snapshot carries an outcome resolved after its capture time.");
-
         // ReadPublishedAsync refuses a snapshot whose group id differs from this store's group. Reject the
         // mismatch before a publish overwrites the previously published, readable snapshot.
         if (!string.Equals(snapshot.GroupId, _groupId, StringComparison.Ordinal))
             throw new InvalidOperationException($"Replica group snapshot belongs to group '{snapshot.GroupId}' but this store owns group '{_groupId}'.");
     }
-
-    /// <summary>Writes a complete slot in place and flushes it, creating the file when it does not exist.</summary>
-    /// <param name="slot">The slot index.</param>
-    /// <param name="bytes">The complete slot file contents.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    private async Task WriteSlotAsync(int slot, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
-    {
-        var path = slot == 0 ? _slot0Path : _slot1Path;
-        _faults?.OnSnapshotPublishing();
-        using var handle = FileEx.OpenPrivate(path, FileMode.OpenOrCreate, FileAccess.Write);
-
-        // The entry is flushed on every publish, before any byte is written: a file created by an earlier publish that
-        // failed or crashed may exist with an entry that was never made durable.
-        FileEx.FlushDirectoryEntry(path);
-
-        RandomAccess.SetLength(handle, bytes.Length);
-        await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
-        RandomAccess.FlushToDisk(handle);
-    }
-
-    /// <summary>The bytes read from one slot file.</summary>
-    /// <param name="Bytes">The rented buffer.</param>
-    /// <param name="Length">The number of bytes of <paramref name="Bytes" /> read from the file.</param>
-    /// <param name="Exists">Whether the file exists.</param>
-    [Immutable]
-    private readonly record struct SlotBytes(byte[] Bytes, int Length, bool Exists);
 
     /// <summary>Wire-value mapping for <see cref="GroupRecordKind" /> in snapshot payloads; the single source of truth for both directions.</summary>
     private static class GroupRecordKindCodec
@@ -568,31 +463,21 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                 : int.CreateTruncating(length);
         }
 
-        /// <summary>Determines whether an outcome is resolved after the capture time, so its age would be negative.</summary>
-        /// <param name="outcomes">The outcomes.</param>
-        /// <param name="capturedUtc">The capture time.</param>
-        /// <returns><see langword="true" /> when some resolved outcome is later than <paramref name="capturedUtc" />.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="outcomes" /> is null.</exception>
-        internal static bool HasOutcomeAfterCapture(IReadOnlyList<GroupIdempotencyRecord> outcomes, DateTime capturedUtc)
-        {
-            ArgumentNullException.ThrowIfNull(outcomes);
-            for (var i = 0; i < outcomes.Count; i++)
-            {
-                if (outcomes[i].ResolvedUtc is { } resolvedUtc && resolvedUtc.Ticks > capturedUtc.Ticks)
-                    return true;
-            }
-
-            return false;
-        }
-
         /// <summary>Validates a complete snapshot file: header, declared length, checksum, and bounded size.</summary>
         /// <param name="fileBytes">The entire snapshot file bytes.</param>
         /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
         /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
         /// <param name="observedVersion">The format version byte read from the header, or <c language="csharp">0</c> when the header was not reached.</param>
         /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
+        /// <param name="materialize">Whether to copy the topology fingerprint and committed outcomes.</param>
         /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
-        internal static bool TryValidateAndDecode(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure)
+        internal static bool TryValidateAndDecode(
+            ReadOnlySpan<byte> fileBytes,
+            int maxSnapshotBytes,
+            out GroupSnapshot snapshot,
+            out byte observedVersion,
+            out string? failure,
+            bool materialize = true)
         {
             snapshot = default;
             observedVersion = 0;
@@ -630,7 +515,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                 return false;
 
             failure = "snapshot-payload-undecodable";
-            if (!GroupSnapshotDecoder.TryDecodeSnapshot(payload, out snapshot))
+            if (!GroupSnapshotDecoder.TryDecodeSnapshot(payload, materialize, out snapshot))
                 return false;
 
             failure = null;
@@ -658,9 +543,10 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     {
         /// <summary>Decodes the payload fields and committed idempotency outcomes.</summary>
         /// <param name="buffer">The snapshot payload bytes without the trailing checksum.</param>
+        /// <param name="materialize">Whether to copy the topology fingerprint and committed outcomes.</param>
         /// <param name="snapshot">The decoded snapshot when the payload is valid.</param>
         /// <returns><see langword="true" /> when the payload is structurally valid; otherwise <see langword="false" />.</returns>
-        internal static bool TryDecodeSnapshot(ReadOnlySpan<byte> buffer, out GroupSnapshot snapshot)
+        internal static bool TryDecodeSnapshot(ReadOnlySpan<byte> buffer, bool materialize, out GroupSnapshot snapshot)
         {
             snapshot = default;
             if (!GroupSnapshotPrimitiveReader.TryReadSnapshotHeader(buffer, out var header))
@@ -684,47 +570,35 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var outcomeCount = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
             offset += GroupSnapshotCodec.OutcomeCountLengthPrefixByteCount;
-            if (!TryReadOutcomes(buffer, ref offset, outcomeCount, header.LastIncludedIndex, out var outcomes) || GroupSnapshotCodec.HasOutcomeAfterCapture(outcomes, header.CapturedUtc))
+            if (!TryReadOutcomes(buffer, ref offset, outcomeCount, in header, materialize, out var outcomes))
                 return false;
 
             if (offset != buffer.Length)
                 return false;
 
-            snapshot = new GroupSnapshot(groupId, fingerprint, header.Generation, header.LastIncludedTerm, header.LastIncludedIndex, header.CommitIndex, outcomes, header.CapturedUtc);
+            var ownedFingerprint = materialize ? BufferEx.CopyToOwned(fingerprint) : null;
+            snapshot = new GroupSnapshot(
+                groupId,
+                ownedFingerprint,
+                header.Generation,
+                header.LastIncludedTerm,
+                header.LastIncludedIndex,
+                header.CommitIndex,
+                outcomes ?? [],
+                header.CapturedUtc);
             return true;
         }
 
         /// <summary>Reads and validates one committed idempotency outcome from a snapshot payload.</summary>
         /// <param name="buffer">The snapshot payload bytes.</param>
         /// <param name="offset">The current read offset, advanced past the outcome.</param>
-        /// <param name="lastIncludedIndex">The snapshot's last included index; outcomes above this boundary are rejected.</param>
+        /// <param name="header">The snapshot boundary and capture time.</param>
+        /// <param name="materialize">Whether to copy the outcome fields.</param>
         /// <param name="record">The decoded idempotency record.</param>
         /// <returns><see langword="true" /> when the outcome is valid; otherwise <see langword="false" />.</returns>
-        private static bool TryReadOutcome(ReadOnlySpan<byte> buffer, ref int offset, ulong lastIncludedIndex, out GroupIdempotencyRecord record)
+        private static bool TryReadOutcome(ReadOnlySpan<byte> buffer, ref int offset, in SnapshotHeader header, bool materialize, out GroupIdempotencyRecord record)
         {
             record = default;
-            if (!TryReadOutcomeIdentity(buffer, ref offset, out var identity) || !TryReadOutcomeTimes(buffer, ref offset, out var times))
-                return false;
-
-            record = new GroupIdempotencyRecord(
-                identity.Scope,
-                identity.OperationId,
-                identity.Fingerprint,
-                identity.Outcome,
-                identity.Kind,
-                times.Created,
-                times.Resolved,
-                times.LogIndex,
-                times.Term);
-
-            // A well-formed snapshot carries outcomes only for indices it covers. An outcome above the snapshot
-            // boundary would restore the state the snapshot does not own, so reject the payload as corrupt.
-            return record.ResolvedUtc != null && record.LogIndex <= lastIncludedIndex;
-        }
-
-        private static bool TryReadOutcomeIdentity(ReadOnlySpan<byte> buffer, ref int offset, out OutcomeIdentity identity)
-        {
-            identity = default;
             if (!GroupSnapshotPrimitiveReader.TryReadString16(buffer, ref offset, out var scope) ||
                 !GroupSnapshotPrimitiveReader.TryReadString16(buffer, ref offset, out var operationId) ||
                 !GroupSnapshotPrimitiveReader.TryReadBytes(buffer, GroupSnapshotCodec.OutcomeFingerprintLengthPrefixByteCount, ref offset, out var fingerprint) ||
@@ -734,10 +608,24 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var kindValue = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
             offset += GroupSnapshotCodec.OutcomeKindByteCount;
-            if (!GroupRecordKindCodec.TryFromWire(kindValue, out var recordKind))
+            if (!GroupRecordKindCodec.TryFromWire(kindValue, out var kind) || !TryReadOutcomeTimes(buffer, ref offset, out var times) || times.Resolved is not { } resolved ||
+                resolved > header.CapturedUtc || times.LogIndex > header.LastIncludedIndex)
                 return false;
 
-            identity = new OutcomeIdentity(scope, operationId, fingerprint, outcome, recordKind);
+            if (materialize)
+            {
+                record = new GroupIdempotencyRecord(
+                    Encoding.UTF8.GetString(scope),
+                    Encoding.UTF8.GetString(operationId),
+                    BufferEx.CopyToOwned(fingerprint),
+                    BufferEx.CopyToOwned(outcome),
+                    kind,
+                    times.Created,
+                    resolved,
+                    times.LogIndex,
+                    times.Term);
+            }
+
             return true;
         }
 
@@ -775,28 +663,32 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             return true;
         }
 
-        private static bool TryReadOutcomes(ReadOnlySpan<byte> buffer, ref int offset, int outcomeCount, ulong lastIncludedIndex, out List<GroupIdempotencyRecord> outcomes)
+        private static bool TryReadOutcomes(
+            ReadOnlySpan<byte> buffer,
+            ref int offset,
+            int outcomeCount,
+            in SnapshotHeader header,
+            bool materialize,
+            out IReadOnlyList<GroupIdempotencyRecord>? outcomes)
         {
-            outcomes = [];
+            outcomes = null;
             if (outcomeCount < 0)
                 return false;
 
             if (outcomeCount > (buffer.Length - offset) / GroupSnapshotCodec.MinOutcomeEncodedByteCount)
                 return false;
 
-            outcomes = [with(outcomeCount)];
+            List<GroupIdempotencyRecord>? records = materialize ? [with(outcomeCount)] : null;
             for (var i = 0; i < outcomeCount; i++)
             {
-                if (!TryReadOutcome(buffer, ref offset, lastIncludedIndex, out var record))
+                if (!TryReadOutcome(buffer, ref offset, in header, materialize, out var record))
                     return false;
-                outcomes.Add(record);
+                records?.Add(record);
             }
 
+            outcomes = records;
             return true;
         }
-
-        [Immutable]
-        private readonly record struct OutcomeIdentity(string Scope, string OperationId, ReadOnlyMemory<byte> Fingerprint, ReadOnlyMemory<byte> Outcome, GroupRecordKind Kind);
 
         [Immutable]
         private readonly record struct OutcomeTimes(DateTime Created, DateTime? Resolved, ulong LogIndex, ulong Term);
@@ -805,6 +697,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <summary>Snapshot payload encoding primitives for replica-group snapshot files.</summary>
     private static class GroupSnapshotEncoder
     {
+        internal static DateTime CanonicalUtc(DateTime utc) => DateTimeOffset.FromUnixTimeMilliseconds(UnixMs(utc)).UtcDateTime;
+
         /// <summary>Encodes a snapshot into a caller-provided buffer of at least the computed payload length.</summary>
         /// <param name="buffer">The destination payload buffer.</param>
         /// <param name="snapshot">The snapshot to encode.</param>
@@ -927,7 +821,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <summary>Low-level snapshot payload decoding primitives.</summary>
     private static class GroupSnapshotPrimitiveReader
     {
-        internal static bool TryReadBytes(ReadOnlySpan<byte> buffer, int lengthPrefix, ref int offset, out ReadOnlyMemory<byte> value)
+        internal static bool TryReadBytes(ReadOnlySpan<byte> buffer, int lengthPrefix, ref int offset, out ReadOnlySpan<byte> value)
         {
             value = default;
             if (lengthPrefix != sizeof(int))
@@ -940,7 +834,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             if (!WireBounds.Fits(length, offset, buffer.Length))
                 return false;
 
-            value = BufferEx.CopyToOwned(buffer.Slice(offset, length));
+            value = buffer.Slice(offset, length);
             offset += length;
             return true;
         }
@@ -979,9 +873,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             return true;
         }
 
-        internal static bool TryReadString16(ReadOnlySpan<byte> buffer, ref int offset, out string value)
+        internal static bool TryReadString16(ReadOnlySpan<byte> buffer, ref int offset, out ReadOnlySpan<byte> value)
         {
-            value = string.Empty;
+            value = default;
             if (buffer.Length - offset < GroupSnapshotCodec.String16LengthPrefixByteCount)
                 return false;
 
@@ -990,7 +884,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             if (!WireBounds.Fits(length, offset, buffer.Length))
                 return false;
 
-            value = Encoding.UTF8.GetString(buffer.Slice(offset, length));
+            value = buffer.Slice(offset, length);
             offset += length;
             return true;
         }

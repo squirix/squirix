@@ -19,6 +19,24 @@ public sealed class ReplicaTransferValidationTests : ServerUnitTestBase
 {
     private const string Transfer = "validation-transfer";
 
+    /// <summary>A rejected first offset does not allocate the declared image or advance the receive position.</summary>
+    [Test]
+    public async Task WrongFirstOffsetDoesNotAllocateSnapshot()
+    {
+        var baseline = BaselineOf(TransferFixtures.Image());
+        var ticket = new ReplicaTransferTicket(HeaderOf(Transfer, 1UL), in baseline, 0);
+        byte[] chunk = [42];
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var accepted = ticket.TryReceive(1, chunk, out var overflow);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var retried = ticket.TryReceive(0, chunk, out var retryOverflow);
+
+        _ = await Assert.That((accepted, overflow)).IsEqualTo((false, false));
+        _ = await Assert.That(allocated).IsEqualTo(0L);
+        _ = await Assert.That((retried, retryOverflow)).IsEqualTo((true, false));
+    }
+
     /// <summary>Malformed declarations are diagnosed before any data is changed.</summary>
     /// <param name="reason">The invalid declaration and expected diagnostic.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>

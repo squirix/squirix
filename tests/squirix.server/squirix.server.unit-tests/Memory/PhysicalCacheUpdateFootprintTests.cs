@@ -42,12 +42,12 @@ public sealed class PhysicalCacheUpdateFootprintTests : ServerUnitTestBase
         var cache = new PhysicalCache<object?>(new FakeTimeProvider(Start), Estimator);
         DateTime? expiresUtc = withDeadline ? Start.UtcDateTime.AddHours(1) : null;
         var tags = withTags ? new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "blue", ["tier"] = "gold" }.ToFrozenDictionary(StringComparer.Ordinal) : null;
-        await cache.SetAsync(Key, new NodeCacheEntry<object?>("initial", 1, expiresUtc, tags: tags), cancellationToken);
+        cache.Set(Key, new NodeCacheEntry<object?>("initial", 1, expiresUtc, tags: tags), cancellationToken);
 
         object updated = jsonValue ? Json("""{"name":"value","items":[1,2,3],"nested":{"flag":true}}""") : "a different value";
-        var updatedHere = await cache.UpdateAsync(Key, updated, cancellationToken);
+        var updatedHere = cache.Update(Key, updated, cancellationToken);
 
-        var stored = await cache.RawReader.GetEntryRawAsync(Key, cancellationToken);
+        var stored = cache.RawReader.GetEntryRaw(Key, cancellationToken);
         _ = await Assert.That(updatedHere).IsTrue();
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(Estimator.EstimateBytes(Key, new NodeCacheEntry<object?>(updated, stored!.Version, expiresUtc, tags: tags), false));

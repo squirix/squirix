@@ -5,8 +5,9 @@ namespace Squirix;
 
 /// <summary>Options used when creating a cache entry from a value.</summary>
 /// <remarks>
-/// Set <see cref="Expiration" /> or <see cref="ExpiresAt" /> to attach a TTL. When both are unset, the entry is stored
-/// without expiration and does not expire by TTL.
+/// Set at most one of <see cref="Expiration" /> and <see cref="ExpiresAt" /> to attach a TTL; the client rejects both together.
+/// When both are unset, the entry is stored without expiration and does not expire by TTL. Reads do not renew the lifetime;
+/// use <c language="csharp">TouchAsync</c> to change the expiration explicitly.
 /// </remarks>
 [Immutable]
 public sealed class CacheEntryOptions

@@ -28,6 +28,10 @@ internal static class RpcMutationFingerprints
 
     internal static string RemoveExpiration(string cacheName, string key) => Fingerprint("remove-expiration-async", cacheName, key, null);
 
+    internal static string SetDistributed(SetDistributedAsyncRequest request) => Fingerprint("set-distributed", request.CacheName, request.Key, request);
+
+    internal static string DistributedAccess(string cacheName, string key, bool refresh) => Fingerprint(refresh ? "distributed-refresh" : "distributed-get", cacheName, key, null);
+
     internal static string SetEntry(string cacheName, string key, CacheEntryWire entry) => Fingerprint("set-entry-async", cacheName, key, entry);
 
     internal static string Touch(string cacheName, string key, Duration expiration) => Fingerprint("touch-async", cacheName, key, expiration);
@@ -85,6 +89,23 @@ internal static class RpcMutationFingerprints
             Span<byte> buffer = stackalloc byte[size];
             message.WriteTo(buffer);
             _ = SHA256.HashData(buffer, digest);
+            return;
+        }
+
+        if (size > IncrementalHashBufferWriter.ChunkBytes && message is CacheEntryWire { Value.KindCase: CacheValue.KindOneofCase.StringValue })
+        {
+            var rented = ArrayPool<byte>.Shared.Rent(size);
+            try
+            {
+                var buffer = rented.AsSpan(0, size);
+                message.WriteTo(buffer);
+                _ = SHA256.HashData(buffer, digest);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+
             return;
         }
 

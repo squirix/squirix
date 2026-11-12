@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
@@ -12,8 +10,6 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
@@ -29,46 +25,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var actual = new HashSet<string>(await GrpcEndpointSurfaceCollector.CollectProductionGrpcMethodsAsync(), StringComparer.OrdinalIgnoreCase);
         var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixGrpcEndpointSurface.golden.txt");
-        _ = await Assert.That(File.Exists(path)).IsTrue();
-
-        var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var lines = await File.ReadAllLinesAsync(path, cancellationToken);
-        for (var i = 0; i < lines.Length; i++)
-        {
-            if (lines[i].Length == 0)
-                continue;
-
-            _ = expected.Add(lines[i]);
-        }
-
-        if (actual.SetEquals(expected))
-            return;
-
-        var unexpected = CollectSetDifference(actual, expected);
-        var missing = CollectSetDifference(expected, actual);
-
-        var sb = new StringBuilder();
-        _ = sb.AppendLine("Golden gRPC endpoint surface mismatch. Update ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt if the change is intentional.");
-        for (var i = 0; i < unexpected.Count; i++)
-            _ = sb.Append("  + ").AppendLine(unexpected[i]);
-
-        for (var i = 0; i < missing.Count; i++)
-            _ = sb.Append("  - ").AppendLine(missing[i]);
-
-        Assert.Fail(sb.ToString());
-    }
-
-    private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
-    {
-        var result = new List<string>();
-        foreach (var item in left)
-        {
-            if (!right.Contains(item))
-                result.Add(item);
-        }
-
-        result.Sort(StringComparer.Ordinal);
-        return result;
+        await GoldenSnapshotAssert.MatchesAsync(actual, path, cancellationToken);
     }
 
     /// <summary>Collects gRPC service/method identities exposed by the production Squirix server mapping pipeline.</summary>
@@ -90,6 +47,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 {
                     EnvironmentName = "Production",
                 });
+            DevelopmentCertificate.AddTo(builder.Services);
 
             _ = await builder.AddSquirixServerAsync(
                 static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),

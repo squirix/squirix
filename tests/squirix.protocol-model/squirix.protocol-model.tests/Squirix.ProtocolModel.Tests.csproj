@@ -11,4 +11,12 @@
     <ItemGroup>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
     </ItemGroup>
+    <ItemGroup>
+        <Compile Include="..\..\shared\ExceptionTypeGuard.cs" Link="ExceptionTypeGuard.cs"/>
+        <Compile Include="..\..\squirix.e2e.tests\Fixtures\RegisterHistory.cs" Link="RegisterChecker\RegisterHistory.cs"/>
+        <Compile Include="..\..\squirix.e2e.tests\Fixtures\RegisterLinearizability.cs" Link="RegisterChecker\RegisterLinearizability.cs"/>
+        <Compile Include="..\..\squirix.e2e.tests\Fixtures\RegisterHistoryFile.cs" Link="RegisterChecker\RegisterHistoryFile.cs"/>
+        <Compile Include="..\..\squirix.e2e.tests\Fixtures\RegisterRead.cs" Link="RegisterChecker\RegisterRead.cs"/>
+        <Compile Include="..\..\squirix.e2e.tests\Fixtures\RegisterWrite.cs" Link="RegisterChecker\RegisterWrite.cs"/>
+    </ItemGroup>
 </Project>

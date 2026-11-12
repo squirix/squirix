@@ -114,8 +114,8 @@ internal static class RuntimeServiceRegistration
         private static string ResolveOwner(ConsistentHashRing ring, string cacheName, string key)
         {
             var (previousRing, previousCache, previousKey, previousOwner) = _lastOwner;
-            if (ReferenceEquals(previousRing, ring) && ReferenceEquals(previousCache, cacheName) && ReferenceEquals(previousKey, key) && previousOwner is { } cached)
-                return cached;
+            if (ReferenceEquals(previousRing, ring) && ReferenceEquals(previousCache, cacheName) && ReferenceEquals(previousKey, key) && previousOwner != null)
+                return previousOwner;
 
             var kh = HashCacheRouteKey(cacheName, key);
             var idx = ring.FindFirstGreaterOrEqual(kh);

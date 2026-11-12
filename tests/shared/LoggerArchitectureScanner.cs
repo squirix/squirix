@@ -32,12 +32,23 @@ public static class LoggerArchitectureScanner
     private const string NullableContextAttributeName = "System.Runtime.CompilerServices.NullableContextAttribute";
     private const byte NullableFlag = 2;
 
-    /// <summary>Finds every static member that holds or returns a logger type.</summary>
+    /// <summary>Runs all logger rules against one loaded assembly model and returns immutable findings.</summary>
     /// <param name="assemblyPath">Absolute path to the assembly under test.</param>
-    /// <returns>One description per violation.</returns>
-    public static IReadOnlyList<string> FindStaticLoggerMembers(string assemblyPath)
+    /// <returns>The violations of each rule, in their original scan order.</returns>
+    public static LoggerScanResult Scan(string assemblyPath)
     {
         using var model = AssemblyModel.Load(assemblyPath);
+        return new LoggerScanResult(
+            [.. FindStaticLoggerMembers(model)],
+            [.. FindStaticClassLoggerParameters(model)],
+            [.. FindOptionalLoggers(model)]);
+    }
+
+    /// <summary>Finds every static member that holds or returns a logger type.</summary>
+    /// <param name="model">The loaded assembly model.</param>
+    /// <returns>One description per violation.</returns>
+    private static List<string> FindStaticLoggerMembers(AssemblyModel model)
+    {
         var violations = new List<string>();
         foreach (var typeHandle in model.Reader.TypeDefinitions)
         {
@@ -60,11 +71,10 @@ public static class LoggerArchitectureScanner
     }
 
     /// <summary>Finds every static class method that takes an ILogger and is not a source-generated logging method.</summary>
-    /// <param name="assemblyPath">Absolute path to the assembly under test.</param>
+    /// <param name="model">The loaded assembly model.</param>
     /// <returns>One description per violation.</returns>
-    public static IReadOnlyList<string> FindStaticClassLoggerParameters(string assemblyPath)
+    private static List<string> FindStaticClassLoggerParameters(AssemblyModel model)
     {
-        using var model = AssemblyModel.Load(assemblyPath);
         var violations = new List<string>();
         foreach (var typeHandle in model.Reader.TypeDefinitions)
         {
@@ -80,11 +90,10 @@ public static class LoggerArchitectureScanner
     }
 
     /// <summary>Finds optional or nullable logger parameters, nullable logger fields and properties, and logger properties with a setter or init accessor.</summary>
-    /// <param name="assemblyPath">Absolute path to the assembly under test.</param>
+    /// <param name="model">The loaded assembly model.</param>
     /// <returns>One description per violation.</returns>
-    public static IReadOnlyList<string> FindOptionalLoggers(string assemblyPath)
+    private static List<string> FindOptionalLoggers(AssemblyModel model)
     {
-        using var model = AssemblyModel.Load(assemblyPath);
         var violations = new List<string>();
         foreach (var typeHandle in model.Reader.TypeDefinitions)
         {
@@ -316,6 +325,17 @@ public static class LoggerArchitectureScanner
             return false;
         }
 
+        private static void AddDependent(Dictionary<string, List<string>> dependents, string parent, string child)
+        {
+            if (!dependents.TryGetValue(parent, out var children))
+            {
+                children = [];
+                dependents.Add(parent, children);
+            }
+
+            children.Add(child);
+        }
+
         private static bool TryGetInterfaceKind(string typeName, out bool isInstanceLogger)
         {
             isInstanceLogger = string.Equals(typeName, LoggerInterfaceName, StringComparison.Ordinal) || string.Equals(typeName, GenericLoggerInterfaceName, StringComparison.Ordinal);
@@ -323,14 +343,13 @@ public static class LoggerArchitectureScanner
         }
 
         private string NameOfEntity(EntityHandle handle) =>
-            handle.Kind == HandleKind.TypeDefinition ? NameOf((TypeDefinitionHandle)handle) : NameOfSpecificationOrReference(handle);
-
-        private string NameOfSpecificationOrReference(EntityHandle handle) =>
-            handle.Kind == HandleKind.TypeSpecification
-                ? Reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(Types, null)
-                : NameOfReference(handle);
-
-        private string NameOfReference(EntityHandle handle) => handle.Kind == HandleKind.TypeReference ? NameOf((TypeReferenceHandle)handle) : string.Empty;
+            handle.Kind switch
+            {
+                HandleKind.TypeDefinition => NameOf((TypeDefinitionHandle)handle),
+                HandleKind.TypeSpecification => Reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(Types, null),
+                HandleKind.TypeReference => NameOf((TypeReferenceHandle)handle),
+                _ => string.Empty,
+            };
 
         private string AttributeName(CustomAttribute attribute)
         {
@@ -369,41 +388,45 @@ public static class LoggerArchitectureScanner
 
         private void CollectImplementers()
         {
-            var changed = true;
-            while (changed)
+            var dependents = CollectDependents();
+            var pending = new Queue<string>();
+            pending.Enqueue(LoggerInterfaceName);
+            pending.Enqueue(GenericLoggerInterfaceName);
+            pending.Enqueue(LoggerFactoryInterfaceName);
+            pending.Enqueue(LoggerProviderInterfaceName);
+            while (pending.TryDequeue(out var name))
             {
-                changed = false;
-                foreach (var typeHandle in Reader.TypeDefinitions)
-                    changed |= RecordImplementer(typeHandle);
+                if (!dependents.TryGetValue(name, out var children))
+                    continue;
+
+                var isInstanceLogger = IsLogger(name, true);
+                for (var i = 0; i < children.Count; i++)
+                {
+                    var child = children[i];
+                    if (_implementers.TryGetValue(child, out var existing) && (existing || !isInstanceLogger))
+                        continue;
+
+                    _implementers[child] = isInstanceLogger;
+                    pending.Enqueue(child);
+                }
             }
         }
 
-        private bool RecordImplementer(TypeDefinitionHandle typeHandle)
+        private Dictionary<string, List<string>> CollectDependents()
         {
-            var type = Reader.GetTypeDefinition(typeHandle);
-            var name = NameOf(typeHandle);
-            var isLogger = _implementers.TryGetValue(name, out var isInstanceLogger);
-            foreach (var interfaceHandle in type.GetInterfaceImplementations())
-                Consider(Reader.GetInterfaceImplementation(interfaceHandle).Interface, ref isLogger, ref isInstanceLogger);
+            Dictionary<string, List<string>> dependents = [with(StringComparer.Ordinal)];
+            foreach (var typeHandle in Reader.TypeDefinitions)
+            {
+                var type = Reader.GetTypeDefinition(typeHandle);
+                var name = NameOf(typeHandle);
+                foreach (var interfaceHandle in type.GetInterfaceImplementations())
+                    AddDependent(dependents, NameOfEntity(Reader.GetInterfaceImplementation(interfaceHandle).Interface), name);
 
-            if (!type.BaseType.IsNil)
-                Consider(type.BaseType, ref isLogger, ref isInstanceLogger);
+                if (!type.BaseType.IsNil)
+                    AddDependent(dependents, NameOfEntity(type.BaseType), name);
+            }
 
-            if (!isLogger || (_implementers.TryGetValue(name, out var existing) && existing == isInstanceLogger))
-                return false;
-
-            _implementers[name] = isInstanceLogger;
-            return true;
-        }
-
-        private void Consider(EntityHandle handle, ref bool isLogger, ref bool isInstanceLogger)
-        {
-            var name = NameOfEntity(handle);
-            if (!IsLogger(name, false))
-                return;
-
-            isLogger = true;
-            isInstanceLogger |= IsLogger(name, true);
+            return dependents;
         }
     }
 

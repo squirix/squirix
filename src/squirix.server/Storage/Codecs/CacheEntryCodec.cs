@@ -47,25 +47,6 @@ internal static partial class CacheEntryCodec
     /// <param name="destination">The destination, at least <see cref="ComputeValueLength" /> bytes.</param>
     internal static void WriteValue(object? normalizedValue, Span<byte> destination) => _ = CacheEntryValueEncoding.WriteInternal(normalizedValue, destination);
 
-    /// <summary>Writes an entry around a value that is already encoded, so the value is not measured or serialized again.</summary>
-    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" />.</param>
-    /// <param name="expiration">The relative expiration, or <see langword="null" />.</param>
-    /// <param name="version">The entry version.</param>
-    /// <param name="tags">The entry tags, or <see langword="null" />.</param>
-    /// <param name="encodedValue">The value encoded by <see cref="WriteValue" />.</param>
-    /// <param name="destination">The destination, at least <see cref="ComputeEncodedLength(DateTime?, TimeSpan?, FrozenDictionary{string, string}, int)" /> bytes.</param>
-    internal static void WriteWithEncodedValue(
-        DateTime? expiresUtc,
-        TimeSpan? expiration,
-        long version,
-        FrozenDictionary<string, string>? tags,
-        ReadOnlySpan<byte> encodedValue,
-        Span<byte> destination)
-    {
-        var offset = WriteHeader(expiresUtc, expiration, version, tags, destination);
-        encodedValue.CopyTo(destination[offset..]);
-    }
-
     internal static bool TryMapEntry<T>(NodeCacheEntry<object?> entry, out NodeCacheEntry<T>? mapped)
     {
         if (!CacheEntryValueEncoding.TryCoerceTo<T>(entry.Value, out var typedValue))
@@ -78,12 +59,28 @@ internal static partial class CacheEntryCodec
         return true;
     }
 
-    internal static bool TryRead<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry, out int bytesRead)
+    /// <summary>Decodes an entry; a valid entry expired by the optional cutoff succeeds with a null entry and its consumed length.</summary>
+    /// <typeparam name="T">The requested value type.</typeparam>
+    /// <param name="source">The encoded entry bytes.</param>
+    /// <param name="entry">The decoded entry, or null for invalid or expired input.</param>
+    /// <param name="bytesRead">The length consumed from a valid entry, including one skipped by expiry.</param>
+    /// <param name="expiredAsOf">The inclusive expiry cutoff, or null to retain all entries.</param>
+    /// <returns>Whether the entry is valid; a valid expired entry is not materialized.</returns>
+    internal static bool TryRead<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry, out int bytesRead, DateTime? expiredAsOf = null)
     {
         entry = null;
         bytesRead = 0;
-        if (!TryReadEnvelope(source, out var envelope))
+        if (!TryReadEnvelope(source, true, out var envelope, expiredAsOf))
             return false;
+
+        if (IsExpired(envelope.ExpiresUtc, expiredAsOf))
+        {
+            // Expiry skips materialization, not validation of the stored version.
+            if (envelope.Version < 1)
+                _ = CreateEntry<object?>(null, in envelope);
+            bytesRead = envelope.BytesRead;
+            return true;
+        }
 
         if (!CacheEntryValueEncoding.TryCoerceTo<T>(envelope.Value, out var typedValue))
             return false;
@@ -91,6 +88,21 @@ internal static partial class CacheEntryCodec
         // bytesRead reports the full envelope consumed so callers can advance snapshot/journal cursors.
         entry = CreateEntry(typedValue, in envelope);
         bytesRead = envelope.BytesRead;
+        return true;
+    }
+
+    /// <summary>Checks the stored entry without materializing its value or tags.</summary>
+    /// <param name="source">The encoded entry; trailing bytes are accepted as by the decoder.</param>
+    /// <returns>Whether the entry decodes.</returns>
+    internal static bool IsWellFormed(ReadOnlySpan<byte> source)
+    {
+        if (!TryReadEnvelope(source, false, out var envelope))
+            return false;
+
+        // Preserve the constructor's version rejection, after the whole entry has decoded.
+        if (envelope.Version < 1)
+            _ = CreateEntry<object?>(null, in envelope);
+
         return true;
     }
 
@@ -112,7 +124,14 @@ internal static partial class CacheEntryCodec
         return offset + CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
     }
 
-    private static int WriteHeader(DateTime? expiresUtcValue, TimeSpan? expirationValue, long version, FrozenDictionary<string, string>? tags, Span<byte> destination)
+    /// <summary>Writes entry metadata and returns the offset reserved for its value.</summary>
+    /// <param name="expiresUtcValue">The absolute deadline, or null.</param>
+    /// <param name="expirationValue">The relative expiration, or null.</param>
+    /// <param name="version">The entry version.</param>
+    /// <param name="tags">The entry tags, or null.</param>
+    /// <param name="destination">The sized destination for the entry.</param>
+    /// <returns>The first byte of the encoded value.</returns>
+    internal static int WriteHeader(DateTime? expiresUtcValue, TimeSpan? expirationValue, long version, FrozenDictionary<string, string>? tags, Span<byte> destination)
     {
         var offset = 0;
         if (expiresUtcValue is { } expiresUtc)
@@ -143,9 +162,12 @@ internal static partial class CacheEntryCodec
         return offset;
     }
 
+    private static bool IsExpired(DateTime? expiresUtc, DateTime? expiredAsOf) =>
+        expiredAsOf is { } cutoff && expiresUtc is { } expires && expires.ToUniversalTime() <= cutoff;
+
     private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope e) => new(typedValue, e.Version, e.ExpiresUtc, e.Expiration, e.Tags);
 
-    private static bool TryReadEnvelope(ReadOnlySpan<byte> source, out ReadEnvelope envelope)
+    private static bool TryReadEnvelope(ReadOnlySpan<byte> source, bool materialize, out ReadEnvelope envelope, DateTime? expiredAsOf = null)
     {
         envelope = default;
         if (source.Length < 1 + 1 + 8)
@@ -158,7 +180,7 @@ internal static partial class CacheEntryCodec
         if (!TryReadVersion(source, ref offset, out var version))
             return false;
 
-        if (!TryReadTagsAndValue(source, ref offset, out var tags, out var value))
+        if (!TryReadTagsAndValue(source, ref offset, materialize && !IsExpired(expiresUtc, expiredAsOf), out var tags, out var value))
             return false;
 
         envelope = new ReadEnvelope(expiresUtc, expiration, version, tags, value, offset);
@@ -194,17 +216,17 @@ internal static partial class CacheEntryCodec
         return true;
     }
 
-    private static bool TryReadTagsAndValue(ReadOnlySpan<byte> source, ref int offset, out FrozenDictionary<string, string>? tags, out object? value)
+    private static bool TryReadTagsAndValue(ReadOnlySpan<byte> source, ref int offset, bool materialize, out FrozenDictionary<string, string>? tags, out object? value)
     {
         tags = null;
         value = null;
 
         // Tags and value are length-prefixed sections; both must parse before coercion to T.
-        if (!TagEncoding.TryReadTag(source[offset..], out tags, out var tagsBytes))
+        if (!TagEncoding.TryReadTag(source[offset..], materialize, out tags, out var tagsBytes))
             return false;
 
         offset += tagsBytes;
-        if (!CacheEntryValueEncoding.TryReadInternal(source[offset..], out value, out var valueBytes))
+        if (!CacheEntryValueEncoding.TryReadInternal(source[offset..], materialize, out value, out var valueBytes))
             return false;
 
         offset += valueBytes;

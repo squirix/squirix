@@ -59,8 +59,8 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(directCache, in record, cancellationToken);
 
-        var expected = await direct.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
-        var actual = await recovered.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var expected = direct.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
+        var actual = recovered.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(expected).IsNotNull();
         _ = await Assert.That(actual).IsNotNull();
         _ = await Assert.That(actual!.Value).IsEqualTo(expected!.Value);
@@ -92,7 +92,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
     {
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
         records.Add(record);
     }
@@ -113,7 +113,8 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             new ClientCache<object?>(physical, physical),
             journal,
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
-            clock);
+            clock,
+            physical.RawReader);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }

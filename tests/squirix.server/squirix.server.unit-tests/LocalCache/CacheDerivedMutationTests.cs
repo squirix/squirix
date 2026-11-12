@@ -66,7 +66,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
     public async Task UpdateAsyncReturnsFalseForMissingKey(CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        var updated = await cache.UpdateAsync(CacheKey.Default("missing"), "new", cancellationToken);
+        var updated = cache.Update(CacheKey.Default("missing"), "new", cancellationToken);
         _ = await Assert.That(updated).IsFalse();
     }
 
@@ -78,12 +78,12 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         var timeProvider = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
-        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, cancellationToken);
+        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, cancellationToken);
 
-        var updated = await cache.UpdateAsync(CacheKey.Default("k"), "new", cancellationToken);
+        var updated = cache.Update(CacheKey.Default("k"), "new", cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
-        var entry = await cache.GetEntryAsync(CacheKey.Default("k"), cancellationToken);
+        var entry = cache.GetEntry(CacheKey.Default("k"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry.Value).IsEqualTo("new");
         _ = await Assert.That(entry.ExpiresUtc).IsEqualTo(expires);

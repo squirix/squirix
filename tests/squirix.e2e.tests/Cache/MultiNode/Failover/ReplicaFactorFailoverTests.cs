@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// Groups of fewer than three replicas have no election path, and validation refuses automatic failover for them: losing a member never
 /// raises a term, the calls the loss blocks are refused within the operation deadline, and the rest of the cluster keeps serving.
 /// </summary>
-public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
+public sealed class ReplicaFactorFailoverTests
 {
     private const string CacheName = "rf-failover";
 
@@ -115,7 +115,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         _ = await Assert.That(IsRefusal(writeFailure)).IsTrue().Because(writeFailure.ToString());
         _ = await Assert.That(readElapsed).IsLessThanOrEqualTo(RefusalBound).Because(readFailure.ToString());
         _ = await Assert.That(IsRefusal(readFailure)).IsTrue().Because(readFailure.ToString());
-        _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
+        _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because(history.Summary());
         _ = await Assert.That((history.AmbiguousWrites, history.FailedReads)).IsEqualTo((0, 0)).Because(history.Summary());
         _ = await Assert.That(probe.Ledger("nodeA").Terms).IsEqualTo(0);
         _ = await Assert.That(PreVoteRoundsOf(rounds, ["nodeA", "nodeB", "nodeC"], ["nodeA", "nodeB", "nodeC"])).IsEqualTo(0);
@@ -154,7 +154,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         using var guard = new CancellationTokenSource(HangGuard);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, guard.Token);
         var started = Stopwatch.GetTimestamp();
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(call(state, linked.Token));
+        var failure = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(call(state, linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         return (failure, Stopwatch.GetElapsedTime(started));
     }
 }

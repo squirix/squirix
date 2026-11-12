@@ -6,7 +6,7 @@ on:
             packageVersion:
                 description: Prerelease package version
                 required: true
-                default: 0.1.0-preview.10
+                default: 0.1.0-preview.11
                 type: string
 
 env:
@@ -27,23 +27,18 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+            -   uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
                 with:
                     global-json-file: global.json
-
-            -   name: Build core packages
-                env:
-                    PACKAGE_VERSION: ${{ inputs.packageVersion }}
-                run: |
-                    dotnet build src/squirix/Squirix.csproj --configuration Release -p:SquirixPackageVersion="$PACKAGE_VERSION"
-                    dotnet build src/squirix.server/Squirix.Server.csproj --configuration Release -p:SquirixPackageVersion="$PACKAGE_VERSION"
 
             -   name: Pack core packages
                 env:
                     PACKAGE_VERSION: ${{ inputs.packageVersion }}
+                    SquirixPackAllFrameworks: "true"
                 run: |
-                    dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
-                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet pack src/squirix/Squirix.csproj --configuration Release --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet pack src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj --configuration Release --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
 
             -   name: Publish core packages
                 env:

@@ -11,11 +11,11 @@ namespace Squirix.Client;
 /// <summary>Entry point to connect to Squirix servers and get typed cache instances.</summary>
 public sealed class SquirixClient : ISquirixClient
 {
-    private readonly IRemoteClientSession _remoteSession;
+    private readonly RemoteClientSession _remoteSession;
     private int _disposed;
     private Task? _disposeTask;
 
-    private SquirixClient(IRemoteClientSession remoteSession)
+    private SquirixClient(RemoteClientSession remoteSession)
     {
         ArgumentNullException.ThrowIfNull(remoteSession);
         _remoteSession = remoteSession;

@@ -103,7 +103,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         var pending = !call.IsCompleted;
 
         scene.Clock.Advance(LeaderWait);
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, HangGuard, TimeProvider.System, cancellationToken);
         scene.State.ObserveLeaderContact(First, 3UL);
         var next = await scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
@@ -127,7 +127,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
 
         await cancel.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, HangGuard, TimeProvider.System, cancellationToken);
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
     }
@@ -147,7 +147,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(second);
         scene.OnFailure = () => scene.State.ObserveLeaderContact(Second, 4UL);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(second);
         _ = await Assert.That(string.Join(',', scene.Targets)).IsEqualTo($"{First},{Second}");
@@ -164,7 +164,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(StaleOwnerFailure.Create(First, Second, 5UL));
         scene.OnFailure = () => scene.State.ObserveLeaderContact(Second, 4UL);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(2);
@@ -191,7 +191,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         ];
         scene.Failures.Enqueue(failures[kind]);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(failures[kind]);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -213,7 +213,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         var beforeBoundary = !call.IsCompleted;
 
         scene.Clock.Advance(TimeSpan.FromMilliseconds(1));
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending && beforeBoundary).IsTrue();
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -230,7 +230,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(unreachable);
         scene.OnFailure = () => scene.Clock.Advance(LeaderWait);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(unreachable);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -246,7 +246,13 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(Unreachable());
         var waiting = scene.RunAsync(cancellationToken);
 
-        var healthy = await scene.Router.ExecuteAsync("cache", Other, scene.Request, static (_, target, _) => Task.FromResult(target), static (_, _) => Task.FromResult(Self), cancellationToken);
+        var healthy = await scene.Router.ExecuteAsync(
+            "cache",
+            Other,
+            scene.Request,
+            static (_, target, _) => Task.FromResult(target),
+            static (_, _) => Task.FromResult(Self),
+            cancellationToken);
         var pending = !waiting.IsCompleted;
         scene.State.ObserveLeaderContact(Second, 4UL);
 
@@ -272,7 +278,14 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
             var invocation = new IRemoteInvocationStateCreateExpectations();
             _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
             var locator = OwnerRouters.Locator(Self, First, Second, Group, Other);
-            Router = new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), new ReplicaLeaderTable(registry, Self, locator), LeaderWait, clock, locator);
+            Router = new OwnerRouter(
+                ownership.Instance(),
+                invocation.Instance(),
+                RingAgreements.Create(),
+                new ReplicaLeaderTable(registry, Self, locator),
+                LeaderWait,
+                clock,
+                locator);
         }
 
         internal FakeTimeProvider Clock { get; }
@@ -298,7 +311,15 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         internal static async Task<Scene> OpenAsync(TempDirectory dir, CancellationToken cancellationToken)
         {
             var clock = new FakeTimeProvider();
-            var registry = new ReplicaGroupRegistry(dir, [Group, Other], 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = clock };
+            var registry = new ReplicaGroupRegistry(
+                dir,
+                [Group, Other],
+                3,
+                Fingerprint,
+                1UL,
+                NullLoggerFactory.Instance,
+                new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
+            { ElectionClock = clock };
             try
             {
                 await registry.OpenAsync(cancellationToken);
@@ -312,7 +333,12 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         }
 
         internal Task<string> RunAsync(CancellationToken cancellationToken) => Router.ExecuteAsync(
-            "cache", "key", (Scene: this, Request), static (s, target, _) => s.Scene.SendAsync(target, s.Request), static (s, _) => s.Scene.SendAsync(Self, s.Request), cancellationToken);
+            "cache",
+            "key",
+            (Scene: this, Request),
+            static (s, target, _) => s.Scene.SendAsync(target, s.Request),
+            static (s, _) => s.Scene.SendAsync(Self, s.Request),
+            cancellationToken);
 
         private Task<string> SendAsync(string target, MutationRequest request)
         {

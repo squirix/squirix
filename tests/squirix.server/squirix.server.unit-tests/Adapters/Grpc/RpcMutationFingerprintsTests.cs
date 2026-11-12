@@ -97,6 +97,39 @@ public sealed class RpcMutationFingerprintsTests
         _ = await Assert.That(RpcMutationFingerprints.SetEntry("c", "k", entry)).IsNotEqualTo(RpcMutationFingerprints.Update("c", "k", entry));
     }
 
+    /// <summary>Large Unicode strings preserve the full protobuf fingerprint, including metadata and unknown fields.</summary>
+    /// <param name="unknownFields">Whether to include an unknown protobuf field.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task LargeUnicodeHashPreservesWireBytes(bool unknownFields)
+    {
+        var entry = new CacheEntryWire
+        {
+            Value = new CacheValue { StringValue = new string('é', IncrementalHashBufferWriter.ChunkBytes) + "😀" },
+            Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(3)),
+            ExpiresUtc = Timestamp.FromDateTime(DateTime.UnixEpoch.AddDays(1)),
+        };
+        if (unknownFields)
+        {
+            await using var wire = new MemoryStream();
+            entry.WriteTo(wire);
+            using (var output = new CodedOutputStream(wire, true))
+            {
+                output.WriteTag(99, WireFormat.WireType.Varint);
+                output.WriteUInt64(123);
+                output.Flush();
+            }
+
+            entry = CacheEntryWire.Parser.ParseFrom(wire.ToArray());
+        }
+
+        _ = await Assert.That(RpcMutationFingerprints.SetEntry("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("set-entry-async", "cache", "key", entry));
+        _ = await Assert.That(RpcMutationFingerprints.Update("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("update-async", "cache", "key", entry));
+        _ = await Assert.That(RpcMutationFingerprints.GetOrAdd("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("get-or-add-async", "cache", "key", entry));
+        _ = await Assert.That(RpcMutationFingerprints.AddEntryIfAbsent("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("try-add-entry-async", "cache", "key", entry));
+    }
+
     private static string ComputeOneShotFingerprint(string operation, string cacheName, string key, IMessage message)
     {
         using var buffer = new MemoryStream();
@@ -115,9 +148,10 @@ public sealed class RpcMutationFingerprintsTests
         const int maxOverheadBytes = 32;
         for (var length = Math.Max(0, messageBytes - maxOverheadBytes); length <= messageBytes; length++)
         {
-            var entry = new CacheEntryWire { Value = new CacheValue { StringValue = new string('a', length) } };
-            if (entry.CalculateSize() == messageBytes)
-                return entry;
+            var valueBytes = CodedOutputStream.ComputeTagSize(CacheValue.StringValueFieldNumber) + CodedOutputStream.ComputeLengthSize(length) + length;
+            var entryBytes = CodedOutputStream.ComputeTagSize(CacheEntryWire.ValueFieldNumber) + CodedOutputStream.ComputeLengthSize(valueBytes) + valueBytes;
+            if (entryBytes == messageBytes)
+                return new CacheEntryWire { Value = new CacheValue { StringValue = new string('a', length) } };
         }
 
         throw new InvalidOperationException("No entry has the requested serialized size.");

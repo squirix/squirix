@@ -151,7 +151,7 @@ public sealed class ClusterIdentityInternalPortTests
         var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaries[0] };
         identity.Dispose();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static void BindExclusively(int port)

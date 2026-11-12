@@ -42,7 +42,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("gone"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("gone"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Idempotency replay with UnixMs == 0 must fall back to the recovery wall clock for CreatedUtc.</summary>
@@ -80,7 +80,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        var entry = await scenario.Cache.GetEntryAsync(CacheKey.Default("a"), cancellationToken);
+        var entry = scenario.Cache.GetEntry(CacheKey.Default("a"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.Value).IsEqualTo("new");
         _ = await Assert.That(entry.ExpiresUtc!.Value.Ticks / TimeSpan.TicksPerMillisecond).IsEqualTo(deadline.Ticks / TimeSpan.TicksPerMillisecond);
@@ -99,7 +99,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("a"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("a"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Replay must apply Put and Remove in order, leaving only the keys the last frame of which is a live put.</summary>
@@ -118,8 +118,8 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("a"), cancellationToken)).Found).IsFalse();
-        var b = await scenario.Cache.GetValueAsync(CacheKey.Default("b"), cancellationToken);
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("a"), cancellationToken).Found).IsFalse();
+        var b = scenario.Cache.GetValue(CacheKey.Default("b"), cancellationToken);
         _ = await Assert.That(b.Found).IsTrue();
         _ = await Assert.That(b.Value).IsEqualTo("vb");
     }
@@ -138,7 +138,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, Convert.ToByte(opcodeWire), "a");
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An unassigned frame followed by a valid frame fails recovery instead of being skipped.</summary>
@@ -151,7 +151,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 8, "a", [valid]);
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An unassigned frame in a segment that is not the last one fails recovery.</summary>
@@ -164,7 +164,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 2, BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb"));
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 2, NextSequence = 3 }, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A segment written with an earlier file format version fails recovery loudly and is left untouched.</summary>
@@ -183,7 +183,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var lengthBefore = new FileInfo(path).Length;
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).Contains($"version {version}", StringComparison.Ordinal);
         _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(lengthBefore);

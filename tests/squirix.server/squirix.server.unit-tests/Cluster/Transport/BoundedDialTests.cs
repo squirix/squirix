@@ -21,7 +21,7 @@ public sealed class BoundedDialTests
     [Test]
     public async Task DialTimeoutIsConnectionError(CancellationToken cancellationToken)
     {
-        var failure = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(SendThroughAsync(null, TimeSpan.FromMilliseconds(50), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(SendThroughAsync(null, TimeSpan.FromMilliseconds(50), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.HttpRequestError).IsEqualTo(HttpRequestError.ConnectionError);
         _ = await Assert.That(failure.InnerException).IsTypeOf<IOException>();
@@ -39,8 +39,8 @@ public sealed class BoundedDialTests
         BoundedDial.Apply(sockets, TimeSpan.FromSeconds(1), TimeProvider.System);
         using var invoker = new HttpMessageInvoker(sockets, false);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(SendAsync(invoker, cancellationToken));
-        var second = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(SendAsync(invoker, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(SendAsync(invoker, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var second = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(SendAsync(invoker, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(second.HttpRequestError).IsEqualTo(HttpRequestError.ConnectionError);
         _ = await Assert.That(second.InnerException?.InnerException).IsTypeOf<TimeoutException>();
@@ -59,7 +59,7 @@ public sealed class BoundedDialTests
 
         await caller.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(send);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(send, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A dial bound below the minimum is refused.</summary>

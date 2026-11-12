@@ -33,11 +33,11 @@ internal sealed class JournalEventLoopSegmentWriter
             return;
 
         var registry = _owner.Host.PendingAppends;
-        if (registry.AnyAbandoned(_owner.WriteBatch.PendingAppends))
+        if (registry.WasDrained())
         {
-            // A failure to drain reclaimed staged frames: every staged ack is already faulted, so the
-            // batch must be dropped instead of written (ghost-writes). Drains are total; hence a
-            // single abandoned item proves the whole batch was drained by the same TakeAll.
+            // Only this journal thread completes staged items individually. An external drain takes
+            // every item and permanently latches Failure under the registry lock, so checking that
+            // latch covers the whole batch without probing each item. FaultWaiters takes no item.
             // A post-write re-check below covers a drain landing mid-write.
             DropAbandonedBatch();
             return;
@@ -50,7 +50,7 @@ internal sealed class JournalEventLoopSegmentWriter
         // Re-check after the writing: a drain may have landed mid-write and faulted the staged acks.
         // Truncating the just-written span keeps faulted frames from replaying; the completions below
         // stay idempotent (Untrack-gated release, TrySet* acks), so this only removes bytes.
-        if (registry.AnyAbandoned(_owner.WriteBatch.PendingAppends))
+        if (registry.WasDrained())
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             DropAbandonedBatch();

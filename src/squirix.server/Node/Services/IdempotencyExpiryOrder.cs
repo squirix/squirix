@@ -80,48 +80,14 @@ internal sealed class IdempotencyExpiryOrder
         _restoredYoung.Enqueue(restored, createdUtc.Ticks);
     }
 
-    /// <summary>Takes the next record whose retention passed, in expiry order.</summary>
+    /// <summary>Takes a record whose retention passed on every applicable clock.</summary>
     /// <param name="retention">The retention.</param>
     /// <param name="utcNow">The server clock wall time.</param>
     /// <param name="timestamp">The server clock monotonic timestamp.</param>
     /// <param name="key">The operation identifier of the expired record; the caller removes it from the store.</param>
     /// <returns><see langword="true" /> when a record expired.</returns>
-    internal bool TryTakeExpired(TimeSpan retention, DateTime utcNow, long timestamp, out string key)
-    {
-        while (_createdOrder.TryPeek(out var head))
-        {
-            if (!_lookup(head.Key, head.Sequence, out var createdUtc))
-            {
-                _ = _createdOrder.Dequeue();
-                continue;
-            }
-
-            if (_timeProvider.GetElapsedTime(head.Stamp, timestamp) <= retention)
-                break;
-
-            _ = _createdOrder.Dequeue();
-            _wallOrder.Enqueue(head, createdUtc.Ticks);
-        }
-
-        while (_wallOrder.TryPeek(out var entry, out _))
-        {
-            if (!_lookup(entry.Key, entry.Sequence, out var createdUtc))
-            {
-                _ = _wallOrder.Dequeue();
-                continue;
-            }
-
-            if (utcNow - createdUtc <= retention)
-                break;
-
-            _ = _wallOrder.Dequeue();
-            key = entry.Key;
-            return true;
-        }
-
-        key = string.Empty;
-        return false;
-    }
+    internal bool TryTakeExpired(TimeSpan retention, DateTime utcNow, long timestamp, out string key) =>
+        TryTakeMonotonicExpired(retention, utcNow, timestamp, out key) || TryTakeWallExpired(retention, utcNow, out key);
 
     /// <summary>Finds the completed outcome inserted first among those older than <paramref name="minAge" />.</summary>
     /// <param name="minAge">The age the outcome must pass; <see langword="null" /> accepts any age.</param>
@@ -179,6 +145,66 @@ internal sealed class IdempotencyExpiryOrder
         CompactHeap(_wallOrder, limit, liveRecordCount);
         CompactHeap(_restoredYoung, limit, liveRecordCount);
         CompactHeap(_restoredMatured, limit, liveRecordCount);
+    }
+
+    /// <summary>Takes a record whose monotonic and wall age both passed, handing the records whose wall age did not pass to the wall order.</summary>
+    /// <param name="retention">The retention.</param>
+    /// <param name="utcNow">The server clock wall time.</param>
+    /// <param name="timestamp">The server clock monotonic timestamp.</param>
+    /// <param name="key">The operation identifier of the expired record.</param>
+    /// <returns><see langword="true" /> when a record expired.</returns>
+    private bool TryTakeMonotonicExpired(TimeSpan retention, DateTime utcNow, long timestamp, out string key)
+    {
+        key = string.Empty;
+        while (_createdOrder.TryPeek(out var head))
+        {
+            if (!_lookup(head.Key, head.Sequence, out var createdUtc))
+            {
+                _ = _createdOrder.Dequeue();
+                continue;
+            }
+
+            if (_timeProvider.GetElapsedTime(head.Stamp, timestamp) <= retention)
+                return false;
+
+            _ = _createdOrder.Dequeue();
+            if (utcNow - createdUtc > retention)
+            {
+                key = head.Key;
+                return true;
+            }
+
+            _wallOrder.Enqueue(head, createdUtc.Ticks);
+        }
+
+        return false;
+    }
+
+    /// <summary>Takes a record whose wall age passed.</summary>
+    /// <param name="retention">The retention.</param>
+    /// <param name="utcNow">The server clock wall time.</param>
+    /// <param name="key">The operation identifier of the expired record.</param>
+    /// <returns><see langword="true" /> when a record expired.</returns>
+    private bool TryTakeWallExpired(TimeSpan retention, DateTime utcNow, out string key)
+    {
+        key = string.Empty;
+        while (_wallOrder.TryPeek(out var entry, out _))
+        {
+            if (!_lookup(entry.Key, entry.Sequence, out var createdUtc))
+            {
+                _ = _wallOrder.Dequeue();
+                continue;
+            }
+
+            if (utcNow - createdUtc <= retention)
+                return false;
+
+            _ = _wallOrder.Dequeue();
+            key = entry.Key;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>Peeks the live restored completed outcome with the lowest sequence among those older than <paramref name="minAge" />.</summary>

@@ -17,7 +17,8 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 {
     /// <summary>SHA-256 of the canonical encoding of each golden record, in order.</summary>
-    private static readonly string[] GoldenHashes = [
+    private static readonly string[] GoldenHashes =
+    [
         "7651A28534BA19FFE0828F42D316FBB26168787FF330230E21DB69E4CE4D17BB",
         "79B09FDC3ADECA33B0FAFF03466D32A3A4DB0C31A3880C61D24CEC68F22FA3A3",
         "84A77AF03182C0605B6EDEBA2F62D221D33C843B30255E5CA1A5F283D9BA6445",
@@ -35,18 +36,18 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
     /// <summary>Verifies that an unknown version is rejected.</summary>
     [Test]
-    public async Task DecodeRejectsBadVersion() => _ = await Assert.That(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Of(0, 0))).IsNull();
+    public async Task DecodeRejectsBadVersion() => _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(ReadOnlyMemory<byte>.Of(0, 0))).IsNull();
 
     /// <summary>Verifies that a version 1 record, whose Touch carried a relative duration, is refused instead of being read as a deadline.</summary>
     [Test]
     public async Task DecodeRefusesVersionOne()
     {
         var encoded = ReplicaLogCodec.Encode(CreateRecord());
-        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNotNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(encoded)).IsNotNull();
 
         BinaryPrimitives.WriteUInt16LittleEndian(encoded, 1);
 
-        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(encoded)).IsNull();
     }
 
     /// <summary>Verifies that a version 3 record, which cannot carry an expiration tombstone, is refused instead of being read.</summary>
@@ -57,7 +58,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
         BinaryPrimitives.WriteUInt16LittleEndian(encoded, 3);
 
-        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(encoded)).IsNull();
     }
 
     /// <summary>Verifies that a version 4 record, which carries a trailing payload checksum, is refused by both decoding and the well-formed check.</summary>
@@ -68,13 +69,13 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         byte[] legacy = [.. encoded, 0, 0, 0, 0];
         BinaryPrimitives.WriteUInt16LittleEndian(legacy, 4);
 
-        _ = await Assert.That(ReplicaLogCodec.Decode(legacy)).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(legacy)).IsNull();
         _ = await Assert.That(ReplicaLogCodec.IsWellFormed(legacy, 1, 2)).IsFalse();
     }
 
     /// <summary>Verifies that an empty payload is rejected.</summary>
     [Test]
-    public async Task DecodeRejectsEmpty() => _ = await Assert.That(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Empty)).IsNull();
+    public async Task DecodeRejectsEmpty() => _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(ReadOnlyMemory<byte>.Empty)).IsNull();
 
     /// <summary>Verifies that cutting the payload at any position is rejected.</summary>
     /// <remarks>
@@ -87,7 +88,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         var encoded = ReplicaLogCodec.Encode(CreateRecord());
 
         for (var length = 0; length < encoded.Length; length++)
-            _ = await Assert.That(ReplicaLogCodec.Decode(encoded.AsMemory(0, length))).IsNull();
+            _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(encoded.AsMemory(0, length))).IsNull();
     }
 
     /// <summary>Verifies that malformed UTF-8 inside a string field is rejected.</summary>
@@ -103,7 +104,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         const int lengthPrefixSize = sizeof(int);
         encoded[versionSize + logIndexSize + termSize + lengthPrefixSize] = 0xFF;
 
-        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(encoded)).IsNull();
     }
 
     /// <summary>Verifies that trailing bytes are rejected.</summary>
@@ -112,7 +113,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
     {
         var encoded = ReplicaLogCodec.Encode(CreateRecord());
 
-        _ = await Assert.That(ReplicaLogCodec.Decode(new ReadOnlyMemory<byte>([.. encoded, 0]))).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(new ReadOnlyMemory<byte>([.. encoded, 0]))).IsNull();
     }
 
     /// <summary>Verifies that a truncated payload is rejected.</summary>
@@ -121,7 +122,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
     {
         var encoded = ReplicaLogCodec.Encode(CreateRecord());
 
-        _ = await Assert.That(ReplicaLogCodec.Decode(encoded.AsMemory(0, encoded.Length - 1))).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(encoded.AsMemory(0, encoded.Length - 1))).IsNull();
     }
 
     /// <summary>Verifies that the canonical bytes of varied records stay byte-identical and decode back to the same record.</summary>
@@ -137,7 +138,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
             _ = await Assert.That(Convert.ToHexString(SHA256.HashData(encoded))).IsEqualTo(GoldenHashes[i]);
 
-            var decoded = ReplicaLogCodec.Decode(encoded);
+            var decoded = ReplicaLogCodec.DecodeBorrowed(encoded);
             _ = await Assert.That(decoded).IsNotNull();
             _ = await Assert.That(ReplicaLogCodec.Encode(decoded!.Value).AsSpan().SequenceEqual(encoded)).IsTrue();
             _ = await Assert.That(decoded.Value.OperationId).IsEqualTo(records[i].OperationId);
@@ -222,7 +223,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             damaged[prefixOffsets[field] + sizeof(int)] = 0xFF;
 
             _ = await Assert.That(ReplicaLogCodec.IsWellFormed(damaged, 1, 2)).IsFalse();
-            _ = await Assert.That(ReplicaLogCodec.Decode(damaged)).IsNull();
+            _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(damaged)).IsNull();
         }
     }
 
@@ -244,9 +245,10 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             foreach (var mask in FlipMasks)
                 for (var i = 0; i < encoded.Length; i++)
                 {
-                    byte[] changed = [.. encoded];
-                    changed[i] ^= mask;
-                    disagreements += Disagrees(changed, logIndex, term) ? 1 : 0;
+                    var original = encoded[i];
+                    encoded[i] ^= mask;
+                    disagreements += Disagrees(encoded, logIndex, term) ? 1 : 0;
+                    encoded[i] = original;
                 }
         }
 
@@ -255,7 +257,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
     private static bool Disagrees(ReadOnlyMemory<byte> payload, ulong logIndex, ulong term)
     {
-        var expected = ReplicaLogCodec.Decode(payload) is { } record && record.LogIndex == logIndex && record.Term == term;
+        var expected = ReplicaLogCodec.DecodeBorrowed(payload) is { } record && record.LogIndex == logIndex && record.Term == term;
         return ReplicaLogCodec.IsWellFormed(payload.Span, logIndex, term) != expected;
     }
 
@@ -287,13 +289,27 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
         return
         [
-            new ReplicaLogRecord(0, 0, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, ReadOnlyMemory<byte>.Empty, 0, 0, 0),
+            new ReplicaLogRecord(
+                0,
+                0,
+                string.Empty,
+                string.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                string.Empty,
+                string.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                string.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                0,
+                0,
+                0),
             new ReplicaLogRecord(
                 ulong.MaxValue,
                 ulong.MaxValue,
                 "op-1",
                 "user",
-                new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
+                new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
                 "mutation",
                 "orders",
                 new byte[] { 1, 2, 3 },
@@ -318,21 +334,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 long.MinValue,
                 long.MinValue,
                 long.MinValue),
-            new ReplicaLogRecord(
-                123456789,
-                987654321,
-                "operation",
-                "scope",
-                new byte[16],
-                "kind",
-                "cache",
-                large,
-                "mutation",
-                large,
-                large,
-                -1,
-                1,
-                638000000000000000),
+            new ReplicaLogRecord(123456789, 987654321, "operation", "scope", new byte[16], "kind", "cache", large, "mutation", large, large, -1, 1, 638000000000000000),
         ];
     }
 

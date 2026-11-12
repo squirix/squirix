@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -69,7 +70,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, gateway);
 
         var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(write);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
 
@@ -143,7 +144,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         _ = eligibility.TryMarkCatchingUp(1, default);
         _ = eligibility.TryMarkCatchingUp(2, default);
         var retried = await committer.CommitTryAddAsync(operationId, "cache", "k1", entry, cancellationToken);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitTryAddAsync(NewOperationId(), "cache", "k2", entry, cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitTryAddAsync(NewOperationId(), "cache", "k2", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
         _ = await Assert.That(retried).IsTrue();
@@ -163,7 +164,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
         var refused = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(refused);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(refused, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
         _ = registry.TryGetLog("n1", out var log);

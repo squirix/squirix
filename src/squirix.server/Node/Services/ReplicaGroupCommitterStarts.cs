@@ -53,12 +53,12 @@ internal static class ReplicaGroupCommitterStarts
         /// Runs under the commit gate, after the coordinator of the previous start is retired. Every start while an elected leadership
         /// is not yet authorized, a retry after a fault included, stops probing once enough followers answered from their logs to form a
         /// majority with the slots that count, so a silent follower does not hold the gate for its whole probe timeout; the readiness loop
-        /// admits the answering followers. Every other start awaits every probe.
+        /// admits the answering followers. Every other start awaits every probe. Term-one bootstrap tenure keeps replication durable-first.
         /// </remarks>
         internal async Task<(ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility, ReplicaProbeResult[] Results)>
             LaunchAsync(IFollowerLog log, ReplicaLeaderTenure? tenure, bool replacing, CancellationToken cancellationToken)
         {
-            await AdvanceAnnouncedCommitAsync(log, cancellationToken).ConfigureAwait(false);
+            await ReplicaGroupCommitter.AdvanceAnnouncedCommitAsync(log, cancellationToken).ConfigureAwait(false);
 
             // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
             var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
@@ -113,6 +113,8 @@ internal static class ReplicaGroupCommitterStarts
             {
                 ReadIndex = rounds,
                 LocalAppends = committer.LocalAppends,
+                AllowEarlyReplication = tenure is { Term: > 1 },
+                Tenure = tenure,
             };
             return (pipeline, factory, read, term, eligibility, results);
         }

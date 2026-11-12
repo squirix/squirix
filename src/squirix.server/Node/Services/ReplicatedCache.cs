@@ -55,6 +55,19 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     }
 
     /// <inheritdoc />
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    public async ValueTask<NodeCacheValueRead<object?>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (!IsExpired(read.ExpiresUtc))
+            return read;
+
+        var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return entry == null ? default : new NodeCacheValueRead<object?>(true, entry.Value, entry.ExpiresUtc);
+    }
+
+    /// <inheritdoc />
     /// <exception cref="Grpc.Core.RpcException">
     /// The entry expired and its tombstone could not commit: Unavailable, retryable. Also every refusal <see cref="GetEntryAsync" /> makes
     /// before it reads.
@@ -95,6 +108,38 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <inheritdoc />
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
         new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
+
+    /// <summary>Reads an adapter entry, serializing sliding access through the group commit gate.</summary>
+    /// <param name="operationId">Client operation identifier.</param>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="refresh">Whether to omit the payload from the result.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The value observed by Get, if any.</returns>
+    internal async ValueTask<ReadOnlyMemory<byte>?> AccessDistributedAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    {
+        var committer = _committers.ForKey(cacheName, key);
+        if (committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+
+        var entry = await GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+
+        if (entry == null)
+            return null;
+
+        var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
+        var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
+        if (policy.SlidingTicks != null)
+        {
+            var (_, renewTo, expired) = DistributedCacheAccess.Decide(entry, committer.Clock.GetUtcNow().UtcDateTime);
+            if (expired || renewTo != null)
+                return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+        }
+
+        return readOnlyResult;
+    }
 
     /// <summary>Reads the stored entry of a key without deciding its expiry: an entry past its deadline on the leader clock reads as absent.</summary>
     /// <param name="cacheName">Target cache name.</param>

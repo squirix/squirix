@@ -35,8 +35,8 @@ public sealed class SnapshotCaptureBridgeTests : ServerUnitTestBase
     {
         var time = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
-        await cache.SetAsync(new CacheKey("ns", "tagged"), new NodeCacheEntry<string>("v", tags: Tags), cancellationToken);
-        await cache.SetAsync(new CacheKey("ns", "expiring"), new NodeCacheEntry<string>("e", 1, time.GetUtcNow().UtcDateTime.AddSeconds(1), tags: Tags), cancellationToken);
+        cache.Set(new CacheKey("ns", "tagged"), new NodeCacheEntry<string>("v", tags: Tags), cancellationToken);
+        cache.Set(new CacheKey("ns", "expiring"), new NodeCacheEntry<string>("e", 1, time.GetUtcNow().UtcDateTime.AddSeconds(1), tags: Tags), cancellationToken);
 
         time.Advance(TimeSpan.FromSeconds(2));
 
@@ -56,7 +56,7 @@ public sealed class SnapshotCaptureBridgeTests : ServerUnitTestBase
         var time = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var deadline = time.GetUtcNow().UtcDateTime.AddSeconds(1);
-        await cache.SetAsync(new CacheKey("ns", "expiring"), new NodeCacheEntry<string>("e", 1, deadline), cancellationToken);
+        cache.Set(new CacheKey("ns", "expiring"), new NodeCacheEntry<string>("e", 1, deadline), cancellationToken);
 
         time.Advance(TimeSpan.FromSeconds(2));
 

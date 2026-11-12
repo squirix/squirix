@@ -1321,12 +1321,33 @@ where m.SimpleNameLike("^Try") &&
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2204$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Remove calls to GC.Collect()</Name>
+// <Id>ND2204:RemoveCallsToGCCollect</Id>
+// ND2204 squirix override: honor the existing JustMyCode boundary.
+// Retention tests deliberately collect unreachable objects to assert WeakReference liveness.
+// Product methods still match every GC.Collect overload with the stock severity and debt.
+warnif count > 0
+from m in JustMyCode.Methods
+let gcCollectMethodCalled = m.MethodsCalled.Where(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "Collect")
+where gcCollectMethodCalled.Any()
+select new { m, gcCollectMethodCalled, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
 
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2205$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Don't call GC.Collect() without calling GC.WaitForPendingFinalizers()</Name>
+// <Id>ND2205:DontCallGCCollectWithoutCallingGCWaitForPendingFinalizers</Id>
+// ND2205 squirix override: honor the existing JustMyCode boundary.
+// Retention tests deliberately collect unreachable objects to assert WeakReference liveness.
+// Product methods still match every GC.Collect overload with the stock severity and debt.
+warnif count > 0
+from m in JustMyCode.Methods
+let gcCollectMethodCalled = m.MethodsCalled.Where(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "Collect")
+where gcCollectMethodCalled.Any()
+   && !m.MethodsCalled.Any(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "WaitForPendingFinalizers")
+select new { m, gcCollectMethodCalled, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
 
 
 
@@ -1881,7 +1902,9 @@ select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" 
 // RootNamespace (ND2103) and other naming rules should not gate sample harnesses.
 notmycode
 from a in Application.Assemblies.WithNameIn(
-      "ExternalPackageSmoke")
+      "ExternalPackageSmoke",
+      "AspNetSharedCache",
+      "DockerClient")
 select a]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard unit-test assemblies from cohesion / SCA gates</Name>
 // Test harness cohesion and transitive SCA hits are not product-layer debt.
 notmycode
@@ -1894,6 +1917,7 @@ from a in Application.Assemblies.WithNameIn(
       "Squirix.Server.IntegrationTests",
       "Squirix.E2ETests",
       "Squirix.ProtocolModel.Tests",
+      "Squirix.Extensions.Caching.UnitTests",
       "Squirix.Benchmarks",
       "Squirix.Server.Benchmarks",
       "Squirix.E2EBenchmarks")

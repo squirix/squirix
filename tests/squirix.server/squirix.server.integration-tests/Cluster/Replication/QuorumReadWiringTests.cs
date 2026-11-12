@@ -43,7 +43,7 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
 
         await fabric.IsolateAsync(Owner);
         await ledger.UntilAsync(() => !owner.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(Owner, out _), "the cut-off owner holds no authority", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(owner.GetCache<object?>(Scope).GetEntryAsync(Scope, key, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(owner.GetCache<object?>(Scope).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode is StatusCode.Unavailable or StatusCode.FailedPrecondition).IsTrue();
     }

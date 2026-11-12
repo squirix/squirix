@@ -21,7 +21,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// </summary>
 [Property(StressSuite.TraitName, StressSuite.TraitValue)]
 [Explicit]
-public sealed class LeaderStopSeriesTests : EndToEndTestBase
+public sealed class LeaderStopSeriesTests
 {
     private const string CacheName = "leader-stop-series";
 
@@ -235,7 +235,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
         _ = await Assert.That(run.StoppedWhileAcked).IsTrue().Because(dump);
         _ = await Assert.That(run.Acked.Term).IsGreaterThan(stop.FormerTerm).Because(dump);
         _ = await Assert.That(stop.Survivors).Contains(run.Acked.NodeId).Because(dump);
-        _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary() + dump);
+        _ = await Assert.That(history.Check(CancellationToken.None)).IsEmpty().Because(history.Summary() + dump);
         _ = await Assert.That(FailoverFault.CoversAfter(history, timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue)).IsTrue().Because(history.Summary() + dump);
         _ = await Assert.That(sample.RecoverySinceDownMs).IsGreaterThanOrEqualTo(0).Because(dump);
         _ = await Assert.That(HasNegativePhase(sample)).IsFalse().Because($"a phase was seen before the stop began: {FailoverEvidence.Describe(sample)}{Environment.NewLine}{dump}");
@@ -254,7 +254,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
         {
             var (history, keys) = series[i];
             await FailoverSteps.ReadFinalAsync(history, reader, keys, cancellationToken);
-            _ = await Assert.That(history.Check()).IsEmpty().Because($"stop {i + 1}: {history.Summary()}");
+            _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because($"stop {i + 1}: {history.Summary()}");
         }
     }
 

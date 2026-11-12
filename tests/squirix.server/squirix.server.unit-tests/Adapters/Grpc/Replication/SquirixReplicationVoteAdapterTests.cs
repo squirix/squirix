@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -70,10 +71,8 @@ public sealed class SquirixReplicationVoteAdapterTests : ServerUnitTestBase
     {
         using var fixture = await CreateAdapterAsync(cancellationToken);
 
-        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            fixture.Adapter.PreVoteAsync(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
-        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            fixture.Adapter.RequestVoteAsync(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.PreVoteAsync(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.RequestVoteAsync(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(preVote.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(vote.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
@@ -87,8 +86,8 @@ public sealed class SquirixReplicationVoteAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new ReplicaVoteRequest { Header = CreateValidHeader("node-b") };
 
-        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.PreVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
-        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.PreVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(preVote.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
         _ = await Assert.That(vote.StatusCode).IsEqualTo(StatusCode.Unauthenticated);

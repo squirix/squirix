@@ -237,7 +237,7 @@ so a group led statically, or with the switch off, refuses while its copy is not
 
 ### Executable model (isolation)
 
-- Model project: `src/squirix.protocol-model` (`Squirix.ProtocolModel`), `net10.0` only; not a shipped product package.
+- Model project: `src/squirix.protocol-model` (`Squirix.ProtocolModel`) follows the solution's selected target framework and is not shipped as a product package.
 - Tests: `tests/squirix.protocol-model/squirix.protocol-model.tests` — reference the model only (not product assemblies).
 - No `ProjectReference` from model → product or product → model.
 - Layers: immutable canonical state → pure transitions → deterministic BFS explorer → safety invariants + minimal
@@ -459,30 +459,22 @@ places, recorded here as known deviations.
   applied index roll back by one publish. The model has no media damage; the rollback is safe because the committed entries stay in
   the log or its snapshot and are committed again by the next leader's commit index.
 
-### Mapping model → future product components
+### Mapping the model to the implementation
 
-| Model concept                         | Future product home                                                                                 |
-|---------------------------------------|-----------------------------------------------------------------------------------------------------|
-| Term / vote persistence               | `Squirix.Server.Cluster.Replication` + durable group state via `Squirix.Server.Storage.Replication` |
-| AppendEntries / vote / ReadIndex RPCs | Server-only protobuf under `Squirix.Server.Adapters.Grpc` (not shared `SquirixCache.proto`)         |
-| Log matching / catch-up               | `Cluster.Replication` orchestration over `Storage.Replication` journal/snapshot ports               |
-| Majority commit pipeline              | Durable replication pipeline (M8-07+)                                                               |
-| ReadIndex wait on apply               | Leader read authority path (M8-11/M8-12)                                                            |
-| Topology fingerprint / generation     | Placement + config (M8-02/M8-03)                                                                    |
+| Model concept | Implementation |
+| --- | --- |
+| Elections and durable term/vote state | [ReplicaGroupElection](../../src/squirix.server/Cluster/Replication/ReplicaGroupElection.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
+| Append, vote, and state transfer RPCs | [Server-only replication protobuf](../../src/squirix.server/Adapters/Grpc/Replication/SquirixReplication.proto) |
+| Log matching, catch-up, and majority commit | [ReplicaGroupCommitter](../../src/squirix.server/Node/Services/ReplicaGroupCommitter.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
+| ReadIndex confirmation and wait for apply | [ReplicaGroupCommitPipeline](../../src/squirix.server/Node/Services/ReplicaGroupCommitPipeline.cs), [ReplicaGroupCommitterReads](../../src/squirix.server/Node/Services/ReplicaGroupCommitterReads.cs) |
+| Topology fingerprint and generation | [TopologyFingerprint](../../src/squirix.server/Cluster/Replication/TopologyFingerprint.cs), replication RPC headers |
 
-`ProtocolModelConformanceTests` checks that the leader's sequence of terms and indexes during a commit, an election and a
-quorum read is a path the model reaches, with the leader's slot, the term of its last entry, the votes of its election, the copies
-behind each commit, and the read index and confirmations of each read. The test kit counts those votes, copies and confirmations
-itself, from the replies it hands to the real election, commit coordinator and read-index round; the model needs at most that many,
-so a product that commits, wins or serves a read with fewer is rejected. The scenarios with a minority (a commit whose followers gave
-no valid acknowledgement, an election with one counted vote, a read confirmed only by stale replies) produce no step the model can
-accept, which is how they catch a weakened majority or a dropped term check. A node's commit index in the model rises only through its
-own leader commit rule or a leader's repair, so each point that observes copies describes the leader's own commit decision. The
-commit, election and read scenarios run on the small profiles. The recovered-tail scenario runs in the log-rules profile with two terms
-and two entries; `ProtocolModelTraceTests.ModelRejectsEarlierTermTailTrace` pins that the model does not accept an earlier-term commit
-there. Its tail copies are declared by the scenario, not counted from replies. The tables above tie each model rule to the product tests that fail when it is
-broken. The model version hash comes from the `semantic` string in `ExploreRunner` (`ComputeModelVersionHash`), which is changed
-whenever the model's transitions change, and `ProtocolModelConformanceTests.ProtocolVersionMatchesModelManifest` pins it.
+`ProtocolModelConformanceTests` compares product traces with the model. It counts votes, copies, and read
+confirmations from replies supplied to the product. Minority commit, election, and read traces must be rejected.
+For the recovered-tail scenario, the scenario supplies the copy counts.
+`ProtocolModelTraceTests.ModelRejectsEarlierTermTailTrace` checks that the model rejects an earlier-term commit.
+`ProtocolModelConformanceTests.ProtocolVersionMatchesModelManifest` pins the model version hash, which
+`ExploreRunner.ComputeModelVersionHash` derives from the model's semantic version string.
 
 ### Namespace DAG
 
@@ -507,10 +499,10 @@ machinery scales across the allowed RF set; operational budgets are validated by
 
 ### Replica-group snapshots
 
-The storage layer publishes a CRC32C-validated snapshot, held in two in-place slot files (`group.snapshot.0` and
-`group.snapshot.1`; see [snapshot format](../snapshot-format.md#replica-group-snapshots)), containing the committed
-baseline and resolved idempotency outcomes, and carries no cache entries. Compaction removes only the journal prefix covered by the
-published snapshot and rewrites the log into a new generation file. A snapshot reaches a follower only inside a
+The storage layer publishes CRC32C-validated snapshots through a two-slot pointer file
+(see [snapshot format](../snapshot-format.md#replica-group-snapshots)). Each snapshot contains the committed
+baseline and resolved idempotency outcomes. Compaction writes one new snapshot and keeps the WAL required to
+recover from the preceding one. A snapshot reaches a follower only inside a
 [state transfer](#state-transfer), which also carries the cache entries of the group; there is no request that installs
 a snapshot alone, because it would move the applied index of a follower past data that follower does not hold.
 
@@ -533,17 +525,17 @@ build is refused and left unchanged.
 - **Trigger.** The same pass compacts a group log once the group log reaches `ReplicaLogCompactionMb` (default 64 MiB) or
   holds `ReplicaLogCompactionEntries` entries (default 100 000); see
   [configuration](../configuration.md#persistence-host-defaults).
-- **Follower compaction.** A follower compacts its copy of a group through the applied index it persisted, while the
-  commit index may be higher. It publishes the group snapshot through that index and rewrites the group log to its header
-  plus every entry above it, committed or not, so the apply loop and the leader's next append find them. The step waits
-  until the apply loop has rebuilt the outcomes of the applied entries, and while nothing was applied past the last
-  snapshot. A crash after the snapshot is published, or after the group log is rewritten, recovers the same state: the
-  snapshot, the commit index, and the entries above the snapshot.
-- **Gated owner step.** The owner's compaction runs as one step under the commit gate, so writes wait for it and
-  continue after it.
-  It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
-  follower slot verified ready with a durable match index at the commit index. It then publishes the group snapshot
-  through the commit index and rewrites the group log to its header.
+- **Follower compaction.** A follower captures the durable applied index once it advances past the previous snapshot and
+  the apply loop has rebuilt its outcomes. The follower prepares the snapshot and copies and flushes the retained WAL
+  prefix outside the log gate, allowing replication appends to continue. It rechecks the captured boundary before
+  publishing and preserves every entry above it, including entries appended during preparation. Recovery selects the old
+  WAL until the new WAL header is sealed and flushed.
+- **Owner compaction.** Under the commit gate the owner checks the committed, applied prefix and captures its
+  outcomes at the durable applied index. It writes and verifies the immutable snapshot and copies and flushes the
+  retained committed prefix into the inactive WAL slot outside the commit and log gates. Publication reacquires the gates
+  and rechecks the tenure, applied boundary, WAL generation, fallback pointers and follower progress. It publishes
+  the snapshot pointer, copies and flushes any remaining WAL frames, and seals the new WAL header before
+  retiring the old WAL. Recovery ignores the inactive slot until it has a valid header.
 - **Every follower must have caught up, up to a limit.** The leader keeps every entry a follower may still need: a
   follower that is down, or that missed an entry, blocks compaction of the owner's group log until it is back. A
   follower whose append failed is taken out of the write quorum; once it answers again, the owner sends it the entries

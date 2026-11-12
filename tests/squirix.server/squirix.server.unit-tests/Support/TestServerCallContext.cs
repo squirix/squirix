@@ -14,8 +14,10 @@ internal sealed class TestServerCallContext : ServerCallContext
     /// <summary>Initializes a new instance of the <see cref="TestServerCallContext" /> class.</summary>
     /// <param name="headers">Optional request headers; empty when omitted.</param>
     /// <param name="httpContext">Optional HTTP context surfaced through <c language="csharp">GetHttpContext()</c>; none when omitted.</param>
-    internal TestServerCallContext(Metadata? headers = null, HttpContext? httpContext = null)
+    /// <param name="method">Full RPC method name.</param>
+    internal TestServerCallContext(Metadata? headers = null, HttpContext? httpContext = null, string method = "/Test.Test/Unary")
     {
+        MethodCore = method;
         RequestHeadersCore = headers ?? [];
         if (httpContext != null)
             UserState[HttpContextKey] = httpContext;
@@ -34,7 +36,7 @@ internal sealed class TestServerCallContext : ServerCallContext
     protected override string HostCore => "localhost";
 
     /// <inheritdoc />
-    protected override string MethodCore => "/Test.Test/Unary";
+    protected override string MethodCore { get; }
 
     /// <inheritdoc />
     protected override string PeerCore => "ipv4:127.0.0.1:5001";

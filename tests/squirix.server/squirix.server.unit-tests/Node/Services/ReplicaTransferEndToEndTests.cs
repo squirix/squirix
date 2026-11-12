@@ -29,14 +29,6 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// The follower holds two entries the leader dropped from its log: the pass transfers the state, replays the entries above it, admits the
-    /// follower, and a write the leader commits while the entries are streamed reaches the follower through the replay.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public Task FollowerEndsWithTheCacheOfTheLeader(CancellationToken cancellationToken) => RepairFollowerAsync(false, cancellationToken);
-
-    /// <summary>
     /// The follower holds a complete copy with an empty log, so the position before the first entry the leader dropped is the origin: the session ends
     /// as compacted, not as corrupt, and the transfer gives the follower the cache of the leader.
     /// </summary>
@@ -71,11 +63,27 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
 
         await CatchUpAppliedAsync(harness, cancellationToken);
         _ = await Assert.That(admitted).IsTrue();
-        _ = await Assert.That(await rig.Cache.GetEntryAsync(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
-        _ = await Assert.That(await rig.Cache.GetEntryAsync(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
-        _ = await Assert.That((await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "alive"), cancellationToken))?.Value).IsEqualTo("alive");
+        _ = await Assert.That(rig.Cache.GetEntry(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
+        _ = await Assert.That(rig.Cache.GetEntry(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "alive"), cancellationToken)?.Value).IsEqualTo("alive");
+    }
+
+    /// <summary>
+    /// The follower holds two entries the leader dropped from its log: the pass transfers the state, replays the entries above it, admits the
+    /// follower, and a write the leader commits while the entries are streamed reaches the follower through the replay.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task FollowerEndsWithTheCacheOfTheLeader(CancellationToken cancellationToken) => RepairFollowerAsync(false, cancellationToken);
+
+    private static async Task CatchUpAppliedAsync(ReplicaStateHarness harness, CancellationToken cancellationToken)
+    {
+        _ = harness.Registry.TryGetLog(GroupId, out var followerLog);
+        await FollowerLogTestKit.MakeCommitDurableAsync(followerLog!, cancellationToken);
+        var status = await followerLog!.GetStatusAsync(cancellationToken);
+        await harness.Appliers.For(GroupId).CatchUpAsync(followerLog, status.LastAppliedIndex, status.CommitIndex, cancellationToken);
     }
 
     private static async Task RepairFollowerAsync(bool emptyLog, CancellationToken cancellationToken)
@@ -86,7 +94,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             await SeededLogs.SeedGroupsAsync(followerDir, [GroupId], cancellationToken);
 
         await using var harness = await ReplicaStateHarness.OpenAsync(followerDir, cancellationToken);
-        await harness.SeedAsync(cancellationToken, "stale-1");
+        harness.Seed(cancellationToken, "stale-1");
         await using var rig = new Rig(harness);
         await rig.OpenAsync(leaderDir, cancellationToken);
 
@@ -102,22 +110,27 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         _ = await Assert.That(admitted).IsTrue();
         _ = await Assert.That(rig.Registry.EligibilityFor(GroupId).StateFor(1)).IsEqualTo(ReplicaParticipantState.Ready);
         _ = await Assert.That(followerLog!.IsComplete).IsTrue();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
         for (var i = 1; i <= 5; i++)
         {
-            var leaderEntry = await rig.Cache.GetEntryAsync(new CacheKey(CacheName, $"k{i}"), cancellationToken);
-            var followerEntry = await harness.Cache.GetEntryAsync(new CacheKey(CacheName, $"k{i}"), cancellationToken);
+            var leaderEntry = rig.Cache.GetEntry(new CacheKey(CacheName, $"k{i}"), cancellationToken);
+            var followerEntry = harness.Cache.GetEntry(new CacheKey(CacheName, $"k{i}"), cancellationToken);
             _ = await Assert.That((followerEntry?.Value, followerEntry?.Version)).IsEqualTo((leaderEntry?.Value, leaderEntry?.Version));
             _ = await Assert.That(followerEntry).IsNotNull();
         }
     }
 
-    private static async Task CatchUpAppliedAsync(ReplicaStateHarness harness, CancellationToken cancellationToken)
+    /// <summary>The members of the group: the leader n2, the repaired follower n1 and a healthy follower n3.</summary>
+    private sealed class Members : IReplicaGroupLocator
     {
-        _ = harness.Registry.TryGetLog(GroupId, out var followerLog);
-        await FollowerLogTestKit.MakeCommitDurableAsync(followerLog!, cancellationToken);
-        var status = await followerLog!.GetStatusAsync(cancellationToken);
-        await harness.Appliers.For(GroupId).CatchUpAsync(followerLog, status.LastAppliedIndex, status.CommitIndex, cancellationToken);
+        public int ReplicaCount => 3;
+
+        public void GetReplicaGroup(string originalOwnerNodeId, Span<string> destination)
+        {
+            destination[0] = "n2";
+            destination[1] = "n1";
+            destination[2] = "n3";
+        }
     }
 
     /// <summary>The leader n2 of a statically led group over a real log and cache, whose log was compacted past the follower n1 and which holds four committed keys.</summary>
@@ -135,9 +148,9 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
 
         internal PhysicalCache<object?> Cache { get; }
 
-        internal GroupCompactionOutcome Compacted { get; private set; }
-
         internal ReplicaGroupCommitter Committer => _committer ?? ThrowNotOpen<ReplicaGroupCommitter>();
+
+        internal GroupCompactionOutcome Compacted { get; private set; }
 
         internal RoutedGateway Gateway { get; }
 
@@ -151,6 +164,9 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             if (_registry != null)
                 await _registry.DisposeAsync();
         }
+
+        internal Task CommitAsync(string key, DateTime? expiresUtc, CancellationToken cancellationToken) =>
+            Committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>(key, 1, expiresUtc), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
         /// <summary>Opens the leader, commits k1 to k3 with the follower down, compacts the log through them, commits k4, and brings the follower up with its first entries message held.</summary>
         /// <param name="leaderDir">The data directory of the leader.</param>
@@ -186,16 +202,11 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             _ = await _committer.VerifyReplicasAsync(cancellationToken);
         }
 
-        internal Task CommitAsync(string key, DateTime? expiresUtc, CancellationToken cancellationToken) =>
-            Committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>(key, 1, expiresUtc), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-
         /// <summary>Starts a catch-up pass of the followers, which repairs the follower n1 by a transfer.</summary>
         /// <param name="cancellationToken">The test cancellation token.</param>
         /// <returns>The pass, which completes with whether the follower was admitted.</returns>
         internal Task<bool> StartPassAsync(CancellationToken cancellationToken) =>
             Committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter(GroupId, NullLogger.Instance, null), _transfers, cancellationToken);
-
-        private static T ThrowNotOpen<T>() => throw new InvalidOperationException("The leader is not open.");
 
         private static IJournalDurabilityCoordinator Durable()
         {
@@ -203,19 +214,8 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
             return durability.Instance();
         }
-    }
 
-    /// <summary>The members of the group: the leader n2, the repaired follower n1 and a healthy follower n3.</summary>
-    private sealed class Members : IReplicaGroupLocator
-    {
-        public int ReplicaCount => 3;
-
-        public void GetReplicaGroup(string originalOwnerNodeId, Span<string> destination)
-        {
-            destination[0] = "n2";
-            destination[1] = "n1";
-            destination[2] = "n3";
-        }
+        private static T ThrowNotOpen<T>() => throw new InvalidOperationException("The leader is not open.");
     }
 
     /// <summary>Routes follower appends and transfer messages of node n1 to the real receiver, answers n3 as a healthy follower, and can hold the first entries message.</summary>

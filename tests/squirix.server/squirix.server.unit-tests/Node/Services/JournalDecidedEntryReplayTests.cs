@@ -51,7 +51,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.Value).IsEqualTo("v");
         _ = await Assert.That(entry.ExpiresUtc).IsNull();
@@ -70,7 +70,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsNull();
     }
@@ -88,7 +88,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(start.Add(ExtendedTtl));
     }
@@ -113,7 +113,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         _ = await Assert.That(memory.Memory).IsNull();
         _ = await Assert.That(Kit.CountJournalRecords(cancellationToken)).IsEqualTo(1);
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
-        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>Extending the expiration before the deadline keeps the key until exactly the decided deadline across a restart after the original deadline.</summary>
@@ -131,7 +131,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(written.Add(ExtendedTtl));
     }
@@ -152,7 +152,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.Value).IsEqualTo("v2");
         _ = await Assert.That(entry.ExpiresUtc).IsEqualTo(written.Add(ExtendedTtl));
@@ -174,7 +174,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.Value).IsEqualTo("v2");
         _ = await Assert.That(entry.Version).IsEqualTo(2);

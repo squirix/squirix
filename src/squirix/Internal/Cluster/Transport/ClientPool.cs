@@ -266,7 +266,7 @@ internal sealed class ClientPool : IClientPool
                 if (remaining <= TimeSpan.Zero)
                     break;
 
-                var backoff = BackoffWithJitter(attempt, options);
+                var backoff = BackoffWithJitter(attempt);
                 if (backoff > remaining)
                     backoff = remaining;
 
@@ -277,10 +277,12 @@ internal sealed class ClientPool : IClientPool
             throw lastFailure ?? new InvalidOperationException("Failed to connect to endpoint within the configured deadline.");
         }
 
-        private static TimeSpan BackoffWithJitter(int attempt, BootstrapConnectOptions options)
+        private static TimeSpan BackoffWithJitter(int attempt)
         {
             var pow = Math.Min(attempt - 1, 6);
-            var cappedMs = Math.Min(options.MaxBackoff.TotalMilliseconds, options.BaseBackoff.TotalMilliseconds * Math.Pow(2, pow));
+            const double baseBackoffMs = 200;
+            const double maxBackoffMs = 2000;
+            var cappedMs = Math.Min(maxBackoffMs, baseBackoffMs * Math.Pow(2, pow));
             var jitterFactor = 0.5 + (RandomNumberGenerator.GetInt32(0, 5000) / 10000.0);
             var finalMs = Math.Max(cappedMs * jitterFactor, Math.Min(50.0, cappedMs));
             return TimeSpan.FromMilliseconds(finalMs);

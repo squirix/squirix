@@ -43,7 +43,6 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
         };
-
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
@@ -76,10 +75,11 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
                         cancellationToken).ConfigureAwait(false);
                     throw new InvalidOperationException("boom");
                 },
-                cancellationToken));
-
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(attempts.Value).IsEqualTo(1);
-
         var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
@@ -90,8 +90,10 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
                     state.Value++;
                     return Task.FromResult(new TryAddAsyncResponse { Added = false });
                 },
-                cancellationToken));
-
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
         _ = await Assert.That(attempts.Value).IsEqualTo(1);
@@ -193,7 +195,10 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
                     state.Value++;
                     return Task.FromException<TryAddAsyncResponse>(new InvalidOperationException("boom"));
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         var response = await coordinator.ExecuteAsync(
             ValidOperationId,

@@ -10,7 +10,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>End-to-end synchronous replication over a three-node RF=3 cluster.</summary>
-public sealed class SynchronousReplicationE2ETests : EndToEndTestBase
+public sealed class SynchronousReplicationE2ETests
 {
     /// <summary>A canceled writing commits nothing; the retry commits exactly one effect.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -28,7 +28,7 @@ public sealed class SynchronousReplicationE2ETests : EndToEndTestBase
         // The wait is canceled before the commit starts: nothing may be committed.
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(cache.SetAsync(key, "v1", cancellationToken: cancelled.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(cache.SetAsync(key, "v1", cancellationToken: cancelled.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var untouched = await cache.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(untouched.Found).IsTrue();

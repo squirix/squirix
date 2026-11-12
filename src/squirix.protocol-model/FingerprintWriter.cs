@@ -22,21 +22,31 @@ internal sealed class FingerprintWriter
     internal void Append(char value)
     {
         EnsureCapacity(1);
-        _buffer[_length++] = value;
+        _buffer[_length] = value;
+        Advance(1);
     }
 
     internal void Append(int value)
     {
         EnsureCapacity(MaxIntChars);
         _ = value.TryFormat(_buffer.AsSpan(_length), out var written, default, CultureInfo.InvariantCulture);
-        _length += written;
+        Advance(written);
     }
 
     internal void AppendFlag(bool value) => Append(value ? '1' : '0');
 
+    internal void Append(ReadOnlySpan<char> value)
+    {
+        EnsureCapacity(value.Length);
+        value.CopyTo(_buffer.AsSpan(_length));
+        Advance(value.Length);
+    }
+
     internal ReadOnlySpan<char> AsSpan() => new(_buffer, 0, _length);
 
     internal void Clear() => _length = 0;
+
+    private void Advance(int count) => _length += count;
 
     private void EnsureCapacity(int additional)
     {

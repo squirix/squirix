@@ -27,7 +27,7 @@ public sealed class KeyedSingleFlightTests
         var first = RunGatedAsync(flights, state, owner.Token);
         var second = RunGatedAsync(flights, state, joiner.Token);
         await owner.CancelAsync();
-        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first));
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         state.Gate.SetResult();
 
         _ = await Assert.That(await second.WaitAsync(cancellationToken)).IsEqualTo(7);
@@ -49,7 +49,7 @@ public sealed class KeyedSingleFlightTests
         var first = RunGatedAsync(flights, state, owner.Token);
         var second = RunGatedAsync(flights, state, joiner.Token);
         await joiner.CancelAsync();
-        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(second));
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(second), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         state.Gate.SetResult();
 
         _ = await Assert.That(await first.WaitAsync(cancellationToken)).IsEqualTo(7);
@@ -70,9 +70,9 @@ public sealed class KeyedSingleFlightTests
         var first = RunGatedAsync(flights, state, owner.Token);
         var second = RunGatedAsync(flights, state, joiner.Token);
         await owner.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await joiner.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(second));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(second), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await state.SharedTokenCanceledSignal.Task.WaitAsync(cancellationToken);
         state.Gate.SetResult();
 
@@ -92,7 +92,7 @@ public sealed class KeyedSingleFlightTests
         var first = RunGatedAsync(flights, state, owner.Token);
         var second = RunGatedAsync(flights, state, CancellationToken.None);
         await owner.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         state.Gate.SetResult();
 
         _ = await Assert.That(await second.WaitAsync(cancellationToken)).IsEqualTo(7);
@@ -158,7 +158,7 @@ public sealed class KeyedSingleFlightTests
 
         var first = RunAsync(flights, "k", state, produceIgnoringCancel, owner.Token);
         await owner.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var next = RunAsync(flights, "k", state, produceIgnoringCancel, cancellationToken);
         state.Gate.SetResult();
 
@@ -188,7 +188,7 @@ public sealed class KeyedSingleFlightTests
             },
             owner.Token);
         await owner.CancelAsync();
-        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first));
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await state.SharedTokenCanceledSignal.Task.WaitAsync(cancellationToken);
         state.Gate.SetResult();
 
@@ -259,8 +259,9 @@ public sealed class KeyedSingleFlightTests
     }
 
     /// <summary>Ensures a joiner sharing a canceled flight observes cancellation rather than a fault.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task JoinerObservesCanceledFlightAsCanceled()
+    public async Task JoinerObservesCanceledFlightAsCanceled(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int, int>();
         var state = new SingleFlightTestState();
@@ -271,7 +272,7 @@ public sealed class KeyedSingleFlightTests
         await canceled.CancelAsync();
         state.Gate.SetResult();
 
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(joiner));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(joiner), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(first.IsCanceled).IsTrue();
         _ = await Assert.That(joiner.IsCanceled).IsTrue();
         _ = await Assert.That(joiner.IsFaulted).IsFalse();
@@ -424,7 +425,7 @@ public sealed class KeyedSingleFlightTests
         var state = new SingleFlightTestState();
 
         var failing = RunAsync(flights, "k", state, static (_, _) => throw new InvalidOperationException("sync failure"), cancellationToken);
-        var error = await AsyncAssert.ThrowsAsync<InvalidOperationException, int>(new ValueTask<int>(failing));
+        var error = await AsyncAssert.ThrowsAsync<InvalidOperationException, int>(new ValueTask<int>(failing), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var next = await RunAsync(flights, "k", state, static (_, _) => Task.FromResult(7), cancellationToken);
 
         _ = await Assert.That(error.Message).IsEqualTo("sync failure");

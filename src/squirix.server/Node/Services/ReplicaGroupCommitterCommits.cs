@@ -20,16 +20,18 @@ internal static class ReplicaGroupCommitterCommits
 
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
+        /// <param name="pipeline">The pipeline to close.</param>
+        /// <returns>An asynchronous operation.</returns>
+        internal async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
+        {
+            if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
+                ServerLog.ReplicaFollowerSenderCloseFailed(committer.Log, failure);
+        }
+
         /// <summary>Commits one write: queues it for a commit batch of the group, prepares it at its log index under the commit gate, commits it, and decodes its outcome.</summary>
-        /// <typeparam name="TState">The arguments of the write.</typeparam>
         /// <typeparam name="TResult">The decoded outcome.</typeparam>
-        /// <param name="write">The cache scope, the client operation identifier, and the cache key of the write.</param>
-        /// <param name="state">The arguments of the write, handed to <paramref name="prepare" />.</param>
-        /// <param name="fingerprint">
-        /// Computes the operation fingerprint of the write from its arguments; called only when the write is refused before it is
-        /// prepared and an entry with its identity is retained.
-        /// </param>
-        /// <param name="prepare">Prepares the mutation from the running factory, the arguments, and the log index it is appended at.</param>
+        /// <param name="request">The write request and its preparation and replay behavior.</param>
         /// <param name="decode">Decodes the committed outcome.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns>The decoded outcome of the committed write.</returns>
@@ -42,15 +44,11 @@ internal static class ReplicaGroupCommitterCommits
         /// The typed writes built on this method are in <see cref="ReplicaGroupCommitterWrites" />, the batching in <see cref="ReplicaGroupCommitterBatches" />.
         /// The prepare runs on the commit budget, not on <paramref name="cancellationToken" />: a write a leader took into a batch is decided whatever its caller does.
         /// </remarks>
-        internal async Task<TResult> CommitAsync<TState, TResult>(
-            (string Scope, string OperationId, string Key) write,
-            TState state,
-            Func<TState, byte[]> fingerprint,
-            Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
-            Func<ReadOnlyMemory<byte>, ValueTask<TResult>> decode,
+        internal async Task<TResult> CommitAsync<TResult>(
+            ReplicaCommitRequest request,
+            Func<ReadOnlyMemory<byte>, TResult> decode,
             CancellationToken cancellationToken)
         {
-            var request = new ReplicaStateCommitRequest<TState>(write, state, fingerprint, prepare);
             try
             {
                 committer.ThrowIfDisposed();
@@ -61,10 +59,10 @@ internal static class ReplicaGroupCommitterCommits
             {
                 // The committer is disposing: the write was never admitted, so nothing of it was read or written. A retained entry of this operation
                 // still decides the answer first.
-                return await decode(committer.Refused(request)).ConfigureAwait(false);
+                return decode(committer.Refused(request));
             }
 
-            return await decode(await committer.SubmitAsync(request, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+            return decode(await committer.SubmitAsync(request, cancellationToken).ConfigureAwait(false));
         }
 
         /// <summary>Runs the expiry of several keys under one hold of the commit gate: decides each on the leader clock and commits the tombstones of the expired entries as one run.</summary>
@@ -99,6 +97,7 @@ internal static class ReplicaGroupCommitterCommits
             using var budget = new CancellationTokenSource(committer.CommitBudget, committer.BudgetTimeProvider);
             await committer.WaitForLocalRecoveryAsync(budget.Token).ConfigureAwait(false);
             committer.ThrowIfDisposed();
+            using var catchUp = await committer.CatchUpGate.LockAsync(budget.Token).ConfigureAwait(false);
             using var guard = await committer.Gate.LockAsync(budget.Token).ConfigureAwait(false);
             var (coordinator, factory) = await committer.EnsureStartedAsync(true, budget.Token).ConfigureAwait(false);
             await committer.DecideExpiriesAsync(factory, keys, batch, budget.Token).ConfigureAwait(false);
@@ -133,13 +132,46 @@ internal static class ReplicaGroupCommitterCommits
             return mapped;
         }
 
-        /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
-        /// <param name="pipeline">The pipeline to close.</param>
-        /// <returns>An asynchronous operation.</returns>
-        internal async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
+        /// <summary>Commits a prepared mutation, or a dense run that starts with it, on the coordinator and maps every failure to the stable client contract.</summary>
+        /// <param name="coordinator">The running coordinator.</param>
+        /// <param name="mutation">The prepared mutation; the first entry of <paramref name="run" /> when there is one.</param>
+        /// <param name="run">The prepared mutations of a run of several entries, consecutive from the next log index; <see langword="null" /> for a single write.</param>
+        /// <returns>The committed outcome payload; of the last entry of a run.</returns>
+        /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
+        /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
+        /// <exception cref="Grpc.Core.RpcException">The log refused the local append with a stale term: stale-term, nothing was written.</exception>
+        /// <remarks>
+        /// Runs under the commit gate. A top-level <see cref="ReplicaShutdownRefusedException" /> that finds no entry of the write in the log was raised before
+        /// any entry of it was scheduled, so it is answered as no leader; an inner exception or a plain disposal is never mapped. A failure of a run
+        /// is reported for every entry of it. The log is asked whether it holds the first entry only: a run is appended as one request, so a durable
+        /// prefix always holds it.
+        /// </remarks>
+        internal async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, PreparedReplicaMutation[]? run = null)
         {
-            if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
-                ServerLog.ReplicaFollowerSenderCloseFailed(committer.Log, failure);
+            var failedBefore = committer.LocalAppends.Snapshot().Failed;
+            try
+            {
+                if (run == null)
+                    return await coordinator.CommitAsync(mutation, committer.CommitBudget, CancellationToken.None).ConfigureAwait(false);
+
+                await coordinator.CommitBatchAsync(run, committer.CommitBudget, CancellationToken.None).ConfigureAwait(false);
+                return run[^1].OutcomePayload;
+            }
+            catch (Exception error) when (IsPostAppendOutcome(error))
+            {
+                // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
+                // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
+                committer.ReportPostAppendFailure(error, failedBefore);
+                committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
+                throw ServerOpContract.CommitOutcomeUnknown();
+            }
+            catch (Exception error)
+            {
+                if (await committer.MapPreAppendFailureAsync(error, mutation, failedBefore).ConfigureAwait(false) is { } mapped)
+                    throw mapped;
+
+                throw;
+            }
         }
 
         /// <summary>Creates the commit coordinator of a start over its pipeline and the recovered leader tail.</summary>
@@ -176,54 +208,20 @@ internal static class ReplicaGroupCommitterCommits
             };
         }
 
-        /// <summary>Commits a prepared mutation, or a dense run that starts with it, on the coordinator and maps every failure to the stable client contract.</summary>
-        /// <param name="coordinator">The running coordinator.</param>
-        /// <param name="mutation">The prepared mutation; the first entry of <paramref name="run" /> when there is one.</param>
-        /// <param name="run">The prepared mutations of a run of several entries, consecutive from the next log index; <see langword="null" /> for a single write.</param>
-        /// <returns>The committed outcome payload; of the last entry of a run.</returns>
-        /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
-        /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
-        /// <exception cref="Grpc.Core.RpcException">The log refused the local append with a stale term: stale-term, nothing was written.</exception>
-        /// <remarks>
-        /// Runs under the commit gate. A top-level <see cref="ReplicaShutdownRefusedException" /> that finds no entry of the write in the log was raised before
-        /// any entry of it was scheduled, so it is answered as no leader; an inner exception or a plain disposal is never mapped. A failure of a run
-        /// is reported for every entry of it. The log is asked whether it holds the first entry only: a run is appended as one request, so a durable
-        /// prefix always holds it.
-        /// </remarks>
-        internal async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, PreparedReplicaMutation[]? run = null)
+        /// <summary>Reports an unknown commit outcome and invalidates the started state if the local append was unconfirmed.</summary>
+        /// <param name="error">The failure after the append began.</param>
+        /// <param name="failedBefore">The number of failed local appends before the commit.</param>
+        internal void ReportPostAppendFailure(Exception error, ulong failedBefore)
         {
-            var failedBefore = committer.LocalAppends.Snapshot().Failed;
-            try
+            if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
             {
-                if (run == null)
-                    return await coordinator.CommitAsync(mutation, committer.CommitBudget, CancellationToken.None).ConfigureAwait(false);
-
-                await coordinator.CommitBatchAsync(run, committer.CommitBudget, CancellationToken.None).ConfigureAwait(false);
-                return run[^1].OutcomePayload;
+                // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
+                // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
+                committer.DropStartedState();
+                committer.ReportLocalAppendFault(unconfirmed, failedBefore);
             }
-            catch (Exception error) when (IsPostAppendOutcome(error))
-            {
-                if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
-                {
-                    // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
-                    // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
-                    committer.DropStartedState();
-                    committer.ReportLocalAppendFault(unconfirmed, failedBefore);
-                }
 
-                // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
-                // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
-                ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
-                committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
-                throw ServerOpContract.CommitOutcomeUnknown();
-            }
-            catch (Exception error)
-            {
-                if (await committer.MapPreAppendFailureAsync(error, mutation, failedBefore).ConfigureAwait(false) is { } mapped)
-                    throw mapped;
-
-                throw;
-            }
+            ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
         }
 
         /// <summary>Maps a failure of the local appending of a run to the stable client contract; it returns <see langword="null" /> for a failure that has no mapping.</summary>
@@ -254,25 +252,25 @@ internal static class ReplicaGroupCommitterCommits
 
             // The log may still hold the entry (its frames were durable when the write behind them failed): the next start recovers and
             // pins it as the tail, and a majority may commit it, so the caller must not be told the write was refused.
-            if (await committer.HoldsEntryAsync(mutation).ConfigureAwait(false))
+            if (!await committer.HoldsEntryAsync(mutation).ConfigureAwait(false))
             {
-                ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
-                if (reportUnknown)
-                    committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
+                return error switch
+                {
+                    // The commit runs on the budget only, so a cancellation here is the budget expiring before the append: a definite refusal.
+                    OperationCanceledException => ServerOpContract.TooManyRequests(ReplicaGroupCommitter.CommitBudgetRefusalReason),
 
-                return ServerOpContract.CommitOutcomeUnknown();
+                    // The log refused the entry because a higher term reached it durably: nothing was appended, and this leadership is stale.
+                    ReplicaTermSupersededException => StaleTermFailure.Create(null, 0),
+                    ReplicaShutdownRefusedException => ServerOpContract.NoLeaderAuthority(),
+                    _ => null,
+                };
             }
 
-            return error switch
-            {
-                // The commit runs on the budget only, so a cancellation here is the budget expiring before the append: a definite refusal.
-                OperationCanceledException => ServerOpContract.TooManyRequests(ReplicaGroupCommitter.CommitBudgetRefusalReason),
+            ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+            if (reportUnknown)
+                committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
 
-                // The log refused the entry because a higher term reached it durably: nothing was appended, and this leadership is stale.
-                ReplicaTermSupersededException => StaleTermFailure.Create(null, 0),
-                ReplicaShutdownRefusedException => ServerOpContract.NoLeaderAuthority(),
-                _ => null,
-            };
+            return ServerOpContract.CommitOutcomeUnknown();
         }
 
         /// <summary>Decides each distinct key of a batch under the gate and collects the tombstones of the expired entries that are new to the group.</summary>
@@ -387,11 +385,11 @@ internal static class ReplicaGroupCommitterCommits
             _positions = [];
         }
 
-        /// <summary>Gets the result of each input key.</summary>
-        internal ReplicaExpiryResult[] Results { get; }
-
         /// <summary>Gets, for each input key, the position of the first occurrence of a repeated key; minus one for a first occurrence.</summary>
         internal int[] Repeats { get; }
+
+        /// <summary>Gets the result of each input key.</summary>
+        internal ReplicaExpiryResult[] Results { get; }
 
         /// <summary>Gets the tombstones of the run, consecutive from the next log index.</summary>
         internal List<PreparedReplicaMutation> Run { get; }
@@ -406,14 +404,6 @@ internal static class ReplicaGroupCommitterCommits
             Results[position] = ReplicaExpiryResult.Tombstoned;
         }
 
-        /// <summary>Fails every key of the run.</summary>
-        /// <param name="failure">The failure of the run.</param>
-        internal void FailRun(Exception failure)
-        {
-            for (var i = 0; i < _positions.Count; i++)
-                Results[_positions[i]] = ReplicaExpiryResult.Failed(failure);
-        }
-
         /// <summary>Gives each repeated key the result of its first occurrence.</summary>
         internal void CopyRepeats()
         {
@@ -422,6 +412,14 @@ internal static class ReplicaGroupCommitterCommits
                 if (Repeats[i] >= 0)
                     Results[i] = Results[Repeats[i]];
             }
+        }
+
+        /// <summary>Fails every key of the run.</summary>
+        /// <param name="failure">The failure of the run.</param>
+        internal void FailRun(Exception failure)
+        {
+            for (var i = 0; i < _positions.Count; i++)
+                Results[_positions[i]] = ReplicaExpiryResult.Failed(failure);
         }
     }
 }

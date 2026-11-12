@@ -12,8 +12,6 @@ public static class NodeInvariantIndexStrings
 
     private static readonly string[] CachedD6 = CreateCachedPadded(6, 10_000);
 
-    private static readonly string[] CachedD8 = CreateCachedPadded(8, 10_000);
-
     /// <summary>Formats a non-negative integer with invariant culture, reusing cached strings for 0..1023.</summary>
     /// <param name="v">The value to format.</param>
     /// <returns>An invariant digit string.</returns>
@@ -29,12 +27,7 @@ public static class NodeInvariantIndexStrings
     /// <returns>A D6 invariant digit string.</returns>
     public static string FormatD6(int index) => index is >= 0 and < 10_000 ? CachedD6[index] : index.ToString("D6", CultureInfo.InvariantCulture);
 
-    /// <summary>Formats <paramref name="index" /> as a zero-padded D8 string.</summary>
-    /// <param name="index">The index to format.</param>
-    /// <returns>A D8 invariant digit string.</returns>
-    public static string FormatD8(int index) => index is >= 0 and < 10_000 ? CachedD8[index] : index.ToString("D8", CultureInfo.InvariantCulture);
-
-    /// <summary>Builds <c language="csharp">https://{host}:{port}{absolutePath}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">https://{host}:{port}{absolutePath}</c>.</summary>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
     /// <param name="absolutePath">Absolute path beginning with <c language="csharp">/</c>.</param>
@@ -45,22 +38,9 @@ public static class NodeInvariantIndexStrings
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(absolutePath);
-        if (absolutePath.Length == 0 || absolutePath[0] != '/')
-            throw new ArgumentException("Absolute path must begin with '/'.", nameof(absolutePath));
-
-        var digitLength = CountDigits(port);
-        return string.Create(
-            8 + host.Length + 1 + digitLength + absolutePath.Length,
-            (host, port, absolutePath),
-            static (span, state) =>
-            {
-                "https://".AsSpan().CopyTo(span);
-                state.host.AsSpan().CopyTo(span[8..]);
-                var afterHost = 8 + state.host.Length;
-                span[afterHost] = ':';
-                _ = state.port.TryFormat(span[(afterHost + 1)..], out var written, provider: CultureInfo.InvariantCulture);
-                state.absolutePath.AsSpan().CopyTo(span[(afterHost + 1 + written)..]);
-            });
+        return absolutePath.Length == 0 || absolutePath[0] != '/'
+            ? throw new ArgumentException("Absolute path must begin with '/'.", nameof(absolutePath))
+            : string.Create(CultureInfo.InvariantCulture, $"https://{host}:{port}{absolutePath}");
     }
 
     /// <summary>Builds <c language="csharp">https://{host}:{port}</c> in a single allocation.</summary>
@@ -69,7 +49,7 @@ public static class NodeInvariantIndexStrings
     /// <returns>An absolute HTTPS origin string.</returns>
     public static string FormatHttpsOrigin(string host, int port) => FormatOrigin("https", host, port);
 
-    /// <summary>Builds <c language="csharp">/c mklink /J "{link}" "{target}"</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">/c mklink /J "{link}" "{target}"</c>.</summary>
     /// <param name="linkPath">Junction link path.</param>
     /// <param name="targetPath">Junction target path.</param>
     /// <returns>cmd.exe arguments for <c language="csharp">mklink /J</c>.</returns>
@@ -78,24 +58,7 @@ public static class NodeInvariantIndexStrings
         ArgumentNullException.ThrowIfNull(linkPath);
         ArgumentNullException.ThrowIfNull(targetPath);
 
-        const string head = "/c mklink /J \"";
-        const string mid = "\" \"";
-        const string tail = "\"";
-        return string.Create(
-            head.Length + linkPath.Length + mid.Length + targetPath.Length + tail.Length,
-            (linkPath, targetPath),
-            static (span, state) =>
-            {
-                head.AsSpan().CopyTo(span);
-                var at = head.Length;
-                state.linkPath.AsSpan().CopyTo(span[at..]);
-                at += state.linkPath.Length;
-                mid.AsSpan().CopyTo(span[at..]);
-                at += mid.Length;
-                state.targetPath.AsSpan().CopyTo(span[at..]);
-                at += state.targetPath.Length;
-                tail.AsSpan().CopyTo(span[at..]);
-            });
+        return $"/c mklink /J \"{linkPath}\" \"{targetPath}\"";
     }
 
     /// <summary>Builds <c language="csharp">{scheme}://{host}:{port}</c> in a single allocation.</summary>
@@ -219,8 +182,6 @@ public static class NodeInvariantIndexStrings
         {
             4 => "D4",
             6 => "D6",
-            8 => "D8",
-            10 => "D10",
             _ => throw new ArgumentOutOfRangeException(nameof(width), width, "Unsupported pad width."),
         };
         var values = new string[count];

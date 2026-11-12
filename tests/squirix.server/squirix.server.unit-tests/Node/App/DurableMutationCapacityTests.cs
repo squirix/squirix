@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -43,7 +44,7 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
         var memory = new AppliedKeys();
         var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(memory.PutAsync(executor, journal.Journal, "big", OversizedValue(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(memory.PutAsync(executor, journal.Journal, "big", OversizedValue(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var droppedMemory = memory.Snapshot;
         var pendingApply = journal.Journal.InFlightApplyGate.HasPending;
         _ = await memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
@@ -71,7 +72,7 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
         var memory = new AppliedKeys();
         var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(memory.PutAsync(executor, journal.Journal, "a", OversizedValue(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(memory.PutAsync(executor, journal.Journal, "a", OversizedValue(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var droppedMemory = memory.Snapshot;
         var applied = await memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
         var pendingApply = journal.Journal.InFlightApplyGate.HasPending;

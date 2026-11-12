@@ -113,7 +113,10 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
                 0,
                 static (_, _, _) => new ValueTask<int>(0),
                 static (_, _, _, _) => ValueTask.FromException<SnapshotRef>(new IOException("simulated snapshot failure")),
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         await journal.AppendPutUnderGateAsync(CacheKey.Default("after"), payload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);

@@ -125,7 +125,7 @@ internal sealed class JournalReplayKit
         using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
         while (records.MoveNext())
         {
-            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry))
+            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry, out _))
                 last = entry;
         }
 
@@ -218,7 +218,7 @@ internal sealed class JournalReplayKit
         var writeStart = clock.GetUtcNow().UtcDateTime;
         await mutate(session.Cache, clock, cancellationToken);
         clock.Advance(readAfter);
-        return (writeStart, await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken));
+        return (writeStart, session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken));
     }
 
     /// <summary>Writes an entry with a one-hour deadline, cuts a snapshot that holds it, then runs the tail mutation after the cut.</summary>
@@ -238,7 +238,7 @@ internal sealed class JournalReplayKit
         var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
         var writeStart = clock.GetUtcNow().UtcDateTime;
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: ttl), cancellationToken);
-        var snapshotted = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var snapshotted = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(snapshotted).IsNotNull();
 
         var cut = (session.ManifestStore, Writer: StoreFactory.CreateWriter(Persistence), Entry: snapshotted!, Coordinator: coordinator, WriteStart: writeStart);

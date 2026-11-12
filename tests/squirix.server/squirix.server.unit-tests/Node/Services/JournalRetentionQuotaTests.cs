@@ -78,9 +78,9 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
 
         var recovered = await kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        _ = await Assert.That((await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "snap-0"), cancellationToken))?.Value).IsNotNull();
-        _ = await Assert.That((await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "tail"), cancellationToken))?.Value).IsEqualTo("tail-value");
-        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "fill-0"), cancellationToken)).IsNull();
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(JournalReplayKit.CacheName, "snap-0"), cancellationToken)?.Value).IsNotNull();
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(JournalReplayKit.CacheName, "tail"), cancellationToken)?.Value).IsEqualTo("tail-value");
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(JournalReplayKit.CacheName, "fill-0"), cancellationToken)).IsNull();
     }
 
     /// <inheritdoc />

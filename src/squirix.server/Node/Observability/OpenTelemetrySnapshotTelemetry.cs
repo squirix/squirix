@@ -29,7 +29,7 @@ internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
     }
 
     /// <inheritdoc />
-    public void RecordDuration(string nodeId, string result, TimeSpan elapsed) => _durationSeconds.WithLabels(nodeId, result).Observe(elapsed.TotalSeconds);
+    public void RecordDuration(string nodeId, string result, TimeSpan elapsed) => _durationSeconds.Record(nodeId, result, elapsed.TotalSeconds);
 
     /// <summary>Exposes how many snapshot attempts in a row have failed on this node as <c language="csharp">squirix_snapshot_consecutive_failures{node="..."}</c>.</summary>
     /// <param name="nodeId">Node identifier label.</param>

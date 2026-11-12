@@ -27,6 +27,24 @@ internal sealed class WireMutation
     /// <summary>Gets the operation identifier every send of the mutation carries.</summary>
     internal string OperationId { get; }
 
+    /// <summary>Builds an add-if-absent under a new operation identifier.</summary>
+    /// <param name="cacheName">The cache name.</param>
+    /// <param name="key">The key.</param>
+    /// <param name="value">The value added when the key is absent.</param>
+    /// <returns>The mutation.</returns>
+    internal static WireMutation AddIfAbsent(string cacheName, string key, string value)
+    {
+        var request = new TryAddEntryAsyncRequest { OperationId = NewOperationId(), CacheName = Canonical(cacheName), Key = key, Entry = Entry(value) };
+        return new WireMutation(request.OperationId, (client, deadline, cancellationToken) => AddIfAbsentAsync(client, request, deadline, cancellationToken));
+    }
+
+    /// <summary>Gets the canonical server name of a public cache name.</summary>
+    /// <param name="cacheName">The cache name.</param>
+    /// <returns>The canonical name the wire contract carries.</returns>
+    /// <exception cref="ArgumentException"><paramref name="cacheName" /> is not a valid cache name.</exception>
+    internal static string Canonical(string cacheName) =>
+        ServerCacheName.TryParsePublic(cacheName, out var canonical) ? canonical : throw new ArgumentException($"'{cacheName}' is not a valid cache name.", nameof(cacheName));
+
     /// <summary>Builds a GetOrAdd under a new operation identifier.</summary>
     /// <param name="cacheName">The cache name.</param>
     /// <param name="key">The key.</param>
@@ -49,24 +67,6 @@ internal sealed class WireMutation
         return new WireMutation(request.OperationId, (client, deadline, cancellationToken) => SetAsync(client, request, deadline, cancellationToken));
     }
 
-    /// <summary>Builds an add-if-absent under a new operation identifier.</summary>
-    /// <param name="cacheName">The cache name.</param>
-    /// <param name="key">The key.</param>
-    /// <param name="value">The value added when the key is absent.</param>
-    /// <returns>The mutation.</returns>
-    internal static WireMutation AddIfAbsent(string cacheName, string key, string value)
-    {
-        var request = new TryAddEntryAsyncRequest { OperationId = NewOperationId(), CacheName = Canonical(cacheName), Key = key, Entry = Entry(value) };
-        return new WireMutation(request.OperationId, (client, deadline, cancellationToken) => AddIfAbsentAsync(client, request, deadline, cancellationToken));
-    }
-
-    /// <summary>Gets the canonical server name of a public cache name.</summary>
-    /// <param name="cacheName">The cache name.</param>
-    /// <returns>The canonical name the wire contract carries.</returns>
-    /// <exception cref="ArgumentException"><paramref name="cacheName" /> is not a valid cache name.</exception>
-    internal static string Canonical(string cacheName) =>
-        ServerCacheName.TryParsePublic(cacheName, out var canonical) ? canonical : throw new ArgumentException($"'{cacheName}' is not a valid cache name.", nameof(cacheName));
-
     /// <summary>Sends the mutation once.</summary>
     /// <param name="client">The generated client of the node.</param>
     /// <param name="deadline">The point in time, in UTC, by which the call must end.</param>
@@ -75,12 +75,18 @@ internal sealed class WireMutation
     internal Task<WireOutcome> SendAsync(SquirixCacheService.SquirixCacheServiceClient client, DateTime deadline, CancellationToken cancellationToken) =>
         _send(client, deadline, cancellationToken);
 
+    private static async Task<WireOutcome> AddIfAbsentAsync(SquirixCacheService.SquirixCacheServiceClient client, TryAddEntryAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
+    {
+        var response = await client.TryAddEntryAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return new WireOutcome(response.Added, null);
+    }
+
     private static CacheEntryWire Entry(string value) => new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto();
 
     private static async Task<WireOutcome> GetOrAddAsync(SquirixCacheService.SquirixCacheServiceClient client, GetOrAddAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
     {
         var response = await client.GetOrAddAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return new WireOutcome(response.Added, response.Found && !response.Added ? await ServerProtoEx.MapCacheValueAsync<string>(response.Value).ConfigureAwait(false) : null);
+        return new WireOutcome(response.Added, response is { Found: true, Added: false } ? ServerProtoEx.MapCacheValue<string>(response.Value) : null);
     }
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
@@ -89,11 +95,5 @@ internal sealed class WireMutation
     {
         _ = await client.SetEntryAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
         return new WireOutcome(true, null);
-    }
-
-    private static async Task<WireOutcome> AddIfAbsentAsync(SquirixCacheService.SquirixCacheServiceClient client, TryAddEntryAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
-    {
-        var response = await client.TryAddEntryAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return new WireOutcome(response.Added, null);
     }
 }

@@ -6,7 +6,7 @@ Facts about other projects come from their public documentation and package page
 
 ## squirix in brief
 
-- **Pure .NET.** Client SDK and server runtime are managed .NET 10 code with no native storage engine; the server runs as
+- **Pure .NET.** Client SDK and server runtime are managed .NET code with no native storage engine; the server runs as
   the `squirix-server` tool or embedded in an ASP.NET Core host. See [architecture.md](architecture.md).
 - **Typed client.** Applications use `SquirixClient` and `ICache<T>` over HTTPS gRPC, with pluggable
   [serialization](serialization.md).
@@ -15,8 +15,8 @@ Facts about other projects come from their public documentation and package page
   See [clustering.md](clustering.md) and [consistency.md](consistency.md).
 - **CP under partitions.** A group without a majority refuses writes; with quorum reads a read that cannot be confirmed
   fails instead of returning a possibly stale value.
-- **Durability.** Journal plus snapshots; with persistence on, a read never returns a value whose journal frame is not
-  durable. See [persistence.md](persistence.md).
+- **Durability.** RF=1 persistence flushes the node journal before applying a mutation to memory. Replicated writes use
+  the replica group log as their durable source. See [persistence.md](persistence.md).
 - **Protocol verification.** The replication protocol has an explicit-state model (`squirix.protocol-model`) with safety
   checks and conformance of production traces, run in CI.
 
@@ -33,10 +33,10 @@ rebalancing, and a 0.1 preview release.
 | [NCache](#ncache)                                           | .NET           | Synchronous or asynchronous replica updates             | Depends on topology and replication mode             |
 | [Apache Ignite 3](#apache-ignite-3)                         | JVM            | Raft                                                    | ACID transactions, snapshot isolation                |
 | [Hazelcast](#hazelcast)                                     | JVM            | Raft for the CP Subsystem; partition backups elsewhere  | CPMap linearizable; `IMap` and other structures AP   |
-| [Garnet](#garnet)                                           | .NET           | Asynchronous leader-follower log shipping               | Not CP                                               |
+| [Garnet](#garnet)                                           | .NET           | Asynchronous leader-follower log shipping               | Async replicas can lag                               |
 | [Redis Cluster](#redis-cluster-and-redisraft)               | C              | Asynchronous                                            | Not CP; can lose acknowledged writes                 |
 | [RedisRaft](#redis-cluster-and-redisraft)                   | C (module)     | Raft                                                    | Strong; not production-ready per its README          |
-| [etcd, Consul, ZooKeeper](#etcd-consul-and-zookeeper)       | Go / Java      | Raft / ZAB                                              | Linearizable; built for coordination metadata        |
+| [etcd, Consul, ZooKeeper](#etcd-consul-and-zookeeper)       | Go / Java      | Raft / ZAB                                              | Read guarantees depend on API and mode               |
 
 ## .NET projects
 
@@ -69,13 +69,14 @@ on it.
 
 ### NCache
 
-NCache is a commercial distributed cache written in .NET with an open source edition. Its mirror and partition-replica
-topologies can replicate synchronously, where a write waits for every replica, or asynchronously, where replicas are
-updated after the primary and may briefly diverge.
+NCache is a commercial distributed cache written in .NET with an open source edition. Its Partition-Replica topology
+supports synchronous replication, where the write waits for its replica before returning, and asynchronous replication,
+where replication is queued in the background. The asynchronous mode can lose queued writes if the active node fails
+before they are replicated. See the topology documentation in [Sources](#sources).
 
-How squirix differs: synchronous replication to all replicas is not majority consensus. squirix commits on a majority,
-elects a new leader on failure (RF>=3), and with quorum reads confirms leadership before each read, so a minority cannot
-serve stale or diverging values.
+How squirix differs: Squirix uses majority commit per replica group, with opt-in leader election and quorum reads for
+RF>=3. NCache offers different replication modes by topology; compare the selected mode and its documented failure
+behavior rather than inferring its guarantees from the word synchronous.
 
 ### Garnet
 
@@ -99,8 +100,10 @@ narrower cache with a .NET server, so a .NET team operates one runtime end to en
 
 ### Hazelcast
 
-Hazelcast runs on the JVM. Its CP Subsystem uses Raft and keeps CPMap, locks, atomics, semaphores and latches
-linearizable; other structures, including the regular map, are AP.
+Hazelcast runs on the JVM. With CP members configured, its CP Subsystem uses Raft for CPMap, locks, atomics,
+semaphores and latches; other structures, including the regular map, are AP. The referenced Hazelcast 5.5 documentation
+marks the CP Subsystem as an Enterprise feature and distinguishes it from the weaker default unsafe mode. Its CP
+guarantees should not be assumed for an unconfigured cluster.
 
 How squirix differs: in squirix the main cache path is the consistent one, rather than a separate CP structure next to
 an AP map.
@@ -109,13 +112,22 @@ an AP map.
 
 ### Redis Cluster and RedisRaft
 
-Redis Cluster replicates asynchronously and can lose acknowledged writes by design, as Jepsen analyses showed.
+Redis Cluster uses asynchronous replication and documents cases in which acknowledged writes can be lost in its
+[cluster specification](https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/).
 RedisRaft is a Raft-based module for strongly consistent Redis; its README says it is not ready for production use.
 
 ### etcd, Consul and ZooKeeper
 
-Linearizable stores built on consensus, designed for small amounts of coordination metadata (configuration, service
-discovery, leader election) rather than as high-volume application caches.
+These systems target coordination and metadata use cases such as configuration and service discovery. Their read
+guarantees differ; using consensus for writes does not make every read API linearizable:
+
+- etcd provides linearizable key-value operations by default; its optional serializable reads can return stale data.
+  See [etcd API guarantees](https://etcd.io/docs/v3.6/learning/api_guarantees/).
+- Consul supports `stale`, `default`, and `consistent` HTTP read modes. The `consistent` mode confirms leadership with
+  a quorum; the other modes have weaker guarantees. See
+  [Consul consistency modes](https://developer.hashicorp.com/consul/api-docs/features/consistency).
+- ZooKeeper has linearizable writes, while ordinary reads are sequentially consistent and may be stale. See
+  [ZooKeeper consistency guarantees](https://zookeeper.apache.org/doc/current/zookeeperInternals#sc_consistency).
 
 ## Sources
 
@@ -123,7 +135,7 @@ discovery, leader election) rather than as high-volume application caches.
   [Kommander on NuGet](https://www.nuget.org/packages/Kommander)
 - Slik.Cache: [Insvald/Slik](https://github.com/Insvald/Slik)
 - dotNext: [.NET Foundation project page](https://dotnetfoundation.org/projects/dotnext)
-- NCache: [product page](https://www.alachisoft.com/ncache/), [consistency and data replication](https://alachisoft.com/blogs/ncache-essentials-consistency-and-data-replication/)
+- NCache: [product page](https://www.alachisoft.com/ncache/), [partition-replica replication modes](https://www.alachisoft.com/resources/docs/ncache/admin-guide/partitioned-topologies.html)
 - Garnet: [cluster replication](https://microsoft.github.io/garnet/docs/cluster/replication)
 - Apache Ignite: [transactions](https://ignite.apache.org/features/transactions.html), [Apache.Ignite on NuGet](https://www.nuget.org/packages/apache.ignite)
 - Hazelcast: [CP Subsystem](https://docs.hazelcast.com/hazelcast/5.5/cp-subsystem/cp-subsystem)

@@ -38,9 +38,10 @@ public sealed class OwnedLogRetentionLimitTests : ServerUnitTestBase
         await WriteAsync(committer, 1, cancellationToken);
         _ = await Assert.That(registry.EligibilityFor("n1").StateFor(FollowerSlot)).IsEqualTo(ReplicaParticipantState.Ready);
 
+        var before = await OwnedLog(registry).GetRetentionAsync(cancellationToken);
         _ = await Assert.That(await committer.CompactOwnedLogAsync(PastLimit, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
 
-        _ = await Assert.That(await OwnedLog(registry).GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(HeaderLength(), 0, 0, 2UL));
+        _ = await Assert.That(await OwnedLog(registry).GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, 2UL) { CompactionBytes = HeaderLength() });
         _ = await Assert.That(registry.EligibilityFor("n1").StateFor(FollowerSlot)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(Bound, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
     }
@@ -142,20 +143,26 @@ public sealed class OwnedLogRetentionLimitTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Silent);
         await WriteAsync(committer, 1, cancellationToken);
 
-        var outcome = await RunGatedAsync(committer, registry, 1 << 1, cancellationToken);
+        using var gate = await committer.Gate.LockAsync(cancellationToken);
+        var step = RunGatedAsync(committer, registry, 1 << 1, cancellationToken);
+        _ = await Assert.That(step.IsCompletedSuccessfully).IsTrue();
+        var outcome = await step;
 
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.FollowerBehind);
         _ = await Assert.That(registry.EligibilityFor("n1").StateFor(FollowerSlot)).IsEqualTo(ReplicaParticipantState.Ready);
         await AssertNotCompactedAsync(registry, cancellationToken);
     }
 
-    private static Task<ReplicaLogCompactionOutcome> RunGatedAsync(ReplicaGroupCommitter committer, ReplicaGroupRegistry registry, int advised, CancellationToken cancellationToken) =>
-        ReplicaLogCompactionStep.RunAsync(
-            OwnedLog(registry),
+    private static Task<ReplicaLogCompactionOutcome> RunGatedAsync(ReplicaGroupCommitter committer, ReplicaGroupRegistry registry, int advised, CancellationToken cancellationToken)
+    {
+        var log = OwnedLog(registry);
+        return ReplicaLogCompactionStep.RunAsync(
+            log,
             committer.Coordinator!,
             (registry.EligibilityFor("n1"), true, advised),
             committer.Applier.AppliedIndex,
             Durable(),
-            TimeProvider.System,
+            log.CompactThroughAsync,
             cancellationToken);
+    }
 }

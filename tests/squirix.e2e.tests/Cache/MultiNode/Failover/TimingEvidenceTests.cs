@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>The percentiles and the limit of the failover timing evidence, which only the stress job exercises with real timings.</summary>
-public sealed class TimingEvidenceTests : EndToEndTestBase
+public sealed class TimingEvidenceTests
 {
     /// <summary>The nearest rank percentile of thirty values takes the fifteenth for the median and the twenty-ninth for p95; one value is every percentile.</summary>
     /// <returns>A task that represents the asynchronous test.</returns>

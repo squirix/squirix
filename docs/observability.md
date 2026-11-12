@@ -6,10 +6,10 @@ squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTele
 
 | Route | Purpose |
 | --- | --- |
-| `GET /health` | Aggregate health |
+| `GET /health` | Basic HTTP response (`200` with JSON `"OK"`) |
 | `GET /health/live` | Liveness probe |
 | `GET /health/ready` | Readiness probe |
-| `GET /health/ready/details` | JSON diagnostics payload (loopback-anonymous; remote JWT when auth is enabled) |
+| `GET /health/ready/details` | JSON diagnostics payload. Loopback is anonymous. Remote requests require a valid JWT. |
 
 When persistence is enabled, readiness stays unhealthy until journal recovery completes. Fatal journal maintenance
 failures also affect readiness. Ephemeral nodes skip journal recovery and report readiness without `journal_recovery`.
@@ -27,8 +27,9 @@ Full field reference: [diagnostics.md](diagnostics.md).
 
 `GET /metrics` — Prometheus text exposition (enabled by default; configurable in settings).
 
-Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must send a JWT bearer token
-when server auth is enabled. The same rule applies to `/health/ready/details`. Details:
+Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must authenticate with a valid
+JWT bearer token. An unauthenticated remote request receives `401`, even if JWT authentication is not configured.
+The same rule applies to `/health/ready/details`. Details:
 [diagnostics — Metrics route](diagnostics.md#metrics-route) and
 [diagnostics — Readiness details](diagnostics.md#readiness-details).
 
@@ -52,6 +53,6 @@ When a node behaves unexpectedly:
 
 1. Check `/health/ready/details` and metrics
 2. Capture logs and configuration before restart
-3. Back up the data directory before repair or upgrade
+3. Stop the node and back up its complete data directory before attempting recovery or an upgrade
 
 Runbook: [operational-runbook.md](operational-runbook.md).

@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 /// </summary>
 [Immutable]
 [ParallelLimiter<ClusterStartupLimit>]
-public abstract class ClockTestBase : EndToEndTestBase
+public abstract class ClockTestBase
 {
     private HostedCluster? _cluster;
 

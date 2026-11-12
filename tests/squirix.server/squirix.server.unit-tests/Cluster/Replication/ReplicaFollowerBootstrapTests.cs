@@ -182,7 +182,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
         Volatile.Write(ref armed, true);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
         var preVote = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 6UL, 0UL, 0UL), cancellationToken);

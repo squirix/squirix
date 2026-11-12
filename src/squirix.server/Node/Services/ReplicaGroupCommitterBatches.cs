@@ -8,7 +8,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -42,11 +41,19 @@ internal static class ReplicaGroupCommitterBatches
         /// <exception cref="OperationCanceledException">The caller gave up while the write was still queued, or while it waited for the commit gate as the leader.</exception>
         internal async Task<ReadOnlyMemory<byte>> SubmitAsync(ReplicaCommitRequest request, CancellationToken cancellationToken)
         {
-            var leads = committer.Combiner.Enter(request) || await request.AwaitLeadershipAsync(cancellationToken).ConfigureAwait(false);
-            if (leads)
-                await committer.LeadAsync(request, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var leads = committer.Combiner.Enter(request) || await request.AwaitLeadershipAsync(cancellationToken).ConfigureAwait(false);
+                if (leads)
+                    await committer.LeadAsync(request, cancellationToken).ConfigureAwait(false);
 
-            return request.OutcomeOrThrow();
+                return request.OutcomeOrThrow();
+            }
+            catch (OperationCanceledException)
+            {
+                committer.Combiner.RemoveCanceled(request);
+                throw;
+            }
         }
 
         /// <summary>Decides a write the disposing committer never admitted: a retained entry of its operation answers it, otherwise it was refused without a leader.</summary>
@@ -70,9 +77,18 @@ internal static class ReplicaGroupCommitterBatches
         /// <summary>Decides a write the leader cannot commit: a retained entry of its operation answers it, otherwise it fails with the refusal.</summary>
         /// <param name="request">The write.</param>
         /// <param name="refusal">The failure of a write with no retained entry.</param>
-        /// <exception cref="ArgumentOutOfRangeException">The lookup of the write returned an unnamed result; it is recorded as the failure of the write.</exception>
-        [SuppressMessage("Design", "CA1031", Justification = "A fault of the lookup is recorded as the failure of the write, whose caller rethrows it.")]
         internal void Refuse(ReplicaCommitRequest request, Exception refusal)
+        {
+            if (!committer.TryReplayRetained(request))
+                request.Fail(refusal);
+        }
+
+        /// <summary>Completes a request from a retained outcome, mismatch or unresolved identity.</summary>
+        /// <param name="request">The request whose identity is being checked.</param>
+        /// <returns>Whether the request was completed.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">The lookup returned an unnamed result, recorded as the request's failure.</exception>
+        [SuppressMessage("Design", "CA1031", Justification = "A fault of the lookup is recorded as the failure of the write, whose caller rethrows it.")]
+        internal bool TryReplayRetained(ReplicaCommitRequest request)
         {
             try
             {
@@ -89,8 +105,7 @@ internal static class ReplicaGroupCommitterBatches
                         request.Fail(ServerOpContract.CommitOutcomeUnknown());
                         break;
                     case GroupIdempotencyLookup.Miss:
-                        request.Fail(refusal);
-                        break;
+                        return false;
                     default:
                         throw new ArgumentOutOfRangeException(nameof(request), "Unsupported lookup result.");
                 }
@@ -99,19 +114,21 @@ internal static class ReplicaGroupCommitterBatches
             {
                 request.Fail(error);
             }
+
+            return true;
         }
 
         /// <summary>Forms and commits the batch of the leading write, then hands the leadership over.</summary>
         /// <param name="self">The leading write.</param>
-        /// <param name="cancellationToken">Ends the wait for the commit gate only.</param>
+        /// <param name="cancellationToken">Ends the wait for catch-up or the commit gate, before the batch takes the write.</param>
         /// <returns>An asynchronous operation that completes once the write is decided; a failed commit is recorded on the write, not thrown.</returns>
         /// <exception cref="OperationCanceledException">The caller gave up while the leader waited for the commit gate.</exception>
         private async Task LeadAsync(ReplicaCommitRequest self, CancellationToken cancellationToken)
         {
-            AsyncLockHolder guard;
+            (AsyncLockHolder CatchUp, AsyncLockHolder Commit) guard;
             try
             {
-                guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+                guard = await committer.LockForWriteAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -131,12 +148,27 @@ internal static class ReplicaGroupCommitterBatches
 
             try
             {
-                using (guard)
+                using (guard.CatchUp)
+                using (guard.Commit)
                     await committer.CommitBatchUnderGateAsync(self).ConfigureAwait(false);
             }
             finally
             {
                 committer.Combiner.HandOver();
+            }
+        }
+
+        private async ValueTask<(AsyncLockHolder CatchUp, AsyncLockHolder Commit)> LockForWriteAsync(CancellationToken cancellationToken)
+        {
+            var catchUp = await committer.CatchUpGate.LockAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return (catchUp, await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false));
+            }
+            catch
+            {
+                catchUp.Dispose();
+                throw;
             }
         }
 
@@ -239,15 +271,7 @@ internal static class ReplicaGroupCommitterBatches
             }
             catch (Exception error) when (ReplicaGroupCommitterCommits.IsPostAppendOutcome(error))
             {
-                if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
-                {
-                    // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
-                    // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
-                    committer.DropStartedState();
-                    committer.ReportLocalAppendFault(unconfirmed, failedBefore);
-                }
-
-                ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+                committer.ReportPostAppendFailure(error, failedBefore);
                 committer.DecideAfterAppendFailure(entries);
             }
             catch (Exception error)

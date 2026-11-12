@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -33,29 +32,27 @@ public class CacheUpdateEstimateBenchmarks
     public bool ConcurrentUpdater { get; set; }
 
     /// <summary>Updates the large value from this thread.</summary>
-    /// <returns>A task that completes when the update finishes.</returns>
+    /// <returns>Whether the entry was updated.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark was not initialized.</exception>
     [Benchmark]
-    public async Task<bool> UpdateLargeAsync()
+    public bool UpdateLarge()
     {
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
-        return await cache.UpdateAsync(LargeKey, _large, CancellationToken.None).ConfigureAwait(false);
+        return cache.Update(LargeKey, _large, CancellationToken.None);
     }
 
     /// <summary>Stores a small value under another key, waiting for the cache lock the updater may hold.</summary>
-    /// <returns>A task that completes when the set finishes.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark was not initialized.</exception>
     [Benchmark]
-    public async Task SetSmallAsync()
+    public void SetSmall()
     {
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
-        await cache.SetAsync(SmallKey, new NodeCacheEntry<object?>("v", 1), CancellationToken.None).ConfigureAwait(false);
+        cache.Set(SmallKey, new NodeCacheEntry<object?>("v"), CancellationToken.None);
     }
 
     /// <summary>Stores the large entry and, when asked, starts the thread that keeps updating it.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
     [GlobalSetup]
-    public async Task SetupAsync()
+    public void Setup()
     {
         var json = new StringBuilder("{");
         for (var i = 0; i < PropertyCount; i++)
@@ -70,8 +67,8 @@ public class CacheUpdateEstimateBenchmarks
         using var document = JsonDocument.Parse(json.ToString());
         _large = document.RootElement.Clone();
         _cache = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
-        await _cache.SetAsync(LargeKey, new NodeCacheEntry<object?>(_large, 1), CancellationToken.None).ConfigureAwait(false);
-        await _cache.SetAsync(SmallKey, new NodeCacheEntry<object?>("v", 1), CancellationToken.None).ConfigureAwait(false);
+        _cache.Set(LargeKey, new NodeCacheEntry<object?>(_large), CancellationToken.None);
+        _cache.Set(SmallKey, new NodeCacheEntry<object?>("v"), CancellationToken.None);
         if (!ConcurrentUpdater)
             return;
 
@@ -91,6 +88,6 @@ public class CacheUpdateEstimateBenchmarks
     {
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
         while (!_stopRequested)
-            _ = cache.UpdateAsync(LargeKey, _large, CancellationToken.None).AsTask();
+            _ = cache.Update(LargeKey, _large, CancellationToken.None);
     }
 }

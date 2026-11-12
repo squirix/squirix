@@ -8,7 +8,6 @@ using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -22,7 +21,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Checks production durable boundaries against the protocol transition system.</summary>
-public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
+public sealed class ProtocolModelConformanceTests
 {
     private const int AllCopies = 3;
     private const int CommitLeaderSlot = 0;
@@ -122,7 +121,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         await WaitForEndAsync(commit, cancellationToken);
 
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(0UL);
         await SequenceAssert.EqualAsync(
             [new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 0, 0, CommitLeaderSlot, CommitLastLogTerm)],
@@ -195,7 +194,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
             pipeline.RecordRead(await read, probe.CountConfirmations());
 
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline);
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(read);
+        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await SequenceAssert.EqualAsync(
             [
                 new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 0, 0, CommitLeaderSlot, CommitLastLogTerm),
@@ -248,7 +247,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     /// a silent drift between the verified model and production is a conformance failure.
     /// </remarks>
     [Test]
-    public async Task ProtocolVersionMatchesModelManifest() => _ = await Assert.That(ExploreRunner.ModelVersionHash).IsEqualTo("7200d236158cb51e");
+    public async Task ProtocolVersionMatchesModelManifest() => _ = await Assert.That(ExploreRunner.ModelVersionHash).IsEqualTo("28f95126e146e442");
 
     /// <summary>Commits the leader-term entry of a won term at the first index, as a promotion does.</summary>
     /// <param name="coordinator">The commit coordinator.</param>

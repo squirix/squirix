@@ -31,6 +31,8 @@ internal sealed class ReplicationMetrics
     private readonly Counter1Label _reportsTotal;
     private readonly Counter1Label _unknownCommitsTotal;
 
+    private GroupObservation[]? _groupSnapshot;
+
     internal ReplicationMetrics(Meter meter)
     {
         ArgumentNullException.ThrowIfNull(meter);
@@ -134,7 +136,7 @@ internal sealed class ReplicationMetrics
 
     /// <summary>Counts one commit that ended with an unknown outcome after the local append.</summary>
     /// <param name="kind">The kind of the record the commit carried.</param>
-    internal void ReportUnknownCommit(GroupRecordKind kind) => _unknownCommitsTotal.WithLabels(LeaderView.OperationName(kind)).Inc(1);
+    internal void ReportUnknownCommit(GroupRecordKind kind) => _unknownCommitsTotal.Add(LeaderView.OperationName(kind));
 
     /// <summary>Counts one pass that found the owned replica group log past a threshold but did not compact it.</summary>
     /// <param name="nodeId">The observing node identifier.</param>
@@ -151,12 +153,32 @@ internal sealed class ReplicationMetrics
         _compactionSkippedTotal.Add(1, in tags);
     }
 
+    internal GroupObservation[] SnapshotGroups()
+    {
+        lock (_gate)
+        {
+            if (_groupSnapshot != null)
+                return _groupSnapshot;
+
+            var snapshot = new GroupObservation[_groups.Count];
+            var index = 0;
+            foreach (var pair in _groups)
+            {
+                snapshot[index] = pair.Value;
+                index++;
+            }
+
+            _groupSnapshot = snapshot;
+            return snapshot;
+        }
+    }
+
     /// <summary>Observes one replica-group snapshot on a read path without mutating replication state.</summary>
     /// <param name="snapshot">The observed replica-group status.</param>
     /// <param name="verdict">The evaluated readiness verdict.</param>
     internal void ReportGroup(in ReplicaStatusSnapshot snapshot, ReplicaReadinessVerdict verdict)
     {
-        _reportsTotal.WithLabels(snapshot.NodeId).Inc(1);
+        _reportsTotal.Add(snapshot.NodeId);
 
         var observation = new GroupObservation(
             snapshot.NodeId,
@@ -210,6 +232,7 @@ internal sealed class ReplicationMetrics
             }
 
             _groups[groupId] = observation with { GroupId = groupId };
+            _groupSnapshot = null;
             return (raiseTopology, raiseGeneration);
         }
     }
@@ -291,24 +314,8 @@ internal sealed class ReplicationMetrics
             yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
-    private GroupObservation[] SnapshotGroups()
-    {
-        lock (_gate)
-        {
-            var snapshot = new GroupObservation[_groups.Count];
-            var index = 0;
-            foreach (var pair in _groups)
-            {
-                snapshot[index] = pair.Value;
-                index++;
-            }
-
-            return snapshot;
-        }
-    }
-
     [Immutable]
-    private readonly record struct GroupObservation(
+    internal readonly record struct GroupObservation(
         string NodeId,
         long Term,
         long CommitIndex,
@@ -343,12 +350,20 @@ internal sealed class ReplicationMetrics
     /// <param name="SnapshotIndex">The last log index the published snapshot covers.</param>
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    private readonly record struct GroupRetention(long LogBytes, int RetainedEntries, long SnapshotIndex);
+    internal readonly record struct GroupRetention(long LogBytes, int RetainedEntries, long SnapshotIndex);
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)
     {
-        internal ServerCounterLabelBinding WithLabels(string v1) => new(Counter, Key1, v1, "scope", "replication");
+        internal void Add(string v1, long value = 1)
+        {
+            var tags = new TagList
+            {
+                { Key1, v1 },
+                { "scope", "replication" },
+            };
+            Counter.Add(value, in tags);
+        }
     }
 
     /// <summary>The metrics only the leader of a group reports: its view of the other copies, its write quorum and authority.</summary>

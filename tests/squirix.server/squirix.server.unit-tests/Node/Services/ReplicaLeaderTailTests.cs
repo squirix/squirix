@@ -56,7 +56,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1 }, cancellationToken);
         _ = registry.TryGetLog("n1", out var log);
         _ = log!.Idempotency.Reserve("cache", "filler", [1], GroupRecordKind.UserMutation, 99, 1, GroupReserveKit.Unlogged);
-        _ = log.Idempotency.TryResolve("cache", "filler", [1], 99, 1);
+        _ = log.Idempotency.TryResolve("cache", "filler", new byte[] { 1 }, 99, 1);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var outcome = await committer.VerifyReplicasAsync(cancellationToken);
@@ -110,7 +110,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
         var pending = await StatusAsync(registry, cancellationToken);
@@ -187,7 +187,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var retry = committer.CommitTryAddAsync(TailOperationId("k1"), "cache", "k1", Entry("k1"), cancellationToken);
-            var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(retry);
+            var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(retry, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(unknown.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         }
 
@@ -215,7 +215,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
 
         var reuse = committer.CommitTryAddAsync(TailOperationId("k1"), "cache", "k1", Entry("other"), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(reuse);
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(reuse, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(2UL);
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
     }

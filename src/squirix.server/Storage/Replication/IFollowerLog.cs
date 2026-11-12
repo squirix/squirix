@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Durable, ordered follower log for one replica group.</summary>
+/// <remarks>Appends retain immutable entry payloads directly. Callers must not mutate their bytes or return them to a pool.</remarks>
 internal interface IFollowerLog : IAsyncDisposable
 {
     /// <summary>Gets the replica group identifier.</summary>
@@ -58,6 +59,26 @@ internal interface IFollowerLog : IAsyncDisposable
     /// </remarks>
     Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken);
 
+    /// <summary>Captures the durable applied boundary and its resolved outcomes for a local compaction.</summary>
+    /// <param name="index">The durable applied index.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The captured boundary or the refusal.</returns>
+    Task<(GroupCompactionOutcome Outcome, GroupSnapshotCompaction? Capture)> CaptureCompactionAsync(ulong index, CancellationToken cancellationToken);
+
+    /// <summary>Writes and verifies the captured snapshot and copies the retained committed WAL outside the log gate.</summary>
+    /// <param name="capture">The captured durable boundary.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The prepared generation, or null if the captured boundary can no longer be prepared.</returns>
+    Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(GroupSnapshotCompaction capture, CancellationToken cancellationToken);
+
+    /// <summary>Publishes and compacts a prepared snapshot after rechecking its durable boundary and WAL.</summary>
+    /// <param name="capture">The captured durable boundary.</param>
+    /// <param name="prepared">The verified generation for that boundary.</param>
+    /// <param name="cancellationToken">The cancellation token before publication.</param>
+    /// <returns>The compaction outcome.</returns>
+    Task<GroupCompactionOutcome> CompactPreparedAsync(
+        GroupSnapshotCompaction capture, GroupSnapshotCheckpointStore.PreparedSnapshot prepared, CancellationToken cancellationToken);
+
     /// <summary>Advances the committed index monotonically and never beyond the durable last index.</summary>
     /// <param name="commitIndex">The target committed index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -71,6 +92,14 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The outcome of the appending attempt.</returns>
     /// <exception cref="ReplicaShutdownRefusedException">Shutdown refused the append before any frame of it was scheduled.</exception>
     Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Appends a leader's run, notifying it once validated frames have been handed to durable storage.</summary>
+    /// <param name="request">The ordered append request.</param>
+    /// <param name="onScheduled">Called once under the log gate after scheduling, before waiting for the flush; not called for an already durable duplicate.</param>
+    /// <param name="cancellationToken">Cancellation before storage scheduling.</param>
+    /// <returns>The durable append outcome; notification alone never acknowledges local durability.</returns>
+    /// <remarks>Any failure after notification is unconfirmed and latches the log, including a failure of the callback.</remarks>
+    Task<FollowerLogAppendResult> AppendLeaderAsync(FollowerLogAppendRequest request, Action onScheduled, CancellationToken cancellationToken);
 
     /// <summary>
     /// Appends an ordered batch of entries after checking the leader topology, with the check and the append under one log gate
@@ -109,12 +138,12 @@ internal interface IFollowerLog : IAsyncDisposable
 
     /// <summary>Reads back from disk the newest committed entries the log retains, applied or not, one at a time.</summary>
     /// <param name="maxCount">The largest number of entries to read.</param>
-    /// <param name="visit">Called with each entry, newest first; the entry is dropped once it returns, and returning <see langword="false" /> stops the read.</param>
+    /// <param name="visit">Called synchronously, newest first; payload bytes are valid only until the callback returns and must be copied if retained; returning <see langword="false" /> stops the read.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of entries read.</returns>
     /// <exception cref="InvalidOperationException">The log is disposed or not ready.</exception>
     /// <exception cref="System.IO.InvalidDataException">A retained committed frame is torn or corrupt.</exception>
-    Task<int> ReadRecentCommittedAsync(int maxCount, Func<FollowerLogEntry, bool> visit, CancellationToken cancellationToken);
+    Task<int> VisitRecentCommittedAsync(int maxCount, Func<ulong, ulong, ReadOnlyMemory<byte>, bool> visit, CancellationToken cancellationToken);
 
     /// <summary>
     /// Reads back from disk the retained entries from <paramref name="fromIndex" /> on, at most <paramref name="maxCount" />, in index order,
@@ -123,6 +152,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="fromIndex">The one-based index of the first entry to read.</param>
     /// <param name="maxCount">The largest number of entries to read.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="maxPayloadBytes">Payload budget. The first entry is always included so the reader can advance.</param>
     /// <returns>The entries read, or a result that is not retained when the position before <paramref name="fromIndex" /> cannot be verified.</returns>
     /// <exception cref="InvalidOperationException">The log is disposed or not ready.</exception>
     /// <exception cref="System.IO.InvalidDataException">A retained frame is torn, corrupt, or missing inside the retained range.</exception>
@@ -130,7 +160,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// Reads under the log gate, so no frame moves meanwhile; applied payloads released from memory are read back from their retained
     /// frames.
     /// </remarks>
-    Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken);
+    Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken, long maxPayloadBytes = long.MaxValue);
 
     /// <summary>Reads how much of the log is retained on disk and in memory.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -147,6 +177,12 @@ internal interface IFollowerLog : IAsyncDisposable
     /// </remarks>
     ValueTask<FollowerLogTail> GetLeaderTailAsync(CancellationToken cancellationToken);
 
+    /// <summary>Reads status and the current-term commit predicate without materializing the uncommitted tail.</summary>
+    /// <param name="term">The leader term to check.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The paired status and whether its tail is empty or contains an entry of the requested term.</returns>
+    ValueTask<(FollowerLogStatus Status, bool CanCommit)> GetCommitReadinessAsync(ulong term, CancellationToken cancellationToken);
+
     /// <summary>Gets a snapshot of the durable log state.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A snapshot of the durable log state.</returns>
@@ -158,6 +194,12 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The term at <paramref name="logIndex" />; zero at the log origin.</returns>
     /// <exception cref="System.IO.InvalidDataException">The log retains no term for a non-zero <paramref name="logIndex" />.</exception>
     ValueTask<ulong> GetTermAtAsync(ulong logIndex, CancellationToken cancellationToken);
+
+    /// <summary>Finds the first retained index in the consecutive term run ending at an index.</summary>
+    /// <param name="logIndex">The index whose term run is sought.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The first index of that retained run, or the supplied index when it is no longer retained.</returns>
+    ValueTask<ulong> GetTermStartAsync(ulong logIndex, CancellationToken cancellationToken);
 
     /// <summary>Returns the durable entries above the committed index, in index order.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>

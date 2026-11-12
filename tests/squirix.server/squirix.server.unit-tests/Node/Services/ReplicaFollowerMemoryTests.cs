@@ -84,7 +84,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         var gateOfNode = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(copy.Cache), "n2", meter);
         var admission = new MemoryAdmissionCacheDecorator<object?>(copy.Local, gateOfNode, estimator);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await CommitAsync(committer, 3, cancellationToken, 4);
         await gateway.AppendedAsync("n2", 6).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         await copy.CatchUpAsync(followers.Logs["n2"], cancellationToken);
@@ -96,7 +96,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         _ = await Assert.That(appliedBytes).IsGreaterThan(filledBytes);
         _ = await Assert.That(removed.Removed).IsTrue();
         _ = await Assert.That(stats.EstimatedBytes).IsLessThan(appliedBytes);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static async Task CommitAsync(ReplicaGroupCommitter committer, int count, CancellationToken cancellationToken, int first = 1)

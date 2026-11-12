@@ -76,7 +76,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         material.ReleaseHold();
         _ = await Assert.That(material.IsReleased).IsTrue().Because("The pool must have released its hold once the stalled connection closed.");
         await connectionClosed.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await stub;
     }
 

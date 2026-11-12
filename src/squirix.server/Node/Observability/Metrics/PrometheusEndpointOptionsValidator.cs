@@ -10,7 +10,7 @@ internal sealed class PrometheusEndpointOptionsValidator : IValidateOptions<Prom
     {
         { Enabled: false } => ValidateOptionsResult.Success,
         _ when string.IsNullOrWhiteSpace(options.Path) => ValidateOptionsResult.Fail("Prometheus metrics Path must be non-empty when the endpoint is enabled."),
-        _ when !options.Path.StartsWith('/') => ValidateOptionsResult.Fail("Prometheus metrics Path must start with '/'."),
+        _ when options.Path[0] != '/' => ValidateOptionsResult.Fail("Prometheus metrics Path must start with '/'."),
         _ => ValidateOptionsResult.Success,
     };
 }

@@ -57,10 +57,15 @@ runs:
       working-directory: ${{ runner.temp }}
       run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
-    # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
-    # system compiles them, and the output folders carry the native assets of every test platform. A test assembly needs only
-    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json. A job that builds its
-    # suite itself (input build) sets the SDK up for that build instead.
+    # Unix runner images can still ship a runtime older than the server's minimum. Jobs that build their own suite
+    # already install the required runtime through build-release.
+    - name: Setup Test Runtime
+      if: inputs.build != 'true' && runner.os != 'Windows'
+      uses: ./.github/actions/setup-sdk
+      with:
+        net10-runtime: ${{ inputs.framework == 'net10.0' }}
+
+    # The build outputs are portable and include native assets for every test platform.
     - name: Download Build Outputs
       if: inputs.build != 'true'
       uses: ./.github/actions/download-build-outputs
@@ -92,7 +97,7 @@ runs:
         upload-outputs: "false"
         projects: ${{ steps.projects.outputs.list }}
         # The SDK goes on the path, so the test hosts below start from its folder.
-        net10-runtime: "true"
+        net10-runtime: ${{ inputs.framework == 'net10.0' }}
 
     # A suite id selects one test host run, or for a group several runs back to back. Every run keeps its own name for the
     # log, the TRX file and the coverage directory, so a single suite produces the same files whether it runs alone or in a group.
@@ -113,7 +118,7 @@ runs:
           fi
 
           # The test assembly is named after its project and takes the Microsoft.Testing.Platform options. It starts through
-          # the dotnet host of the runner, because the native launcher next to it belongs to the system that built it.
+          # the dotnet host on PATH, because the native launcher next to it belongs to the system that built it.
           host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj).dll"
           results="${{ github.workspace }}/TestResults"
           coverage_args=()
@@ -124,10 +129,17 @@ runs:
             coverage_args=(--coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml)
           fi
 
+          # Server unit tests must observe failures of every task they start, including work released during teardown.
+          exception_args=()
+          if [ "$name" = "server-unit" ]; then
+            exception_args=(--fail-on-unobserved-task-exceptions)
+          fi
+
           # A test host that finishes no test for 10 minutes leaves a heap dump in the results directory before it is stopped.
           status=0
           dotnet "$host" \
             "${filter_args[@]}" \
+            "${exception_args[@]}" \
             --detailed-stacktrace \
             --report-trx --report-trx-filename "$name.trx" \
             --results-directory "$results" \

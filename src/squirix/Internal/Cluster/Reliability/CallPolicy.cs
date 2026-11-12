@@ -31,7 +31,7 @@ internal sealed class CallPolicy : ICallPolicy
         int maxAttempts = 3,
         TimeSpan? baseBackoff = null,
         TimeSpan? maxBackoff = null,
-        int maxConcurrentPerPeer = 64,
+        int maxConcurrentPerPeer = 256,
         string? peer = null)
     {
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
@@ -195,7 +195,7 @@ internal sealed class CallPolicy : ICallPolicy
                 // The operation deadline can expire while queued on the per-peer semaphore. Surface it as
                 // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
                 // OperationCanceledException.
-                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
                 throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
@@ -265,13 +265,10 @@ internal sealed class CallPolicy : ICallPolicy
             try
             {
                 await BackoffAsync(delay, outerCt).ConfigureAwait(false);
-                if (exhaustsBudget)
-                {
-                    outerCt.ThrowIfCancellationRequested();
-                    throw CreateBudgetExceeded();
-                }
-
-                return last;
+                if (!exhaustsBudget)
+                    return last;
+                outerCt.ThrowIfCancellationRequested();
+                throw CreateBudgetExceeded();
             }
             catch (OperationCanceledException oce) when (outerCt.IsCancellationRequested)
             {
@@ -309,7 +306,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         private RpcException CreateBudgetExceeded()
         {
-            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
             return new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
@@ -337,7 +334,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (cancelKind != CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
-            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
+            RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "attempt", "operation_canceled");
             CallPolicyMetrics.IncrementRetriesTotal(_peer, "operation_canceled");
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
         }
@@ -347,7 +344,7 @@ internal sealed class CallPolicy : ICallPolicy
             // A mutation may have committed durably even though its outcome is unknown (server write-ahead
             // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
             // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
-            if (CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rx))
+            if (CommitOutcomeUnknownDetail.Matches(rx.Status.Detail))
                 return AttemptOutcome<T>.Stop(rx);
 
             // The gRPC deadline timer and the budget timer expire at the same instant: when gRPC reports the
@@ -355,7 +352,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && !cancellationToken.IsCancellationRequested &&
                 budget?.Remaining is { } remainingBudget && remainingBudget <= TimeSpan.Zero)
             {
-                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
                 throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
@@ -366,7 +363,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
             {
                 var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? CallPolicyRetryClassifier.DeadlineExceeded : CallPolicyRetryClassifier.Canceled;
-                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
+                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "attempt", reason);
                 CallPolicyMetrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
             }
@@ -380,7 +377,7 @@ internal sealed class CallPolicy : ICallPolicy
         private void ThrowAfterFailedAttempts(Exception? last, DeadlineBudget? budget, CancellationToken effectiveToken)
         {
             // An ambiguous durable outcome must retain its no-retry contract even at the deadline boundary.
-            if (last is RpcException rpc && CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rpc))
+            if (last is RpcException rpc && CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail))
                 throw rpc;
 
             if (budget == null || (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget)))
@@ -393,7 +390,7 @@ internal sealed class CallPolicy : ICallPolicy
                 };
             }
 
-            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
@@ -441,7 +438,7 @@ internal sealed class CallPolicy : ICallPolicy
             // The timer records which limit won even if its callback precedes the next timestamp observation.
             return failure switch
             {
-                RpcException rpc when CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rpc) => AttemptOutcome<T>.Stop(rpc),
+                RpcException rpc when CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptOutcome<T>.Stop(rpc),
                 _ when attemptBoundsBudget && attemptToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested => throw CreateBudgetExceeded(),
                 OperationCanceledException oce => await MapOperationCanceledFailureAsync<T>(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
                 RpcException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),
@@ -472,10 +469,6 @@ internal sealed class CallPolicy : ICallPolicy
         {
             internal const string Canceled = "canceled";
             internal const string DeadlineExceeded = "deadline_exceeded";
-
-            private const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
-
-            internal static bool IsCommitOutcomeUnknownStatus(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownDetail, StringComparison.Ordinal);
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {

@@ -28,6 +28,13 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.GetEntryAsync(cacheName, key, cancellationToken);
     }
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        _ = CacheKeyValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
+    }
+
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         _ = CacheKeyValidator.Validate(key, nameof(key));

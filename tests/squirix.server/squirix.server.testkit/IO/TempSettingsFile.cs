@@ -19,14 +19,6 @@ public sealed class TempSettingsFile : IDisposable
     /// <summary>Gets the absolute path to the temp settings file.</summary>
     public string Path { get; }
 
-    /// <summary>Gets the file path for <paramref name="file" />.</summary>
-    /// <param name="file">The temp settings file handle.</param>
-    public static implicit operator string(TempSettingsFile file)
-    {
-        ArgumentNullException.ThrowIfNull(file);
-        return file.Path;
-    }
-
     /// <summary>Writes JSON to a unique temp settings file under the system temp directory.</summary>
     /// <param name="prefix">Filename prefix (for example <c language="csharp">squirix-mp-</c>).</param>
     /// <param name="json">Settings JSON payload.</param>
@@ -38,9 +30,6 @@ public sealed class TempSettingsFile : IDisposable
         ArgumentNullException.ThrowIfNull(json);
         return WriteCoreAsync(prefix, json, cancellationToken);
     }
-
-    /// <inheritdoc />
-    public override string ToString() => Path;
 
     /// <inheritdoc />
     public void Dispose()

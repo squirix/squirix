@@ -94,7 +94,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         await pool.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await parking.Cancelled.WaitAsync(cancellationToken);
         _ = await Assert.That(parking.Disposed).IsTrue();
         _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
@@ -113,7 +113,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         var call = gateway.AppendEntriesAsync(PeerNodeId, Header(), Batch(), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(call);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(parking.Arrived.IsCompleted).IsFalse();
     }
 
@@ -131,7 +131,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         await pool.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await parking.Cancelled.WaitAsync(cancellationToken);
         _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
     }
@@ -150,8 +150,8 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         var preVote = gateway.PreVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
         var vote = gateway.RequestVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(preVote);
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(vote);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(preVote, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(vote, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(parking.Arrived.IsCompleted).IsFalse();
     }
 
@@ -173,7 +173,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         _ = await Assert.That(first).IsSameReferenceAs(parking.Arrived).Because("The vote must reach the transport instead of failing while it is built.");
         await pool.DisposeAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static FollowerBatch Batch() => new([], PeerNodeId, 1, 0, 0, 0);

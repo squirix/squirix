@@ -69,4 +69,38 @@ public sealed class CsharpSourceMaskerTests : ServerUnitTestBase
     [Arguments("'\\", "  ")]
     public async Task MaskHandlesUnterminatedConstructs(string source, string expected) =>
         _ = await Assert.That(CsharpSourceMasker.Mask(source)).IsEqualTo(expected);
+
+    /// <summary>A rejected prefix stays visible while later literals, comments and interpolation delimiters are still recognized.</summary>
+    /// <param name="source">The source text.</param>
+    /// <param name="expected">The expected masked text.</param>
+    [Test]
+    [Arguments("$$$", "$$$")]
+    [Arguments("$$$word", "$$$word")]
+    [Arguments("$$@", "$$@")]
+    [Arguments("$$@word", "$$@word")]
+    [Arguments("$$@@name", "$$@@name")]
+    [Arguments("$$@@", "$$@@")]
+    [Arguments("@@@", "@@@")]
+    [Arguments("$$@@\"x\"", "$$@    ")]
+    [Arguments("@$$@\"x\"", "@      ")]
+    [Arguments("$$@$$@\"{value}\"", "$$@     value  ")]
+    [Arguments("$$@\r\n\"x\"", "$$@\r\n   ")]
+    [Arguments("$$@// x\nvalue", "$$@    \nvalue")]
+    [Arguments("$$@'x'", "$$@   ")]
+    [Arguments("$\"{$$value}\"", "   $$value  ")]
+    [Arguments("$\"{$$}\"", "   $$  ")]
+    public async Task RejectedPrefixesKeepMaskingRules(string source, string expected) =>
+        _ = await Assert.That(CsharpSourceMasker.Mask(source)).IsEqualTo(expected);
+
+    /// <summary>A long dollar run without a quote is preserved, including an optional verbatim marker and following code.</summary>
+    /// <param name="trailingAt">Whether the run ends with an at sign.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task LongDollarPrefixStaysVisible(bool trailingAt)
+    {
+        var source = new string('$', 4096) + (trailingAt ? "@" : string.Empty) + "\ncode";
+
+        _ = await Assert.That(CsharpSourceMasker.Mask(source)).IsEqualTo(source);
+    }
 }

@@ -76,7 +76,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         _ = await Assert.That(read.Found).IsFalse();
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
-        _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+        _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>
@@ -156,10 +156,10 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, new INodeLocatorCreateExpectations().Instance(), readerClock);
         var cache = new ReplicatedCache(local, readers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
-        _ = await Assert.That((await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken))?.Value).IsEqualTo("v");
+        _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken)?.Value).IsEqualTo("v");
     }
 
     /// <summary>A start the committer refuses fails every queued expired read with the expiration-pending refusal, and the entries stay in memory.</summary>
@@ -189,11 +189,11 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         foreach (var read in reads)
         {
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(read);
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
         }
 
-        _ = await Assert.That((await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, "a"), cancellationToken))?.Value).IsEqualTo("v");
+        _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, "a"), cancellationToken)?.Value).IsEqualTo("v");
     }
 
     private static async Task<string> LastKindAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
@@ -203,6 +203,6 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         var status = await log.GetStatusAsync(cancellationToken);
         var read = await log.ReadEntriesAsync(status.LastLogIndex, 1, cancellationToken);
-        return (ReplicaLogCodec.Decode(read.Entries[0].Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."))).MutationKind;
+        return (ReplicaLogCodec.DecodeBorrowed(read.Entries[0].Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."))).MutationKind;
     }
 }

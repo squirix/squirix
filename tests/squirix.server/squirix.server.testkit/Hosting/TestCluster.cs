@@ -53,22 +53,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     private int _disposed;
     private int _seeded;
 
-    /// <summary>Initializes a new instance of the <see cref="TestCluster{TOptions}" /> class for a single-node topology.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="startNode">Starts the topology entry with the supplied options.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dataDir">Optional persistence root disposed with the cluster.</param>
-    private TestCluster(
-        ClusterNode node,
-        Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> startNode,
-        ServerPeer[]? peers = null,
-        ClusterIdentity? identity = null,
-        TempDirectory? dataDir = null)
-        : this([node], startNode, peers, identity, dataDir)
-    {
-    }
-
     /// <summary>Initializes a new instance of the <see cref="TestCluster{TOptions}" /> class.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
     /// <param name="startNode">Starts one topology entry with the supplied options.</param>
@@ -132,7 +116,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
     /// <summary>Stops the node, empties its data directory, and starts it again from the same topology entry, as a node whose disk was lost.</summary>
     /// <param name="nodeId">Node identifier to restart.</param>
-    /// <param name="options">Startup options for the restarted node; the options it was last started with when <see langword="null" />.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The restarted test node host.</returns>
     /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
@@ -140,11 +123,10 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// Unlike <see cref="StartNodeAsync(string, TOptions, CancellationToken)" />, this start does not wait for the first start of the groups: a
     /// node that came back on an empty disk into a running cluster holds unseeded copies, and its first start does not end.
     /// </remarks>
-    public async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    public async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, CancellationToken cancellationToken = default)
     {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
         await WipeNodeAsync(nodeId).ConfigureAwait(false);
-        return await StartWipedNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
+        return await StartWipedNodeAsync(nodeId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Starts every topology entry in order, rolling the whole cluster back on any failure.</summary>
@@ -272,14 +254,13 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
     /// <summary>Starts a node that <see cref="WipeNodeAsync" /> stopped, from the same topology entry, without waiting for the first start of the groups.</summary>
     /// <param name="nodeId">Node identifier to start.</param>
-    /// <param name="options">Startup options for the node; the options it was last started with when <see langword="null" />.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started test node host.</returns>
-    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, CancellationToken cancellationToken = default)
     {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
-        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        _lastOptions[nodeId] = effectiveOptions;
+        var options = _lastOptions.GetValueOrDefault(nodeId);
+        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, options, cancellationToken).ConfigureAwait(false);
+        _lastOptions[nodeId] = options;
         return host;
     }
 
@@ -403,29 +384,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             throw new AggregateException("One or more cluster nodes failed to shut down.", failures);
     }
 
-    /// <summary>Creates a single-node cluster with in-process nodes.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dir">
-    /// Optional persistence root name. When supplied, the cluster creates and owns a <see cref="TempDirectory" />
-    /// under this name, disposed with the cluster and exposed through <see cref="DataDir" />.
-    /// </param>
-    /// <returns>A cluster that starts in-process nodes.</returns>
-    internal static TestCluster<TOptions> Create(ClusterNode node, ServerPeer[]? peers = null, ClusterIdentity? identity = null, string? dir = null)
-    {
-        var sharedIdentity = ClusterIdentity.ResolveForTopology([node], identity);
-
-        // An empty hint suppresses the implicit [CallerMemberName] leaf, so disposal deletes exactly the created directory.
-        var dataDir = dir == null ? null : new TempDirectory(dir, string.Empty);
-        return new TestCluster<TOptions>(
-            node,
-            (self, topology, options, cancellationToken) => StartNodeCoreAsync(self, topology, options, sharedIdentity, cancellationToken),
-            peers,
-            sharedIdentity,
-            dataDir);
-    }
-
     /// <summary>Creates a cluster with in-process nodes.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
     /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
@@ -445,20 +403,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             sharedIdentity,
             dir == null ? null : new TempDirectory(dir, string.Empty));
     }
-
-    /// <summary>Creates a single-node cluster from the supplied node starter.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="startNode">Starts the topology entry with the supplied options.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dataDir">Optional persistence root disposed with the cluster.</param>
-    /// <returns>A cluster that starts the node through <paramref name="startNode" />.</returns>
-    internal static TestCluster<TOptions> Create(
-        ClusterNode node,
-        Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> startNode,
-        ServerPeer[]? peers = null,
-        ClusterIdentity? identity = null,
-        TempDirectory? dataDir = null) => new(node, startNode, peers, identity, dataDir);
 
     /// <summary>Creates a cluster from the supplied topology and node starter.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>

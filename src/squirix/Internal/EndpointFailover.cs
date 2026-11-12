@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Internal.Cluster.Observability;
+using Squirix.Internal.Cluster.Reliability;
 
 namespace Squirix.Internal;
 
@@ -98,7 +99,7 @@ internal sealed class EndpointFailover
                 rerouted = true;
                 lastFailure = ex;
             }
-            catch (RpcException ex) when (IsRetryableTransport(ex) && !IsCommitOutcomeUnknown(ex) && hasMoreEndpoints)
+            catch (RpcException ex) when (IsRetryableTransport(ex) && !CommitOutcomeUnknownDetail.Matches(ex.Status.Detail) && hasMoreEndpoints)
             {
                 lastFailure = ex;
             }
@@ -118,15 +119,6 @@ internal sealed class EndpointFailover
 
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
-
-    /// <summary>
-    /// Determines whether <paramref name="ex" /> reports an ambiguous durable commit outcome that must never
-    /// fail over: the mutation may already be committed on this endpoint, and the next endpoint holds no
-    /// idempotency record that would gate a re-execution.
-    /// </summary>
-    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
-    /// <returns><see langword="true" /> when the status detail is the exact stable ambiguous-commit contract.</returns>
-    private static bool IsCommitOutcomeUnknown(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal);
 
     /// <summary>Determines whether the shared absolute deadline already passed.</summary>
     /// <param name="budget">The single monotonic operation budget.</param>
@@ -175,7 +167,7 @@ internal sealed class EndpointFailover
         if (!IsExpired(in budget))
             return;
 
-        RpcTimeoutMetrics.TimeoutsTotal.WithLabels(peer, "overall", "deadline_budget").Inc();
+        RpcTimeoutMetrics.TimeoutsTotal.Add(peer, "overall", "deadline_budget");
         throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 

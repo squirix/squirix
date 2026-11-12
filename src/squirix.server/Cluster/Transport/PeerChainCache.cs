@@ -24,22 +24,21 @@ namespace Squirix.Server.Cluster.Transport;
 [ThreadSafe]
 internal sealed class PeerChainCache
 {
-    /// <summary>The number of certificates remembered before the cache starts over.</summary>
+    /// <summary>The number of certificates remembered before the oldest entry is evicted.</summary>
     internal const int DefaultCapacity = 256;
 
     private const int DefaultMaxAgeMinutes = 10;
 
-    private readonly int _capacity;
-    private readonly Dictionary<CertificateDigest, Entry> _entries = [];
+    private readonly BoundedFifo<Entry> _entries;
     private readonly Lock _gate = new();
     private readonly TimeSpan _maxAge;
-    private readonly Dictionary<CertificateDigest, RefusedEntry> _refusals = [];
+    private readonly BoundedFifo<RefusedEntry> _refusals;
     private readonly X509Certificate2 _trustAnchor;
     private long _chainBuilds;
 
     /// <summary>Initializes a new instance of the <see cref="PeerChainCache" /> class.</summary>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="capacity">The number of certificates remembered before the cache starts over.</param>
+    /// <param name="capacity">The number of certificates remembered before the oldest entry is evicted.</param>
     /// <param name="maxAge">The longest time a successful chain build is trusted without a rebuild.</param>
     /// <exception cref="ArgumentNullException"><paramref name="trustAnchor" /> is <see langword="null" />.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="capacity" /> is not positive or <paramref name="maxAge" /> is negative.</exception>
@@ -49,7 +48,8 @@ internal sealed class PeerChainCache
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(capacity, 0);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxAge, TimeSpan.Zero);
         _trustAnchor = trustAnchor;
-        _capacity = capacity;
+        _entries = new BoundedFifo<Entry>(capacity);
+        _refusals = new BoundedFifo<RefusedEntry>(capacity);
         _maxAge = maxAge;
     }
 
@@ -134,14 +134,14 @@ internal sealed class PeerChainCache
     {
         lock (_gate)
         {
-            if (_entries.TryGetValue(key, out var entry) && entry.Verdict.IsValidAt(now) && now - entry.VerifiedAt <= _maxAge)
+            if (_entries.TryGetValue(in key, out var entry) && entry.Verdict.IsValidAt(now) && now - entry.VerifiedAt <= _maxAge)
             {
                 verdict = entry.Verdict;
                 refusal = default;
                 return true;
             }
 
-            if (_refusals.TryGetValue(key, out var refused) && now >= refused.RefusedAt && now - refused.RefusedAt <= _maxAge)
+            if (_refusals.TryGetValue(in key, out var refused) && now >= refused.RefusedAt && now - refused.RefusedAt <= _maxAge)
             {
                 verdict = default;
                 refusal = refused.Refusal;
@@ -158,17 +158,14 @@ internal sealed class PeerChainCache
     {
         lock (_gate)
         {
-            _ = _entries.Remove(key);
+            _entries.Remove(in key);
             if (!IsStableRefusal(refusal, chainTrusted))
             {
-                _ = _refusals.Remove(key);
+                _refusals.Remove(in key);
                 return;
             }
 
-            if (_refusals.Count >= _capacity && !_refusals.ContainsKey(key))
-                _refusals.Clear();
-
-            _refusals[key] = new RefusedEntry(refusal, now);
+            _refusals.Set(in key, new RefusedEntry(refusal, now));
         }
     }
 
@@ -176,11 +173,8 @@ internal sealed class PeerChainCache
     {
         lock (_gate)
         {
-            _ = _refusals.Remove(key);
-            if (_entries.Count >= _capacity && !_entries.ContainsKey(key))
-                _entries.Clear();
-
-            _entries[key] = new Entry(verdict, now);
+            _refusals.Remove(in key);
+            _entries.Set(in key, new Entry(verdict, now));
         }
     }
 
@@ -241,4 +235,58 @@ internal sealed class PeerChainCache
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct RefusedEntry(PeerChainRefusal Refusal, DateTimeOffset RefusedAt);
+
+    private sealed class BoundedFifo<TValue>
+        where TValue : struct
+    {
+        private readonly Dictionary<CertificateDigest, LinkedListNode<(CertificateDigest Key, TValue Value)>> _byKey = [];
+        private readonly int _capacity;
+        private readonly LinkedList<(CertificateDigest Key, TValue Value)> _order = new();
+
+        internal BoundedFifo(int capacity)
+        {
+            _capacity = capacity;
+        }
+
+        internal int Count => _byKey.Count;
+
+        internal bool TryGetValue(in CertificateDigest key, out TValue value)
+        {
+            if (_byKey.TryGetValue(key, out var node))
+            {
+                value = node.Value.Value;
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        internal void Remove(in CertificateDigest key)
+        {
+            if (_byKey.Remove(key, out var node))
+                _order.Remove(node);
+        }
+
+        internal void Set(in CertificateDigest key, TValue value)
+        {
+            if (_byKey.TryGetValue(key, out var existing))
+            {
+                existing.Value = (key, value);
+                return;
+            }
+
+            if (_byKey.Count == _capacity && _order.First is { } oldest)
+            {
+                _order.RemoveFirst();
+                _ = _byKey.Remove(oldest.Value.Key);
+                oldest.Value = (key, value);
+                _order.AddLast(oldest);
+                _byKey.Add(key, oldest);
+                return;
+            }
+
+            _byKey.Add(key, _order.AddLast((key, value)));
+        }
+    }
 }

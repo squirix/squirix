@@ -29,6 +29,7 @@ internal static class GrpcTransportEndpoints
     /// <returns>A handler suitable for secure gRPC transport that pings its connections with HTTP/2 keepalive.</returns>
     internal static HttpMessageHandler CreateChannelHandler() => new SocketsHttpHandler
     {
+        EnableMultipleHttp2Connections = true,
         KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
         KeepAlivePingDelay = KeepAlivePingDelay,
         KeepAlivePingTimeout = KeepAlivePingTimeout,

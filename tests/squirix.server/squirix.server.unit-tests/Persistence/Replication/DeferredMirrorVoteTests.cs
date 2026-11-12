@@ -62,7 +62,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
             clock.Advance(ShutdownBudget);
             await dispose.WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That((logger.Count(LeakedOnShutdownEventId), logger.Find(LeakedOnShutdownEventId)?.Level)).IsEqualTo((1, LogLevel.Error));
         }
         finally
@@ -94,7 +94,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         var vote = log.RequestVoteAsync(new ElectionVoteRequest("node-c", VoteTerm + 1UL, 0UL, 0UL), canceling.Token);
         await Task.Delay(StillWaiting, TimeProvider.System, cancellationToken);
         await canceling.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
         var observe = log.ObserveTermAsync(VoteTerm + 2UL, cancellationToken);
@@ -213,7 +213,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
             _ = await Assert.That(observe.IsCompleted).IsFalse();
             mirror.Release();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(observe);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(observe, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             var status = await log.GetStatusAsync(cancellationToken);
             _ = await Assert.That((log.Readiness, status.CurrentTerm, status.VotedFor)).IsEqualTo((FollowerLogReadiness.Failed, VoteTerm, "node-b"));

@@ -2,8 +2,6 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
-using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Server.Core;
@@ -15,6 +13,7 @@ namespace Squirix.Server.Serialization.Grpc;
 
 internal static class ServerProtoEx
 {
+    private const string IncompatibleBinaryDetail = "Opaque binary data requires a binary cache value type.";
     private const string InvalidJsonDetail = "The cache value is not exactly one valid JSON value (UTF-8, no byte order mark, at most 64 levels of nesting, no comments or trailing commas).";
     private const string MissingValueDetail = "The cache value is missing.";
     private const string NonNormalizedDurationDetail = "Duration is not normalized: nanos must be within -999999999..999999999 and share the sign of seconds.";
@@ -23,7 +22,7 @@ internal static class ServerProtoEx
     /// <summary>Maps a cache value to its wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
-    /// <returns>A scalar kind for a scalar, the stored JSON bytes themselves (shared, not copied) for a structured value, otherwise the serialized JSON.</returns>
+    /// <returns>A native scalar, an owned binary copy, shared immutable JSON bytes, or serialized JSON for other values.</returns>
     internal static CacheValue CacheValueToGrpcValue<T>(T? value)
     {
         return value switch
@@ -34,6 +33,7 @@ internal static class ServerProtoEx
             long number => new CacheValue { Int64Value = number },
             double number => new CacheValue { DoubleValue = number },
             bool boolean => new CacheValue { BoolValue = boolean },
+            byte[] bytes => CacheValueWire.FromBinary(bytes),
             JsonUtf8Value json => CacheValueWire.FromJson(json.Bytes),
             JsonElement element => CacheValueWire.FromElement(element),
             sbyte or byte or short or ushort or uint => new CacheValue { Int64Value = NarrowIntegerToInt64(value) },
@@ -42,28 +42,45 @@ internal static class ServerProtoEx
         };
     }
 
-    internal static ValueTask<T?> MapCacheValueAsync<T>(CacheValue value, JsonTypeInfo<T>? typeInfo = null) => new(ReadValue(value, typeInfo));
-
-    internal static ValueTask<NodeCacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
+    internal static T? MapCacheValue<T>(CacheValue? wire)
     {
-        var value = ReadValue<T>(e.Value);
+        var present = RequireValue(wire);
+        return typeof(T) == typeof(object) ? Coerce<T>(ReadObject(present)) : ReadTyped<T>(present);
+    }
+
+    internal static NodeCacheEntry<T> MapFromProto<T>(this RpcEntry e)
+    {
+        var value = MapCacheValue<T>(e.Value);
         DateTime? expires = null;
-        if (e.ExpiresUtc != null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos != 0))
+        if (e.ExpiresUtc == null)
         {
-            if (!WireTimestamp.IsNormalized(e.ExpiresUtc))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedTimestampDetail));
-
-            expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
-        }
-
-        return new ValueTask<NodeCacheEntry<T>>(
-            new NodeCacheEntry<T>
+            return new NodeCacheEntry<T>
             {
                 Value = value,
                 ExpiresUtc = expires,
-                Expiration = e.Expiration is { } expiration ? RequireDuration(expiration) : null,
-            });
+                Expiration = e.Expiration is { } duration ? RequireDuration(duration) : null,
+            };
+        }
+
+        if (!WireTimestamp.IsNormalized(e.ExpiresUtc))
+            throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedTimestampDetail));
+
+        expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
+
+        return new NodeCacheEntry<T>
+        {
+            Value = value,
+            ExpiresUtc = expires,
+            Expiration = e.Expiration is { } expiration ? RequireDuration(expiration) : null,
+        };
     }
+
+    internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
+    {
+        Value = CacheValueToGrpcValue(e.Value),
+        ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
+        Expiration = e.Expiration == null ? null : WireDuration.FromTimeSpan(e.Expiration.Value),
+    };
 
     /// <summary>Converts a wire duration to a <see cref="TimeSpan" />, rejecting non-normalized input.</summary>
     /// <param name="duration">The wire duration.</param>
@@ -72,13 +89,6 @@ internal static class ServerProtoEx
     internal static TimeSpan RequireDuration(Duration duration) => WireDuration.IsNormalized(duration)
         ? WireDuration.ToTimeSpan(duration)
         : throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedDurationDetail));
-
-    internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
-    {
-        Value = CacheValueToGrpcValue(e.Value),
-        ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = e.Expiration == null ? null : WireDuration.FromTimeSpan(e.Expiration.Value),
-    };
 
     private static TOut CastReference<TOut, TIn>(TIn input)
         where TIn : class?
@@ -93,11 +103,11 @@ internal static class ServerProtoEx
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
-    private static T? DeserializeScalar<T>(CacheValue wire, JsonTypeInfo<T>? typeInfo)
+    private static T? DeserializeScalar<T>(CacheValue wire)
     {
         var buffer = new ArrayBufferWriter<byte>();
         CacheValueWire.WriteScalarJson(wire, buffer);
-        return ServerJsonSerializer.Deserialize(buffer.WrittenSpan, typeInfo);
+        return ServerJsonSerializer.Deserialize<T>(buffer.WrittenSpan);
     }
 
     private static long NarrowIntegerToInt64<T>(T value) => value switch
@@ -110,6 +120,10 @@ internal static class ServerProtoEx
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, "The value is not a narrow integer."),
     };
 
+    private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
+        ? Coerce<T>(wire.BinaryValue.ToByteArray())
+        : throw new RpcException(new Status(StatusCode.InvalidArgument, IncompatibleBinaryDetail));
+
     private static object? ReadObject(CacheValue wire) => wire.KindCase switch
     {
         CacheValue.KindOneofCase.StringValue => wire.StringValue,
@@ -117,42 +131,28 @@ internal static class ServerProtoEx
         CacheValue.KindOneofCase.Int64Value => wire.Int64Value,
         CacheValue.KindOneofCase.DoubleValue => wire.DoubleValue,
         CacheValue.KindOneofCase.NullValue => null,
+        CacheValue.KindOneofCase.BinaryValue => wire.BinaryValue.ToByteArray(),
         CacheValue.KindOneofCase.JsonUtf8 => JsonUtf8Value.TryCreate(wire.JsonUtf8.Memory, out var json)
             ? json
             : throw new RpcException(new Status(StatusCode.InvalidArgument, InvalidJsonDetail)),
         _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
     };
 
-    private static T? ReadTyped<T>(CacheValue wire, JsonTypeInfo<T>? typeInfo) => TryReadExactPrimitive(wire, out T? exact)
+    private static T? ReadTyped<T>(CacheValue wire) => TryReadExactPrimitive(wire, out T? exact)
         ? exact
         : wire.KindCase switch
         {
             CacheValue.KindOneofCase.NullValue => default,
-            CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(wire.JsonUtf8.Span) => ServerJsonSerializer.Deserialize(wire.JsonUtf8.Span, typeInfo),
+            CacheValue.KindOneofCase.BinaryValue => ReadBinary<T>(wire),
+            CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(wire.JsonUtf8.Span) => ServerJsonSerializer.Deserialize<T>(wire.JsonUtf8.Span),
             CacheValue.KindOneofCase.JsonUtf8 => throw new RpcException(new Status(StatusCode.InvalidArgument, InvalidJsonDetail)),
             CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue =>
-                DeserializeScalar(wire, typeInfo),
+                DeserializeScalar<T>(wire),
             _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
         };
 
-    private static T? ReadValue<T>(CacheValue? wire, JsonTypeInfo<T>? typeInfo = null)
-    {
-        var present = RequireValue(wire);
-        return typeof(T) == typeof(object) ? Coerce<T>(ReadObject(present)) : ReadTyped(present, typeInfo);
-    }
-
     private static CacheValue RequireValue(CacheValue? wire) =>
         wire == null || wire.KindCase == CacheValue.KindOneofCase.None ? throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)) : wire;
-
-    private static bool TryReadInt32<T>(CacheValue wire, out T? decoded)
-    {
-        decoded = default;
-        if (wire.KindCase != CacheValue.KindOneofCase.Int64Value || wire.Int64Value is < int.MinValue or > int.MaxValue)
-            return false;
-
-        decoded = CastScalar<T, int>(int.CreateChecked(wire.Int64Value));
-        return true;
-    }
 
     private static bool TryReadExactPrimitive<T>(CacheValue wire, out T? decoded)
     {
@@ -196,6 +196,16 @@ internal static class ServerProtoEx
             return false;
 
         decoded = CastScalar<T, double>(wire.DoubleValue);
+        return true;
+    }
+
+    private static bool TryReadInt32<T>(CacheValue wire, out T? decoded)
+    {
+        decoded = default;
+        if (wire.KindCase != CacheValue.KindOneofCase.Int64Value || wire.Int64Value is < int.MinValue or > int.MaxValue)
+            return false;
+
+        decoded = CastScalar<T, int>(int.CreateChecked(wire.Int64Value));
         return true;
     }
 }

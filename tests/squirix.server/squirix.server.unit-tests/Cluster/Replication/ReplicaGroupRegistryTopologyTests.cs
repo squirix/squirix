@@ -79,7 +79,7 @@ public sealed class ReplicaGroupRegistryTopologyTests : ServerUnitTestBase
 
         await using var changed = new ReplicaGroupRegistry(dir, [GroupId], 1, Changed, 2, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
 
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(changed.OpenAsync(cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(changed.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await using var original = new ReplicaGroupRegistry(dir, [GroupId], 1, Written, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await original.OpenAsync(cancellationToken);
         _ = original.TryGetLog(GroupId, out var log);

@@ -54,8 +54,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         await AssertNotReadyAsync(cluster["n1"], cancellationToken);
         await AssertNotReadyAsync(cluster["n2"], cancellationToken);
 
-        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = FindKeyBothRingsAssign("n1") }, cancellationToken: cancellationToken).ResponseAsync);
+        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = FindKeyBothRingsAssign("n1") }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(later.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(later.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingFencedCode);
@@ -126,7 +125,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var response = await client.SetEntryAsync(CreateSetRequest(RpcOperationIdentity.New(), key), cancellationToken: cancellationToken);
 
         _ = await Assert.That(response).IsNotNull();
-        var stored = await cluster["n2"].GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
+        var stored = cluster["n2"].GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         _ = await Assert.That(stored.Found).IsTrue();
         await AssertReadyAsync(cluster["n1"], cancellationToken);
         await AssertReadyAsync(cluster["n2"], cancellationToken);
@@ -189,7 +188,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var sends = 0;
         do
         {
-            refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(call(state, cancellationToken));
+            refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(call(state, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             sends++;
         }
         while (refused.StatusCode == StatusCode.DeadlineExceeded && sends < MaxSends);
@@ -199,7 +198,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
 
     private static async Task AssertNothingExecutedAsync(ITestNodeHost owner, string key, CancellationToken cancellationToken)
     {
-        var stored = await owner.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
+        var stored = owner.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         var idempotency = owner.GetRequiredService<RpcMutationIdempotencyStore>();
 
         _ = await Assert.That(stored.Found).IsFalse();

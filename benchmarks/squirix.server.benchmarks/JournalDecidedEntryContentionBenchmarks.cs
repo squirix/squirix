@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Runtime.Contracts;
@@ -20,8 +21,8 @@ namespace Squirix.Server.Benchmarks;
 [SimpleJob(warmupCount: 1, iterationCount: 5)]
 public class JournalDecidedEntryContentionBenchmarks
 {
-    private const int LargeValueBytes = 1024 * 1024;
     private const string LargeCache = "large";
+    private const int LargeValueBytes = 1024 * 1024;
     private const int OperationsPerInvoke = 500;
     private const string SmallCache = "small";
     private static readonly TimeSpan ContenderPause = TimeSpan.FromMilliseconds(10);
@@ -41,29 +42,6 @@ public class JournalDecidedEntryContentionBenchmarks
         _decorator = null;
     }
 
-    /// <summary>Creates the group-commit journal, the executor and the decorator over a stub cache.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
-    [GlobalSetup]
-    public async Task SetupAsync()
-    {
-        var options = new PersistenceOptions
-        {
-            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
-            JournalGroupCommitMaxBatch = 32,
-            JournalMaxSegmentMb = 64,
-            JournalMaxSegmentCount = 512,
-            JournalMaxTotalBytesMb = 16 * 1024,
-        };
-        _host = await JournalBenchmarkHost.CreateAsync("journal-decided-contention-bench", options, CancellationToken.None).ConfigureAwait(false);
-        _largeValue = new string('x', LargeValueBytes);
-        _decorator = new JournalLoggingCacheDecorator<string>(
-            new StubCache(_largeValue),
-            _host.Coordinator,
-            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
-            TimeProvider.System);
-        _smallEntry = new NodeCacheEntry<string> { Value = "v" };
-    }
-
     /// <summary>Runs small sets with nothing else contending for the mutation gate.</summary>
     /// <returns>A task that completes when all sets finish.</returns>
     [Benchmark(Baseline = true, OperationsPerInvoke = OperationsPerInvoke)]
@@ -81,6 +59,31 @@ public class JournalDecidedEntryContentionBenchmarks
     {
         var value = _largeValue;
         return SetWhileAsync((decorator, ct) => decorator.UpdateAsync("op", LargeCache, "key", value, ct));
+    }
+
+    /// <summary>Creates the group-commit journal, the executor and the decorator over a stub cache.</summary>
+    /// <returns>A task that completes when setup finishes.</returns>
+    [GlobalSetup]
+    public async Task SetupAsync()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
+            JournalGroupCommitMaxBatch = 32,
+            JournalMaxSegmentMb = 64,
+            JournalMaxSegmentCount = 512,
+            JournalMaxTotalBytesMb = 16 * 1024,
+        };
+        _host = await JournalBenchmarkHost.CreateAsync("journal-decided-contention-bench", options, CancellationToken.None).ConfigureAwait(false);
+        _largeValue = new string('x', LargeValueBytes);
+        var cache = new StubCache(_largeValue);
+        _decorator = new JournalLoggingCacheDecorator<string>(
+            cache,
+            _host.Coordinator,
+            new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
+            TimeProvider.System,
+            cache);
+        _smallEntry = new NodeCacheEntry<string> { Value = "v" };
     }
 
     private static async Task ContendAsync(
@@ -116,7 +119,7 @@ public class JournalDecidedEntryContentionBenchmarks
     }
 
     /// <summary>Cache stub that holds one 1 MiB entry with a deadline in the large cache and accepts every write.</summary>
-    private sealed class StubCache : ILogicalNamespacedCache<string>
+    private sealed class StubCache : ILogicalNamespacedCache<string>, ILocalCacheRawReader<string>
     {
         private readonly NodeCacheEntry<string> _large;
 
@@ -126,6 +129,8 @@ public class JournalDecidedEntryContentionBenchmarks
         }
 
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => new(_large);
+
+        public NodeCacheEntry<string> GetEntryRaw(CacheKey key, CancellationToken cancellationToken) => _large;
 
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             new(new NodeCacheValueResult<string>(true, null));

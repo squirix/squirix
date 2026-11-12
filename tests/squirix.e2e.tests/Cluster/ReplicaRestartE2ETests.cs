@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>End-to-end write availability of durable RF&gt;1 groups after the owning node restarts.</summary>
-public sealed class ReplicaRestartE2ETests : EndToEndTestBase
+public sealed class ReplicaRestartE2ETests
 {
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(250);
 
@@ -23,8 +23,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
         var options = new MultiNodeStartOptions { ReplicaCount = 3 };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(LeaderRestartRegainsWriteQuorum), options, true, cancellationToken);
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("restart-quorum", "nodeA", "restart-quorum");
-        var before = await cluster.ConnectClientAsync("nodeA", cancellationToken);
-        var beforeCache = await before.GetCacheAsync<string>("restart-quorum", cancellationToken);
+        var beforeCache = await cluster.GetCacheAsync<string>("restart-quorum", cancellationToken: cancellationToken);
         await beforeCache.SetAsync(key, "before-restart", cancellationToken: cancellationToken);
 
         await cluster.RestartNodeAsync("nodeA", cancellationToken);
@@ -33,8 +32,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
         // generous bound only distinguishes a healthy restart from a permanently stalled group.
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        var after = await cluster.ConnectClientAsync("nodeA", linked.Token);
-        var afterCache = await after.GetCacheAsync<string>("restart-quorum", linked.Token);
+        var afterCache = await cluster.GetCacheAsync<string>("restart-quorum", cancellationToken: linked.Token);
         _ = await Assert.That((await afterCache.GetValueAsync(key, linked.Token)).Value).IsEqualTo("before-restart");
 
         await afterCache.SetAsync(key, "after-restart", cancellationToken: linked.Token);
@@ -54,8 +52,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(UncommittedTailRestartRegainsQuorum), options, true, cancellationToken);
         var tailKey = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("restart-tail", "nodeA", "restart-tail");
         var newKey = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("restart-tail", "nodeA", "restart-new");
-        var before = await cluster.ConnectClientAsync("nodeA", cancellationToken);
-        var beforeCache = await before.GetCacheAsync<string>("restart-tail", cancellationToken);
+        var beforeCache = await cluster.GetCacheAsync<string>("restart-tail", cancellationToken: cancellationToken);
         await beforeCache.SetAsync(tailKey, "committed", cancellationToken: cancellationToken);
 
         // Without its followers the owner appends the write durably but cannot commit it: the outcome is unknown.
@@ -64,7 +61,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
 
         // A client attempt that times out before the server reports the unknown outcome surfaces as a deadline error. The tail assertion
         // below then covers the case where the server had not yet appended the write before the abrupt shutdown.
-        var refused = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var unknownOrDeadline = refused is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.DeadlineExceeded };
         _ = await Assert.That(unknownOrDeadline).IsTrue().Because($"A write without its followers must end with an unknown outcome or a deadline error; observed {refused.GetType()}.");
         await cluster.AbruptShutdownNodeAsync("nodeA");
@@ -76,8 +73,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
         // within a bound that only distinguishes a recovering group from a permanently stalled one.
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        var after = await cluster.ConnectClientAsync("nodeA", linked.Token);
-        var afterCache = await after.GetCacheAsync<string>("restart-tail", linked.Token);
+        var afterCache = await cluster.GetCacheAsync<string>("restart-tail", cancellationToken: linked.Token);
         await SetWhenWritableAsync(afterCache, newKey, "after-restart", linked.Token);
 
         _ = await Assert.That((await afterCache.GetValueAsync(tailKey, linked.Token)).Value).IsEqualTo("tail");
@@ -92,8 +88,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
         var options = new MultiNodeStartOptions { ReplicaCount = 3 };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RestartWithFollowerDownCommits), options, true, cancellationToken);
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("restart-minority", "nodeA", "restart-minority");
-        var before = await cluster.ConnectClientAsync("nodeA", cancellationToken);
-        var beforeCache = await before.GetCacheAsync<string>("restart-minority", cancellationToken);
+        var beforeCache = await cluster.GetCacheAsync<string>("restart-minority", cancellationToken: cancellationToken);
         await beforeCache.SetAsync(key, "before-restart", cancellationToken: cancellationToken);
 
         await cluster.StopNodeAsync("nodeC");
@@ -101,8 +96,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
 
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        var after = await cluster.ConnectClientAsync("nodeA", linked.Token);
-        var afterCache = await after.GetCacheAsync<string>("restart-minority", linked.Token);
+        var afterCache = await cluster.GetCacheAsync<string>("restart-minority", cancellationToken: linked.Token);
 
         await afterCache.SetAsync(key, "after-restart", cancellationToken: linked.Token);
 

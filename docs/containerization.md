@@ -1,6 +1,7 @@
 # Containerization
 
 This repository includes two Dockerfiles and sample `docker-compose` files for running a small local squirix cluster.
+Run all commands below from the repository root. Multiline commands use Bash syntax.
 
 Contents:
 
@@ -17,11 +18,10 @@ Contents:
 ## Build (from sources)
 
 ```bash
-cd docker
-docker compose build
+docker compose -f docker/docker-compose.yml build
 ```
 
-Or from the repository root:
+To build the source image directly:
 
 ```bash
 docker build -f docker/Dockerfile -t squirix-server .
@@ -36,25 +36,31 @@ package version (override with `--build-arg` when needed):
 docker build -f docker/Dockerfile.release -t squirix-server:release .
 ```
 
-Verify a not-yet-published tool package locally:
+Verify a not-yet-published tool package locally. Packing from source requires the SDK selected by
+[`global.json`](../global.json). The version below matches the current `SquirixPackageVersion`; if you change that
+property, update the build argument to the same version:
 
 ```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
-dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
+dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -p:SquirixPackAllFrameworks=true -o docker/nuget-packages
 docker build -f docker/Dockerfile.release -t squirix-server:local \
   --build-arg LOCAL_PACKAGES=true \
-  --build-arg SQUIRIX_VERSION=<version from Directory.Build.props> .
+  --build-arg SQUIRIX_VERSION=0.1.0-preview.10 .
 ```
 
-Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). **Secrets are not
-hard-coded** — copy `docker/.env.example` to `docker/.env` (local dev only) before `up`:
+Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). Its build arguments pin
+`SQUIRIX_VERSION` separately; keep that value aligned with the package you packed. Runtime JWT settings and the mTLS
+PFX password are required from the environment. Copy `docker/.env.example` to `docker/.env` for local testing:
+
+The images still contain development HTTPS and mTLS private keys. Loading values from `.env` does not replace those
+certificates or make the image suitable for production. Changing the PFX password variable alone cannot change the
+password of the bundled PFX.
 
 ```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
-cd docker
-cp .env.example .env
-docker compose -f docker-compose.release.yml build
+cp docker/.env.example docker/.env
+docker compose -f docker/docker-compose.release.yml build
 ```
 
 ## Run
@@ -66,22 +72,21 @@ docker compose -f docker-compose.release.yml build
 Three-node RF=3 HA cluster (sets sample JWT env vars for all nodes; containers run with `Production` hosting environment):
 
 ```bash
-cd docker
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 Release-image three-node RF=3 cluster (requires `docker/.env` — copy from `.env.example` for local testing):
 
 ```bash
-cd docker
-cp .env.example .env
-docker compose -f docker-compose.release.yml up -d
+cp docker/.env.example docker/.env
+docker compose -f docker/docker-compose.release.yml up -d
 ```
 
-For a single local development node (ephemeral, in-memory):
+For a single local development node (ephemeral, in-memory), [build the source image](#build-from-sources)
+and run it as shown below. To use the [release image](#build-release--from-nuget-tool), substitute
+`squirix-server:release` for `squirix-server`.
 
 ```bash
-docker build -f docker/Dockerfile -t squirix-server .
 docker run --rm \
   -p 5000:5000 \
   -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
@@ -90,7 +95,7 @@ docker run --rm \
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
-Durable single node with a host-mounted data directory:
+Durable single node with a named Docker volume mounted at `/data`:
 
 ```bash
 docker run --rm \
@@ -130,7 +135,7 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 - The HA demo uses RF=3: three nodes with persistence and mTLS keep committing writes on the remaining majority
   while one follower is down. The example turns on [automatic failover](clustering.md#automatic-failover) and quorum
   reads, so when a node that leads a group goes down, the remaining two elect a new leader. Both switches are part of the
-  topology fingerprint: remove the volumes of an earlier run (`docker compose down -v`) before starting with changed
+  topology fingerprint: remove the volumes of an earlier run (`docker compose -f docker/docker-compose.yml down -v`; this deletes the sample cluster data) before starting with changed
   settings.
   All three nodes must run the same homogeneous build; mixed package versions fail readiness through the topology
   fingerprint.
@@ -139,12 +144,16 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 
 ## HTTPS in containers
 
-Images bundle a self-signed development PFX at `/https/aspnetapp.pfx` (no export password) with SANs for `localhost`,
-`squirix-node-a`, `squirix-node-b`, `squirix-node-c`, and the release compose container names. Kestrel loads it via
+Both images bundle a self-signed development PFX at `/https/aspnetapp.pfx` with an empty export password. The source
+image certificate has SANs for `localhost`, `127.0.0.1`, and `squirix-node-a`, `squirix-node-b`, `squirix-node-c`.
+The release image additionally includes the `squirix-node-*-release` names. Kestrel loads the PFX via
 `ASPNETCORE_Kestrel__Certificates__Default__Path`.
 
-Use `curl -k` (or equivalent TLS skip/validation override) from the host. For .NET clients on the host, either trust the
-exported cert or use development-only certificate validation overrides.
+For a real deployment, configure your own trusted certificate for the primary HTTPS listener as well as separate
+internode mTLS material. The bundled primary certificate does not cover arbitrary deployment hostnames.
+
+For local development probes, use `curl -k` from the host. To connect with the .NET client from the host, trust the
+container's exported public HTTPS certificate on the client machine. The public client API uses normal TLS validation.
 
 Example probes from the host:
 
@@ -153,19 +162,16 @@ curl -k https://localhost:5001/health
 curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 ```
 
-Remote scrapes (including host → published container port) require a JWT bearer token when server auth is enabled.
+Remote scrapes (including host → published container port) require authentication with a valid JWT bearer token.
+An unauthenticated remote request receives `401`; disabling JWT does not make remote scrapes anonymous.
 
-gRPC clients on the host must send JWT via `options.BearerTokenProvider` or an
-`Authorization: Bearer` header. TLS validation against the bundled cert requires `curl -k` or a development-only
-certificate validation override in .NET.
+gRPC clients must send JWT via `options.BearerTokenProvider` or an `Authorization: Bearer` header, and trust the server's
+HTTPS certificate. The public client does not expose a certificate-validation override.
+For a complete local example, use the [Docker client](../samples/docker-client/README.md): it generates a short-lived JWT
+and trusts the exact server certificate inside an isolated client container, without changing the host trust store.
+`curl -k` above is only for local diagnostic probes, not the client trust setup.
 
-Health and metrics:
-
-- `GET /health`
-- `GET /health/live`
-- `GET /health/ready`
-- `GET /health/ready/details`
-- `GET /metrics` (Prometheus text scrape; enabled by default)
+See [health routes](observability.md#health-routes) and the [metrics endpoint](diagnostics.md#metrics-route).
 
 ## Multi-node internode mTLS
 
@@ -201,9 +207,10 @@ Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and e
 
 - Non-loopback listen URLs require JWT settings at startup. The compose examples use a fixed dev signing key for local
   testing only — see [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
-- `docker-compose.release.yml` does **not** ship default secrets; `docker compose up` fails until you set
-  `SQUIRIX_JWT_*` and `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` (for local verification, copy
-  [docker/.env.example](../docker/.env.example) to `docker/.env` — never commit `.env`).
+- For local verification with `docker-compose.release.yml`, copy [docker/.env.example](../docker/.env.example) to
+  `docker/.env` and keep it out of version control. The supplied PFX password matches the development certificates
+  bundled in the release image. To use your own certificates, mount the matching CA and node PFX files and set
+  `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` to the password for those files.
 - Multi-node clusters require cluster mTLS material in addition to JWT. See
   [security/internode-mtls.md](security/internode-mtls.md).
 - For production, prefer **OIDC/JWKS** (`SQUIRIX_JWT_AUTHORITY`) over symmetric `SQUIRIX_JWT_SIGNING_KEY`, mount your
@@ -218,15 +225,8 @@ Use **distinct** JWT and mTLS material per environment (dev, staging, production
 
 ### Symmetric JWT signing key
 
-Generate at least 32 random bytes and base64-encode them. Startup checks only base64 syntax and length, not randomness. Example with OpenSSL:
-
-```bash
-openssl rand -base64 48
-```
-
-Set the same value on every Squirix node (`SQUIRIX_JWT_SIGNING_KEY`) and on every client or scraper that mints bearer
-tokens. Also set `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE` to match your environment. Details:
-[security/jwt-signing-keys.md](security/jwt-signing-keys.md).
+Follow [Generate a per-environment symmetric key](security/jwt-signing-keys.md#generate-a-per-environment-symmetric-key)
+for the generation command and the JWT settings required by each node.
 
 ### Cluster mTLS certificates
 

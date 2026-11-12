@@ -51,7 +51,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         if (!response.Found)
             return new CacheEntryResult<T>(false, null);
 
-        var entry = await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false);
+        var entry = ProtoEx.MapProtoEntryToCacheEntry<T>(response.Entry, _serializer);
 
         // The server reports how long the entry has left; rebase it on the client clock so the deadline reads against it.
         var resultEntry = response.Remaining is { } remaining
@@ -115,7 +115,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
-        return r.Found ? new CacheValueResult<T>(true, await ProtoEx.ReadAsync<T>(r.Value, _serializer).ConfigureAwait(false)) : new CacheValueResult<T>(false, default);
+        return r.Found ? new CacheValueResult<T>(true, ProtoEx.Read<T>(r.Value, _serializer)) : new CacheValueResult<T>(false, default);
     }
 
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
@@ -260,7 +260,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         return (r.Added, r.Found) switch
         {
             (true, _) => new CacheValueResult<T>(true, created),
-            (false, true) => new CacheValueResult<T>(true, await ProtoEx.ReadAsync<T>(r.Value, cache._serializer).ConfigureAwait(false)),
+            (false, true) => new CacheValueResult<T>(true, ProtoEx.Read<T>(r.Value, cache._serializer)),
             _ => new CacheValueResult<T>(false, default),
         };
     }
@@ -269,7 +269,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
 
     [Immutable]
-    private sealed class RemoteCacheRpc
+    internal sealed class RemoteCacheRpc
     {
         private readonly string _cacheName;
         private readonly IClientPool _clients;

@@ -1,0 +1,124 @@
+name: Nightly Process Chaos
+
+on:
+    schedule:
+        - cron: '0 20 * * *'
+    workflow_dispatch:
+        inputs:
+            seed:
+                description: 'Optional SQUIRIX_FAULT_SEED for schedule replay'
+                required: false
+                type: string
+
+permissions:
+    contents: read
+
+jobs:
+    checker-controls:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        outputs:
+            commit: ${{ steps.checkout.outputs.commit }}
+        steps:
+            - name: Checkout scheduled develop or selected manual ref
+              id: checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+                  persist-credentials: false
+
+            - name: Setup .NET
+              uses: ./.github/actions/setup-sdk
+              with:
+                  net10-runtime: 'true'
+
+            - name: Initialize control results directory
+              run: |
+                  echo "CONTROLS_ROOT=$RUNNER_TEMP/squirix-chaos-controls" >> "$GITHUB_ENV"
+                  mkdir -p "$RUNNER_TEMP/squirix-chaos-controls"
+
+            - name: Verify scheduler controls
+              run: |
+                  python3 -m unittest discover -s tools/chaos -p test_runner.py -v
+
+            - name: Verify register checker controls
+              run: |
+                  dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
+                    --treenode-filter '/*/*/Register*Tests/*' --report-trx \
+                    --minimum-expected-tests 1 --zero-tests-policy strict \
+                    --results-directory "$CONTROLS_ROOT/checker-results" \
+                    "-bl:$CONTROLS_ROOT/register-{}.binlog"
+
+            - name: Verify model-generated checker controls
+              run: |
+                  dotnet test --project tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj \
+                    --treenode-filter '/*/*/BrokenModeHistoryTests/*' --report-trx \
+                    --minimum-expected-tests 1 --zero-tests-policy strict \
+                    --results-directory "$CONTROLS_ROOT/model-results" \
+                    "-bl:$CONTROLS_ROOT/model-controls-{}.binlog"
+
+            - name: Upload checker control results
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+              with:
+                  name: chaos-checker-controls
+                  retention-days: 30
+                  if-no-files-found: warn
+                  path: ${{ runner.temp }}/squirix-chaos-controls/**
+
+    process-chaos:
+        needs: checker-controls
+        runs-on: ubuntu-latest
+        timeout-minutes: 35
+        strategy:
+            fail-fast: false
+            matrix:
+                replicas: [3, 5]
+        env:
+            SQUIRIX_FAULT_SEED: ${{ inputs.seed }}
+        steps:
+            - name: Checkout source validated by checker controls
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.checker-controls.outputs.commit }}
+                  persist-credentials: false
+
+            - name: Setup .NET
+              uses: ./.github/actions/setup-sdk
+              with:
+                  net10-runtime: 'true'
+
+            - name: Initialize output directory and record seed
+              shell: bash
+              run: |
+                  echo "CHAOS_ROOT=$RUNNER_TEMP/squirix-chaos" >> "$GITHUB_ENV"
+                  seed=$(python3 -c 'import os,secrets; print(int(os.environ.get("SQUIRIX_FAULT_SEED") or secrets.randbits(31)))')
+                  echo "SQUIRIX_FAULT_SEED=$seed" >> "$GITHUB_ENV"
+                  echo "RF=${{ matrix.replicas }}, seed=$seed" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Build process image
+              run: |
+                  dotnet build tests/squirix.e2e.tests/Squirix.E2ETests.csproj -c Release -r linux-x64
+                  mkdir -p "$CHAOS_ROOT/bundle/client"
+                  cp -a tests/squirix.e2e.tests/bin/Release/net10.0/linux-x64/. "$CHAOS_ROOT/bundle/client/"
+                  dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj -c Release \
+                    -r linux-x64 --self-contained false -o "$CHAOS_ROOT/bundle/server"
+                  cp tools/chaos/start.sh "$CHAOS_ROOT/bundle/start.sh"
+                  docker build -f tools/chaos/Dockerfile -t squirix-chaos:local "$CHAOS_ROOT/bundle"
+
+            - name: Run real-process nemeses
+              run: |
+                  python3 tools/chaos/run.py --replicas '${{ matrix.replicas }}' \
+                    --output "$CHAOS_ROOT/run" --commit "$(git rev-parse HEAD)"
+
+            - name: Upload histories and fault evidence
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+              with:
+                  name: process-chaos-rf${{ matrix.replicas }}-${{ env.SQUIRIX_FAULT_SEED }}
+                  retention-days: 30
+                  if-no-files-found: error
+                  path: |
+                      ${{ runner.temp }}/squirix-chaos/run/run.json
+                      ${{ runner.temp }}/squirix-chaos/run/*.log
+                      ${{ runner.temp }}/squirix-chaos/run/control/**

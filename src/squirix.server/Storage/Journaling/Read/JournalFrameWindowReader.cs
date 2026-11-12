@@ -30,6 +30,7 @@ internal sealed class JournalFrameWindowReader : IDisposable
     private int _disposed;
     private byte[]? _payload;
     private int _windowLength;
+    private int _windowOffset;
     private long _windowStart;
 
     internal JournalFrameWindowReader(SafeFileHandle handle, long fileLength, int windowSize = DefaultWindowSize)
@@ -41,17 +42,19 @@ internal sealed class JournalFrameWindowReader : IDisposable
         _window = ArrayPool<byte>.Shared.Rent(windowSize);
     }
 
+    /// <summary>Gets the bytes moved when reclaiming consumed window space.</summary>
+    internal long CompactedBytes { get; private set; }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
         ArrayPool<byte>.Shared.ReturnCleared(_window);
-        if (_payload != null)
-        {
-            ArrayPool<byte>.Shared.ReturnCleared(_payload);
-            _payload = null;
-        }
+        if (_payload == null)
+            return;
+        ArrayPool<byte>.Shared.ReturnCleared(_payload);
+        _payload = null;
     }
 
     /// <summary>Reads the frame that starts at <paramref name="frameOffset" />.</summary>
@@ -81,7 +84,7 @@ internal sealed class JournalFrameWindowReader : IDisposable
     {
         payloadBuffer = null;
         payloadLength = 0;
-        var declared = BinaryPrimitives.ReadInt32LittleEndian(_window);
+        var declared = BinaryPrimitives.ReadInt32LittleEndian(_window.AsSpan(_windowOffset));
         if (declared is < 0 or > JournalSegmentLimits.MaxFramePayloadBytes)
             return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset);
 
@@ -117,6 +120,13 @@ internal sealed class JournalFrameWindowReader : IDisposable
             return 0;
 
         SlideTo(offset);
+        if (_windowLength < wanted && _windowOffset > 0)
+        {
+            _window.AsSpan(_windowOffset, _windowLength).CopyTo(_window);
+            CompactedBytes += _windowLength;
+            _windowOffset = 0;
+        }
+
         while (_windowLength < wanted)
         {
             var space = int.CreateTruncating(Math.Min(_windowSize - _windowLength, _fileLength - (_windowStart + _windowLength)));
@@ -141,8 +151,8 @@ internal sealed class JournalFrameWindowReader : IDisposable
         if (available < total)
             return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset);
 
-        var payload = _window.AsSpan(JournalFrameEnvelope.HeaderSize, declared);
-        if (!ChecksumMatches(payload, _window.AsSpan(JournalFrameEnvelope.HeaderSize + declared, JournalFrameEnvelope.FooterSize)))
+        var payload = _window.AsSpan(_windowOffset + JournalFrameEnvelope.HeaderSize, declared);
+        if (!ChecksumMatches(payload, _window.AsSpan(_windowOffset + JournalFrameEnvelope.HeaderSize + declared, JournalFrameEnvelope.FooterSize)))
             return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset);
 
         var buffer = EnsurePayloadBuffer(declared);
@@ -185,6 +195,7 @@ internal sealed class JournalFrameWindowReader : IDisposable
         {
             _windowStart = offset;
             _windowLength = 0;
+            _windowOffset = 0;
             return;
         }
 
@@ -192,7 +203,7 @@ internal sealed class JournalFrameWindowReader : IDisposable
         if (shift == 0)
             return;
 
-        _window.AsSpan(shift, _windowLength - shift).CopyTo(_window);
+        _windowOffset += shift;
         _windowLength -= shift;
         _windowStart = offset;
     }

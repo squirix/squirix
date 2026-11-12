@@ -1,10 +1,11 @@
 using System;
+using Squirix.Testing;
 using TUnit.Assertions.Exceptions;
 
 namespace Squirix.ProtocolModel.Tests;
 
 /// <summary>Closure-free assertion for a synchronous exception.</summary>
-/// <typeparam name="TException">Expected exception type.</typeparam>
+/// <typeparam name="TException">Expected exception type; <see cref="Exception" /> itself is not permitted.</typeparam>
 public readonly record struct ProtocolModelExceptionExpectation<TException>
     where TException : Exception
 {
@@ -12,10 +13,11 @@ public readonly record struct ProtocolModelExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="AssertionException">Thrown when the operation completes successfully or throws an unexpected exception type.</exception>
+    /// <exception cref="AssertionException">Thrown when <see cref="Exception" /> is requested, or the operation completes successfully or throws an unexpected exception type.</exception>
     public TException Throws(Action operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
+        ExceptionTypeGuard.Validate<TException>();
         try
         {
             operation();

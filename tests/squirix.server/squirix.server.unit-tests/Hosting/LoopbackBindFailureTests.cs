@@ -35,7 +35,7 @@ public sealed class LoopbackBindFailureTests
 
         var start = NodeHost.StartAsync(cluster, options, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static X509Certificate2 CreateClientOnlyCertificate()

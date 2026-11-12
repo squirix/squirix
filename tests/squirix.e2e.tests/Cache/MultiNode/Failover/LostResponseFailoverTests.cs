@@ -23,7 +23,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// and refuses every further forward of the key. The leader then shuts down, and a later write changes the key as another client would: a
 /// mutation that ran again would act on the later write, a replayed one leaves it untouched.
 /// </remarks>
-public sealed class LostResponseFailoverTests : EndToEndTestBase
+public sealed class LostResponseFailoverTests
 {
     private const string CacheName = "lost-response";
 
@@ -77,7 +77,7 @@ public sealed class LostResponseFailoverTests : EndToEndTestBase
         entryProbes[entry].Lose(key, static () => Task.CompletedTask);
 
         await using var viaEntry = WireClient.Connect(cluster.GetUri(entry));
-        var lost = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(viaEntry.SendAsync(mutation, CallDeadline, cancellationToken));
+        var lost = await NodeAsyncAssert.ThrowsAsync<RpcException>(viaEntry.SendAsync(mutation, CallDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var executions = (Owner: entryProbes[entry].OwnerExecutions(key), Forwards: entryProbes[entry].ForwardAttempts(key));
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
@@ -92,7 +92,7 @@ public sealed class LostResponseFailoverTests : EndToEndTestBase
         var report = await GroupLogAudit.RunAsync(cluster.Cluster, Group, survivors, FailoverSteps.Bound, cancellationToken);
 
         var dump = Eventually.Dump(attempts);
-        _ = await Assert.That(lost is RpcException { StatusCode: StatusCode.Unavailable }).IsTrue().Because($"the entry node must lose the response, got {lost.GetType().Name}: {lost.Message}");
+        _ = await Assert.That(lost.StatusCode).IsEqualTo(StatusCode.Unavailable).Because($"the entry node must lose the response, got {lost.GetType().Name}: {lost.Message}");
         _ = await Assert.That(executions).IsEqualTo((1, 1));
         _ = await Assert.That(retried).IsEqualTo(replayed).Because(dump);
         _ = await Assert.That(read).IsEqualTo(new CacheValueResult<string>(true, Second)).Because(dump);

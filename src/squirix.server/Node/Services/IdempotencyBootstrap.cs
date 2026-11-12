@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -11,10 +10,10 @@ internal static class IdempotencyBootstrap
     /// <summary>Loads idempotency settings with environment overrides applied.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Resolved idempotency options.</returns>
-    internal static Task<IdempotencyOptions> LoadAsync(CancellationToken cancellationToken = default)
+    internal static IdempotencyOptions Load(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(ApplyEnvironment(new IdempotencyOptions()));
+        return ApplyEnvironment(new IdempotencyOptions());
     }
 
     private static IdempotencyOptions ApplyEnvironment(IdempotencyOptions options)

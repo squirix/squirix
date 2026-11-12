@@ -1,8 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -53,7 +55,7 @@ public sealed class LeaderAppendHoldTests : ServerUnitTestBase
 
         hooks.Arm();
         for (var i = 0UL; i < FailedWrites; i++)
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsOneOfAsync<SquirixException, RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         hooks.Disarm();
         await committer.ConfirmReadAsync(cancellationToken);

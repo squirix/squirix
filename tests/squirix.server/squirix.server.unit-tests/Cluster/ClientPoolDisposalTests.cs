@@ -60,7 +60,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         };
         ServerClientPool.TrackFactoryConnections(handler, connections);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(GetAsync(handler, new Uri("https://localhost:1/"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(GetAsync(handler, new Uri("https://localhost:1/"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
@@ -166,7 +166,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         // Ending the connection from the server side fails the handshake; the handler disposes the stream, which leaves the gate.
         accepted.Dispose();
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
@@ -418,7 +418,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         }
 
         _ = await Assert.That(pool.OpenConnections).IsEqualTo(0);
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
@@ -571,7 +571,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(connections.Pending).IsEqualTo(1);
 
         accepted.Dispose();
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request);
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(request, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);

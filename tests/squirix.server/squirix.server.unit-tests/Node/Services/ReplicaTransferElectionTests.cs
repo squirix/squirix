@@ -31,9 +31,43 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// </summary>
 public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
 {
-    private const string GroupId = "n1";
     private const int FollowerCaughtUpEventId = 4021;
+    private const string GroupId = "n1";
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    /// <summary>Repeated checksum refusals are paced per follower while another follower is repaired and admitted in the same pass.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChecksumRetryDoesNotHoldOtherFollowers(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("transfer-checksum-fairness");
+        var clock = new FakeTimeProvider();
+        await using var registry = await OpenCompactedAsync(dir, clock, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Behind, 2);
+        var transfer = new ScriptedTransferGateway
+        {
+            RefuseAt = "end",
+            RefusalNode = "n2",
+            RefusalCode = RefusalCodes.ChecksumMismatch,
+            OnEnd = () => gateway.Set("n3", FollowerMode.Behind, 3),
+        };
+        await using var committer = ElectedOnClock(registry, gateway, clock);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(false, cancellationToken);
+        var transfers = Transfers(transfer, cancellationToken);
+
+        var admitted = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(false, cancellationToken);
+        _ = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(registry.EligibilityFor(GroupId).CanCountInWriteQuorum(1)).IsFalse();
+        _ = await Assert.That((transfer.BeginsFor("n2"), transfer.BeginsFor("n3"))).IsEqualTo((1, 1));
+        _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
+    }
 
     /// <summary>A one-off checksum refusal recovers on the next readiness retry, before the authority deadline and without changing term.</summary>
     /// <param name="step">The transfer step refused once.</param>
@@ -72,7 +106,7 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await election.StepAsync(cancellationToken);
         var committer = committers.LedCommitters[0];
         _ = await committer.VerifyReplicasAsync(true, cancellationToken);
-        var transfers = await TransfersAsync(transfer, cancellationToken);
+        var transfers = Transfers(transfer, cancellationToken);
         var first = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
         _ = await Assert.That((first, registry.StateFor(GroupId).HasAuthority)).IsEqualTo((false, false));
 
@@ -90,40 +124,6 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
     }
 
-    /// <summary>Repeated checksum refusals are paced per follower while another follower is repaired and admitted in the same pass.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ChecksumRetryDoesNotHoldOtherFollowers(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("transfer-checksum-fairness");
-        var clock = new FakeTimeProvider();
-        await using var registry = await OpenCompactedAsync(dir, clock, cancellationToken);
-        var gateway = new ScriptedGateway();
-        gateway.Set("n2", FollowerMode.Behind, 2);
-        gateway.Set("n3", FollowerMode.Behind, 2);
-        var transfer = new ScriptedTransferGateway
-        {
-            RefuseAt = "end",
-            RefusalNode = "n2",
-            RefusalCode = RefusalCodes.ChecksumMismatch,
-            OnEnd = () => gateway.Set("n3", FollowerMode.Behind, 3),
-        };
-        await using var committer = ElectedOnClock(registry, gateway, clock);
-        _ = await committer.PromoteAsync(2UL, cancellationToken);
-        _ = await committer.VerifyReplicasAsync(false, cancellationToken);
-        var transfers = await TransfersAsync(transfer, cancellationToken);
-
-        var admitted = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
-        _ = await committer.VerifyReplicasAsync(false, cancellationToken);
-        _ = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
-
-        _ = await Assert.That(admitted).IsTrue();
-        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
-        _ = await Assert.That(registry.EligibilityFor(GroupId).CanCountInWriteQuorum(1)).IsFalse();
-        _ = await Assert.That((transfer.BeginsFor("n2"), transfer.BeginsFor("n3"))).IsEqualTo((1, 1));
-        _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
-    }
-
     /// <summary>Checksum retries back off independently of repair signals but never delay the next attempt beyond a readiness polling window.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -136,7 +136,7 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         gateway.Set("n2", FollowerMode.Behind, 2);
         gateway.Set("n3", FollowerMode.Down);
         var transfer = new ScriptedTransferGateway { RefuseAt = "end", RefusalCode = RefusalCodes.ChecksumMismatch };
-        var transfers = await TransfersAsync(transfer, cancellationToken);
+        var transfers = Transfers(transfer, cancellationToken);
         await using var committer = ElectedOnClock(registry, gateway, clock);
         _ = await committer.PromoteAsync(2UL, cancellationToken);
         var options = new ReplicaReadinessOptions();
@@ -160,6 +160,29 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await committer.VerifyReplicasAsync(true, cancellationToken);
         var repaired = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
         _ = await Assert.That(repaired).IsTrue();
+    }
+
+    /// <summary>A reply of a higher term ends the transfer, is observed by the election state, and releases the pin.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HigherTermReplyIsObserved(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-transfer-higher-term");
+        await using var registry = await OpenCompactedAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Down);
+        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = RefusalCodes.StaleTerm, ReplyTerm = 7UL };
+        await using var committer = Elected(registry, GroupId, gateway);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(true, cancellationToken);
+
+        var admitted = await committer.CatchUpFollowersAsync(Reporter(), Transfers(transfer, cancellationToken), cancellationToken);
+
+        _ = await Assert.That(admitted).IsFalse();
+        _ = await Assert.That(registry.StateFor(GroupId).HighestObservedTerm).IsEqualTo(7UL);
+        _ = await Assert.That(string.Join(',', transfer.Calls)).IsEqualTo("begin");
+        _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
     }
 
     /// <summary>
@@ -190,7 +213,7 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         state.SetElectionDriven(true);
         _ = state.BecomeLeader(2UL);
         var log = new EventRecordingLogger();
-        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System, null, await TransfersAsync(transfer, cancellationToken));
+        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System, null, Transfers(transfer, cancellationToken));
 
         await service.StartAsync(cancellationToken);
         bool first;
@@ -212,108 +235,26 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await Assert.That(state.Role).IsEqualTo(ReplicaGroupRole.Leader);
     }
 
-    /// <summary>
-    /// A leader of a group it does not own repairs the owner, back after the failover, by a transfer and names itself, not the owner, in every
-    /// batch it sends after the transfer: node n1 leads group n2.
-    /// </summary>
+    /// <summary>A node that starts leading a group ends the transfer it receives for it first, which frees the apply driver the transfer holds.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task TransferToOwnerNamesLeadingNode(CancellationToken cancellationToken)
+    public async Task LeadershipEndsTheReceivedTransfer(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-transfer-owner-leader");
-        await using var registry = await OpenLedCompactedAsync(dir, cancellationToken);
-        var gateway = new ScriptedGateway();
-        gateway.Set("n2", FollowerMode.Behind, 2);
-        gateway.Set("n3", FollowerMode.Down);
-        var probe = new EndProbe(registry, gateway);
-        var transfer = new ScriptedTransferGateway { OnEnd = probe.OnEnd };
-        await using var committers = new ReplicaGroupCommitters(
-            probe.Create,
-            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
-            "n1",
-            Owners(),
-            TimeProvider.System);
-        var log = new EventRecordingLogger();
-        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System, null, await TransfersAsync(transfer, "n2", cancellationToken));
+        using var dir = new TempDirectory("squirix-transfer-leading");
+        await using var harness = await ReplicaStateHarness.OpenAsync(dir, cancellationToken);
+        _ = await harness.BeginAndUploadAsync("transfer-1", 1UL, cancellationToken);
+        var lease = harness.Appliers.For(ReplicaStateHarness.GroupId).DriverLease;
+        var held = lease.TryEnterPass();
 
-        await service.StartAsync(cancellationToken);
-        try
-        {
-            _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
-            await log.WhenLoggedAsync(FollowerCaughtUpEventId, "follower n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        }
-        finally
-        {
-            await service.StopAsync(cancellationToken);
-        }
+        await harness.Receiver.ReleaseAsync(ReplicaStateHarness.GroupId, cancellationToken);
+        await lease.LeadAsync(cancellationToken);
+        lease.EndLeading();
 
-        _ = await Assert.That(string.Join(',', transfer.Calls)).IsEqualTo("begin,snapshot,wipe,entries,end");
-        var afterTransfer = gateway.AppendLeaders.ToArray()[probe.BeforeEnd..];
-        _ = await Assert.That(afterTransfer.Length).IsGreaterThan(0);
-        foreach (var (node, leader) in afterTransfer)
-            _ = await Assert.That((node, leader)).IsEqualTo(("n2", "n1"));
-    }
-
-    /// <summary>Every accepted reply of the transfer is a contact of the follower and a progress of the transfer, and a stalled transfer is neither.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TransferRepliesAreContactAndProgress(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-transfer-contact");
-        var clock = new FakeTimeProvider();
-        await using var registry = await OpenCompactedAsync(dir, clock, cancellationToken);
-        var state = registry.StateFor(GroupId);
-        var window = state.Options.ElectionTimeout;
-        var gateway = new ScriptedGateway();
-        gateway.Set("n2", FollowerMode.Behind, 2);
-        gateway.Set("n3", FollowerMode.Down);
-        var seen = (Contact: false, Progress: false);
-        var transfer = new ScriptedTransferGateway
-        {
-            HoldAt = "entries",
-            OnEnd = () =>
-            {
-                seen = (state.HasQuorumContact(0, window), state.TransferProgress.IsRecent(window));
-                gateway.Set("n2", FollowerMode.Behind, 3);
-            },
-        };
-        await using var committer = Elected(registry, GroupId, gateway);
-        _ = await committer.PromoteAsync(2UL, cancellationToken);
-        _ = await committer.VerifyReplicasAsync(true, cancellationToken);
-        var pass = committer.CatchUpFollowersAsync(Reporter(), await TransfersAsync(transfer, cancellationToken), cancellationToken);
-        await transfer.Held.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-
-        clock.Advance(window * 3);
-        var stalled = (state.HasQuorumContact(0, window), state.TransferProgress.IsRecent(window));
-        transfer.Release();
-        var admitted = await pass.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(admitted).IsTrue();
-        _ = await Assert.That(stalled).IsEqualTo((false, false));
-        _ = await Assert.That(seen).IsEqualTo((true, true));
-    }
-
-    /// <summary>A reply of a higher term ends the transfer, is observed by the election state, and releases the pin.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task HigherTermReplyIsObserved(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-transfer-higher-term");
-        await using var registry = await OpenCompactedAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var gateway = new ScriptedGateway();
-        gateway.Set("n2", FollowerMode.Behind, 2);
-        gateway.Set("n3", FollowerMode.Down);
-        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = RefusalCodes.StaleTerm, ReplyTerm = 7UL };
-        await using var committer = Elected(registry, GroupId, gateway);
-        _ = await committer.PromoteAsync(2UL, cancellationToken);
-        _ = await committer.VerifyReplicasAsync(true, cancellationToken);
-
-        var admitted = await committer.CatchUpFollowersAsync(Reporter(), await TransfersAsync(transfer, cancellationToken), cancellationToken);
-
-        _ = await Assert.That(admitted).IsFalse();
-        _ = await Assert.That(registry.StateFor(GroupId).HighestObservedTerm).IsEqualTo(7UL);
-        _ = await Assert.That(string.Join(',', transfer.Calls)).IsEqualTo("begin");
-        _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
+        _ = await Assert.That(held).IsFalse();
+        _ = harness.Registry.TryGetLog(ReplicaStateHarness.GroupId, out var log);
+        _ = await Assert.That(log!.IsComplete).IsTrue().Because("The copy stays as it was.");
+        var begin = await harness.Receiver.BeginAsync(ReplicaStateHarness.HeaderOf("transfer-2", 1UL), ReplicaStateHarness.BaselineOf(TransferFixtures.Image()), cancellationToken);
+        _ = await Assert.That(begin.Success).IsTrue().Because("The group is free for another transfer.");
     }
 
     /// <summary>Nothing is captured while the tenure does not lead the term of the log or the election state does not say leader in it.</summary>
@@ -342,28 +283,6 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await Assert.That(leading).IsEqualTo(ReplicaTransferOutcome.Transferred);
         _ = await Assert.That(logPastTerm).IsEqualTo(ReplicaTransferOutcome.NotLeading);
         _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
-    }
-
-    /// <summary>A node that starts leading a group ends the transfer it receives for it first, which frees the apply driver the transfer holds.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LeadershipEndsTheReceivedTransfer(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-transfer-leading");
-        await using var harness = await ReplicaStateHarness.OpenAsync(dir, cancellationToken);
-        _ = await harness.BeginAndUploadAsync("transfer-1", 1UL, cancellationToken);
-        var lease = harness.Appliers.For(ReplicaStateHarness.GroupId).DriverLease;
-        var held = lease.TryEnterPass();
-
-        await harness.Receiver.ReleaseAsync(ReplicaStateHarness.GroupId, cancellationToken);
-        await lease.LeadAsync(cancellationToken);
-        lease.EndLeading();
-
-        _ = await Assert.That(held).IsFalse();
-        _ = harness.Registry.TryGetLog(ReplicaStateHarness.GroupId, out var log);
-        _ = await Assert.That(log!.IsComplete).IsTrue().Because("The copy stays as it was.");
-        var begin = await harness.Receiver.BeginAsync(ReplicaStateHarness.HeaderOf("transfer-2", 1UL), ReplicaStateHarness.BaselineOf(TransferFixtures.Image()), cancellationToken);
-        _ = await Assert.That(begin.Success).IsTrue().Because("The group is free for another transfer.");
     }
 
     /// <summary>
@@ -414,14 +333,93 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         _ = await Assert.That(committers.Leads(GroupId)).IsTrue();
     }
 
+    /// <summary>Every accepted reply of the transfer is a contact of the follower and a progress of the transfer, and a stalled transfer is neither.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransferRepliesAreContactAndProgress(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-transfer-contact");
+        var clock = new FakeTimeProvider();
+        await using var registry = await OpenCompactedAsync(dir, clock, cancellationToken);
+        var state = registry.StateFor(GroupId);
+        var window = state.Options.ElectionTimeout;
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Down);
+        var seen = (Contact: false, Progress: false);
+        var transfer = new ScriptedTransferGateway
+        {
+            HoldAt = "entries",
+            OnEnd = () =>
+            {
+                seen = (state.HasQuorumContact(0, window), state.TransferProgress.IsRecent(window));
+                gateway.Set("n2", FollowerMode.Behind, 3);
+            },
+        };
+        await using var committer = Elected(registry, GroupId, gateway);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(true, cancellationToken);
+        var pass = committer.CatchUpFollowersAsync(Reporter(), Transfers(transfer, cancellationToken), cancellationToken);
+        await transfer.Held.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        clock.Advance(window * 3);
+        var stalled = (state.HasQuorumContact(0, window), state.TransferProgress.IsRecent(window));
+        transfer.Release();
+        var admitted = await pass.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(stalled).IsEqualTo((false, false));
+        _ = await Assert.That(seen).IsEqualTo((true, true));
+    }
+
+    /// <summary>
+    /// A leader of a group it does not own repairs the owner, back after the failover, by a transfer and names itself, not the owner, in every
+    /// batch it sends after the transfer: node n1 leads group n2.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransferToOwnerNamesLeadingNode(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-transfer-owner-leader");
+        await using var registry = await OpenLedCompactedAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Down);
+        var probe = new EndProbe(registry, gateway);
+        var transfer = new ScriptedTransferGateway { OnEnd = probe.OnEnd };
+        await using var committers = new ReplicaGroupCommitters(
+            probe.Create,
+            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
+            "n1",
+            Owners(),
+            TimeProvider.System);
+        var log = new EventRecordingLogger();
+        using var service = new ReplicaGroupReadinessService(committers, log, TimeProvider.System, null, Transfers(transfer, "n2", cancellationToken));
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            _ = await committers.PromoteAsync("n2", 2UL, cancellationToken);
+            await log.WhenLoggedAsync(FollowerCaughtUpEventId, "follower n2 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(string.Join(',', transfer.Calls)).IsEqualTo("begin,snapshot,wipe,entries,end");
+        var afterTransfer = gateway.AppendLeaders.ToArray()[probe.BeforeEnd..];
+        _ = await Assert.That(afterTransfer.Length).IsGreaterThan(0);
+        foreach (var (node, leader) in afterTransfer)
+            _ = await Assert.That((node, leader)).IsEqualTo(("n2", "n1"));
+    }
+
     private static IJournalDurabilityCoordinator Durable()
     {
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         return durability.Instance();
     }
-
-    private static ReplicaCatchUpReporter Reporter() => new(GroupId, NullLogger.Instance, null);
 
     private static ReplicaGroupCommitter Elected(ReplicaGroupRegistry registry, string groupId, IReplicaRpcGateway gateway)
     {
@@ -435,19 +433,48 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         return CreateElectedBudgetCommitter(registry, GroupId, gateway, (cache, new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1")), clock);
     }
 
-    private static Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, CancellationToken cancellationToken) =>
-        TransfersAsync(gateway, GroupId, cancellationToken);
-
-    private static async Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, string groupId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Opens node n1 serving the groups with the log of group n1 holding three committed and applied writes that were dropped from the log by
+    /// compaction, in term two, as after a leader change; the election state of the group runs on <paramref name="clock" />, leads term two and has no authority.
+    /// </summary>
+    /// <param name="dir">Node data directory.</param>
+    /// <param name="clock">The clock of the election state.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The registry.</returns>
+    private static async Task<ReplicaGroupRegistry> OpenCompactedAsync(string dir, FakeTimeProvider clock, CancellationToken cancellationToken)
     {
-        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        for (var i = 1; i <= 3; i++)
-            await cache.SetAsync(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
+        await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
+        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = clock };
+        try
+        {
+            await registry.OpenAsync(cancellationToken);
+            var seeding = new ScriptedGateway();
+            seeding.Set("n2", FollowerMode.Match);
+            seeding.Set("n3", FollowerMode.Match);
+            await using (var owner = CreateCommitter(registry, seeding))
+            {
+                for (var i = 1; i <= 3; i++)
+                    await owner.CommitSetAsync(NewOperationId(), "cache", $"k{i}", Entry($"k{i}"), cancellationToken);
 
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(groupId);
-        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
+                await owner.FlushAppliedAsync(Durable(), cancellationToken);
+            }
+
+            _ = registry.TryGetLog(GroupId, out var log);
+            var status = await log!.GetStatusAsync(cancellationToken);
+            _ = await log.CompactThroughAsync(status.CommitIndex, cancellationToken);
+            _ = await log.ObserveTermAsync(2UL, cancellationToken);
+            var state = registry.StateFor(GroupId);
+            state.SetElectionDriven(true);
+            _ = state.BecomeLeader(2UL);
+        }
+        catch
+        {
+            await registry.DisposeAsync();
+            throw;
+        }
+
+        return registry;
     }
 
     /// <summary>
@@ -498,48 +525,21 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         return registry;
     }
 
-    /// <summary>
-    /// Opens node n1 serving the groups with the log of group n1 holding three committed and applied writes that were dropped from the log by
-    /// compaction, in term two, as after a leader change; the election state of the group runs on <paramref name="clock" />, leads term two and has no authority.
-    /// </summary>
-    /// <param name="dir">Node data directory.</param>
-    /// <param name="clock">The clock of the election state.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The registry.</returns>
-    private static async Task<ReplicaGroupRegistry> OpenCompactedAsync(string dir, FakeTimeProvider clock, CancellationToken cancellationToken)
+    private static ReplicaCatchUpReporter Reporter() => new(GroupId, NullLogger.Instance, null);
+
+    private static ReplicaStateTransfers Transfers(ScriptedTransferGateway gateway, CancellationToken cancellationToken) =>
+        Transfers(gateway, GroupId, cancellationToken);
+
+    private static ReplicaStateTransfers Transfers(ScriptedTransferGateway gateway, string groupId, CancellationToken cancellationToken)
     {
-        await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
-        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
-        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, options) { ElectionClock = clock };
-        try
-        {
-            await registry.OpenAsync(cancellationToken);
-            var seeding = new ScriptedGateway();
-            seeding.Set("n2", FollowerMode.Match);
-            seeding.Set("n3", FollowerMode.Match);
-            await using (var owner = CreateCommitter(registry, seeding))
-            {
-                for (var i = 1; i <= 3; i++)
-                    await owner.CommitSetAsync(NewOperationId(), "cache", $"k{i}", Entry($"k{i}"), cancellationToken);
+        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        for (var i = 1; i <= 3; i++)
+            cache.Set(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
 
-                await owner.FlushAppliedAsync(Durable(), cancellationToken);
-            }
-
-            _ = registry.TryGetLog(GroupId, out var log);
-            var status = await log!.GetStatusAsync(cancellationToken);
-            _ = await log.CompactThroughAsync(status.CommitIndex, cancellationToken);
-            _ = await log.ObserveTermAsync(2UL, cancellationToken);
-            var state = registry.StateFor(GroupId);
-            state.SetElectionDriven(true);
-            _ = state.BecomeLeader(2UL);
-        }
-        catch
-        {
-            await registry.DisposeAsync();
-            throw;
-        }
-
-        return registry;
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(groupId);
+        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
     }
 
     [Mutable]
@@ -587,9 +587,9 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
 
         internal string? Ended { get; private set; }
 
-        internal bool TenureDuring { get; private set; } = true;
-
         internal ReplicaGroupCommitters? Set { get; set; }
+
+        internal bool TenureDuring { get; private set; } = true;
 
         internal ReplicaGroupCommitter Create(string group) => Elected(_registry, group, _gateway);
     }

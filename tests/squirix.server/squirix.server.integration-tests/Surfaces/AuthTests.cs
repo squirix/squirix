@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -32,12 +33,11 @@ public sealed class AuthTests : ServerSurfaceTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
-        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(getRequest, cancellationToken: cancellationToken).ResponseAsync);
+        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(getRequest, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated).Because(missingAuth.Message);
 
         var invalidHeaders = new Metadata { { "authorization", $"Bearer {InvalidBearerToken}" } };
-        var invalidAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: cancellationToken)).ResponseAsync);
+        var invalidAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(invalidAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated).Because(invalidAuth.Message);
 
         var validHeaders = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };

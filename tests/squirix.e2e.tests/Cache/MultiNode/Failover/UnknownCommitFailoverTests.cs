@@ -17,7 +17,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// A write whose outcome the client does not know because its leader died keeps one logical identity: sent again with the same operation
 /// identifier through a surviving member once a new leader is elected, it takes effect once, and sending it yet again returns the same answer.
 /// </summary>
-public sealed class UnknownCommitFailoverTests : EndToEndTestBase
+public sealed class UnknownCommitFailoverTests
 {
     private const string CacheName = "unknown-commit";
 
@@ -68,7 +68,7 @@ public sealed class UnknownCommitFailoverTests : EndToEndTestBase
         _ = await Assert.That(held).IsGreaterThan(appended).Because("the entry must reach a follower before the leader dies, or the retry is a plain first execution");
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
-        var unknown = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first);
+        var unknown = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         fabric.HealAll();
 
         var (_, term) = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);

@@ -99,11 +99,11 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         var key = cluster[former].FindKeyOwnedBy(Scope, Group);
 
         await fabric.IsolateAsync(former);
-        var cutOff = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken));
+        var cutOff = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var (next, _) = await ledger.LeaderAsync(Without(Three, former), formerTerm, "the majority elects a leader", cancellationToken);
         await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, key, cancellationToken);
         await ledger.UntilAsync(() => !HasAuthority(cluster[former]), "the cut-off leader loses its authority", cancellationToken);
-        var deposed = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken));
+        var deposed = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var current = (await Log(cluster[next]).GetStatusAsync(cancellationToken)).CommitIndex;
         var stale = await StatusAsync(cluster[former], cancellationToken);
         var read = LeaderAuthorityGate.CheckRead(

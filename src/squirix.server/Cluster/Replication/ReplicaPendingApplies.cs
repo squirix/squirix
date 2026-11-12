@@ -17,10 +17,15 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaPendingApplies
 {
-    private readonly SortedList<ulong, PreparedReplicaMutation> _entries = [];
+    private static readonly IComparer<PreparedReplicaMutation> IndexOrder =
+        Comparer<PreparedReplicaMutation>.Create(static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
+
+#pragma warning disable IDE0028 // The collection expression would discard the log-index comparer.
+    private readonly SortedSet<PreparedReplicaMutation> _entries = new(IndexOrder);
+#pragma warning restore IDE0028
     private readonly GroupIdempotencyState _idempotency;
     private readonly IReplicaCommitPipeline _pipeline;
-    private readonly ReplicaRecoveredTail? _recovered;
+    private readonly ReplicaRecoveredCommitBoundary _recoveredBoundary;
     private readonly Action<PreparedReplicaMutation> _resolved;
     private readonly Lock _sync = new();
     private int _activeApplies;
@@ -48,7 +53,7 @@ internal sealed class ReplicaPendingApplies
         _pipeline = pipeline;
         _idempotency = idempotency;
         _resolved = resolved;
-        _recovered = recovered;
+        _recoveredBoundary = recovered?.CommitBoundary ?? default;
         if (recovered == null)
             return;
 
@@ -56,11 +61,18 @@ internal sealed class ReplicaPendingApplies
         foreach (var entry in recovered.Mutations)
         {
             var kind = GroupRecordKinds.FromScope(entry.OperationScope);
-            var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term, new GroupReserveOptions(true, entry.OutcomePayload.Length));
+            var reserved = idempotency.Reserve(
+                entry.OperationScope,
+                entry.OperationId,
+                entry.OperationFingerprint.Span,
+                kind,
+                entry.LogIndex,
+                entry.Term,
+                new GroupReserveOptions(true, entry.OutcomePayload.Length));
             if (reserved != GroupIdempotencyReserveResult.Success)
                 throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
 
-            _entries[entry.LogIndex] = entry;
+            _ = _entries.Add(entry);
         }
     }
 
@@ -80,7 +92,7 @@ internal sealed class ReplicaPendingApplies
         get
         {
             lock (_sync)
-                return _entries.Count == 0 ? 0 : _entries.Keys[^1];
+                return _entries.Max?.LogIndex ?? 0;
         }
     }
 
@@ -121,12 +133,12 @@ internal sealed class ReplicaPendingApplies
                 await _pipeline.ApplyMemoryAsync(pending, CancellationToken.None).ConfigureAwait(false);
 
             lock (_sync)
-                _ = _entries.Remove(pending.LogIndex);
+                _ = _entries.Remove(pending);
 
             // A re-applied entry's own commit already reported an unknown outcome and kept both pins. It is now committed and applied,
             // so resolve them: a same-identity retry replays the outcome instead of staying unknown until the record ages out.
             // An own entry of a run drops its operation even when its record is gone, as nothing is left to wait for.
-            var resolved = (foreign || resolveOwn) && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, outcome.Span, pending.LogIndex, pending.Term);
+            var resolved = (foreign || resolveOwn) && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, outcome, pending.LogIndex, pending.Term);
             if (resolved || (resolveOwn && !foreign))
                 _resolved(pending);
         }
@@ -151,8 +163,7 @@ internal sealed class ReplicaPendingApplies
     /// Recovered entries of an older term are not committed by counting replicas: they wait until a current-term entry above them
     /// commits them transitively.
     /// </remarks>
-    internal ulong CommittableIndex(ulong commitIndex, ulong candidate) =>
-        candidate > commitIndex && _recovered?.CanCommitThrough(candidate) == false ? commitIndex : candidate;
+    internal ulong CommittableIndex(ulong commitIndex, ulong candidate) => candidate > commitIndex && !_recoveredBoundary.CanCommitThrough(candidate) ? commitIndex : candidate;
 
     /// <summary>Determines whether some retained entry is at or below <paramref name="commitIndex" />.</summary>
     /// <param name="commitIndex">Commit index a majority backs.</param>
@@ -160,7 +171,14 @@ internal sealed class ReplicaPendingApplies
     internal bool Covers(ulong commitIndex)
     {
         lock (_sync)
-            return _entries.Count > 0 && _entries.Keys[0] <= commitIndex;
+            return _entries.Min is { } first && first.LogIndex <= commitIndex;
+    }
+
+    /// <summary>Counts a drive of the committed entries that stopped running.</summary>
+    internal void EndApply()
+    {
+        lock (_sync)
+            _activeApplies--;
     }
 
     /// <summary>Counts a commit body that starts running.</summary>
@@ -181,19 +199,15 @@ internal sealed class ReplicaPendingApplies
             _activeExecutions--;
     }
 
-    /// <summary>Counts a drive of the committed entries that stopped running.</summary>
-    internal void EndApply()
-    {
-        lock (_sync)
-            _activeApplies--;
-    }
-
     /// <summary>Retains a locally appended entry until a commit covers it.</summary>
     /// <param name="mutation">The locally appended mutation.</param>
     internal void Retain(PreparedReplicaMutation mutation)
     {
         lock (_sync)
-            _entries[mutation.LogIndex] = mutation;
+        {
+            _ = _entries.Remove(mutation);
+            _ = _entries.Add(mutation);
+        }
     }
 
     /// <summary>Counts a drive of the committed entries that starts running, unless applies are closed.</summary>
@@ -254,7 +268,8 @@ internal sealed class ReplicaPendingApplies
     {
         lock (_sync)
         {
-            pending = _entries.Count > 0 && _entries.Keys[0] <= commitIndex ? _entries.Values[0] : null;
+            var first = _entries.Min;
+            pending = first != null && first.LogIndex <= commitIndex ? first : null;
             return pending != null;
         }
     }

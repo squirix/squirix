@@ -25,7 +25,7 @@ public sealed class TestNodeHostShutdownTests
     public async Task ShutdownAsyncStopsNodeIdempotently(CancellationToken cancellationToken)
     {
         using var held = ListenPortPool.ServerUnitTests.HoldPort();
-        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", held.HttpUri));
+        var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", held.HttpUri)]);
         var host = await cluster.StartNodeAsync("nodeA", cancellationToken: cancellationToken);
         try
         {
@@ -54,7 +54,7 @@ public sealed class TestNodeHostShutdownTests
     public async Task AbruptThenShutdownIsIdempotent(CancellationToken cancellationToken)
     {
         using var held = ListenPortPool.ServerUnitTests.HoldPort();
-        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", held.HttpUri));
+        var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", held.HttpUri)]);
         var host = await cluster.StartNodeAsync("nodeA", cancellationToken: cancellationToken);
         try
         {
@@ -108,7 +108,7 @@ public sealed class TestNodeHostShutdownTests
         await entered.Task.WaitAsync(cancellationToken);
 
         await host.AbruptShutdownAsync();
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(call);
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A failing app stop still disposes the app and the owned scope, and the stop failure surfaces to the caller.</summary>
@@ -127,7 +127,7 @@ public sealed class TestNodeHostShutdownTests
         using var scope = new DisposalProbe();
         await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty, scope: scope);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(host.ShutdownAsync());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(host.ShutdownAsync(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appProbe.IsDisposed).IsTrue().Because("The app must be disposed even when its stop step throws.");
         _ = await Assert.That(scope.IsDisposed).IsTrue().Because("The owned scope must be disposed even when the app stop step throws.");
@@ -141,8 +141,8 @@ public sealed class TestNodeHostShutdownTests
     {
         using var trackedPort = ListenPortPool.ServerUnitTests.HoldPort();
         using var plainPort = ListenPortPool.ServerUnitTests.HoldPort();
-        await using var tracked = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", trackedPort.HttpUri));
-        await using var plain = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeB", plainPort.HttpUri));
+        await using var tracked = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", trackedPort.HttpUri)]);
+        await using var plain = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeB", plainPort.HttpUri)]);
         var trackedHost = await tracked.StartNodeAsync("nodeA", new ClusterStartOptions { TrackRequests = true }, cancellationToken);
         var plainHost = await plain.StartNodeAsync("nodeB", cancellationToken: cancellationToken);
 

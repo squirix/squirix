@@ -79,7 +79,7 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
 
         var result = await CreateCheck(traced, journal.Journal.StallProbe, new ShiftedClock(Threshold)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException(FsyncFailureMessage));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(commit.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("memory apply failed", StringComparison.Ordinal);
@@ -97,7 +97,7 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException(FsyncFailureMessage));
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(commit.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(commit, Bound, TimeProvider.System, cancellationToken);
 
         // The checkpoint waiter is faulted before the journal thread latches the failure; its exit orders the latch first.
         _ = await Assert.That(await journal.Journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();

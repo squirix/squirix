@@ -50,7 +50,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
                     .ReturnValue(ValueTask.FromException<NodeCacheEntry<object?>?>(fault));
         var factory = new ReplicaMutationFactory(faulting.Instance(), "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken).AsTask());
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(fault);
     }
@@ -198,7 +198,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
     private static async Task<ReplicaLogRecord> DecodeRecordAsync(PreparedReplicaMutation mutation)
     {
-        var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
+        var decoded = ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload);
         _ = await Assert.That(decoded).IsNotNull();
         return decoded.Value;
     }

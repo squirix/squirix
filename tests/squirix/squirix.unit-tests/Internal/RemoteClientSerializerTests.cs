@@ -81,13 +81,4 @@ public sealed class RemoteClientSerializerTests
         var serializer = RemoteClientSessionFactory.CreateSerializer(innerExpectations.Instance());
         _ = ExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
-
-    /// <summary>Metrics decoration can be disabled for custom serializers.</summary>
-    [Test]
-    public async Task WithoutMetricsReturnsInnerInstance()
-    {
-        var inner = new SystemTextJsonSerializer();
-        var serializer = RemoteClientSessionFactory.CreateSerializer(inner, false);
-        _ = await Assert.That(serializer).IsSameReferenceAs(inner);
-    }
 }

@@ -32,6 +32,28 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
+    /// <summary>The applied cache value owns its bytes after the canonical input is released.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppliedValueOwnsItsBytes(CancellationToken cancellationToken)
+    {
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance);
+        var factory = new ReplicaMutationFactory(cache, "n1", 1UL, TimeProvider.System, NullLogger.Instance);
+        var value = JsonValueKit.Create("""{"value":12345678901234567890}""");
+        var prepared = factory.PrepareSet(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = value, Version = 1 }, 1UL);
+        var payload = prepared.CanonicalPayload.ToArray();
+
+        await applier.ApplyAsync(1UL, payload, cancellationToken);
+        Array.Clear(payload);
+        var entry = await cache.GetEntryAsync("cache", "k1", cancellationToken);
+
+        _ = await Assert.That(entry).IsNotNull();
+        var stored = (await Assert.That(entry!.Value).IsTypeOf<JsonUtf8Value>())!;
+        await SequenceAssert.EqualAsync(value.Bytes.ToArray(), stored.Bytes.ToArray());
+        _ = await Assert.That(applier.AppliedIndex).IsEqualTo(1UL);
+    }
+
     /// <summary>An entry that is not the next one is refused before it reaches memory, and an applied entry is never applied again.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -43,12 +65,12 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         var first = factory.PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
         var second = factory.PrepareSet(NewOperationId(), "cache", "k2", Entry("k2"), 2UL);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
 
         await applier.ApplyAsync(1UL, first.CanonicalPayload, cancellationToken);
         await applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.ApplyAsync(2UL, second.CanonicalPayload, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(2UL);
         await SequenceAssert.EqualAsync(["k1", "k2"], cache.Applied.ToArray(), StringComparer.Ordinal);
@@ -110,7 +132,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
 
-        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
+        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await committer.FlushAppliedAsync(Durable(), cancellationToken);
         var failed = await StatusAsync(registry, cancellationToken);
         Volatile.Write(ref failing, 0);
@@ -158,7 +180,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
                       .Callback(static _ => ValueTask.FromException(new IOException("journal flush failed")));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(committer.FlushAppliedAsync(durability.Instance(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(committer.FlushAppliedAsync(durability.Instance(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastAppliedIndex).IsEqualTo(0UL);
         _ = await Assert.That((await OwnedLog(registry).GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(1);
@@ -217,7 +239,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         var eligibility = registry.EligibilityFor("n1");
         _ = eligibility.TryMarkCatchingUp(1, default);
         _ = eligibility.TryMarkCatchingUp(2, default);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "refused", Entry("refused"), cancellationToken));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "refused", Entry("refused"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
         await committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
 

@@ -21,7 +21,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// and a read through the SDK, keeps one leader per term and one committed log; at the end no acknowledged write of any step is lost.
 /// </summary>
 [Property(StressSuite.TraitName, StressSuite.TraitValue)]
-public sealed class FaultScheduleTests : EndToEndTestBase
+public sealed class FaultScheduleTests
 {
     private const string CacheName = "fault-schedule";
 
@@ -150,7 +150,7 @@ public sealed class FaultScheduleTests : EndToEndTestBase
             var summary = registers.History.Summary() + Environment.NewLine + context();
             _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, index)).Because(dump);
             _ = await Assert.That(elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
-            _ = await Assert.That(registers.History.Check()).IsEmpty().Because(summary);
+            _ = await Assert.That(registers.History.Check(cancellationToken)).IsEmpty().Because(summary);
             if (timeline != null)
                 _ = await Assert.That(FailoverFault.CoversAfter(registers.History, timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue)).IsTrue().Because(summary + Environment.NewLine + timeline.Dump());
 
@@ -183,7 +183,7 @@ public sealed class FaultScheduleTests : EndToEndTestBase
         {
             var (registers, keys) = history[i];
             await FailoverSteps.ReadFinalAsync(registers, rig.Clients.Reader, keys, cancellationToken);
-            _ = await Assert.That(registers.Check()).IsEmpty().Because($"step {i + 1}: {registers.Summary()}{Environment.NewLine}{context()}");
+            _ = await Assert.That(registers.Check(cancellationToken)).IsEmpty().Because($"step {i + 1}: {registers.Summary()}{Environment.NewLine}{context()}");
         }
     }
 

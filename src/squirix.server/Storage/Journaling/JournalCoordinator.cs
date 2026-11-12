@@ -594,7 +594,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         {
             var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) : null;
             var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
-            await EnqueueTrackedAppendAsync(item, frameBytes, frameLength, appendAck, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await EnqueueTrackedAppendAsync(item, frameBytes, frameLength, appendAck, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // A drain can fault the private ack before the ring accepts the frame. The enqueue failure is reported to the
+                // caller here, so the normal write-ack wait below will never run; observe even a drain still finishing its ack.
+                if (appendAck != null)
+                    _ = appendAck.Task.CaptureFailureAsync().AsTask();
+
+                throw;
+            }
 
             // The frame is on the ring and may become durable even if the write ack below faults (shutdown or the failure latch after the
             // write reached the file), so the stamp is reported before that wait: the idempotency intent must survive such a fault.

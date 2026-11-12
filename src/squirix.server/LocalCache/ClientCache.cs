@@ -24,37 +24,43 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _read.GetEntryAsync(Key(cacheName, key), cancellationToken);
+        ValueTask.FromResult(_read.GetEntry(Key(cacheName, key), cancellationToken));
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _read.GetValueAsync(Key(cacheName, key), cancellationToken);
+        ValueTask.FromResult(_read.GetValue(Key(cacheName, key), cancellationToken));
 
     public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _read.GetValueWithDeadlineAsync(Key(cacheName, key), cancellationToken);
+        ValueTask.FromResult(_read.GetValueWithDeadline(Key(cacheName, key), cancellationToken));
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        _mutation.RemoveAsync(Key(cacheName, key), cancellationToken);
+        ValueTask.FromResult(_mutation.Remove(Key(cacheName, key), cancellationToken));
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        _mutation.RemoveExpirationAsync(Key(cacheName, key), cancellationToken);
+        ValueTask.FromResult(_mutation.RemoveExpiration(Key(cacheName, key), cancellationToken));
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _mutation.SetAsync(Key(cacheName, key), entry, cancellationToken);
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        _mutation.Set(Key(cacheName, key), entry, cancellationToken);
+        return ValueTask.CompletedTask;
+    }
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken) =>
-        _mutation.SetAsync(Key(cacheName, key), entry, cancellationToken, encodedLength);
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken)
+    {
+        _mutation.Set(Key(cacheName, key), entry, cancellationToken, encodedLength);
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        _mutation.TouchAsync(Key(cacheName, key), expiration, cancellationToken);
+        ValueTask.FromResult(_mutation.Touch(Key(cacheName, key), expiration, cancellationToken));
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken);
+        ValueTask.FromResult(_mutation.TryAdd(Key(cacheName, key), entry, cancellationToken));
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken) =>
-        _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken, encodedLength);
+        ValueTask.FromResult(_mutation.TryAdd(Key(cacheName, key), entry, cancellationToken, encodedLength));
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        _mutation.UpdateAsync(Key(cacheName, key), value, cancellationToken);
+        ValueTask.FromResult(_mutation.Update(Key(cacheName, key), value, cancellationToken));
 
     private static CacheKey Key(string cacheName, string key) => new(cacheName, key);
 }

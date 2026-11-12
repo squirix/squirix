@@ -72,8 +72,10 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     {
         var wire = ServerProtoEx.CacheValueToGrpcValue(JsonElement.Parse(text));
 
-        _ = await Assert.That(wire.KindCase).IsEqualTo(System.Enum.Parse<CacheValue.KindOneofCase>(kind));
-        _ = await Assert.That(!string.Equals(kind, nameof(CacheValue.KindOneofCase.JsonUtf8), StringComparison.Ordinal) || string.Equals(wire.JsonUtf8.ToStringUtf8(), text, StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(wire.KindCase).IsEqualTo(Enum.Parse<CacheValue.KindOneofCase>(kind));
+        _ = await Assert.That(
+            !string.Equals(kind, nameof(CacheValue.KindOneofCase.JsonUtf8), StringComparison.Ordinal) ||
+            string.Equals(wire.JsonUtf8.ToStringUtf8(), text, StringComparison.Ordinal)).IsTrue();
     }
 
     /// <summary>An element that is the default value maps to null.</summary>

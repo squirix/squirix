@@ -5,10 +5,12 @@ using Grpc.AspNetCore.Server.Model;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 
@@ -25,7 +27,11 @@ internal static class FrameworkServiceRegistration
             o.MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes;
             o.Interceptors.Add<InboundCallInterceptor>();
             configureGrpc?.Invoke(o);
-        });
+        }).AddServiceOptions<SquirixServiceAdapter<object?>>(static o => o.Interceptors.Add<CacheAdmissionInterceptor>());
+
+        _ = services.AddSingleton(static sp => new CacheAdmissionInterceptor(
+            sp.GetRequiredService<IBackpressureGate>(),
+            sp.GetRequiredService<IBackpressureClientIdResolver>()));
 
         // Clients never compress requests; refusing them rules out decompression bombs. Post-configure because
         // gRPC re-adds gzip and deflate after AddGrpc callbacks when the provider list is empty.

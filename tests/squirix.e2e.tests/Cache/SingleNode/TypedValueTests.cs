@@ -37,8 +37,7 @@ public sealed class TypedValueTests : TestBase
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-add", cancellationToken);
         var original = TypedValueFactory.CreateProfile("add-conflict");
         await cache.AddAsync("k", original, cancellationToken: cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(
-            cache.AddAsync("k", TypedValueFactory.CreateUpdatedProfile("add-conflict"), cancellationToken: cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k", TypedValueFactory.CreateUpdatedProfile("add-conflict"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
         await TypedValueAssertions.AssertProfileEqualsAsync(original, result.Value!);

@@ -104,7 +104,8 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
             new ClientCache<object?>(physical, physical),
             journal,
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
-            clock);
+            clock,
+            physical.RawReader);
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }
 
@@ -115,8 +116,8 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         var leader = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         var leaderCache = new ClientCache<object?>(leader, leader);
         var factory = new ReplicaMutationFactory(leaderCache, "g1", 1UL, clock, NullLogger.Instance);
-        var prepared = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>(value, 1), 1UL);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        var prepared = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>(value), 1UL);
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(leaderCache, in record, cancellationToken);
 
         var follower = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
@@ -127,9 +128,9 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         var recovered = await RecoverAsync(persistence, clock, cancellationToken);
 
         return (
-            TextOf(await leader.RawReader.GetEntryRawAsync(key, cancellationToken)),
-            TextOf(await follower.RawReader.GetEntryRawAsync(key, cancellationToken)),
-            TextOf(await recovered.RawReader.GetEntryRawAsync(key, cancellationToken)));
+            TextOf(leader.RawReader.GetEntryRaw(key, cancellationToken)),
+            TextOf(follower.RawReader.GetEntryRaw(key, cancellationToken)),
+            TextOf(recovered.RawReader.GetEntryRaw(key, cancellationToken)));
     }
 
     private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)

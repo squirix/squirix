@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
         <RootNamespace>Squirix.TestKit</RootNamespace>
@@ -17,7 +17,11 @@
         <Compile Include="..\..\..\src\squirix.attributes\ImmutableAttribute.cs" Link="Attributes\ImmutableAttribute.cs"/>
         <Compile Include="..\..\shared\ExportedApiMetadata.cs" Link="Shared\ExportedApiMetadata.cs"/>
         <Compile Include="..\..\shared\LoggerArchitectureScanner.cs" Link="Shared\LoggerArchitectureScanner.cs"/>
+        <Compile Include="..\..\shared\LoggerScanResult.cs" Link="Shared\LoggerScanResult.cs"/>
         <Compile Include="..\..\shared\MeasurementSink.cs" Link="Shared\MeasurementSink.cs"/>
         <Compile Include="..\..\shared\PathKit.cs" Link="Shared\PathKit.cs"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Include="..\..\shared\ExceptionTypeGuard.cs" Link="ExceptionTypeGuard.cs"/>
     </ItemGroup>
 </Project>

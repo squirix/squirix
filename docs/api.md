@@ -2,6 +2,8 @@
 
 squirix exposes a typed gRPC client SDK. Cache operations use gRPC only; HTTP endpoints are limited to health and metrics.
 
+Preview.11 also provides an [`IDistributedCache` adapter](distributed-cache.md) for ASP.NET Core and HybridCache.
+
 ## Client SDK
 
 Entry point (`Squirix.Client`):
@@ -11,8 +13,11 @@ using System;
 using System.Threading;
 using Squirix.Client;
 
-await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), CancellationToken.None);
-var cache = await client.GetCacheAsync<T>("cache-name", CancellationToken.None);
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
+
+await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
+var cache = await client.GetCacheAsync<string>("cache-name", cancellationToken);
 ```
 
 `ICache<T>` methods (v0.1 exported surface):
@@ -30,8 +35,46 @@ var cache = await client.GetCacheAsync<T>("cache-name", CancellationToken.None);
 
 Prefer `GetValueAsync` for reads with explicit presence.
 
-Writes accept `(key, value, options?, cancellationToken)`. Expiration uses `CacheEntryOptions`, not `CacheEntry<T>`
-write overloads.
+For application-specific value types, register `SquirixClientOptions.JsonSerializerContexts` before connecting.
+See the runnable example in [Serialization](serialization.md#application-value-types).
+
+### Lookup and conditional results
+
+Check `Found` before interpreting a lookup value. A live entry can contain `null`; `Value == null` alone does not mean
+the key is missing. A missing value-type entry can likewise have a default value such as `0`.
+
+`GetExpirationAsync` distinguishes three states:
+
+| Entry state | `Found` | `HasExpiration` | `Expiration` |
+| --- | --- | --- | --- |
+| Missing or expired | `false` | `false` | `null` |
+| Live, without TTL | `true` | `false` | `null` |
+| Live, with TTL | `true` | `true` | Remaining `TimeSpan` |
+
+`UpdateAsync`, `TouchAsync`, and `RemoveAsync` return `false` for a missing or expired key; they do not create it.
+`TryAddAsync` returns `false` for an existing live entry, including one whose value is `null`.
+`GetOrAddAsync` also preserves an existing `null`; its result has `Found = true` and `Value = null`.
+
+### GetOrAdd factory execution
+
+`GetOrAddAsync` runs the value factory on the client before sending its get-or-insert request. The server then returns
+the existing value or inserts the proposed value atomically. The factory can therefore run even when the key already
+exists; do not assume that it runs only on a cache miss or use it for side effects that must happen exactly once.
+
+Concurrent callers sharing the same client-side cache instance and key share in-flight factory work. Separate client
+sessions or processes can run their factories independently. For cache-aside, call `GetValueAsync` first and load from the source
+on a miss; that sequence alone does not prevent concurrent misses from loading the same data.
+
+### Expiration
+
+`AddAsync`, `TryAddAsync`, `SetAsync`, and `GetOrAddAsync` accept `CacheEntryOptions`. For the first three, the
+arguments are `(key, value, options?, cancellationToken)`; `GetOrAddAsync` takes a factory instead of the value.
+`UpdateAsync` changes only the value and preserves the current expiration. `CacheEntry<T>` is a read model, not a
+write-argument overload.
+
+Set at most one of `Expiration` and `ExpiresAt`. Specifying both throws `ArgumentException` before sending the write.
+Relative expiration is a lifetime applied when the server processes the write; reads do not renew it automatically.
+Use `TouchAsync` to set a new deadline explicitly. This is not automatic sliding expiration.
 
 When `options` is omitted or null, or neither `CacheEntryOptions.Expiration` nor `CacheEntryOptions.ExpiresAt` is set,
 the entry is stored **without expiration** and **does not expire by TTL**. Pass an explicit relative or absolute expiration
@@ -46,10 +89,29 @@ client clock too: the server returns the time the entry has left, and the client
 a TTL **clears that TTL**, and the key no longer expires. To change only the value and keep the current expiration, use
 `UpdateAsync`.
 
-Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
+In v0.1, `ICache<T>` omits batch, scan, watch, counters, tag invalidation, and compare-and-set. For tag
+invalidation through `RemoveByTagAsync`, see [HybridCache across processes](distributed-cache.md#hybridcache-across-processes).
 
 Configuration (`SquirixClientOptions`): endpoints, JWT bearer token provider, custom serializer.
 See [configuration.md](configuration.md) and [serialization.md](serialization.md).
+
+### Errors returned to applications
+
+Missing keys are normal lookup results: check `Found` on the returned value or entry result. `TryAddAsync` returns
+`false` when the key exists; `AddAsync` throws `CacheConflictException` for the same conflict.
+
+The SDK maps specific server responses to public exceptions:
+
+| Server response | SDK exception |
+| --- | --- |
+| Required operation id is missing | `OperationIdRequiredException` |
+| Operation id is reused with a different fingerprint | `OperationIdReuseMismatchException` |
+| `COMMIT_OUTCOME_UNKNOWN` | `CommitOutcomeUnknownException` |
+
+Other gRPC failures remain `Grpc.Core.RpcException`; inspect `StatusCode` and server details. For example, missing or
+invalid credentials yield `Unauthenticated`, and payload or capacity refusals use `ResourceExhausted`.
+`Squirix.Server` exception types are not the SDK's remote exception contract; applications do not need to reference the
+server package to handle these failures. See [retry and failover behavior](bootstrap-client-failover.md#per-operation-failover-v01-exported-client).
 
 ## Wire contract
 
@@ -85,8 +147,8 @@ error). HTTP on the primary listener is limited to health and metrics — there 
 
 ### Value encoding
 
-Every service lives in the proto package `squirix.cache.v2`, so a client and a server that disagree on the value encoding
-meet as `Unimplemented` instead of silently corrupting values. A `CacheValue` is one of:
+The public cache gRPC service uses the proto package `squirix.cache.v2`. A client calling this service under an older
+package name receives `Unimplemented`. Internode replication uses the separate proto package `squirix.replication`.
 
 | Kind | Used for |
 | :--- | :------- |
@@ -95,12 +157,19 @@ meet as `Unimplemented` instead of silently corrupting values. A `CacheValue` is
 | `int64_value` | `int` and `long` |
 | `double_value` | `double` |
 | `bool_value` | `bool` |
-| `json_utf8` | everything else: objects, arrays, `decimal`, numbers of a JSON element |
+| `json_utf8` | JSON values such as objects, arrays, `decimal`, and numbers of a JSON element |
+| `binary_value` | opaque bytes, including an empty byte array (preview.11) |
 
 `json_utf8` holds exactly one JSON value as UTF-8: no byte order mark, valid UTF-8, no comments, no trailing commas, nesting
 of at most 64 levels. The server checks it and refuses anything else with `InvalidArgument` before any durable effect, then
 stores, journals, replicates and returns the very same bytes: it does not parse, reformat or canonicalize the JSON, so every
-digit of a number survives. A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
+digit of a number survives.
+
+The SDK sends scalar `JsonElement` values as native kinds where possible. Numbers, objects, and arrays use their raw
+JSON text. `ICache<object>` reads native integers as `long` and JSON values as `JsonElement`. When the server returns
+`binary_value`, both `ICache<byte[]>` and `ICache<object>` read it as `byte[]`.
+
+A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
 the key already held one (`added=false`, `found=true`); when it added, the caller already has the value.
 
 Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
@@ -117,6 +186,11 @@ reuse with a different payload (`FailedPrecondition`).
 | Tags per entry | 32 |
 | Tag key UTF-8 size | 256 bytes |
 | Tag value UTF-8 size | 1024 bytes |
+
+The 4 MiB limit applies to the encoded entry, including value encoding, expiration, version, and tag metadata, not just
+to the original application value. A byte array written through the native typed SDK with the default serializer becomes
+Base64 JSON. The distributed cache adapter sends bytes directly. Leave room for entry and adapter metadata within the 4 MiB limit.
+The v0.1 SDK has no public API for assigning entry tags; the tag limits also apply to raw gRPC entries.
 
 Violations return stable public codes: `INVALID_ENTRY_TAGS` as gRPC `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as
 gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `TOO_MANY_REQUESTS`,
@@ -145,8 +219,21 @@ The approved RPC list is locked by a golden snapshot test:
 
 Transport requires HTTPS endpoints. Cleartext `http://` URLs are rejected at configuration time.
 
-Authentication uses JWT bearer tokens when enabled via `SquirixClientOptions.BearerTokenProvider`.
+When JWT authentication is enabled on the server, set `SquirixClientOptions.BearerTokenProvider` to supply client tokens.
+Setting the client provider does not enable authentication on the server. See [Configuration](configuration.md).
+
+## Cache keys
+
+Keys are strings of at most 1024 UTF-16 code units (`string.Length`), not 1024 UTF-8 bytes. Null, empty, whitespace-only
+keys and keys containing control characters are rejected with `ArgumentException` by the SDK. Keys are not restricted
+to the ASCII character set required for cache names. Raw gRPC requests with invalid keys are rejected with
+`InvalidArgument` and the `INVALID_CACHE_KEY` code.
 
 ## Cache names
+
+`T` in `ICache<T>` selects client serialization and deserialization; it is not part of the server-side cache identity.
+`GetCacheAsync<Document>("shared", ...)` and `GetCacheAsync<object>("shared", ...)` address the same entries. The server
+does not create a separate namespace for each CLR type or enforce a schema for the cache. Coordinate payload schemas
+between applications, or use distinct cache names for incompatible types.
 
 Validation rules for logical cache names: [cache-name-validation.md](cache-name-validation.md).

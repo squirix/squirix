@@ -25,72 +25,18 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 [ExecutionPriority(Priority.High)]
 public sealed class WipedNodeTests : NodeIntegrationTestBase
 {
-    private const string NodeB = "node-b";
-    private const string NodeC = "node-c";
-    private const ulong StaticLeaderTerm = 1UL;
-    private const int KeyCount = 300;
-    private const int LeaderOwnedKeyCount = 20;
-    private const long FirstVersion = 1;
-    private const long SecondVersion = 2;
     private const string BeforeValue = "before";
     private const string DuringValue = "during";
     private const string ElectedValue = "elected";
+    private const long FirstVersion = 1;
+    private const int KeyCount = 300;
+    private const int LeaderOwnedKeyCount = 20;
+    private const string NodeB = "node-b";
+    private const string NodeC = "node-c";
+    private const long SecondVersion = 2;
+    private const ulong StaticLeaderTerm = 1UL;
 
     private static readonly string[] Followers = [NodeB, NodeC];
-
-    /// <summary>
-    /// An election of the first group, held while its owner is down, makes one of the other two nodes vote for the other in an elected term. When
-    /// that follower loses its whole disk and is repaired, its copy of the first group holds the term of the leader that repaired it and a
-    /// vote for that leader, also after a restart that keeps the repaired disk: another candidate in that term is refused and the leader is
-    /// granted again. Its other groups end complete at their unchanged terms, and the copy of its own group holds the values only the elected
-    /// leader committed while the node was down.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task WipedNodeVotesOnceInTermItVotedIn(CancellationToken cancellationToken)
-    {
-        const string scope = "wiped-node-vote";
-        await using var cluster = await StartAsync(scope, cancellationToken);
-        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, WipedCluster.OwnerId, WipedCluster.Bound);
-
-        // Without its owner the first group elects a leader among the other two nodes; the one that does not lead it votes for the one that does.
-        await cluster.StopNodeAsync(WipedCluster.OwnerId);
-        var (leaderId, _) = await ledger.LeaderAsync(Followers, StaticLeaderTerm, "the other two nodes elect a leader of the first group", cancellationToken);
-        _ = await cluster.StartNodeAsync(WipedCluster.OwnerId, WipedCluster.Options(scope, true, null, false), cancellationToken);
-        var wipedId = string.Equals(leaderId, NodeB, StringComparison.Ordinal) ? NodeC : NodeB;
-
-        // While the node is down, the surviving nodes elect a leader of the group it owns and commit values that only they hold.
-        string[] survivors = [WipedCluster.OwnerId, leaderId];
-        var ownGroup = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, wipedId, WipedCluster.Bound);
-        await cluster.WipeNodeAsync(wipedId);
-        var (ownLeader, _) = await ownGroup.LeaderAsync(survivors, StaticLeaderTerm, "the surviving nodes elect a leader of the group the wiped node owns", cancellationToken);
-        var committed = await CommitOwnedKeysAsync(cluster[ownLeader], wipedId, cancellationToken);
-        var wiped = await cluster.StartWipedNodeAsync(wipedId, null, cancellationToken);
-
-        // A starved host may let a heartbeat miss its election timeout, so a group may elect a new leader on its own; each repaired copy is therefore
-        // checked against the leader that leads its group now, in that leader's term.
-        var groups = new (string Group, GroupAuthorityLedger<IntegrationStartOptions> Watch)[]
-        {
-            (WipedCluster.OwnerId, ledger),
-            (leaderId, new GroupAuthorityLedger<IntegrationStartOptions>(cluster, leaderId, WipedCluster.Bound)),
-            (wipedId, ownGroup),
-        };
-        foreach (var (group, watch) in groups)
-        {
-            _ = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, watch, wipedId, group, cancellationToken);
-            await WipedCluster.AssertCompleteCopyAsync(wiped, group, cancellationToken);
-        }
-
-        // The vote check reads the leader again right before it, so an election during the repairs above does not leave it a stale term.
-        var first = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, ledger, wipedId, WipedCluster.OwnerId, cancellationToken);
-        await AssertVotesOnceAsync(cluster, WipedCluster.OwnerId, first.LeaderId, wipedId, first.Leader, cancellationToken);
-        await AssertValuesAsync(wiped, committed, cancellationToken);
-
-        // The vote is durable: after a restart that keeps the repaired disk the copy still holds the vote of the leader of its term and refuses another candidate in it.
-        _ = await cluster.RestartNodeAsync(wipedId, null, cancellationToken);
-        var restarted = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, ledger, wipedId, WipedCluster.OwnerId, cancellationToken);
-        await AssertVotesOnceAsync(cluster, WipedCluster.OwnerId, restarted.LeaderId, wipedId, restarted.Leader, cancellationToken);
-    }
 
     /// <summary>
     /// Keys written before the node lost its disk and while it was down are all read back from the repaired node's own local cache, with the values
@@ -131,7 +77,7 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
             duringCount++;
         }
 
-        var wiped = await cluster.StartWipedNodeAsync(NodeC, null, cancellationToken);
+        var wiped = await cluster.StartWipedNodeAsync(NodeC, cancellationToken);
         var (electedLeader, _) = await ledger.LeaderAsync(others, StaticLeaderTerm, "the other members elect a leader of the group the node owns", cancellationToken);
         foreach (var group in WipedCluster.Nodes)
             _ = await WipedCluster.AwaitRepairedCopyAsync(wiped, group, string.Equals(group, NodeC, StringComparison.Ordinal) ? electedLeader : group, cancellationToken);
@@ -140,6 +86,60 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
         _ = await Assert.That(owners.Count).IsEqualTo(WipedCluster.Nodes.Length);
         _ = await Assert.That(duringCount).IsGreaterThan(0);
         await AssertValuesAsync(wiped, expected, cancellationToken);
+    }
+
+    /// <summary>
+    /// An election of the first group, held while its owner is down, makes one of the other two nodes vote for the other in an elected term. When
+    /// that follower loses its whole disk and is repaired, its copy of the first group holds the term of the leader that repaired it and a
+    /// vote for that leader, also after a restart that keeps the repaired disk: another candidate in that term is refused and the leader is
+    /// granted again. Its other groups end complete at their unchanged terms, and the copy of its own group holds the values only the elected
+    /// leader committed while the node was down.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WipedNodeVotesOnceInTermItVotedIn(CancellationToken cancellationToken)
+    {
+        const string scope = "wiped-node-vote";
+        await using var cluster = await StartAsync(scope, cancellationToken);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, WipedCluster.OwnerId, WipedCluster.Bound);
+
+        // Without its owner the first group elects a leader among the other two nodes; the one that does not lead it votes for the one that does.
+        await cluster.StopNodeAsync(WipedCluster.OwnerId);
+        var (leaderId, _) = await ledger.LeaderAsync(Followers, StaticLeaderTerm, "the other two nodes elect a leader of the first group", cancellationToken);
+        _ = await cluster.StartNodeAsync(WipedCluster.OwnerId, WipedCluster.Options(scope, true, null, false), cancellationToken);
+        var wipedId = string.Equals(leaderId, NodeB, StringComparison.Ordinal) ? NodeC : NodeB;
+
+        // While the node is down, the surviving nodes elect a leader of the group it owns and commit values that only they hold.
+        string[] survivors = [WipedCluster.OwnerId, leaderId];
+        var ownGroup = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, wipedId, WipedCluster.Bound);
+        await cluster.WipeNodeAsync(wipedId);
+        var (ownLeader, _) = await ownGroup.LeaderAsync(survivors, StaticLeaderTerm, "the surviving nodes elect a leader of the group the wiped node owns", cancellationToken);
+        var committed = await CommitOwnedKeysAsync(cluster[ownLeader], wipedId, cancellationToken);
+        var wiped = await cluster.StartWipedNodeAsync(wipedId, cancellationToken);
+
+        // A starved host may let a heartbeat miss its election timeout, so a group may elect a new leader on its own; each repaired copy is therefore
+        // checked against the leader that leads its group now, in that leader's term.
+        var groups = new (string Group, GroupAuthorityLedger<IntegrationStartOptions> Watch)[]
+        {
+            (WipedCluster.OwnerId, ledger),
+            (leaderId, new GroupAuthorityLedger<IntegrationStartOptions>(cluster, leaderId, WipedCluster.Bound)),
+            (wipedId, ownGroup),
+        };
+        foreach (var (group, watch) in groups)
+        {
+            _ = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, watch, wipedId, group, cancellationToken);
+            await WipedCluster.AssertCompleteCopyAsync(wiped, group, cancellationToken);
+        }
+
+        // The vote check reads the leader again right before it, so an election during the repairs above does not leave it a stale term.
+        var first = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, ledger, wipedId, WipedCluster.OwnerId, cancellationToken);
+        await AssertVotesOnceAsync(cluster, WipedCluster.OwnerId, first.LeaderId, wipedId, first.Leader, cancellationToken);
+        await AssertValuesAsync(wiped, committed, cancellationToken);
+
+        // The vote is durable: after a restart that keeps the repaired disk the copy still holds the vote of the leader of its term and refuses another candidate in it.
+        _ = await cluster.RestartNodeAsync(wipedId, null, cancellationToken);
+        var restarted = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, ledger, wipedId, WipedCluster.OwnerId, cancellationToken);
+        await AssertVotesOnceAsync(cluster, WipedCluster.OwnerId, restarted.LeaderId, wipedId, restarted.Leader, cancellationToken);
     }
 
     /// <summary>Checks that the local cache of a node holds every expected value, allowing the tail of the log to arrive after the copy is complete.</summary>
@@ -154,65 +154,21 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
         try
         {
             await (Local: local, Expected: expected).WaitUntilValueAsync(
-                static async (state, token) => (await FindMismatchesAsync(state.Local, state.Expected, token)).Count == 0,
+                static (state, token) => ValueTask.FromResult(FindMismatches(state.Local, state.Expected, token).Count == 0),
                 WipedCluster.Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
         {
-            var mismatches = await FindMismatchesAsync(local, expected, cancellationToken);
+            var mismatches = FindMismatches(local, expected, cancellationToken);
             if (mismatches.Count == 0)
                 throw;
 
             throw new TimeoutException($"{mismatches.Count} of {expected.Count} keys do not hold their value on the repaired node, for example {mismatches[0]}.", exception);
         }
 
-        var remaining = await FindMismatchesAsync(local, expected, cancellationToken);
+        var remaining = FindMismatches(local, expected, cancellationToken);
         _ = await Assert.That(remaining).IsEmpty();
-    }
-
-    /// <summary>Reads every expected key from the local cache of a node.</summary>
-    /// <param name="local">The local cache.</param>
-    /// <param name="expected">The expected value of every key.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The keys that are missing or hold another value.</returns>
-    private static async Task<List<string>> FindMismatchesAsync(PhysicalCache<object?> local, Dictionary<string, string> expected, CancellationToken cancellationToken)
-    {
-        var mismatches = new List<string>();
-        foreach (var (key, value) in expected)
-        {
-            var read = await local.GetValueAsync(new CacheKey(WipedCluster.CacheName, key), cancellationToken);
-            if (!read.Found || !string.Equals(read.Value as string, value, StringComparison.Ordinal))
-                mismatches.Add(key);
-        }
-
-        return mismatches;
-    }
-
-    /// <summary>Commits values of keys a group owns through the committer of the node that leads it.</summary>
-    /// <param name="leader">The elected leader of the group.</param>
-    /// <param name="ownerId">The owner of the group.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The committed values by key.</returns>
-    private static async Task<Dictionary<string, string>> CommitOwnedKeysAsync(ITestNodeHost leader, string ownerId, CancellationToken cancellationToken)
-    {
-        var locator = leader.GetRequiredService<INodeLocator>();
-        var committer = leader.GetRequiredService<ReplicaGroupCommitters>().For(ownerId);
-        var committed = new Dictionary<string, string>(StringComparer.Ordinal);
-        var next = 0;
-        while (committed.Count < LeaderOwnedKeyCount)
-        {
-            var key = $"{WipedCluster.CacheName}-{next++}";
-            if (!string.Equals(locator.GetOwner(WipedCluster.CacheName, key), ownerId, StringComparison.Ordinal))
-                continue;
-
-            var entry = new NodeCacheEntry<object?> { Value = ElectedValue, Version = FirstVersion };
-            await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, entry, cancellationToken);
-            committed[key] = ElectedValue;
-        }
-
-        return committed;
     }
 
     /// <summary>Asks the repaired copy for a vote in the term it holds, for another candidate and for the leader that repaired it.</summary>
@@ -242,6 +198,49 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
 
         _ = await Assert.That(refused).IsEqualTo(new FollowerLogVoteResult(false, RefusalCodes.AlreadyVoted, leader.CurrentTerm));
         _ = await Assert.That(granted.Granted).IsTrue();
+    }
+
+    /// <summary>Commits values of keys a group owns through the committer of the node that leads it.</summary>
+    /// <param name="leader">The elected leader of the group.</param>
+    /// <param name="ownerId">The owner of the group.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The committed values by key.</returns>
+    private static async Task<Dictionary<string, string>> CommitOwnedKeysAsync(ITestNodeHost leader, string ownerId, CancellationToken cancellationToken)
+    {
+        var locator = leader.GetRequiredService<INodeLocator>();
+        var committer = leader.GetRequiredService<ReplicaGroupCommitters>().For(ownerId);
+        var committed = new Dictionary<string, string>(StringComparer.Ordinal);
+        var next = 0;
+        while (committed.Count < LeaderOwnedKeyCount)
+        {
+            var key = $"{WipedCluster.CacheName}-{next++}";
+            if (!string.Equals(locator.GetOwner(WipedCluster.CacheName, key), ownerId, StringComparison.Ordinal))
+                continue;
+
+            var entry = new NodeCacheEntry<object?> { Value = ElectedValue, Version = FirstVersion };
+            await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, entry, cancellationToken);
+            committed[key] = ElectedValue;
+        }
+
+        return committed;
+    }
+
+    /// <summary>Reads every expected key from the local cache of a node.</summary>
+    /// <param name="local">The local cache.</param>
+    /// <param name="expected">The expected value of every key.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The keys that are missing or hold another value.</returns>
+    private static List<string> FindMismatches(PhysicalCache<object?> local, Dictionary<string, string> expected, CancellationToken cancellationToken)
+    {
+        var mismatches = new List<string>();
+        foreach (var (key, value) in expected)
+        {
+            var read = local.GetValue(new CacheKey(WipedCluster.CacheName, key), cancellationToken);
+            if (!read.Found || !string.Equals(read.Value as string, value, StringComparison.Ordinal))
+                mismatches.Add(key);
+        }
+
+        return mismatches;
     }
 
     /// <summary>Finds a node that is neither the leader of a group nor the voter asked.</summary>

@@ -67,12 +67,45 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         }
     }
 
-    /// <summary>Runs one pass: expires the keys of the led groups whose deadline passed, at most <see cref="MaxPerPass" />, skipping a group once it failed.</summary>
+    /// <summary>Runs one pass and tells whether it appended any tombstone.</summary>
     /// <param name="cancellationToken">Cancellation token of the host.</param>
-    /// <returns>The number of keys expired or absent when the pass ended; a key found live again is not counted.</returns>
+    /// <returns>The number of keys expired or absent, and whether a committer of the pass appended a record.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    /// <remarks>The keys of a group go to its committer in chunks of the batch limit, each chunk awaited before the next one.</remarks>
-    internal async Task<int> SweepOnceAsync(CancellationToken cancellationToken) => (await SweepPassAsync(cancellationToken).ConfigureAwait(false)).Expired;
+    internal async Task<(int Expired, bool Appended)> SweepPassAsync(CancellationToken cancellationToken)
+    {
+        if (_committers.LedCommitters.Count == 0)
+            return (0, false);
+
+        var expired = 0;
+        var appended = false;
+        var now = _committers.Clock.GetUtcNow().UtcDateTime;
+
+        // A key of a group this node only follows, or leads without authority, is expired by the leader of its group, never here. The
+        // committer of each group is looked up once per pass.
+        var committers = new Dictionary<string, ReplicaGroupCommitter?>(StringComparer.Ordinal);
+
+        // The filter records the group it resolved for each key it accepts, so a ring change after the listing cannot send a key to
+        // a group whose committer was never looked up.
+        var ownerOfKey = new Dictionary<CacheKey, string>();
+        var keys = _expiredKeys.ListExpired(
+            now,
+            MaxPerPass,
+            key => TryReserveKey(committers, ownerOfKey, key));
+
+        foreach (var (owner, ofOwner) in GroupByOwner(keys, ownerOfKey))
+        {
+            var committer = committers[owner]!;
+            var appendedBefore = committer.LocalAppends.Snapshot().Appended;
+            var (done, failure) = await ExpireOwnerAsync(committer, ofOwner, cancellationToken).ConfigureAwait(false);
+            expired += done;
+            if (failure != null)
+                ServerLog.ReplicaExpirationSweepFailed(_log, owner, expired, failure);
+
+            appended |= committer.LocalAppends.Snapshot().Appended != appendedBefore;
+        }
+
+        return (expired, appended);
+    }
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -145,35 +178,12 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         return (expired, failure);
     }
 
-    /// <summary>Runs one pass and tells whether it appended any tombstone.</summary>
-    /// <param name="cancellationToken">Cancellation token of the host.</param>
-    /// <returns>The number of keys expired or absent, and whether a committer of the pass appended a record.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    private async Task<(int Expired, bool Appended)> SweepPassAsync(CancellationToken cancellationToken)
+    /// <summary>Groups the accepted keys by the replica group of their owner.</summary>
+    /// <param name="keys">The accepted keys.</param>
+    /// <param name="ownerOfKey">The group resolved for each accepted key.</param>
+    /// <returns>The keys of each group.</returns>
+    private static Dictionary<string, List<CacheKey>> GroupByOwner(IReadOnlyList<CacheKey> keys, Dictionary<CacheKey, string> ownerOfKey)
     {
-        var expired = 0;
-        var appended = false;
-        var now = _committers.Clock.GetUtcNow().UtcDateTime;
-
-        // A key of a group this node only follows, or leads without authority, is expired by the leader of its group, never here. The
-        // committer of each group is looked up once per pass.
-        var committers = new Dictionary<string, ReplicaGroupCommitter?>(StringComparer.Ordinal);
-
-        // The filter records the group it resolved for each key it accepts, so a ring change after the listing cannot send a key to
-        // a group whose committer was never looked up.
-        var ownerOfKey = new Dictionary<CacheKey, string>();
-        var keys = _expiredKeys.ListExpired(
-            now,
-            MaxPerPass,
-            key =>
-            {
-                var (owner, committer) = CommitterOf(committers, key);
-                if (committer == null)
-                    return false;
-
-                ownerOfKey[key] = owner;
-                return true;
-            });
         var byOwner = new Dictionary<string, List<CacheKey>>(StringComparer.Ordinal);
         foreach (var key in keys)
         {
@@ -186,27 +196,44 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
             ofOwner.Add(key);
         }
 
-        foreach (var (owner, ofOwner) in byOwner)
+        return byOwner;
+    }
+
+    /// <summary>Expires the keys of one group in chunks and stops at the first failed chunk.</summary>
+    /// <param name="committer">The committer of the group.</param>
+    /// <param name="keys">The keys of the group.</param>
+    /// <param name="cancellationToken">Cancellation token of the host.</param>
+    /// <returns>The number of keys expired or absent, and the first failure, if any.</returns>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
+    private static async Task<(int Expired, Exception? Failure)> ExpireOwnerAsync(ReplicaGroupCommitter committer, List<CacheKey> keys, CancellationToken cancellationToken)
+    {
+        var expired = 0;
+        for (var start = 0; start < keys.Count; start += ReplicaGroupCommitterCommits.MaxExpiriesPerCommit)
         {
-            var committer = committers[owner]!;
-            var appendedBefore = committer.LocalAppends.Snapshot().Appended;
-            for (var start = 0; start < ofOwner.Count; start += ReplicaGroupCommitterCommits.MaxExpiriesPerCommit)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var count = Math.Min(ReplicaGroupCommitterCommits.MaxExpiriesPerCommit, ofOwner.Count - start);
-                var (done, failure) = await ExpireChunkAsync(committer, ofOwner, start, count, cancellationToken).ConfigureAwait(false);
-                expired += done;
-                if (failure == null)
-                    continue;
-
-                ServerLog.ReplicaExpirationSweepFailed(_log, owner, expired, failure);
-                break;
-            }
-
-            appended |= committer.LocalAppends.Snapshot().Appended != appendedBefore;
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(ReplicaGroupCommitterCommits.MaxExpiriesPerCommit, keys.Count - start);
+            var (done, failure) = await ExpireChunkAsync(committer, keys, start, count, cancellationToken).ConfigureAwait(false);
+            expired += done;
+            if (failure != null)
+                return (expired, failure);
         }
 
-        return (expired, appended);
+        return (expired, null);
+    }
+
+    /// <summary>Records the group of a key the pass may expire and accepts it.</summary>
+    /// <param name="committers">The committers found in this pass, by group.</param>
+    /// <param name="ownerOfKey">The group resolved for each accepted key.</param>
+    /// <param name="key">The key.</param>
+    /// <returns><see langword="true" /> when this node may write to the group of the key.</returns>
+    private bool TryReserveKey(Dictionary<string, ReplicaGroupCommitter?> committers, Dictionary<CacheKey, string> ownerOfKey, CacheKey key)
+    {
+        var (owner, committer) = CommitterOf(committers, key);
+        if (committer == null)
+            return false;
+
+        ownerOfKey[key] = owner;
+        return true;
     }
 
     /// <summary>Finds the committer that may expire a key, once per group and pass.</summary>

@@ -27,7 +27,7 @@ public sealed class ReplicaStartAnnouncedCommitTests : IsolatedStorageTestBase
     public async Task StartMakesAnnouncedCommitDurable(CancellationToken cancellationToken)
     {
         var local = RecoveredCache();
-        await using var registry = await ReplicaCommitBatchKit.OpenRegistryAsync(Dir, DefaultOptions(), cancellationToken);
+        await using var registry = await OpenRegistryAsync(Dir, DefaultOptions(), cancellationToken);
         await AppendAnnouncedAsync(registry, cancellationToken);
         await using var committer = CreateCommitter(registry, local, new AcceptingGateway(), TimeProvider.System);
         var before = await GetOwnedLog(registry).GetStatusAsync(cancellationToken);

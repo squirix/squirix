@@ -9,7 +9,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for bootstrap failover under a single absolute deadline.</summary>
-public sealed class FailoverDeadlineE2ETests : EndToEndTestBase
+public sealed class FailoverDeadlineE2ETests
 {
     /// <summary>Failover to the surviving endpoint completes within one absolute deadline after peer loss.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

@@ -64,7 +64,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(await budgetClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
             budgetClock.Advance(CommitBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             // The observer is past its first bound once the observe clock moved beyond it, so only disposal can stop it.
@@ -102,7 +102,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(await budgetClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
         budgetClock.Advance(CommitBudget);
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask, StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
         _ = await Assert.That(await observeClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
@@ -144,7 +144,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             await pipeline.FollowerEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(await budgetClock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
             budgetClock.Advance(CommitBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commitTask, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(pipeline.Applied.IsEmpty).IsTrue();
 
@@ -180,8 +180,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         pipeline.ReleaseFollower();
-        var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
-            coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), StallTimeout, cancellationToken));
+        var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), StallTimeout, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
         CallerOperationId.Value = ForeignOperationId;

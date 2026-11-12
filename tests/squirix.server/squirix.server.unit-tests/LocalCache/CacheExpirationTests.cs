@@ -29,11 +29,11 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         var expiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddSeconds(5);
-        var added = await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = expiresUtc }, cancellationToken);
+        var added = cache.TryAdd(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = expiresUtc }, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
 
-        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), cancellationToken);
+        var stored = cache.GetEntry(CacheKey.Default("k"), cancellationToken);
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(stored.ExpiresUtc).IsEqualTo(expiresUtc);
         var remaining = stored.ExpiresUtc!.Value - timeProvider.GetUtcNow().UtcDateTime;
@@ -50,7 +50,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
         _ = await Assert.That(
-                             await cache.TryAddAsync(
+                             cache.TryAdd(
                                  CacheKey.Default("k"),
                                  new NodeCacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) },
                                  cancellationToken))
@@ -58,8 +58,8 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(25));
 
-        _ = await Assert.That(await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "new" }, cancellationToken)).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Value).IsEqualTo("new");
+        _ = await Assert.That(cache.TryAdd(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "new" }, cancellationToken)).IsTrue();
+        _ = await Assert.That(cache.GetValue(CacheKey.Default("k"), cancellationToken).Value).IsEqualTo("new");
     }
 
     /// <summary>When the absolute deadline is earlier than the relative one, the absolute one wins.</summary>
@@ -71,17 +71,17 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
-        await cache.SetAsync(
+        cache.Set(
             CacheKey.Default("k"),
             new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(5), ExpiresUtc = now.AddMinutes(1) },
             cancellationToken);
 
-        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), cancellationToken);
+        var stored = cache.GetEntry(CacheKey.Default("k"), cancellationToken);
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(stored.ExpiresUtc).IsEqualTo(now.AddMinutes(1));
 
         timeProvider.Advance(TimeSpan.FromMinutes(2));
-        _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(cache.GetValue(CacheKey.Default("k"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Both relative and absolute expiration are respected; the earlier deadline wins.</summary>
@@ -93,17 +93,17 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
-        await cache.SetAsync(
+        cache.Set(
             CacheKey.Default("k"),
             new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(1), ExpiresUtc = now.AddMinutes(5) },
             cancellationToken);
 
-        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), cancellationToken);
+        var stored = cache.GetEntry(CacheKey.Default("k"), cancellationToken);
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(stored.ExpiresUtc).IsEqualTo(now.AddMinutes(1));
 
         timeProvider.Advance(TimeSpan.FromMinutes(2));
-        _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(cache.GetValue(CacheKey.Default("k"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Ensures entries expire correctly when inserted with either relative expiration or absolute expiration.</summary>
@@ -125,11 +125,11 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
             ? new NodeCacheEntry<string> { Value = "v", ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expirationMs) }
             : new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(expirationMs) };
 
-        await cache.SetAsync(CacheKey.Default("k"), entry, cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Found).IsTrue();
+        cache.Set(CacheKey.Default("k"), entry, cancellationToken);
+        _ = await Assert.That(cache.GetValue(CacheKey.Default("k"), cancellationToken).Found).IsTrue();
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(sleepMs));
-        _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(cache.GetValue(CacheKey.Default("k"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>
@@ -156,10 +156,10 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
             ExpiresUtc = expiresMs != null ? timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expiresMs.Value) : null,
         };
 
-        await cache.SetAsync(CacheKey.Default("k"), entry, cancellationToken);
+        cache.Set(CacheKey.Default("k"), entry, cancellationToken);
         timeProvider.Advance(TimeSpan.FromMilliseconds(60));
 
-        var exists = (await cache.GetValueAsync(CacheKey.Default("k"), cancellationToken)).Found;
+        var exists = cache.GetValue(CacheKey.Default("k"), cancellationToken).Found;
         _ = await Assert.That(exists).IsEqualTo(shouldStillExist);
     }
 
@@ -171,13 +171,13 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
         var key = new CacheKey("default", "key-a");
-        await cache.SetAsync(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), cancellationToken);
+        cache.Set(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), cancellationToken);
         time.Advance(TimeSpan.FromSeconds(2));
 
-        var raw = await cache.RawReader.GetEntryRawAsync(key, cancellationToken);
+        var raw = cache.RawReader.GetEntryRaw(key, cancellationToken);
         _ = await Assert.That(raw).IsNotNull();
-        _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNull();
-        _ = await Assert.That(await cache.RawReader.GetEntryRawAsync(key, cancellationToken)).IsNull();
+        _ = await Assert.That(cache.GetEntry(key, cancellationToken)).IsNull();
+        _ = await Assert.That(cache.RawReader.GetEntryRaw(key, cancellationToken)).IsNull();
     }
 
     /// <summary>Verifies remove operations treat expired keys as missing.</summary>
@@ -188,12 +188,12 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var timeProvider = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
-        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, cancellationToken);
+        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, cancellationToken);
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(25));
 
-        _ = await Assert.That((await cache.RemoveAsync(CacheKey.Default("k"), cancellationToken)).Removed).IsFalse();
-        _ = await Assert.That((await cache.RemoveAsync(CacheKey.Default("k"), cancellationToken)).Removed).IsFalse();
+        _ = await Assert.That(cache.Remove(CacheKey.Default("k"), cancellationToken).Removed).IsFalse();
+        _ = await Assert.That(cache.Remove(CacheKey.Default("k"), cancellationToken).Removed).IsFalse();
     }
 
     /// <summary>Relative expiration exceeding the DateTime range saturates instead of throwing.</summary>
@@ -204,9 +204,9 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var timeProvider = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
-        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.MaxValue }, cancellationToken);
+        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.MaxValue }, cancellationToken);
 
-        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), cancellationToken);
+        var stored = cache.GetEntry(CacheKey.Default("k"), cancellationToken);
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(stored.ExpiresUtc).IsEqualTo(DateTime.MaxValue);
     }
@@ -219,10 +219,10 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var timeProvider = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(timeProvider, new CacheEntrySizeEstimator<string>());
 
-        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(1) }, cancellationToken);
-        _ = await Assert.That(await cache.TouchAsync(CacheKey.Default("k"), TimeSpan.MaxValue, cancellationToken)).IsTrue();
+        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(1) }, cancellationToken);
+        _ = await Assert.That(cache.Touch(CacheKey.Default("k"), TimeSpan.MaxValue, cancellationToken)).IsTrue();
 
-        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), cancellationToken);
+        var stored = cache.GetEntry(CacheKey.Default("k"), cancellationToken);
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(stored.ExpiresUtc).IsEqualTo(DateTime.MaxValue);
     }

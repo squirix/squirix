@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -56,8 +57,14 @@ internal abstract class ReplicaCommitRequest
     /// <summary>Gets the cache key the write decides.</summary>
     internal string Key { get; }
 
+    /// <summary>Gets or sets the queue link, accessed only under the owning queue lock.</summary>
+    internal LinkedListNode<ReplicaCommitRequest>? QueueNode { get; set; }
+
     /// <summary>Gets the client operation identifier of the write.</summary>
     internal string OperationId { get; }
+
+    /// <summary>Gets or initializes a value indicating whether a retained result must be resolved before reading the current entry.</summary>
+    internal bool ReplayBeforePrepare { get; init; }
 
     /// <summary>Gets the committed outcome of the write.</summary>
     internal ReadOnlyMemory<byte> Outcome { get; private set; }

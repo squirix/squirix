@@ -89,7 +89,7 @@ public sealed class OwnerRouterFallbackTests
         var second = ServerOpContract.NoLeaderAuthority();
         var attempts = new Attempts(ServerOpContract.NoLeaderAuthority(), second);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(second);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{Owner},{Next}");
@@ -127,7 +127,7 @@ public sealed class OwnerRouterFallbackTests
         var table = CreateTable(registry);
         var attempts = new Attempts(Unreachable(), StaleOwner(Leader, 5));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{Owner},{Next}");
@@ -145,7 +145,7 @@ public sealed class OwnerRouterFallbackTests
         var unreachable = Unreachable();
         var attempts = new Attempts(StaleOwner(Leader, 5), unreachable);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(unreachable);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{Owner},{Leader}");
@@ -158,11 +158,12 @@ public sealed class OwnerRouterFallbackTests
     public async Task FlagOffIgnoresLearnedRoutes(CancellationToken cancellationToken)
     {
         var table = new StaticLeaderTable(Self);
-        table.Learn(Owner, new LeaderRoute(Leader, 4));
+        IGroupLeaderTable leaderTable = table;
+        leaderTable.Learn(Owner, new LeaderRoute(Leader, 4));
         var unreachable = Unreachable();
         var attempts = new Attempts(unreachable);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(table.TryGetLearnedLeader(Owner, out _)).IsFalse();
         _ = await Assert.That(failure).IsSameReferenceAs(unreachable);
@@ -191,7 +192,7 @@ public sealed class OwnerRouterFallbackTests
         var table = CreateTable(registry);
         var attempts = new Attempts(failures[kind]);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(failures[kind]);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(Owner);
@@ -211,7 +212,7 @@ public sealed class OwnerRouterFallbackTests
         var timedOut = new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout."));
         var attempts = new Attempts(timedOut);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(timedOut);
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -227,7 +228,7 @@ public sealed class OwnerRouterFallbackTests
         var unreachable = Unreachable();
         var attempts = new Attempts(unreachable);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(unreachable);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(Owner);

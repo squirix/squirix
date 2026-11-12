@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
+using Squirix.Testing;
 
 namespace Squirix.E2ETests.Fixtures.ProcessHosting;
 
@@ -48,11 +49,8 @@ internal sealed class ServerProcess : IAsyncDisposable
     {
         try
         {
-            if (!_process.HasExited)
-                _process.Kill(true);
-
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await _process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+            await StopAsync(timeout.Token).ConfigureAwait(false);
             _ = await _output.ConfigureAwait(false);
             _ = await _errors.ConfigureAwait(false);
         }
@@ -68,8 +66,9 @@ internal sealed class ServerProcess : IAsyncDisposable
     /// <summary>Starts the built host and waits for its public readiness endpoint.</summary>
     /// <param name="authenticated">Whether JWT authentication is enabled for this node.</param>
     /// <param name="cancellationToken">Cancellation token for startup.</param>
+    /// <param name="configure">Optional child-process configuration applied before startup.</param>
     /// <returns>The running process, owned by the caller.</returns>
-    internal static async Task<ServerProcess> StartAsync(bool authenticated, CancellationToken cancellationToken)
+    internal static async Task<ServerProcess> StartAsync(bool authenticated, CancellationToken cancellationToken, Func<ProcessStartInfo, CancellationToken, Task>? configure = null)
     {
         var hostPath = FindHostPath();
         var directory = Directory.CreateTempSubdirectory("squirix-process-smoke-");
@@ -82,6 +81,8 @@ internal sealed class ServerProcess : IAsyncDisposable
         {
             await File.WriteAllTextAsync(settingsPath, settings, cancellationToken).ConfigureAwait(false);
             var start = CreateStartInfo(hostPath, directory.FullName, settingsPath);
+            if (configure != null)
+                await configure(start, cancellationToken).ConfigureAwait(false);
             var bearerToken = authenticated ? ConfigureAuthentication(start) : null;
             process = Process.Start(start) ?? ThrowStartFailed();
             server = new ServerProcess(process, directory, uri, bearerToken);
@@ -102,6 +103,21 @@ internal sealed class ServerProcess : IAsyncDisposable
 
             throw;
         }
+    }
+
+    /// <summary>Gets all captured standard output after the process has stopped.</summary>
+    /// <returns>The captured output.</returns>
+    internal Task<string> ReadOutputAsync() => _output;
+
+    /// <summary>Terminates the child process and waits for the port to close.</summary>
+    /// <param name="cancellationToken">Cancellation for the exit wait.</param>
+    /// <returns>A task that completes after process exit.</returns>
+    internal Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (!_process.HasExited)
+            _process.Kill(true);
+
+        return _process.WaitForExitAsync(cancellationToken);
     }
 
     private static Process ThrowStartFailed() => throw new InvalidOperationException("The server process could not be started.");
@@ -159,7 +175,7 @@ internal sealed class ServerProcess : IAsyncDisposable
             throw new InvalidOperationException("The repository root was not found.");
 
         var configuration = AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
-        var path = Path.Join(directory.FullName, "src", "squirix.server.host", "bin", configuration, "net10.0", "Squirix.Server.Host.dll");
+        var path = Path.Join(directory.FullName, "src", "squirix.server.host", "bin", configuration, PathKit.GetTargetFrameworkDirectory(), "Squirix.Server.Host.dll");
         return File.Exists(path) ? path : throw new FileNotFoundException("Build the server host before running process tests.", path);
     }
 

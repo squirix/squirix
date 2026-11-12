@@ -35,14 +35,15 @@ public sealed class BoundedJournalRingTests
     }
 
     /// <summary>A full ring invokes the failure poll on slice expiry and keeps its slot accounting.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SlicePollObservesPipelineFailure()
+    public async Task SlicePollObservesPipelineFailure(CancellationToken cancellationToken)
     {
         using var ring = new BoundedJournalRing(1);
         await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
 
         var probe = new PipelineFailureProbe();
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None, probe.Throw).AsTask());
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None, probe.Throw).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(thrown).IsSameReferenceAs(probe.Reason);
 
         _ = await Assert.That(ring.TryDequeue(out var filler)).IsTrue();

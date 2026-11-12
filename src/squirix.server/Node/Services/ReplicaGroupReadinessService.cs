@@ -151,7 +151,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
             {
                 loops.Add(arrival);
                 var ended = await Task.WhenAny(loops).ConfigureAwait(false);
-                _ = loops.Remove(arrival);
+                loops.RemoveAt(loops.Count - 1);
                 if (ended != arrival)
                 {
                     // A loop that ended with its leadership completes normally; one that faulted ends the watch with its fault.

@@ -24,6 +24,29 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-1";
 
+    /// <summary>The readiness predicate uses only the uncommitted tail and stays paired with its status.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommitReadinessTracksTailAndTerm(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-commit-readiness");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await Assert.That((await log.GetCommitReadinessAsync(1UL, cancellationToken)).CanCommit).IsTrue();
+        _ = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
+        var (oldStatus, oldCanCommit) = await log.GetCommitReadinessAsync(2UL, cancellationToken);
+        _ = await Assert.That((oldStatus.LastLogIndex, oldStatus.CommitIndex, oldCanCommit)).IsEqualTo((1UL, 0UL, false));
+        _ = await Assert.That((await log.GetCommitReadinessAsync(1UL, cancellationToken)).CanCommit).IsTrue();
+
+        var next = new FollowerLogAppendRequest("leader-1", 2UL, 1UL, 1UL, 0UL, new[] { new FollowerLogEntry(2UL, 2UL, new byte[] { 2 }) });
+        _ = await Assert.That((await log.AppendAsync(next, cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await log.GetCommitReadinessAsync(2UL, cancellationToken)).CanCommit).IsTrue();
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        var (emptyStatus, emptyCanCommit) = await log.GetCommitReadinessAsync(3UL, cancellationToken);
+        _ = await Assert.That((emptyStatus.LastLogIndex, emptyStatus.CommitIndex, emptyCanCommit)).IsEqualTo((2UL, 2UL, true));
+        _ = await Assert.That((await log.GetCommitReadinessAsync(1UL, cancellationToken)).CanCommit).IsFalse();
+    }
+
     /// <summary>Replaying an identical entry acknowledges idempotently without a second journal effect.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -136,11 +159,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
         var recent = new List<FollowerLogEntry>();
-        var read = await log.ReadRecentCommittedAsync(
+        var read = await log.VisitRecentCommittedAsync(
             2,
-            entry =>
+            (logIndex, term, payload) =>
             {
-                recent.Add(entry);
+                recent.Add(new FollowerLogEntry(logIndex, term, payload.ToArray()));
                 return true;
             },
             cancellationToken);
@@ -165,7 +188,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
-        var read = await log.ReadRecentCommittedAsync(2, static _ => false, cancellationToken);
+        var read = await log.VisitRecentCommittedAsync(2, static (_, _, _) => false, cancellationToken);
 
         _ = await Assert.That(read).IsEqualTo(1);
     }
@@ -184,6 +207,27 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(read.Entries.Count).IsEqualTo(2);
         _ = await Assert.That((read.Entries[0].LogIndex, read.Entries[0].Term, Encoding.UTF8.GetString(read.Entries[0].Payload.Span))).IsEqualTo((2UL, 1UL, "b"));
         _ = await Assert.That((read.Entries[1].LogIndex, read.Entries[1].Term, Encoding.UTF8.GetString(read.Entries[1].Payload.Span))).IsEqualTo((3UL, 1UL, "c"));
+    }
+
+    /// <summary>A bounded read skips the damaged body beyond its exact payload budget until that entry is requested.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ByteBudgetDefersCorruptFrame(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-bounded-read");
+        await using var log = await SeedReadLogAsync(dir, cancellationToken);
+        var path = GroupLogFile.ActivePath(dir, GroupId);
+
+        // Release the write handle so the test can inject disk corruption on Windows.
+        IFollowerLogDurability storage = log;
+        storage.Durability.Dispose();
+        await FollowerLogTestKit.CorruptTailAsync(path, cancellationToken);
+
+        var read = await log.ReadEntriesAsync(2UL, 3, cancellationToken, 2);
+
+        _ = await Assert.That(read.Entries.Count).IsEqualTo(2);
+        _ = await Assert.That((read.Entries[0].LogIndex, read.Entries[1].LogIndex)).IsEqualTo((2UL, 3UL));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.ReadEntriesAsync(4UL, 1, cancellationToken, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A range read runs through the last log index, uncommitted tail included, and stops there when the count exceeds it.</summary>
@@ -257,11 +301,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await using (log)
         {
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             await log.OpenSeededAsync(cancellationToken);
         }
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An append whose frames reached the disk completes although its cancellation fires before the metadata write behind them.</summary>
@@ -312,6 +356,35 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(Encoding.UTF8.GetString(only.Payload.Span)).IsEqualTo("c");
     }
 
+    /// <summary>Applied and snapshot boundaries prune sparse indexes in key order even when the highest entry was inserted first.</summary>
+    [Test]
+    public async Task JournalPrunesSparsePrefixesInKeyOrder()
+    {
+        using var dir = new TempDirectory("squirix-journal-sparse-prefix");
+        var paths = FollowerLogPaths.Create(dir, GroupId);
+        using var metadata = new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, GroupId, new CountingFollowerLogFaultHooks(), NullLogger.Instance);
+        var journal = new FollowerLogJournal(paths, new GroupSnapshotStore(dir, GroupId), metadata);
+        foreach (var index in new ulong[] { 12, 3, 9, 6 })
+            journal.AddEntry(new FollowerLogEntry(index, 1, ReadOnlyMemory<byte>.Empty), long.CreateChecked(index), 1);
+
+        journal.ReleaseAppliedEntries(6);
+        _ = await Assert.That(journal.TryGetEntry(3, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntry(6, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntry(9, out _)).IsTrue();
+        _ = await Assert.That(journal.TryGetEntry(12, out _)).IsTrue();
+        _ = await Assert.That(journal.TryGetEntryOffset(3, out _)).IsTrue();
+        _ = await Assert.That(journal.TryGetEntryOffset(6, out _)).IsTrue();
+
+        journal.AdvanceBaseline(new SnapshotBaseline(9, 1));
+        _ = await Assert.That(journal.TryGetEntryOffset(3, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntryOffset(6, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntryOffset(9, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntry(9, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntryOffset(12, out var retained)).IsTrue();
+        _ = await Assert.That(retained.Offset).IsEqualTo(12L);
+        _ = await Assert.That(journal.TryGetEntry(12, out _)).IsTrue();
+    }
+
     /// <summary>The applied watermark survives a restart and suppresses re-application of the applied prefix.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -340,10 +413,10 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>The log takes ownership of appended payloads; mutating the caller buffer does not change stored entries.</summary>
+    /// <summary>The internal append retains the immutable entry payload without allocating another copy.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AppendCopiesPayloadIntoOwnedBuffer(CancellationToken cancellationToken)
+    public async Task AppendRetainsImmutablePayload(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-log-owned-payload");
         var composition = GroupComposition.Create(GroupId);
@@ -355,10 +428,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, payload)));
         _ = await log.AppendAsync(request, cancellationToken);
 
-        payload[0] = 0xFF;
-        payload[3] = 0xFF;
-
         var tail = await log.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(tail[0].Payload.Equals(payload.AsMemory())).IsTrue();
         _ = await Assert.That(Encoding.UTF8.GetString(tail[0].Payload.Span)).IsEqualTo("abcd");
     }
 
@@ -896,7 +967,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("committed log frame", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -1009,7 +1080,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(await log.GetTermAtAsync(0UL, cancellationToken)).IsEqualTo(0UL);
         _ = await Assert.That(await log.GetTermAtAsync(1UL, cancellationToken)).IsEqualTo(1UL);
         _ = await Assert.That(await log.GetTermAtAsync(2UL, cancellationToken)).IsEqualTo(2UL);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, ulong>(log.GetTermAtAsync(3UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, ulong>(log.GetTermAtAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An uncommitted entry conflicting with the leader's batch is truncated and rewritten.</summary>
@@ -1022,7 +1093,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
-        _ = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
+        var first = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
+        _ = await Assert.That(first.Success).IsTrue();
 
         var result = await log.AppendAsync(Append(1UL, 2UL, "new"), cancellationToken);
 
@@ -1074,7 +1146,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Empty();
 
         await using var log = new FollowerLog(dir, "unknown", composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.OpenAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var root = GroupStoragePaths.GetRoot(dir);
         _ = await Assert.That(Directory.Exists(root)).IsFalse();

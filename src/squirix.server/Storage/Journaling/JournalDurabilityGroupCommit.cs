@@ -22,6 +22,7 @@ internal sealed class JournalDurabilityGroupCommit
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
 
+    private readonly Dictionary<TaskCompletionSource, int> _pendingPositions = [];
     private List<TaskCompletionSource> _acks;
     private List<TaskCompletionSource> _acksSpare;
     private Exception? _failure;
@@ -91,6 +92,7 @@ internal sealed class JournalDurabilityGroupCommit
                     signalJournal = true;
                 }
 
+                _pendingPositions.Add(ack, _acks.Count);
                 _acks.Add(ack);
                 if (_acks.Count >= _opt.JournalGroupCommitMaxBatch)
                     signalJournal = true;
@@ -123,6 +125,7 @@ internal sealed class JournalDurabilityGroupCommit
             _batchDeadline.Clear();
             _acks.FaultAll(reason);
             _acks.Clear();
+            _pendingPositions.Clear();
 
             // The batch taken by the journal thread stays reachable until the thread writes its outcome:
             // fault it without clearing, because the thread owns that list and swaps it back as the spare.
@@ -148,6 +151,7 @@ internal sealed class JournalDurabilityGroupCommit
             var completed = _acks.Count;
             _acks.CompleteAll();
             _acks.Clear();
+            _pendingPositions.Clear();
             return completed;
         }
     }
@@ -183,7 +187,20 @@ internal sealed class JournalDurabilityGroupCommit
         bool removed;
         lock (_sync)
         {
-            removed = _acks.Remove(ack);
+            removed = _pendingPositions.Remove(ack, out var position);
+            if (removed)
+            {
+                var last = _acks.Count - 1;
+                if (position != last)
+                {
+                    var moved = _acks[last];
+                    _acks[position] = moved;
+                    _pendingPositions[moved] = position;
+                }
+
+                _acks.RemoveAt(last);
+            }
+
             if (removed && _acks.Count == 0)
                 _batchDeadline.Clear();
         }
@@ -259,6 +276,7 @@ internal sealed class JournalDurabilityGroupCommit
             }
 
             batch = _acks;
+            _pendingPositions.Clear();
             _acks = _acksSpare;
             _acksSpare = batch;
             _inFlight = batch;

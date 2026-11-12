@@ -131,7 +131,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         }
     }
 
-    /// <summary>Persists the applied index of one led group, then compacts its log under the commit gate once it reaches a threshold.</summary>
+    /// <summary>Persists the applied index of one led group, then compacts its log once it reaches a threshold.</summary>
     /// <param name="committer">The committer of the group.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
     /// <returns>A task that completes when the group was maintained or its failure was logged.</returns>

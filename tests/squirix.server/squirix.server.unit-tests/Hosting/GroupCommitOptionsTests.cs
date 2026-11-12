@@ -41,6 +41,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        DevelopmentCertificate.AddTo(builder.Services);
         var dataDirectory = Dir;
         _ = await builder.AddSquirixServerAsync(
             options =>
@@ -66,6 +67,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     public async Task InvalidJournalFailsHosting(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        DevelopmentCertificate.AddTo(builder.Services);
         var operation = builder.AddSquirixServerAsync(
             static options =>
             {
@@ -75,7 +77,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("GroupCommitMaxBatch", StringComparison.Ordinal);
     }
