@@ -740,7 +740,15 @@ jobs:
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Run .NET 11 Tests
-                run: dotnet test --solution squirix.slnx --configuration Release --framework net11.0 --no-build --no-restore --max-parallel-test-modules 1 --no-progress
+                run: |
+                    failed=0
+                    projects=0
+                    while IFS= read -r -d '' project; do
+                        projects=$((projects + 1))
+                        dotnet test --project "$project" --configuration Release --framework net11.0 --no-build --no-restore --progress off || failed=1
+                    done < <(find tests -name '*Tests.csproj' -print0)
+                    if [ "$projects" -eq 0 ]; then exit 1; fi
+                    exit "$failed"
 
     # Two short checks of the ubuntu build outputs in one job, so they hold one of the 20 job slots of the organization
     # plan. A check runs even when the other one failed, so one run reports every failure.
