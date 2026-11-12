@@ -166,6 +166,8 @@ dotnet_diagnostic.SA1134.severity = error # each attribute on its own line
 dotnet_diagnostic.SA1200.severity = none # using directives placement
 dotnet_diagnostic.SA1202.severity = error # elements should be ordered by access (private after public/internal/protected)
 dotnet_diagnostic.SA1309.severity = none # allow leading underscore fields
+dotnet_diagnostic.SA1412.severity = none # UTF-8 BOM is not required
+dotnet_diagnostic.SX1412.severity = warning # require UTF-8 without BOM
 dotnet_diagnostic.SA1503.severity = none # always-require-braces conflicts with nested-loop no-braces style
 dotnet_diagnostic.SA1519.severity = none # multi-line-child braces conflict with nested-loop no-braces style
 dotnet_diagnostic.SA1520.severity = error # if/else siblings must use braces consistently (multi-statement if => braced else)
