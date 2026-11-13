@@ -61,7 +61,7 @@ internal sealed record PreparedJournalEntry
         JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration),
         null,
         entry.Tags,
-        CacheEntryCodec.ComputeValueLength(entry.Normalize()));
+        entry.Value is DistributedCacheWrite write ? checked(1 + sizeof(int) + write.EnvelopeLength) : CacheEntryCodec.ComputeValueLength(entry.Normalize()));
 
     private static NodeCacheEntry<object?> ToObjectEntry<T>(NodeCacheEntry<T> entry, DateTime? expiresUtc)
     {

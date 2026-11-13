@@ -262,7 +262,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
 
         // The renewal uses the same entry, a longer kind name and the present marker plus the original application bytes.
         var extraBytes = ReplicaMutationKinds.DistributedGet.Length - ReplicaMutationKinds.Set.Length
-            + sizeof(byte) + write.Envelope.Length - DistributedCachePolicy.HeaderLength;
+            + sizeof(byte) + write.Payload.Length;
         long recordBytes = mutation.CanonicalPayload.Length;
         EnsureDistributedRecordFits(recordBytes + extraBytes);
         return mutation;

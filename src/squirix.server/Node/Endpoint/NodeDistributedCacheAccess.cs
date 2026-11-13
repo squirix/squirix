@@ -61,8 +61,10 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         }
     }
 
+    // Adapter payloads are slices of owned, immutable envelopes, never pooled journal buffers.
+    // Retaining the slice keeps the observed value alive through serialization and outcome replay.
     private static GetDistributedAsyncResponse Response(ReadOnlyMemory<byte>? payload) =>
-        payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFrom(bytes.Span) } : new GetDistributedAsyncResponse();
+        payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = UnsafeByteOperations.UnsafeWrap(bytes) } : new GetDistributedAsyncResponse();
 
     private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken)
     {

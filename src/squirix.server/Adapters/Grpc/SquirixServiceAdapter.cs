@@ -338,7 +338,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             if (request.Value.Length > EntryLimits.MaxEntrySizeBytes - DistributedCachePolicy.HeaderLength)
                 throw ServerOpContract.PayloadTooLarge().ToRpcException();
 
-            var write = new DistributedCacheWrite(in policy, request.Value.Span, ttl);
+            var write = DistributedCacheWrite.FromImmutablePayload(in policy, request.Value.Memory, ttl);
             if (write is not T value)
                 throw new RpcException(new Status(StatusCode.Internal, "The node cannot store distributed cache values."));
 
