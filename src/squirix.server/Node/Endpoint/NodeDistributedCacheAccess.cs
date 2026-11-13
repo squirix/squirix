@@ -46,7 +46,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
     }
 
     /// <inheritdoc />
-    public async Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, string fingerprint, bool refresh, CancellationToken cancellationToken)
+    public async Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken)
     {
         var operation = refresh ? CacheOperationNames.Touch : CacheOperationNames.Get;
         var (admission, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clients.Resolve(), cancellationToken).ConfigureAwait(false);
@@ -57,21 +57,21 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         {
             return _local is ReplicatedCache replicated
                 ? Response(await replicated.AccessDistributedAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false))
-                : await AccessSingleAsync(operationId, cacheName, key, fingerprint, refresh, cancellationToken).ConfigureAwait(false);
+                : await AccessSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
         }
     }
 
     private static GetDistributedAsyncResponse Response(ReadOnlyMemory<byte>? payload) =>
         payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFrom(bytes.Span) } : new GetDistributedAsyncResponse();
 
-    private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string operationId, string cacheName, string key, string fingerprint, bool refresh, CancellationToken cancellationToken)
+    private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken)
     {
         if (_outcomes.HasRetainedOperation(operationId))
-            return await ExecuteSingleAsync(operationId, cacheName, key, fingerprint, refresh, cancellationToken).ConfigureAwait(false);
+            return await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
 
         var entry = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (_outcomes.HasRetainedOperation(operationId))
-            return await ExecuteSingleAsync(operationId, cacheName, key, fingerprint, refresh, cancellationToken).ConfigureAwait(false);
+            return await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
 
         if (entry == null)
             return new GetDistributedAsyncResponse();
@@ -79,15 +79,15 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
         var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
         return policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry)
-            ? await ExecuteSingleAsync(operationId, cacheName, key, fingerprint, refresh, cancellationToken).ConfigureAwait(false)
+            ? await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false)
             : Response(readOnlyResult);
     }
 
-    private Task<GetDistributedAsyncResponse> ExecuteSingleAsync(string operationId, string cacheName, string key, string fingerprint, bool refresh, CancellationToken cancellationToken) =>
+    private Task<GetDistributedAsyncResponse> ExecuteSingleAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken) =>
         _idempotency.ExecuteAsync(
             operationId,
-            static state => state.Fingerprint,
-            (Owner: this, OperationId: operationId, CacheName: cacheName, Key: key, Fingerprint: fingerprint, Refresh: refresh),
+            static state => state.FingerprintFactory(state.CacheName, state.Key, state.Refresh),
+            (Owner: this, OperationId: operationId, CacheName: cacheName, Key: key, FingerprintFactory: fingerprintFactory, Refresh: refresh),
             static async (state, token) =>
             {
                 RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<ReadOnlyMemory<byte>?>(static payload => Response(payload));

@@ -200,10 +200,9 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         var cache = SquirixServiceAdapterValidation.RequireCacheName(cacheName);
         SquirixServiceAdapterValidation.RequireValidCacheKey(key);
         var id = RpcMutationContracts.RequireOperationId(operationId);
-        var fingerprint = RpcMutationFingerprints.DistributedAccess(cache, key, refresh);
         var access = _distributedAccess ??
                      ThrowHelper.Throw<IDistributedCacheAccess>(new RpcException(new Status(StatusCode.Unimplemented, "Distributed cache access is unavailable.")));
-        return access.AccessAsync(id, cache, key, fingerprint, refresh, cancellationToken);
+        return access.AccessAsync(id, cache, key, RpcMutationFingerprints.DistributedAccess, refresh, cancellationToken);
     }
 
     private ICacheApi<T> ApiForRequest(string cacheName) => _cacheOperations.ForCache(SquirixServiceAdapterValidation.RequireCacheName(cacheName));

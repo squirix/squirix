@@ -1,14 +1,18 @@
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
@@ -28,6 +32,108 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
 {
     private const string NodeId = "binary-node";
     private const string CacheName = "binary";
+
+    /// <summary>Only a renewal or replay computes its request fingerprint, without changing retained response semantics.</summary>
+    /// <param name="persistent">Whether outcomes are journaled.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task DistributedFingerprintsRemainLazy(bool persistent, CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
+        var node = cluster[NodeId];
+        using var channel = CreateGrpcChannel(node.Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var access = node.GetRequiredService<IDistributedCacheAccess>();
+        var fingerprints = 0;
+        string Fingerprint(string cacheName, string key, bool refresh)
+        {
+            _ = Interlocked.Increment(ref fingerprints);
+            return RpcMutationFingerprints.DistributedAccess(cacheName, key, refresh);
+        }
+
+        var missing = await access.AccessAsync(Guid.NewGuid().ToString("N"), CacheName, "lazy", Fingerprint, false, cancellationToken);
+        _ = await Assert.That(missing.Found).IsFalse();
+        var set = new SetDistributedAsyncRequest
+        {
+            CacheName = CacheName,
+            Key = "lazy",
+            Value = ByteString.CopyFrom(3, 5, 8),
+            SlidingTicks = TimeSpan.FromSeconds(10).Ticks,
+            OperationId = Guid.NewGuid().ToString("N"),
+        };
+        _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
+        var unchanged = await access.AccessAsync(Guid.NewGuid().ToString("N"), CacheName, "lazy", Fingerprint, false, cancellationToken);
+        _ = await Assert.That(unchanged.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
+        _ = await access.AccessAsync(Guid.NewGuid().ToString("N"), CacheName, "lazy", Fingerprint, true, cancellationToken);
+        _ = await Assert.That(fingerprints).IsEqualTo(0);
+
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var operationId = Guid.NewGuid().ToString("N");
+        var renewed = await access.AccessAsync(operationId, CacheName, "lazy", Fingerprint, false, cancellationToken);
+        _ = await Assert.That(renewed.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
+        _ = await Assert.That(fingerprints).IsEqualTo(1);
+        set.OperationId = Guid.NewGuid().ToString("N");
+        set.Value = ByteString.CopyFrom(13);
+        _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
+        var replay = await access.AccessAsync(operationId, CacheName, "lazy", Fingerprint, false, cancellationToken);
+        _ = await Assert.That(replay.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
+        _ = await Assert.That(fingerprints).IsEqualTo(2);
+        var mismatch = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(
+            access.AccessAsync(operationId, CacheName, "lazy", Fingerprint, true, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(mismatch.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
+        _ = await Assert.That(fingerprints).IsEqualTo(3);
+    }
+
+    /// <summary>Concurrent calls through a shared gRPC service keep cache names and payloads isolated.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentNamespacesStayIsolated(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var writes = new Task[32];
+        for (var i = 0; i < writes.Length; i++)
+        {
+            byte[] bytes = [byte.CreateChecked(i), 255];
+            writes[i] = client.SetDistributedAsync(
+                new SetDistributedAsyncRequest
+                {
+                    CacheName = string.Create(CultureInfo.InvariantCulture, $"{CacheName}{i}"),
+                    Key = "shared-key",
+                    Value = ByteString.CopyFrom(bytes.AsSpan()),
+                    OperationId = Guid.NewGuid().ToString("N"),
+                },
+                cancellationToken: cancellationToken).ResponseAsync;
+        }
+
+        await Task.WhenAll(writes);
+        var reads = new Task<GetDistributedAsyncResponse>[writes.Length];
+        for (var i = 0; i < reads.Length; i++)
+        {
+            reads[i] = client.GetDistributedAsync(
+                new GetDistributedAsyncRequest
+                {
+                    CacheName = string.Create(CultureInfo.InvariantCulture, $"{CacheName}{i}"),
+                    Key = "shared-key",
+                    OperationId = Guid.NewGuid().ToString("N"),
+                },
+                cancellationToken: cancellationToken).ResponseAsync;
+        }
+
+        var responses = await Task.WhenAll(reads);
+        for (var i = 0; i < responses.Length; i++)
+        {
+            _ = await Assert.That(responses[i].Found).IsTrue();
+            _ = await Assert.That(responses[i].Value.Span.SequenceEqual<byte>([byte.CreateChecked(i), 255])).IsTrue();
+        }
+    }
 
     /// <summary>Binary values survive unclean restart with journal-only or snapshot-plus-tail recovery.</summary>
     /// <param name="withSnapshot">Whether to publish a snapshot before writing the journal tail.</param>
