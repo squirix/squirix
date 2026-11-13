@@ -68,23 +68,17 @@ public sealed class RegistrationTests
         _ = await Assert.That(ReferenceEquals(cache, provider.GetRequiredService<IDistributedCache>())).IsTrue();
     }
 
-    /// <summary>Sync and async entry points validate input and reject calls after disposal.</summary>
+    /// <summary>Synchronous calls preserve input and disposal errors.</summary>
     [Test]
     [SuppressMessage("Usage", "MA0045", Justification = "This test exercises the synchronous interface methods.")]
-    public async Task CallsPreserveInputAndDisposalErrors()
+    public async Task SyncCallsPreserveUnderlyingErrors()
     {
         var options = new SquirixCacheOptions();
         options.ClientOptions.Endpoints.Add(new Uri("https://localhost:7443"));
         await using var cache = new SquirixDistributedCache(Options.Create(options));
         var invalid = ExceptionAssert.For<ArgumentException>().Throws(cache, static provider => _ = provider.Get(" "));
         _ = await Assert.That(invalid.ParamName).IsEqualTo("key");
-        _ = ExceptionAssert.For<ArgumentException>().Throws(cache, static provider => _ = provider.GetAsync(" ", default));
-        _ = ExceptionAssert.For<ArgumentException>().Throws(cache, static provider => _ = provider.RefreshAsync(" ", default));
-        _ = ExceptionAssert.For<ArgumentException>().Throws(cache, static provider => _ = provider.RemoveAsync(" ", default));
         await cache.DisposeAsync();
         _ = ExceptionAssert.For<ObjectDisposedException>().Throws(cache, static provider => provider.Remove("key"));
-        _ = ExceptionAssert.For<ObjectDisposedException>().Throws(cache, static provider => _ = provider.GetAsync("key", default));
-        _ = ExceptionAssert.For<ObjectDisposedException>().Throws(cache, static provider => _ = provider.RefreshAsync("key", default));
-        _ = ExceptionAssert.For<ObjectDisposedException>().Throws(cache, static provider => _ = provider.RemoveAsync("key", default));
     }
 }

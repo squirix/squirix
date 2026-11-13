@@ -35,42 +35,42 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     public byte[]? Get(string key) => Block(InvokeSyncAsync(() => GetAsync(key, CancellationToken.None)));
 
     /// <inheritdoc />
-    /// <remarks>Argument validation runs synchronously.</remarks>
-    public Task<byte[]?> GetAsync(string key, CancellationToken token = default)
+    public async Task<byte[]?> GetAsync(string key, CancellationToken token = default)
     {
         _session.ThrowIfDisposed();
         RemoteDistributedCache.ValidateKey(key);
-        return !token.CanBeCanceled && _session.GetOpenedOrNull() is { } opened
-            ? opened.GetAsync(key, _session.LifetimeToken)
-            : GetCoreAsync(key, token);
+        using var linked = _session.Link(token);
+        var operationToken = linked?.Token ?? _session.LifetimeToken;
+        var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
+        return await cache.GetAsync(key, operationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public void Refresh(string key) => Block(InvokeSyncAsync(() => RefreshAsync(key, CancellationToken.None)));
 
     /// <inheritdoc />
-    /// <remarks>Argument validation runs synchronously.</remarks>
-    public Task RefreshAsync(string key, CancellationToken token = default)
+    public async Task RefreshAsync(string key, CancellationToken token = default)
     {
         _session.ThrowIfDisposed();
         RemoteDistributedCache.ValidateKey(key);
-        return !token.CanBeCanceled && _session.GetOpenedOrNull() is { } opened
-            ? opened.RefreshAsync(key, _session.LifetimeToken)
-            : RefreshCoreAsync(key, token);
+        using var linked = _session.Link(token);
+        var operationToken = linked?.Token ?? _session.LifetimeToken;
+        var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
+        await cache.RefreshAsync(key, operationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public void Remove(string key) => Block(InvokeSyncAsync(() => RemoveAsync(key, CancellationToken.None)));
 
     /// <inheritdoc />
-    /// <remarks>Argument validation runs synchronously.</remarks>
-    public Task RemoveAsync(string key, CancellationToken token = default)
+    public async Task RemoveAsync(string key, CancellationToken token = default)
     {
         _session.ThrowIfDisposed();
         RemoteDistributedCache.ValidateKey(key);
-        return !token.CanBeCanceled && _session.GetOpenedOrNull() is { } opened
-            ? opened.RemoveAsync(key, _session.LifetimeToken)
-            : RemoveCoreAsync(key, token);
+        using var linked = _session.Link(token);
+        var operationToken = linked?.Token ?? _session.LifetimeToken;
+        var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
+        await cache.RemoveAsync(key, operationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -91,7 +91,7 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         var lifetime = _session.LifetimeToken;
         return lifetime.IsCancellationRequested
             ? Task.FromCanceled(lifetime)
-            : opened.SetAsync(key, [.. value], cap, ttl, sliding, lifetime);
+            : opened.SetAsync(key, CopyValue(value), cap, ttl, sliding, lifetime);
     }
 
     [SuppressMessage("Usage", "VSTHRD002", Justification = "The synchronous interface blocks on work started without the caller's synchronization context.")]
@@ -101,6 +101,13 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     [SuppressMessage("Usage", "VSTHRD002", Justification = "The synchronous interface blocks on context-independent work.")]
     [SuppressMessage("Usage", "MA0045", Justification = "IDistributedCache and IDisposable expose synchronous APIs.")]
     private static void Block(Task task) => task.GetAwaiter().GetResult();
+
+    private static byte[] CopyValue(byte[] value)
+    {
+        var owned = GC.AllocateUninitializedArray<byte>(value.Length);
+        value.AsSpan().CopyTo(owned);
+        return owned;
+    }
 
     private static DistributedCacheSession<RemoteDistributedCache> CreateSession(SquirixCacheOptions options)
     {
@@ -154,36 +161,12 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
             : (cap?.ToUnixTimeMilliseconds(), relative?.Ticks, sliding?.Ticks);
     }
 
-    private async Task<byte[]?> GetCoreAsync(string key, CancellationToken token)
-    {
-        using var linked = _session.Link(token);
-        var operationToken = linked?.Token ?? _session.LifetimeToken;
-        var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
-        return await cache.GetAsync(key, operationToken).ConfigureAwait(false);
-    }
-
-    private async Task RefreshCoreAsync(string key, CancellationToken token)
-    {
-        using var linked = _session.Link(token);
-        var operationToken = linked?.Token ?? _session.LifetimeToken;
-        var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
-        await cache.RefreshAsync(key, operationToken).ConfigureAwait(false);
-    }
-
-    private async Task RemoveCoreAsync(string key, CancellationToken token)
-    {
-        using var linked = _session.Link(token);
-        var operationToken = linked?.Token ?? _session.LifetimeToken;
-        var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
-        await cache.RemoveAsync(key, operationToken).ConfigureAwait(false);
-    }
-
     private async Task SetCoreAsync(string key, byte[] value, long? cap, long? ttl, long? sliding, CancellationToken token)
     {
         using var linked = _session.Link(token);
         var operationToken = linked?.Token ?? _session.LifetimeToken;
         operationToken.ThrowIfCancellationRequested();
-        byte[] ownedValue = [.. value];
+        var ownedValue = CopyValue(value);
         var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
         await cache.SetAsync(key, ownedValue, cap, ttl, sliding, operationToken).ConfigureAwait(false);
     }

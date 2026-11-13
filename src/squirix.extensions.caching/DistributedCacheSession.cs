@@ -73,7 +73,7 @@ internal sealed class DistributedCacheSession<T> : IAsyncDisposable
     internal CancellationTokenSource? Link(CancellationToken caller)
     {
         caller.ThrowIfCancellationRequested();
-        return caller.CanBeCanceled && caller != LifetimeToken ? CancellationTokenSource.CreateLinkedTokenSource(caller, LifetimeToken) : null;
+        return caller.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(caller, LifetimeToken) : null;
     }
 
     internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _stopping), this);
