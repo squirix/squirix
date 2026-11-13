@@ -52,10 +52,7 @@ internal static class ReplicaOperationFingerprints
             return Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToProto());
 
         var kind = write.TtlTicks is { } ttl ? string.Create(CultureInfo.InvariantCulture, $"set-distributed-ttl:{ttl}") : "set-distributed";
-        Span<byte> header = stackalloc byte[DistributedCachePolicy.HeaderLength];
-        write.WriteHeader(header);
-        ReadOnlySpan<byte> prefix = header;
-        return Compute(operationId, cacheName, key, kind, write.Payload.Span, null, prefix);
+        return Compute(operationId, cacheName, key, kind, write.Envelope);
     }
 
     internal static byte[] Touch(string operationId, string cacheName, string key, TimeSpan expiration)
@@ -78,32 +75,20 @@ internal static class ReplicaOperationFingerprints
     /// <param name="mutationKind">Cache mutation kind.</param>
     /// <param name="mutationPayload">Cache mutation bytes.</param>
     /// <param name="message">The protobuf payload instead of <paramref name="mutationPayload" />, when supplied.</param>
-    /// <param name="payloadPrefix">An optional policy header preceding the mutation bytes.</param>
     /// <returns>The SHA-256 fingerprint bytes.</returns>
     /// <remarks>
     /// Each string field contributes its 32-bit little-endian UTF-8 byte count followed by the bytes
     /// themselves, in field order, so concatenations that only differ at field boundaries hash
     /// differently.
     /// </remarks>
-    private static byte[] Compute(string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> mutationPayload, IMessage? message = null, ReadOnlySpan<byte> payloadPrefix = default)
+    private static byte[] Compute(string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> mutationPayload, IMessage? message = null)
     {
-        var payloadLength = message?.CalculateSize() ?? checked(payloadPrefix.Length + mutationPayload.Length);
+        var payloadLength = message?.CalculateSize() ?? mutationPayload.Length;
         var length = checked((FieldBytes(cacheName) * 2) + FieldBytes(operationId) + FieldBytes(key) + FieldBytes(mutationKind) + payloadLength);
         if (length <= StackBufferBytes)
         {
             Span<byte> buffer = stackalloc byte[length];
-            var written = WriteRequestFields(buffer, operationId, cacheName, key, mutationKind);
-            if (message == null)
-            {
-                payloadPrefix.CopyTo(buffer[written..]);
-                mutationPayload.CopyTo(buffer[(written + payloadPrefix.Length)..]);
-            }
-            else
-            {
-                message.WriteTo(buffer[written..]);
-            }
-
-            return SHA256.HashData(buffer);
+            return HashRequest(buffer, operationId, cacheName, key, mutationKind, mutationPayload, message);
         }
 
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -114,14 +99,9 @@ internal static class ReplicaOperationFingerprints
         AppendField(writer, key);
         AppendField(writer, mutationKind);
         if (message == null)
-        {
-            hash.AppendData(payloadPrefix);
             hash.AppendData(mutationPayload);
-        }
         else
-        {
             AppendMessage(hash, writer, message, payloadLength);
-        }
 
         return hash.GetHashAndReset();
     }
@@ -183,14 +163,19 @@ internal static class ReplicaOperationFingerprints
         }
     }
 
-    private static int WriteRequestFields(Span<byte> buffer, string operationId, string cacheName, string key, string mutationKind)
+    private static byte[] HashRequest(Span<byte> buffer, string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> payload, IMessage? message)
     {
         var written = WriteField(buffer, cacheName);
         written += WriteField(buffer[written..], operationId);
         written += WriteField(buffer[written..], cacheName);
         written += WriteField(buffer[written..], key);
         written += WriteField(buffer[written..], mutationKind);
-        return written;
+        if (message == null)
+            payload.CopyTo(buffer[written..]);
+        else
+            message.WriteTo(buffer[written..]);
+
+        return SHA256.HashData(buffer);
     }
 
     private static int FieldBytes(string value) => checked(sizeof(int) + Encoding.UTF8.GetByteCount(value));

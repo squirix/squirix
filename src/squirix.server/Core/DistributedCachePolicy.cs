@@ -74,33 +74,25 @@ internal readonly record struct DistributedCachePolicy
     internal byte[] Encode(ReadOnlySpan<byte> value)
     {
         var bytes = GC.AllocateUninitializedArray<byte>(checked(HeaderLength + value.Length));
-        WriteHeader(bytes);
-        value.CopyTo(bytes.AsSpan(HeaderLength));
-        return bytes;
-    }
-
-    /// <summary>Writes the policy independently of its payload for allocation-free fingerprinting.</summary>
-    /// <param name="destination">At least <see cref="HeaderLength" /> bytes reserved for the header.</param>
-    internal void WriteHeader(Span<byte> destination)
-    {
-        var bytes = destination[..HeaderLength];
-        bytes.Clear();
+        bytes.AsSpan(0, HeaderLength).Clear();
         "SQDC"u8.CopyTo(bytes);
         bytes[4] = Version;
         byte flags = 0;
         if (AbsoluteUnixMilliseconds is { } absolute)
         {
             flags |= AbsoluteFlag;
-            BinaryPrimitives.WriteInt64LittleEndian(bytes[AbsoluteOffset..], absolute);
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(AbsoluteOffset), absolute);
         }
 
         if (SlidingTicks is { } sliding)
         {
             flags |= SlidingFlag;
-            BinaryPrimitives.WriteInt64LittleEndian(bytes[SlidingOffset..], sliding);
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(SlidingOffset), sliding);
         }
 
         bytes[5] = flags;
+        value.CopyTo(bytes.AsSpan(HeaderLength));
+        return bytes;
     }
 
     /// <summary>Chooses an initial deadline or renews a live sliding entry at the owner.</summary>

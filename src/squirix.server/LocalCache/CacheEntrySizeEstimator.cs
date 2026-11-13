@@ -109,7 +109,6 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
             null => 0,
             string s => Encoding.UTF8.GetByteCount(s),
             byte[] bytes => bytes.LongLength,
-            DistributedCacheWrite write => write.EnvelopeLength,
             bool => sizeof(bool),
             char => sizeof(char),
             decimal => sizeof(decimal),

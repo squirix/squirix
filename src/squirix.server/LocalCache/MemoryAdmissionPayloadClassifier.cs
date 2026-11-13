@@ -16,7 +16,6 @@ internal static class MemoryAdmissionPayloadClassifier
             null => false,
             string => false,
             byte[] => false,
-            DistributedCacheWrite => false,
             bool => false,
             char => false,
             sbyte => false,
