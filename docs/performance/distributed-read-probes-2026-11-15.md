@@ -110,3 +110,8 @@ justify deleting either check, weakening read fences, or changing sliding expira
 
 Release benchmark build with the repository analyzers: zero warnings/errors. Both timing launches and the separate profile completed successfully; every read/value and final
 outcome-count assertion passed. `git diff --check` passed. Production sources are unchanged; no new correctness claim for a modified cache implementation is made.
+
+## Follow-up: real HTTPS RPC
+
+The [transport follow-up](distributed-read-transport-2026-11-15.md) measures the real distributed RPC and official adapter. It does not reproduce outcome-lock dominance.
+Use that follow-up when choosing the next optimization priority; the local-only stress results above remain an isolated contention measurement.

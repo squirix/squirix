@@ -1,0 +1,31 @@
+{
+  "total_profile_thread_ms": 511573.296867523,
+  "retained_probe_inclusive_thread_ms": 1205.903668199624,
+  "retained_probe_percent": 0.23572451407914374,
+  "retained_lock_slow_thread_ms": 1006.764306553709,
+  "monitor_wait_sites": [
+    {
+      "thread_ms": 4356.832515101562,
+      "stack": "Thread (9) (.NET Finalizer Thread) -> System.Private.CoreLib!System.GC.RunFinalizers() -> System.Private.CoreLib!System.Gen2GcCallback.Finalize() -> System.Private.CoreLib!System.Buffers.SharedArrayPool`1[System.Security.Cryptography.X509Certificates.X509CertificateLoader+CertAndKey].Trim() -> System.Private.CoreLib!System.Runtime.CompilerServices.ConditionalWeakTable`2+Enumerator[System.__Canon,System.__Canon].MoveNext()"
+    },
+    {
+      "thread_ms": 2536.793736744905,
+      "stack": "System.Net.Http!System.Net.Http.Http2Connection+Http2Stream.ReadDataAsync(value class System.Memory`1<unsigned int8>,class System.Net.Http.HttpResponseMessage,value class System.Threading.CancellationToken) -> System.Private.CoreLib!System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&) -> System.Net.Http!System.Net.Http.Http2Connection+Http2Stream+<ReadDataAsync>d__77.MoveNext() -> System.Net.Http!System.Net.Http.Http2Connection+Http2Stream.TryReadFromBuffer(value class System.Span`1<unsigned int8>,bool) -> System.Private.CoreLib!System.Threading.Monitor.Enter(class System.Object,bool&)"
+    },
+    {
+      "thread_ms": 1301.618660519674,
+      "stack": "Microsoft.AspNetCore.Server.Kestrel.Core!Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http.HttpResponsePipeWriter.GetSpan(int32) -> Microsoft.AspNetCore.Server.Kestrel.Core!Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.Http2OutputProducer.GetSpan(int32) -> System.IO.Pipelines!System.IO.Pipelines.Pipe.GetSpan(int32) -> System.IO.Pipelines!System.IO.Pipelines.Pipe.AllocateWriteHeadSynchronized(int32) -> System.Private.CoreLib!System.Threading.Monitor.Enter(class System.Object,bool&)"
+    },
+    {
+      "thread_ms": 980.4859506166563,
+      "stack": "Microsoft.AspNetCore.Server.Kestrel.Core!Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http.HttpRequestPipeReader.AdvanceTo(value class System.SequencePosition) -> Microsoft.AspNetCore.Server.Kestrel.Core!Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.Http2MessageBody.AdvanceTo(value class System.SequencePosition,value class System.SequencePosition) -> System.IO.Pipelines!System.IO.Pipelines.Pipe+DefaultPipeReader.AdvanceTo(value class System.SequencePosition,value class System.SequencePosition) -> System.IO.Pipelines!System.IO.Pipelines.Pipe.AdvanceReader(class System.IO.Pipelines.BufferSegment,int32,class System.IO.Pipelines.BufferSegment,int32) -> System.Private.CoreLib!System.Threading.Monitor.Enter(class System.Object,bool&)"
+    },
+    {
+      "thread_ms": 971.4414811368001,
+      "stack": "System.Net.Http!System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(class System.Net.Http.HttpRequestMessage,bool,bool,value class System.Threading.CancellationToken) -> System.Private.CoreLib!System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&) -> System.Net.Http!System.Net.Http.HttpConnectionPool+<SendWithVersionDetectionAndRetryAsync>d__52.MoveNext() -> System.Net.Http!System.Net.Http.HttpConnectionPool.TryGetPooledHttp2Connection(class System.Net.Http.HttpRequestMessage,class System.Net.Http.Http2Connection&,class System.Net.Http.HttpConnectionWaiter`1<class System.Net.Http.Http2Connection>&) -> System.Private.CoreLib!System.Threading.Monitor.Enter(class System.Object,bool&)"
+    }
+  ],
+  "retained_lock_slow_frame_intervals": 567,
+  "retained_lock_slow_percent": 0.19679766569489662,
+  "interpretation": "Interpolated sampled thread-time, including idle workers, startup, setup, GC and teardown. Frame intervals are not contention-event counts. Not CPU utilization or a speedup bound."
+}

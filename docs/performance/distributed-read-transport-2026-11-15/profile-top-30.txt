@@ -1,0 +1,44 @@
+Top 30 Functions (Inclusive)                                                  Inclusive           Exclusive
+1.  (Non-Activities)                                                          100%                0%
+2.  Threads                                                                   100%                0%
+3.  Thread.StartCallback()                                                    92.42%              0%
+4.  PortableThreadPool+WorkerThread.WorkerThreadStart()                       77.73%              0.97%
+5.  LowLevelLifoSemaphore.WaitForSignal(int32)                                55.08%              0%
+6.  LowLevelLifoSemaphore.WaitNative(class Microsoft.Win32.SafeHandles.Saf    55.07%              55.07%
+    eWaitHandle,int32)
+7.  ThreadPoolWorkQueue.Dispatch()                                            16.63%              0.01%
+8.  AsyncMethodBuilderCore.Start(!!0&)                                        13.11%              0.09%
+9.  ExecutionContext.RunInternal(class System.Threading.ExecutionContext,c    13%                 0.01%
+    lass System.Threading.ContextCallback,class System.Object)
+10. Task.RunContinuations(class System.Object)                                9.38%               0%
+11. AwaitTaskContinuation.RunOrScheduleAction(class System.Runtime.Compile    9.29%               0.02%
+    rServices.IAsyncStateMachineBox,bool)
+12. __Canon].TrySetResult(!0)                                                 7.95%               0%
+13. __Canon].SetExistingTaskResult(class System.Threading.Tasks.Task`1<!0>    7.8%                0%
+    ,!0)
+14. ExecutionContext.RunFromThreadPoolDispatchLoop(class System.Threading.    6.73%               0%
+    Thread,class System.Threading.ExecutionContext,class System.Threading.
+    ContextCallback,class System.Object)
+15. Http2Connection+<SendAsync>d__114.MoveNext()                              6.68%               0%
+16. WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class W    6.17%               6.17%
+    aitHandleWaitSourceMap)
+17. Monitor.Enter_Slowpath(class System.Object)                               5.96%               5.96%
+18. Http2Connection+<SendAsync>d__114].MoveNext(class System.Threading.Thr    5.69%               0%
+    ead)
+19. Monitor.Wait(class System.Object,int32)                                   5.6%                5.6%
+20. ManualResetEventSlim.Wait(int32,value class System.Threading.Cancellat    5.6%                0%
+    ionToken)
+21. __Canon].MoveNext()                                                       5.53%               0%
+22. BalancerHttpHandler+<SendAsync>d__11.MoveNext()                           5.52%               0.01%
+23. HttpConnectionPool+<SendWithVersionDetectionAndRetryAsync>d__52.MoveNe    5.52%               0%
+    xt()
+24. RedirectHandler+<SendAsync>d__4.MoveNext()                                5.52%               0%
+25. __Canon]].MoveNext(class System.Threading.Thread)                         5.51%               0%
+26. RedirectHandler+<SendAsync>d__4].MoveNext(class System.Threading.Threa    5.51%               0%
+    d)
+27. BalancerHttpHandler+<SendAsync>d__11].MoveNext(class System.Threading.    5.51%               0%
+    Thread)
+28. Thread.<PollGC>g__PollGCWorker|67_0()                                     5.46%               5.46%
+29. HttpConnectionPool+<SendWithVersionDetectionAndRetryAsync>d__52].MoveN    5.24%               0%
+    ext(class System.Threading.Thread)
+30. LowLevelSpinWaiter.Wait(int32,int32,bool)                                 5.18%               4.43%
