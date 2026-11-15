@@ -1,0 +1,31 @@
+Top 25 Functions (Inclusive)                                                  Inclusive           Exclusive
+1.  (Non-Activities)                                                          100%                0%
+2.  Threads                                                                   100%                0%
+3.  Thread.StartCallback()                                                    95.42%              0%
+4.  DistributedReadProbeMeasurement+WorkerGroup.Work(int32)                   95.42%              0.03%
+5.  DistributedReadProbeMeasurement+WorkerGroup.Read(int32)                   71.48%              0.07%
+6.  RpcMutationIdempotencyStore.HasRetainedOperation(class System.String)     67.4%               0.01%
+7.  Lock.EnterAndGetCurrentThreadId()                                         65.9%               0%
+8.  Lock.TryEnterSlow(int32,value class ThreadId)                             65.9%               0%
+9.  WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class W    62.93%              62.93%
+    aitHandleWaitSourceMap)
+10. Barrier.SignalAndWait(int32,value class System.Threading.CancellationT    26.69%              0%
+    oken)
+11. ManualResetEventSlim.Wait(int32,value class System.Threading.Cancellat    26.68%              0%
+    ionToken)
+12. Barrier.DiscontinuousWait(class System.Threading.ManualResetEventSlim,    26.68%              0%
+    int32,value class System.Threading.CancellationToken,int64)
+13. Monitor.Wait(class System.Object,int32)                                   26.33%              26.33%
+14. Thread.<PollGC>g__PollGCWorker|67_0()                                     6.82%               6.82%
+15. DateTime.get_UtcNow()                                                     4.31%               0%
+16. DateTimeOffset.get_UtcNow()                                               4.31%               0%
+17. __Canon].TryRead(value class Squirix.Server.Core.CacheKey,bool,value c    3.07%               0.03%
+    lass EntryRead<!0>&)
+18. AsyncMethodBuilderCore.Start(!!0&)                                        3.03%               0.01%
+19. Program.Main(class System.String[])                                       3.03%               0%
+20. Program.<Main>(class System.String[])                                     3.03%               0%
+21. Program+<Main>d__0.MoveNext()                                             3.03%               0.02%
+22. DistributedReadProbeMeasurement.Run(class System.String[])                3.01%               0.01%
+23. DistributedReadProbeMeasurement+WorkerGroup.Measure(bool)                 2.78%               0%
+24. LowLevelSpinWaiter.Wait(int32,int32,bool)                                 2.77%               1.92%
+25. GC.RunFinalizers()                                                        1.51%               0.05%

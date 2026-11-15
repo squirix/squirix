@@ -15,6 +15,12 @@ internal static class Program
     internal static async Task Main(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
+        if (args.Length > 0 && string.Equals(args[0], "distributed-read-probes", StringComparison.Ordinal))
+        {
+            DistributedReadProbeMeasurement.Run(args[1..]);
+            return;
+        }
+
         if (args.Length > 0 && string.Equals(args[0], "journal-flush-tails", StringComparison.Ordinal))
         {
             await JournalFlushTailMeasurement.RunAsync(args[1..]).ConfigureAwait(false);
