@@ -3,13 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.IO;
-using System.Net;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Testing;
 
 namespace Squirix.E2ETests.Fixtures.ProcessHosting;
@@ -51,6 +50,7 @@ internal sealed class ServerProcess : IAsyncDisposable
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             await StopAsync(timeout.Token).ConfigureAwait(false);
+            ListenPortPool.ReturnPrimary(Uri);
             _ = await _output.ConfigureAwait(false);
             _ = await _errors.ConfigureAwait(false);
         }
@@ -84,6 +84,7 @@ internal sealed class ServerProcess : IAsyncDisposable
             if (configure != null)
                 await configure(start, cancellationToken).ConfigureAwait(false);
             var bearerToken = authenticated ? ConfigureAuthentication(start) : null;
+            ListenPortPool.ReleaseHeldPrimary(uri);
             process = Process.Start(start) ?? ThrowStartFailed();
             server = new ServerProcess(process, directory, uri, bearerToken);
             await server.WaitUntilReadyAsync(cancellationToken).ConfigureAwait(false);
@@ -98,6 +99,7 @@ internal sealed class ServerProcess : IAsyncDisposable
             else
             {
                 process?.Dispose();
+                ListenPortPool.ReturnPrimary(uri);
                 directory.Delete(true);
             }
 
@@ -181,12 +183,9 @@ internal sealed class ServerProcess : IAsyncDisposable
 
     private static Uri ReserveUri()
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return listener.LocalEndpoint is IPEndPoint endpoint ? new Uri($"https://localhost:{endpoint.Port}") : ThrowEndpointMissing();
+        var held = ListenPortPool.SmokeTests.HoldHttpUri();
+        return new Uri($"https://localhost:{held.Port}");
     }
-
-    private static Uri ThrowEndpointMissing() => throw new InvalidOperationException("The loopback listener did not expose an IP endpoint.");
 
     private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
     {
