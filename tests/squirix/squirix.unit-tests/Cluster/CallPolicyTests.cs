@@ -8,6 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Testing;
 using Squirix.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -271,13 +272,19 @@ public sealed class CallPolicyTests
 
     /// <summary>Retries a transient failure and returns the second attempt's result.</summary>
     /// <param name="status">The gRPC status, or null to inject an HTTP transport error.</param>
+    /// <param name="reason">The expected retry metric label.</param>
     [Test]
-    [Arguments(StatusCode.Unavailable)]
-    [Arguments(StatusCode.DeadlineExceeded)]
-    [Arguments(null)]
-    public async Task RetriesTransientFailureAsync(StatusCode? status)
+    [Arguments(StatusCode.Unavailable, "unavailable")]
+    [Arguments(StatusCode.Internal, "internal")]
+    [Arguments(StatusCode.ResourceExhausted, "resource_exhausted")]
+    [Arguments(StatusCode.Cancelled, "canceled")]
+    [Arguments(StatusCode.DeadlineExceeded, "deadline_exceeded")]
+    [Arguments(null, "http_request")]
+    public async Task RetriesTransientFailureAsync(StatusCode? status, string reason)
     {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-transient-retry");
+        using var sink = new MeasurementSink(MeterRegistry.Meter);
+        var peer = $"c-transient-{Guid.NewGuid():N}";
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: peer);
         var box = new IntBox();
         Exception error = status is { } code ? new RpcException(new Status(code, "transient")) : new HttpRequestException("down");
         var value = await policy.ExecuteAsync(
@@ -287,6 +294,7 @@ public sealed class CallPolicyTests
 
         _ = await Assert.That(value).IsEqualTo(8);
         _ = await Assert.That(box.Count).IsEqualTo(2);
+        _ = await Assert.That(sink.HasEvent("squirix_call_policy_retries_total", ("peer", peer), ("reason", reason))).IsTrue();
     }
 
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>

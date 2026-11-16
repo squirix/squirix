@@ -413,9 +413,14 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     }
 
     /// <summary>Ensures transient retries emit retry and backoff metrics.</summary>
+    /// <param name="status">The RPC status, or null for an HTTP transport error.</param>
+    /// <param name="reason">The expected retry metric label.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RetryAndBackoffMetricsAreRecorded(CancellationToken cancellationToken)
+    [Arguments(null, "http_request")]
+    [Arguments(StatusCode.Unavailable, "unavailable")]
+    [Arguments(StatusCode.Internal, "internal")]
+    public async Task RetryAndBackoffMetricsAreRecorded(StatusCode? status, string reason, CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
@@ -429,11 +434,14 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         var attempts = new InvocationCounter();
 
         var executeTask = policy.ExecuteAsync(
-            attempts,
-            static (counter, _) =>
+            (Counter: attempts, Status: status),
+            static (state, _) =>
             {
-                var attempt = counter.Increment();
-                return attempt == 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(42);
+                if (state.Counter.Increment() != 1)
+                    return new ValueTask<int>(42);
+
+                Exception failure = state.Status is { } code ? new RpcException(new Status(code, "transient")) : new HttpRequestException("boom");
+                return ValueTask.FromException<int>(failure);
             },
             cancellationToken);
 
@@ -445,7 +453,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         var value = await executeTask;
 
         _ = await Assert.That(value).IsEqualTo(42);
-        _ = await Assert.That(sink.HasEvent("squirix_call_policy_retries_total", ("peer", "peer-d"), ("reason", "http_request"))).IsTrue();
+        _ = await Assert.That(attempts.Count).IsEqualTo(2);
+        _ = await Assert.That(sink.HasEvent("squirix_call_policy_retries_total", ("peer", "peer-d"), ("reason", reason))).IsTrue();
         _ = await Assert.That(sink.HasEvent("squirix_call_policy_backoffs_total", ("peer", "peer-d"), ("scope", "policy"))).IsTrue();
     }
 
