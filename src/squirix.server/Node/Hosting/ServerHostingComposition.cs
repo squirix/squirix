@@ -309,7 +309,7 @@ internal static class ServerHostingComposition
         AddSquirixClusterStack(builder.Services, cluster, args);
         RegisterPersistenceAndReplication(builder.Services, cluster, persistence, serverMeter, mtlsOptions, args);
 
-        _ = builder.Services.AddSquirixCachePipeline(args.Extensions, persistenceEnabled);
+        _ = builder.Services.AddSquirixCachePipeline(persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
         var authEnabled = builder.Services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);

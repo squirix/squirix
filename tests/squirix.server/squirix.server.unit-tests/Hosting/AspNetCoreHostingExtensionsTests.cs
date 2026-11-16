@@ -11,7 +11,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
@@ -224,34 +223,6 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PackageExtensionDecoratesCachePipeline(CancellationToken cancellationToken)
-    {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-        DevelopmentCertificate.AddTo(builder.Services);
-        var state = new DecoratePipelineState();
-        var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var optionsConfigurator = new UriOptionsConfigurator(port);
-        var extensionsConfigurator = new DecoratePipelineExtensionsConfigurator(state);
-
-        _ = await builder.AddSquirixServerAsync(
-            optionsConfigurator.Apply,
-            loadDiscoveredSettings: false,
-            configureExtensions: extensionsConfigurator.Apply,
-            cancellationToken: cancellationToken);
-
-        await using (var app = builder.Build())
-            _ = app.Services.GetRequiredService<ILogicalNamespacedCache<object?>>();
-
-        _ = await Assert.That(state.CallbackCount).IsEqualTo(1);
-    }
-
     private static List<Endpoint> GetMappedEndpoints(WebApplication app)
     {
         if (app is not IEndpointRouteBuilder routeBuilder)
@@ -292,33 +263,6 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         private void ApplyCore(ExtensionOptions extensions) => extensions.MapEndpointsWithAuthorization = CaptureAuthorizationState;
 
         private void CaptureAuthorizationState(WebApplication application, bool enabled) => _state.AuthEnabled = enabled;
-    }
-
-    [Immutable]
-    private sealed class DecoratePipelineExtensionsConfigurator
-    {
-        private readonly DecoratePipelineState _state;
-
-        internal DecoratePipelineExtensionsConfigurator(DecoratePipelineState state)
-        {
-            _state = state;
-            Apply = ApplyCore;
-        }
-
-        internal Action<ExtensionOptions> Apply { get; }
-
-        private void ApplyCore(ExtensionOptions extensions) => extensions.DecorateCachePipeline = Decorate;
-
-        private ISquirixServerCachePipeline Decorate(IServiceProvider services, ISquirixServerCachePipeline pipeline)
-        {
-            _state.CallbackCount++;
-            return pipeline;
-        }
-    }
-
-    private sealed class DecoratePipelineState
-    {
-        internal int CallbackCount { get; set; }
     }
 
     [Immutable]
