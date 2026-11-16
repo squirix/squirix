@@ -59,27 +59,35 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     }
 
     /// <summary>Anonymous requests fall back to the ASP.NET Core connection id.</summary>
+    /// <param name="connectionId">The connection identifier.</param>
+    /// <param name="expected">The exact prefixed identifier.</param>
     [Test]
-    public async Task ResolveUsesConnectionIdWhenAnonymous()
+    [Arguments("conn-42", "conn:conn-42")]
+    [Arguments("соединение:東京", "conn:соединение:東京")]
+    public async Task ResolveUsesConnectionIdWhenAnonymous(string connectionId, string expected)
     {
         var conn42Expectations = new IHttpContextAccessorCreateExpectations();
-        _ = conn42Expectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-42"));
+        _ = conn42Expectations.Setups.HttpContext.Gets().ReturnValue(CreateContext(connectionId));
         _ = conn42Expectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
         var resolver = new HttpContextClientIdResolver(conn42Expectations.Instance());
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo("conn:conn-42");
+        _ = await Assert.That(resolver.Resolve()).IsEqualTo(expected);
     }
 
     /// <summary>Authenticated JWT subject becomes a principal-scoped client id.</summary>
+    /// <param name="subject">The authenticated subject.</param>
+    /// <param name="expected">The exact prefixed identifier.</param>
     [Test]
-    public async Task ResolveUsesJwtSubjectWhenAuthenticated()
+    [Arguments("tenant-a", "jwt:tenant-a")]
+    [Arguments("арендатор:東京", "jwt:арендатор:東京")]
+    public async Task ResolveUsesJwtSubjectWhenAuthenticated(string subject, string expected)
     {
         var jwtExpectations = new IHttpContextAccessorCreateExpectations();
-        _ = jwtExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))));
+        _ = jwtExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, subject))));
         _ = jwtExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
         var resolver = new HttpContextClientIdResolver(jwtExpectations.Instance());
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:tenant-a");
+        _ = await Assert.That(resolver.Resolve()).IsEqualTo(expected);
     }
 
     /// <summary>In-process calls without HttpContext share the runtime bucket.</summary>

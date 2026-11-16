@@ -47,14 +47,7 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
         return clientId;
     }
 
-    private static string CreatePrefixed(string prefix, string value) => string.Create(
-        prefix.Length + value.Length,
-        (prefix, value),
-        static (span, state) =>
-        {
-            state.prefix.AsSpan().CopyTo(span);
-            state.value.AsSpan().CopyTo(span[state.prefix.Length..]);
-        });
+    private static string CreatePrefixed(string prefix, string value) => string.Concat(prefix, value);
 
     private static string? GetAuthenticatedPrincipalId(ClaimsPrincipal? user)
     {
