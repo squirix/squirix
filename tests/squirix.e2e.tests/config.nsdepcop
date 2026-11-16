@@ -4,8 +4,7 @@
 
   End-to-end tests exercise the exported v0.1 client surface. Most suites use in-process
   TestKit hosts; the Smoke suite starts the built host in a separate process and has no
-  access to server-hosting APIs. Its only TestKit dependency is product-free port allocation.
-  Direct server library internals are off-limits.
+  access to server or TestKit namespaces. Direct server library internals are off-limits.
 
   Internal layout (child → parent is implicit, so the rules below also cut edges to the root):
 
@@ -60,9 +59,7 @@
   <!-- Process smoke scenarios use only the exported SDK and their product-free process fixture. -->
   <Disallowed From="Squirix.E2ETests.Smoke.*" To="Squirix.Server.*" />
   <Disallowed From="Squirix.E2ETests.Smoke.*" To="Squirix.Transport.*" />
-  <!-- Reuse port reservations without allowing access to in-process server hosts. -->
-  <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*"
-              To="/^Squirix\.Server(?:$|\.(?!TestKit\.Networking(?:\.|$)).*)$/" />
+  <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*" To="Squirix.Server.*" />
   <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*" To="Squirix.Transport.*" />
   <Disallowed From="Squirix.E2ETests.Smoke.*"
               To="/^Squirix\.E2ETests(?:$|\.(?!(?:Smoke|Fixtures\.ProcessHosting)(?:\.|$)).*)$/" />
