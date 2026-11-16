@@ -45,27 +45,7 @@ internal static class Program
                     _ => throw new InvalidOperationException($"Unknown command '{command.Name}'. Run 'squirix-server help'."),
                 };
             }
-            catch (InvalidOperationException ex)
-            {
-                await WriteConsoleLineAsync(Console.Error, $"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
-                return 1;
-            }
-            catch (PlatformNotSupportedException ex)
-            {
-                await WriteConsoleLineAsync(Console.Error, $"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
-                return 1;
-            }
-            catch (IOException ex)
-            {
-                await WriteConsoleLineAsync(Console.Error, $"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
-                return 1;
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                await WriteConsoleLineAsync(Console.Error, $"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
-                return 1;
-            }
-            catch (ArgumentException ex)
+            catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or IOException or UnauthorizedAccessException or ArgumentException)
             {
                 await WriteConsoleLineAsync(Console.Error, $"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
                 return 1;
