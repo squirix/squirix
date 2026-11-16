@@ -10,13 +10,12 @@ namespace Squirix.Server.Storage.Manifest;
 internal sealed record RetentionContext
 {
     internal RetentionContext(
-        RetentionSettings settings,
+        string dataDir,
         IStorageFileOperations? fileOperations,
         ILogger logger,
         IManifestRetentionFailureMetrics failureMetrics)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-        DataDir = settings.DataDir;
+        DataDir = dataDir;
         FileOperations = fileOperations ?? new FileOperations();
         ArgumentNullException.ThrowIfNull(logger);
         Logger = logger;

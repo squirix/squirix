@@ -33,7 +33,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         var failures = 0;
         var metrics = new IManifestRetentionFailureMetricsCreateExpectations();
         _ = metrics.Setups.RecordDeleteFailure(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref failures));
-        var context = new RetentionContext(new RetentionSettings(".."), null, NullLogger.Instance, metrics.Instance());
+        var context = new RetentionContext("..", null, NullLogger.Instance, metrics.Instance());
         var worker = new RetentionWorker(context, readiness.Instance(), new JournalCapacityResyncSignal());
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 2, LastSnapshot = new SnapshotRef { Index = 2, CreatedUtc = DateTime.UtcNow } });
@@ -118,7 +118,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         using var probe = new FirstPassProbe(cancellationToken);
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(Bind.To<FirstPassProbe, Action<bool>>(probe, static pass => _ => pass.RecordPass()));
-        var context = new RetentionContext(new RetentionSettings(dir), null, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance);
+        var context = new RetentionContext(dir, null, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance);
         var worker = new RetentionWorker(context, readiness.Instance(), new JournalCapacityResyncSignal());
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 1 });
@@ -183,7 +183,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
         passes = outcomes;
-        return new RetentionWorker(new RetentionContext(new RetentionSettings(dir), fileOperations, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Instance(), signal);
+        return new RetentionWorker(new RetentionContext(dir, fileOperations, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Instance(), signal);
     }
 
     private static State SnapshotState(int currentJournal, int replayFrom) => new()
