@@ -39,7 +39,7 @@ internal sealed class Ledger : IDisposable
         var dir = options.DataDir;
         _currentPath = PathEx.Combine(dir, CurrentFileName);
         _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
-        var retentionContext = new RetentionContext(new RetentionSettings(dir), fileOperations, logger, failureMetrics);
+        var retentionContext = new RetentionContext(dir, fileOperations, logger, failureMetrics);
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness, CapacityResync);
     }
 

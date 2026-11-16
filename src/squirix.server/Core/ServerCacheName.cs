@@ -29,7 +29,7 @@ internal sealed record ServerCacheName
     internal static ServerCacheName ParsePublic(string? name, string parameterName = "cacheName")
     {
         var validated = ServerCacheNameValidator.Validate(name, parameterName);
-        return new ServerCacheName(NormalizeUnvalidated(validated));
+        return new ServerCacheName(validated);
     }
 
     /// <summary>Validates <paramref name="name" /> using public cache name rules without throwing.</summary>
@@ -44,7 +44,7 @@ internal sealed record ServerCacheName
             return false;
         }
 
-        canonical = NormalizeUnvalidated(name);
+        canonical = name;
         return true;
     }
 
@@ -58,9 +58,9 @@ internal sealed record ServerCacheName
 
         private static readonly SearchValues<char> AllowedCharacters = SearchValues.Create(AllowedCharactersText);
 
-        internal static string Validate(string? cacheName, string p) => TryValidate(cacheName, out var error) ? cacheName! : throw new ArgumentException(GetMessage(error), p);
+        internal static string Validate(string? cacheName, string p) => TryValidate(cacheName, out var error) ? cacheName : throw new ArgumentException(GetMessage(error), p);
 
-        internal static bool TryValidate(string? cacheName, out ServerCacheNameValidationError error)
+        internal static bool TryValidate([NotNullWhen(true)] string? cacheName, out ServerCacheNameValidationError error)
         {
             if (string.IsNullOrEmpty(cacheName) || IsWhiteSpaceOnly(cacheName))
             {
