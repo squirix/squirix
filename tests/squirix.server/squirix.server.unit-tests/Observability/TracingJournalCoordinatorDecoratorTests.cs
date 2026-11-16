@@ -27,6 +27,45 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
 {
     private static readonly IJournalOperationTraceScope SharedScope = CreateNullScope();
 
+    /// <summary>Non-key operations keep a null context and bypass the tracer when disabled.</summary>
+    /// <param name="tracingEnabled">Whether the tracer is enabled.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task NonKeyOperationsKeepNullContext(bool tracingEnabled, CancellationToken cancellationToken)
+    {
+        var calls = new List<(JournalOperationKind Kind, JournalOperationTraceContext? Context)>();
+        var tracerExpectations = new IJournalOperationTracerCreateExpectations();
+        _ = tracerExpectations.Setups.IsEnabled.Gets().ReturnValue(tracingEnabled);
+        if (tracingEnabled)
+        {
+            _ = tracerExpectations.Setups.Begin(Arg.Any<JournalOperationKind>(), Arg.Any<JournalOperationTraceContext?>())
+                                  .Callback((kind, context) =>
+                                   {
+                                       calls.Add((kind, context));
+                                       return SharedScope;
+                                   });
+        }
+
+        var innerExpectations = new IJournalCoordinatorCreateExpectations();
+        _ = innerExpectations.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        _ = innerExpectations.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), tracerExpectations.Instance());
+
+        await journal.WaitForStartupAsync(cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
+
+        _ = await Assert.That(calls.Count).IsEqualTo(tracingEnabled ? 2 : 0);
+        if (tracingEnabled)
+        {
+            _ = await Assert.That(calls[0].Kind).IsEqualTo(JournalOperationKind.WaitForStartup);
+            _ = await Assert.That(calls[1].Kind).IsEqualTo(JournalOperationKind.AwaitDurabilityCommit);
+            _ = await Assert.That(calls[0].Context).IsNull();
+            _ = await Assert.That(calls[1].Context).IsNull();
+        }
+    }
+
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

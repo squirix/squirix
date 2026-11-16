@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Extensions.Caching;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -18,13 +19,7 @@ public static class SquirixCacheServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
         _ = services.Configure(configure);
-        for (var index = services.Count - 1; index >= 0; index--)
-        {
-            var descriptor = services[index];
-            if (descriptor.ServiceType == typeof(IDistributedCache) && !descriptor.IsKeyedService)
-                services.RemoveAt(index);
-        }
-
+        _ = services.RemoveAll<IDistributedCache>();
         return services.AddSingleton<IDistributedCache, SquirixDistributedCache>();
     }
 }
