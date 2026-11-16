@@ -63,7 +63,7 @@ if (failures.Count > 0)
 await Console.Out.WriteLineAsync("squirix .NET baseline verified: builds use the shared target framework and release packages support net10.0 and net11.0.", CancellationToken.None).ConfigureAwait(false);
 return 0;
 
-string ResolveDefaultRepoRoot()
+static string ResolveDefaultRepoRoot()
 {
     var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
     if (string.IsNullOrWhiteSpace(entryDir))
@@ -110,7 +110,7 @@ static bool ContainsSkippedSegment(string[] parts, HashSet<string> skipped)
     return false;
 }
 
-void ValidateFile(string repoRoot, string path, List<string> outFailures)
+static void ValidateFile(string repoRoot, string path, List<string> outFailures)
 {
     XmlDocument document;
     try

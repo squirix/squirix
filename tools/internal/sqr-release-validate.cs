@@ -236,7 +236,7 @@ catch (UnauthorizedAccessException ex)
     return 1;
 }
 
-async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
+static async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
 {
     var parsed = new ReleaseOptions();
     var argIndex = 0;
