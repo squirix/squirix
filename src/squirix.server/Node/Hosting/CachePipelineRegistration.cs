@@ -1,6 +1,5 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -22,7 +21,7 @@ internal static class CachePipelineRegistration
     /// <summary>Service key of the owner-local cache chain below replication: the target of replicated applies and of direct local calls.</summary>
     internal const string LocalChainKey = "local-chain";
 
-    internal static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, ExtensionOptions? extensions = null, bool persistenceEnabled = false)
+    internal static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, bool persistenceEnabled = false)
     {
         _ = services.AddSingleton(static sp => new ClientCache<object?>(
             sp.GetRequiredService<ILocalCacheReadOperations<object?>>(),
@@ -30,7 +29,7 @@ internal static class CachePipelineRegistration
 
         AddOwnershipGuardLayer(services, persistenceEnabled);
         AddCacheDecoratorChain(services);
-        AddLogicalNamespacedCache(services, extensions);
+        _ = services.AddSingleton<ILogicalNamespacedCache<object?>>(static sp => sp.GetRequiredService<TracingCacheDecorator<object?>>());
         _ = services.AddSingleton<IDistributedCacheAccess>(static sp => new NodeDistributedCacheAccess(
             ResolveLocalCache(sp),
             sp.GetRequiredService<PhysicalCache<object?>>(),
@@ -139,20 +138,6 @@ internal static class CachePipelineRegistration
         _ = services.AddSingleton(static sp => new TracingCacheDecorator<object?>(
             sp.GetRequiredService<DomainErrorMappingCacheDecorator<object?>>(),
             sp.GetRequiredService<TopologyOptions>().NodeId));
-        services.TryAddSingleton<ISquirixServerEntryCachePipeline<object?>>(static sp =>
-            new BasicExtensionCachePipelineAdapter<object?>(sp.GetRequiredService<TracingCacheDecorator<object?>>()));
-    }
-
-    private static void AddLogicalNamespacedCache(IServiceCollection services, ExtensionOptions? extensions)
-    {
-        _ = services.AddSingleton<ILogicalNamespacedCache<object?>>(sp =>
-        {
-            var corePipeline = sp.GetRequiredService<TracingCacheDecorator<object?>>();
-            var basicPipeline = new BasicExtensionCachePipelineAdapter<object?>(corePipeline);
-            var decoratedPipeline = extensions?.DecorateCachePipeline?.Invoke(sp, basicPipeline);
-            var isUndecorated = decoratedPipeline == null || ReferenceEquals(decoratedPipeline, basicPipeline);
-            return isUndecorated ? corePipeline : new ExtensionCachePipelineAdapter<object?>(corePipeline, decoratedPipeline!);
-        });
     }
 
     private static void AddOwnershipGuardLayer(IServiceCollection services, bool persistenceEnabled)

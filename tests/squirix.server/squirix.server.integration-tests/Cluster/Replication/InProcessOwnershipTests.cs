@@ -34,7 +34,7 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         _ = node.GetRequiredService<ReplicaGroupRegistry>().TryGetLog("node-a", out var log);
         var before = await log!.GetStatusAsync(cancellationToken);
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
-        var pipeline = node.GetRequiredService<ISquirixServerEntryCachePipeline<object?>>();
+        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<object?>>();
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var after = await log.GetStatusAsync(cancellationToken);
@@ -53,7 +53,7 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
         var node = cluster["node-a"];
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
-        var pipeline = node.GetRequiredService<ISquirixServerEntryCachePipeline<object?>>();
+        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<object?>>();
 
         var read = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(pipeline.GetValueAsync(CacheName, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var write = await NodeAsyncAssert.ThrowsAsync<RpcException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

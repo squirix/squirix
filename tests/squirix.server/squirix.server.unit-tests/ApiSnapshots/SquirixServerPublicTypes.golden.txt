@@ -69,16 +69,6 @@ M:Squirix.Server.Errors.SquirixException::.ctor(System.String,System.Exception)
 P:Squirix.Server.Errors.SquirixException::Code:Squirix.Server.Errors.SquirixErrorCode.get
 P:Squirix.Server.Errors.SquirixException::Detail:System.String.get
 P:Squirix.Server.Errors.SquirixException::Error:System.String.get
-T:Squirix.Server.Runtime.Contracts.ISquirixServerCachePipeline
-M:Squirix.Server.Runtime.Contracts.ISquirixServerCachePipeline::TouchAsync(System.String,System.String,System.String,System.TimeSpan,System.Threading.CancellationToken)
-T:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1
-M:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1::GetEntryAsync(System.String,System.String,System.Threading.CancellationToken)
-M:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1::GetValueAsync(System.String,System.String,System.Threading.CancellationToken)
-M:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1::SetEntryAsync(System.String,System.String,System.String,Squirix.Server.Core.NodeCacheEntry<!!0>,System.Threading.CancellationToken)
-M:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1::TryAddEntryAsync(System.String,System.String,System.String,Squirix.Server.Core.NodeCacheEntry<!!0>,System.Threading.CancellationToken)
-M:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1::RemoveAsync(System.String,System.String,System.String,System.Threading.CancellationToken)
-M:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1::RemoveExpirationAsync(System.String,System.String,System.String,System.Threading.CancellationToken)
-M:Squirix.Server.Runtime.Contracts.ISquirixServerEntryCachePipeline`1::UpdateAsync(System.String,System.String,System.String,!!0,System.Threading.CancellationToken)
 T:Squirix.Server.SquirixServer
 M:Squirix.Server.SquirixServer::DisposeAsync()
 M:Squirix.Server.SquirixServer::StartAsync(System.Threading.CancellationToken)
@@ -108,8 +98,6 @@ T:Squirix.Server.Node.Hosting.ExtensionOptions
 M:Squirix.Server.Node.Hosting.ExtensionOptions::.ctor()
 P:Squirix.Server.Node.Hosting.ExtensionOptions::ConfigureServices:System.Action<Microsoft.Extensions.DependencyInjection.IServiceCollection>.get
 P:Squirix.Server.Node.Hosting.ExtensionOptions::ConfigureServices:System.Action<Microsoft.Extensions.DependencyInjection.IServiceCollection>.set
-P:Squirix.Server.Node.Hosting.ExtensionOptions::DecorateCachePipeline:System.Func<System.IServiceProvider,Squirix.Server.Runtime.Contracts.ISquirixServerCachePipeline,Squirix.Server.Runtime.Contracts.ISquirixServerCachePipeline>.get
-P:Squirix.Server.Node.Hosting.ExtensionOptions::DecorateCachePipeline:System.Func<System.IServiceProvider,Squirix.Server.Runtime.Contracts.ISquirixServerCachePipeline,Squirix.Server.Runtime.Contracts.ISquirixServerCachePipeline>.set
 P:Squirix.Server.Node.Hosting.ExtensionOptions::MapEndpoints:System.Action<Microsoft.AspNetCore.Builder.WebApplication>.get
 P:Squirix.Server.Node.Hosting.ExtensionOptions::MapEndpoints:System.Action<Microsoft.AspNetCore.Builder.WebApplication>.set
 P:Squirix.Server.Node.Hosting.ExtensionOptions::MapEndpointsWithAuthorization:System.Action<Microsoft.AspNetCore.Builder.WebApplication,System.Boolean>.get
