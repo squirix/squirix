@@ -1116,8 +1116,8 @@ jobs:
             # MinIterationTime(150): 1 or 2 invocations (512 or 1024 operations) of an operation that takes 0.1-0.7 ms, so
             # one-off allocations (store and journal growth, GCs) landed in that sample and SetAsync moved by up to 8.5%.
             # A fixed invocationCount of 8 (4096 operations, no pilot) amortizes them; timings are not used.
-            # The warmup iteration stays: without it (warmupCount 0) the first-use allocations land in the measured sample and
-            # SetAsync allocates 3-5% more, up to the 5% tolerance of the guard. iterationCount cannot go below 1.
+            # Read cases use three warmup iterations to settle the first in-process gRPC connection. Write cases retain
+            # one warmup: each invocation creates new keys, so extra warmups would change the measured store size.
             # In process, BenchmarkDotNet does not build a project of its own (about 110 s here, since it recompiled the
             # benchmarks with analyzers) or start a process per case.
             -   name: Run Wire Allocation Benchmarks
@@ -1132,13 +1132,26 @@ jobs:
                       --configuration Release \
                       --no-build \
                       -- \
-                      --filter '*Wire*AllocBenchmarks.GetValueAsync' '*Wire*AllocBenchmarks.SetAsync' \
+                      --filter '*Wire*AllocBenchmarks.GetValueAsync' \
+                      --warmupCount 3 \
+                      --iterationCount 1 \
+                      --invocationCount 8 \
+                      --unrollFactor 1 \
+                      --exporters json \
+                      --join \
+                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee benchmark-wire-alloc.log
+                    dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj \
+                      --configuration Release \
+                      --no-build \
+                      -- \
+                      --filter '*Wire*AllocBenchmarks.SetAsync' \
                       --warmupCount 1 \
                       --iterationCount 1 \
                       --invocationCount 8 \
                       --unrollFactor 1 \
                       --exporters json \
-                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee benchmark-wire-alloc.log
+                      --join \
+                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee -a benchmark-wire-alloc.log
 
             # BenchmarkDotNet exits 0 when a case fails or the filter selects nothing, so the check also fails on a missing result.
             -   name: Compare Allocations With The Baseline
