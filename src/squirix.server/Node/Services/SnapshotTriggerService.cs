@@ -13,7 +13,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotReadinessStatus
+internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadinessStatus
 {
     private const int MaxBackoffExponent = 10;
 
@@ -26,7 +26,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private readonly Coordinator _coordinator;
 
     private readonly IJournalCoordinator _journal;
-    private readonly ILogger<SnapshotTriggerService<T>> _log;
+    private readonly ILogger<SnapshotTriggerService> _log;
 
     private readonly EventHandler _onJournalAppended;
 
@@ -46,7 +46,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private int _fatalFailure;
 
-    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
+    public SnapshotTriggerService(ILogger<SnapshotTriggerService> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(log);
