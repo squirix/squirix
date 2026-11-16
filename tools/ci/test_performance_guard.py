@@ -205,6 +205,167 @@ class PerformanceGuardTests(unittest.TestCase):
         self.assertEqual("600", arguments[arguments.index("--buildTimeout") + 1])
         self.assertIn("--stopOnFirstError", arguments)
 
+    def confirm(self, values, allocations=None, noisyAttempt=None, missingAttempt=None, differentHostAttempt=None):
+        reports = self.root / "confirmation-reports"
+        calls = []
+        allocations = allocations or [100, 100, 100]
+
+        def write_pair(directory, attempt):
+            baseline = copy.deepcopy(self.report)
+            current = copy.deepcopy(self.report)
+            current["Benchmarks"][0] = self.benchmark("Read", values[attempt - 1], allocations[attempt - 1])
+            if attempt > 1:
+                baseline["Benchmarks"] = baseline["Benchmarks"][:1]
+                current["Benchmarks"] = current["Benchmarks"][:1]
+            if attempt == noisyAttempt:
+                current["Benchmarks"][0]["Statistics"]["StandardError"] = 50
+            if attempt == differentHostAttempt:
+                for report in (baseline, current):
+                    report["HostEnvironmentInfo"]["ProcessorName"] = "different"
+            self.write(directory / "baseline", baseline)
+            if attempt != missingAttempt:
+                self.write(directory / "current", current)
+
+        write_pair(reports, 1)
+
+        def run_pair(index, suite, attempt, directory):
+            calls.append((index, suite, attempt, directory))
+            write_pair(directory, attempt)
+
+        summary, failures = RUNNER.confirm_regressions(self.manifest, reports, run_pair)
+        return summary, failures, calls
+
+    def testConfirmationRejectsSingleSpikeWithoutRepeatingHealthyCases(self):
+        summary, failures, calls = self.confirm([140, 100, 100])
+        self.assertEqual([], failures)
+        self.assertIn("regression not confirmed", summary)
+        self.assertIn("time regression: 1/3", summary)
+        self.assertEqual([2, 3], [call[2] for call in calls])
+        self.assertEqual(2, len({call[3] for call in calls}))
+        for _, suite, _, _ in calls:
+            self.assertEqual([{"name": "Fixture.Read", "checkTime": True}], suite["cases"])
+            self.assertEqual(["*Fixture.Read"], suite["filters"])
+
+    def testConfirmationRequiresSameBudgetInTwoIndependentPairs(self):
+        summary, failures, _ = self.confirm([140, 121, 100])
+        self.assertEqual(["Fixture.Read: time regression."], failures)
+        self.assertIn("time regression: 2/3", summary)
+
+    def testConfirmationRejectsRegressionInAllThreePairs(self):
+        summary, failures, calls = self.confirm([140, 140, 140], [110, 110, 110])
+        self.assertEqual(["Fixture.Read: allocation regression, time regression."], failures)
+        self.assertIn("time regression: 3/3", summary)
+        self.assertIn("allocation regression: 3/3", summary)
+        self.assertEqual(2, len(calls))
+
+    def testConfirmationKeepsTwentyPercentBoundary(self):
+        _, failures, _ = self.confirm([140, 120, 120])
+        self.assertEqual([], failures)
+
+    def testConfirmationDoesNotRepeatPassingMeasurements(self):
+        summary, failures, calls = self.confirm([120, 999, 999])
+        self.assertEqual([], failures)
+        self.assertEqual([], calls)
+        self.assertNotIn("Independent process confirmation", summary)
+
+    def testConfirmationRejectsPersistentAllocationRegression(self):
+        summary, failures, _ = self.confirm([100, 100, 100], [106, 100, 106])
+        self.assertEqual(["Fixture.Read: allocation regression."], failures)
+        self.assertIn("allocation regression: 2/3", summary)
+
+    def testConfirmationDoesNotCombineDifferentBudgetViolations(self):
+        _, failures, _ = self.confirm([140, 100, 100], [100, 110, 100])
+        self.assertEqual([], failures)
+
+    def testConfirmationDoesNotSuppressNoisyMeasurements(self):
+        summary, failures, _ = self.confirm([140, 100, 100], noisyAttempt=2)
+        self.assertEqual(["Fixture.Read: noisy current measurement; rerun."], failures)
+        self.assertIn("noisy current measurement", summary)
+
+    def testConfirmationKeepsInitialNoiseFailureAfterCleanRepeats(self):
+        _, failures, calls = self.confirm([140, 100, 100], noisyAttempt=1)
+        self.assertEqual(["Fixture.Read: noisy current measurement; rerun."], failures)
+        self.assertEqual(2, len(calls))
+
+    def testConfirmationDoesNotRetryNoiseWithoutBudgetViolation(self):
+        _, failures, calls = self.confirm([100, 100, 100], noisyAttempt=1)
+        self.assertEqual(["Fixture.Read: noisy current measurement; rerun."], failures)
+        self.assertEqual([], calls)
+
+    def testConfirmationRejectsMissingReports(self):
+        with self.assertRaisesRegex(ValueError, "missing"):
+            self.confirm([140, 100, 100], missingAttempt=2)
+
+    def testConfirmationRejectsHostChangeBetweenPairs(self):
+        with self.assertRaisesRegex(ValueError, "initial host"):
+            self.confirm([140, 100, 100], differentHostAttempt=2)
+
+    def testConfirmationFiltersExactParameterCases(self):
+        suite = self.manifest["suites"][0]
+        suite["cases"] = [
+            {"name": "Fixture.Read(Length=16&Unicode=False)", "checkTime": True},
+            {"name": "Fixture.Read(Length=4096&Unicode=False)", "checkTime": True},
+        ]
+        selected = RUNNER.confirmation_suite(suite, {"Fixture.Read(Length=16&Unicode=False)"})
+        self.assertEqual([suite["cases"][0]], selected["cases"])
+        self.assertEqual(["*Fixture.Read(Length: 16, Unicode: False)"], selected["filters"])
+        self.assertEqual(2, len(suite["cases"]))
+
+    def testRunnerConfirmsInReverseOrderAndPreservesAllReports(self):
+        checkout = self.root / "checkout"
+        baseline = self.root / "squirix-perf-release-test"
+        suite = self.manifest["suites"][0]
+        suite["entryPoint"] = "tools/ci/performance-guard/Program.cs"
+        self.manifest_path.write_text(json.dumps(self.manifest), encoding="utf-8")
+        fixture = checkout / suite["entryPoint"]
+        fixture.parent.mkdir(parents=True)
+        fixture.write_bytes(b"dedicated entry point\n")
+        (checkout / "global.json").write_text("{}", encoding="utf-8")
+        for source_root in (checkout, baseline):
+            project = source_root / suite["project"]
+            project.parent.mkdir(parents=True)
+            project.with_name("Program.cs").write_bytes(b"original\n")
+        (checkout / suite["project"]).with_name("Fixture.cs").write_text("fixture", encoding="utf-8")
+        observed = []
+        logs = []
+        artifacts = self.root / "artifacts"
+
+        def execute(arguments, cwd, log, environment, timeout=1800):
+            if arguments[0] != "dotnet":
+                return
+            self.assertEqual(fixture.read_bytes(), (cwd / "Program.cs" if arguments[1] != "build"
+                             else Path(arguments[2]).with_name("Program.cs")).read_bytes())
+            logs.append(log)
+            if arguments[1] == "build":
+                return
+            destination = Path(arguments[arguments.index("--artifacts") + 1])
+            label = destination.parent.name
+            attempt = 1 if destination.parent.parent.name == "reports" else int(destination.parent.parent.name[-1])
+            observed.append((attempt, label))
+            report = copy.deepcopy(self.report)
+            if label == "current":
+                report["Benchmarks"][0] = self.benchmark("Read", 140 if attempt == 1 else 100, 100)
+            if attempt > 1:
+                report["Benchmarks"] = report["Benchmarks"][:1]
+                self.assertEqual(["*Fixture.Read"], arguments[arguments.index("--filter") + 1:arguments.index("--launchCount")])
+            self.write(destination.parent, report)
+
+        with patch.object(RUNNER, "__file__", str(checkout / "tools/ci/run-performance-guard.py")), \
+             patch.object(RUNNER.tempfile, "mkdtemp", return_value=str(baseline)), \
+             patch.object(RUNNER.subprocess, "check_output", return_value="b" * 40), \
+             patch.object(RUNNER.subprocess, "run"), \
+             patch.object(RUNNER, "execute", side_effect=execute), \
+             patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, RUNNER.run(self.manifest_path, artifacts))
+        self.assertEqual([(1, "baseline"), (1, "current"), (2, "current"), (2, "baseline"),
+                          (3, "baseline"), (3, "current")], observed)
+        self.assertEqual(12, len(set(logs)))
+        self.assertEqual(6, len(list((artifacts / "reports").rglob("report.json"))))
+        self.assertIn("regression not confirmed", (artifacts / "summary.md").read_text())
+        self.assertEqual(0.2, json.loads((artifacts / "run.json").read_text())["manifest"]["timeTolerance"])
+        for source_root in (checkout, baseline):
+            self.assertEqual(b"original\n", (source_root / suite["project"]).with_name("Program.cs").read_bytes())
+
     def testManifestRejectsUnsafeAndDuplicateSuiteNames(self):
         for case, name in (("parent", "../outside"), ("absolute", "/outside"), ("nested", "server/other"), ("drive", "C:/outside")):
             with self.subTest(case=case):

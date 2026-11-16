@@ -92,6 +92,69 @@ def benchmark_entry_point(root, project, suite):
         target.write_bytes(original)
 
 
+def failure_reasons(failures):
+    return {name: set(reasons.removesuffix(".").split(", "))
+            for failure in failures for name, reasons in [failure.split(": ", 1)]}
+
+
+def confirmation_suite(suite, names):
+    cases = [case for case in suite["cases"] if case["name"] in names]
+    # BDN full names use '(Parameter: value, ...)' rather than the report key syntax.
+    filters = ["*" + case["name"].replace("=", ": ").replace("&", ", ") for case in cases]
+    return {**suite, "cases": cases, "filters": filters}
+
+
+def confirm_regressions(manifest, reports, run_pair):
+    report, failures = CHECK.compare(manifest, reports / "baseline", reports / "current")
+    if not failures:
+        return report, failures
+    initial = failure_reasons(failures)
+    regression_kinds = {"time regression", "allocation regression"}
+    suspects = {name for name, reasons in initial.items() if reasons & regression_kinds}
+    if not suspects:
+        return report, failures
+    selected = [confirmation_suite(suite, suspects) for suite in manifest["suites"]]
+    selected = [suite for suite in selected if suite["cases"]]
+    confirmation_manifest = {**manifest, "suites": selected}
+    initial_host, _ = CHECK.read_results(reports / "baseline", manifest)
+    attempts = [initial]
+    sections = [report, "### Independent process confirmation\n",
+                "Three pairs; a regression requires the same budget to be exceeded in at least two pairs. "
+                "Pair 2 reverses the original order; pair 3 restores it. "
+                "Invalid or noisy confirmation measurements fail the guard.\n"]
+    for attempt in (2, 3):
+        directory = reports / f"confirmation-{attempt}"
+        for index, suite in enumerate(manifest["suites"]):
+            matching = next((item for item in selected if item["name"] == suite["name"]), None)
+            if matching is not None:
+                run_pair(index, matching, attempt, directory)
+        summary, repeated_failures = CHECK.compare(
+            confirmation_manifest, directory / "baseline", directory / "current")
+        host, _ = CHECK.read_results(directory / "baseline", confirmation_manifest)
+        if host != initial_host:
+            raise ValueError("Confirmation must use the initial host, SDK and runtime.")
+        sections.extend([f"#### Pair {attempt}\n", summary])
+        attempts.append(failure_reasons(repeated_failures))
+    final = []
+    sections.extend(["### Final verdict\n", "| Benchmark | Verdict |", "|---|---|"])
+    for name in sorted(initial):
+        reasons = set(initial[name] - regression_kinds)
+        if name in suspects:
+            for attempt in attempts[1:]:
+                reasons.update(attempt.get(name, set()) - regression_kinds)
+            votes = {kind: sum(kind in attempt.get(name, set()) for attempt in attempts)
+                     for kind in regression_kinds}
+            reasons.update(kind for kind, count in votes.items() if count >= 2)
+            details = "; ".join(f"{kind}: {votes[kind]}/3" for kind in sorted(regression_kinds))
+        else:
+            details = "initial measurement failed validation"
+        verdict = ", ".join(sorted(reasons)) if reasons else "regression not confirmed"
+        sections.append(f"| {name} | {verdict}; {details} |")
+        if reasons:
+            final.append(f"{name}: {', '.join(sorted(reasons))}.")
+    return "\n".join(sections) + "\n", final
+
+
 def run(manifest_path, artifacts):
     root = Path(__file__).resolve().parents[2]
     manifest = CHECK.load_manifest(manifest_path)
@@ -121,10 +184,13 @@ def run(manifest_path, artifacts):
                 target = repo_path(baseline, relative_directory / source)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(original, target)
-        for index, suite in enumerate(manifest["suites"]):
+        def run_pair(index, suite, attempt, destination):
             # Alternate the order between suites to reduce systematic thermal/order bias.
             order = (("baseline", baseline), ("current", root)) if index % 2 == 0 else (("current", root), ("baseline", baseline))
+            if attempt % 2 == 0:
+                order = tuple(reversed(order))
             for label, checkout in order:
+                suffix = "" if attempt == 1 else f"-confirmation-{attempt}"
                 project = repo_path(checkout, suite["project"])
                 # Bound BenchmarkDotNet project discovery to this project, including in worktree-based local runs.
                 marker = project.parent / "global.json"
@@ -135,14 +201,17 @@ def run(manifest_path, artifacts):
                 with benchmark_entry_point(root, project, suite):
                     execute(
                         ["dotnet", "build", str(project), "-c", "Release", "-p:RunAnalyzers=false", "-p:EnforceCodeStyleInBuild=false"],
-                        checkout, logs / f'{suite["name"]}-{label}-build.log', environment, timeout=600)
+                        checkout, logs / f'{suite["name"]}-{label}{suffix}-build.log', environment, timeout=600)
                     assembly = project.parent / "bin" / "Release" / "net10.0" / f"{project.stem}.dll"
                     execute(
-                        benchmark_arguments(assembly, suite["filters"], reports / label / suite["name"]),
-                        project.parent, logs / f'{suite["name"]}-{label}-benchmark.log', environment)
-        metadata = {"baselineCommit": manifest["baselineCommit"], "currentCommit": current_sha, "manifest": manifest}
+                        benchmark_arguments(assembly, suite["filters"], destination / label / suite["name"]),
+                        project.parent, logs / f'{suite["name"]}-{label}{suffix}-benchmark.log', environment)
+        for index, suite in enumerate(manifest["suites"]):
+            run_pair(index, suite, 1, reports)
+        metadata = {"baselineCommit": manifest["baselineCommit"], "currentCommit": current_sha, "manifest": manifest,
+                    "confirmationPolicy": {"totalPairs": 3, "requiredRegressions": 2, "reverseOrderOnPair": 2}}
         (artifacts / "run.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        report, failures = CHECK.compare(manifest, reports / "baseline", reports / "current")
+        report, failures = confirm_regressions(manifest, reports, run_pair)
         (artifacts / "summary.md").write_text(report, encoding="utf-8")
         print(report)
         summary = environment.get("GITHUB_STEP_SUMMARY")
