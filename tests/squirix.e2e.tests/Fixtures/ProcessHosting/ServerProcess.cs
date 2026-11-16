@@ -50,7 +50,16 @@ internal sealed class ServerProcess : IAsyncDisposable
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await StopAsync(timeout.Token).ConfigureAwait(false);
+            try
+            {
+                await StopAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+                // The child was killed before the wait; retain its reservation until termination is confirmed.
+                await _process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
             _port.Dispose();
             _ = await _output.ConfigureAwait(false);
             _ = await _errors.ConfigureAwait(false);
