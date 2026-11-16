@@ -296,7 +296,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 32,
         };
         var flushCounter = new AtomicCounter();
-        var time = new SteppedWallClock();
+        var time = new WallSteppedClock();
         var groupCommit = new JournalDurabilityGroupCommit(flushCounter.IncrementAction, static () => { }, static _ => { }, options, time);
 
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
@@ -490,21 +490,6 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         internal int Value => Volatile.Read(ref _value);
 
         private void Increment() => _ = Interlocked.Increment(ref _value);
-    }
-
-    /// <summary>A fake clock whose wall time can step backward while its monotonic timestamp keeps moving forward only.</summary>
-    [ThreadSafe]
-    private sealed class SteppedWallClock : FakeTimeProvider
-    {
-        private long _wallOffsetTicks;
-
-        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
-
-        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
-        /// <returns>The monotonic timestamp.</returns>
-        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
-
-        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
     }
 
     /// <summary>Stands in for the pipeline failure hook: like the real one it faults the in-flight batch through the group commit, and records how many acks were still pending.</summary>
