@@ -73,36 +73,16 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
 
     private sealed record Entry(string Fingerprint, ulong Index, ulong Term, bool IsResolved, string Payload, TimeSpan Birth, long Order);
 
-    private sealed class Splitmix
-    {
-        private ulong _state;
-
-        internal Splitmix(ulong seed)
-        {
-            _state = seed;
-        }
-
-        internal int Next(int bound)
-        {
-            _state = unchecked(_state + 0x9E3779B97F4A7C15UL);
-            var z = _state;
-            z = unchecked((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL);
-            z = unchecked((z ^ (z >> 27)) * 0x94D049BB133111EBUL);
-            z ^= z >> 31;
-            return int.CreateChecked(z % ulong.CreateChecked(bound));
-        }
-    }
-
     private sealed class Run
     {
         private readonly FakeTimeProvider _clock = new(Epoch);
         private readonly Model _model;
-        private readonly Splitmix _random;
+        private readonly SplitMix64 _random;
         private readonly GroupIdempotencyState _state;
 
         internal Run(ulong seed, TimeSpan floor)
         {
-            _random = new Splitmix(seed);
+            _random = new SplitMix64(seed);
             _state = new GroupIdempotencyState(Capacity, Retention, _clock, floor);
             _model = new Model(_clock, floor);
         }
@@ -393,7 +373,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
             return string.Join(';', lines);
         }
 
-        internal List<GroupIdempotencyRecord> Snapshot(Splitmix random, DateTime capturedUtc)
+        internal List<GroupIdempotencyRecord> Snapshot(SplitMix64 random, DateTime capturedUtc)
         {
             Sweep();
             var records = new List<GroupIdempotencyRecord>();

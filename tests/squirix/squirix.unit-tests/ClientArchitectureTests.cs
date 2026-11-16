@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.XPath;
@@ -55,13 +56,35 @@ public sealed class ClientArchitectureTests
     }
 
     /// <summary>Ensures the client package does not grant the server assembly access to internal SDK types.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ShouldNotExposeInternalsToServer(CancellationToken cancellationToken)
+    public async Task ShouldNotExposeInternalsToServer()
     {
-        var path = PathKit.Combine(PathKit.Combine(RepositoryRoot.Value, "src/squirix/Properties"), "AssemblyInfo.cs");
-        var text = await File.ReadAllTextAsync(path, cancellationToken);
-        _ = await Assert.That(text).DoesNotContain("InternalsVisibleTo(\"Squirix.Server\"", StringComparison.Ordinal);
+        await using var stream = File.OpenRead(PathKit.Combine(AppContext.BaseDirectory, "Squirix.dll"));
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var friends = new List<string>();
+        foreach (var handle in reader.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            if (attribute.Constructor.Kind != HandleKind.MemberReference)
+                continue;
+            var parent = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent;
+            if (parent.Kind != HandleKind.TypeReference)
+                continue;
+            var type = reader.GetTypeReference((TypeReferenceHandle)parent);
+            if (!reader.StringComparer.Equals(type.Namespace, "System.Runtime.CompilerServices") ||
+                !reader.StringComparer.Equals(type.Name, "InternalsVisibleToAttribute"))
+                continue;
+
+            var value = reader.GetBlobReader(attribute.Value);
+            var prolog = Convert.ToInt32(value.ReadUInt16());
+            var name = value.ReadSerializedString();
+            _ = await Assert.That(prolog).IsEqualTo(1);
+            var friend = await Assert.That(name).IsNotNull();
+            friends.Add(AssemblyNameInfo.Parse(friend).Name);
+        }
+
+        _ = await Assert.That(friends).DoesNotContain("Squirix.Server", StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Ensures the client project does not grow server-hosting dependency debt.</summary>
