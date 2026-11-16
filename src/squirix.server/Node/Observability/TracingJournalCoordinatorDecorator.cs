@@ -55,7 +55,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         _tracer.IsEnabled
             ? TracedAsync(
                 JournalOperationKind.IdempotencyOutcome,
-                Enrich(null),
+                null,
                 (operationId, fingerprint, responseBytes, appended, cancellationToken),
                 static (inner, args) => inner.AppendIdempotencyOutcomeAsync(args.operationId, args.fingerprint, args.responseBytes, args.appended, args.cancellationToken))
             : _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, appended, cancellationToken);
@@ -102,7 +102,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         _tracer.IsEnabled
             ? TracedAsync(
                 JournalOperationKind.SnapshotCut,
-                Enrich(null),
+                null,
                 (state, captureUnderBarrier, buildOutsideBarrier, cancellationToken),
                 static (inner, args) => inner.ExecuteSnapshotCutAsync(args.state, args.captureUnderBarrier, args.buildOutsideBarrier, args.cancellationToken))
             : _inner.ExecuteSnapshotCutAsync(state, captureUnderBarrier, buildOutsideBarrier, cancellationToken);
@@ -113,7 +113,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         _tracer.IsEnabled
             ? TracedAsync(
                 JournalOperationKind.UnderSnapshotBarrier,
-                Enrich(null),
+                null,
                 (action, cancellationToken),
                 static (inner, args) => inner.ExecuteUnderSnapshotBarrierAsync(args.action, args.cancellationToken))
             : _inner.ExecuteUnderSnapshotBarrierAsync(action, cancellationToken);
@@ -125,7 +125,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         _tracer.IsEnabled
             ? TracedAsync(
                 JournalOperationKind.UnderSnapshotBarrier,
-                Enrich(null),
+                null,
                 (state, action, cancellationToken),
                 static (inner, args) => inner.ExecuteUnderSnapshotBarrierAsync(args.state, args.action, args.cancellationToken))
             : _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
@@ -137,7 +137,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         _tracer.IsEnabled
             ? TracedAsync(
                 JournalOperationKind.UnderSnapshotBarrier,
-                Enrich(null),
+                null,
                 (state, action, cancellationToken),
                 static (inner, args) => inner.ExecuteUnderSnapshotBarrierAsync(args.state, args.action, args.cancellationToken))
             : _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
@@ -148,7 +148,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) =>
         _tracer.IsEnabled
-            ? TracedAsync(JournalOperationKind.WaitForStartup, Enrich(null), cancellationToken, static (inner, token) => inner.WaitForStartupAsync(token))
+            ? TracedAsync(JournalOperationKind.WaitForStartup, null, cancellationToken, static (inner, token) => inner.WaitForStartupAsync(token))
             : _inner.WaitForStartupAsync(cancellationToken);
 
     /// <summary>Waits for durability inside a span that starts and ends in this async method.</summary>
@@ -160,12 +160,10 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     /// </remarks>
     private async ValueTask AwaitDurabilityCommitTracedAsync(CancellationToken cancellationToken)
     {
-        var traceContext = Enrich(null);
+        JournalOperationTraceContext? traceContext = null;
         using var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
         await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
-
-    private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(_inner, in context);
 
     private void ForwardOnAppended(object? sender, EventArgs e) => OnAppended?.Invoke(this, e);
 
@@ -212,15 +210,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
             Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
             PayloadBytes = payloadBytes,
             GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
-        };
-
-        internal static JournalOperationTraceContext? WithDurability(IJournalCoordinator coordinator, in JournalOperationTraceContext? context) => context switch
-        {
-            { } ctx => ctx with
-            {
-                GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
-            },
-            _ => null,
         };
     }
 }
