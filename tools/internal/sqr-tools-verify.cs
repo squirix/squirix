@@ -5,7 +5,6 @@
 #:include shared/SqrTool.cs
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using static Squirix.Tools.SqrTool;
@@ -70,20 +69,9 @@ foreach (var file in files)
 {
     var name = Path.GetRelativePath(toolsDir, file);
     await output.WriteLineAsync($"---- {name} --help ----", CancellationToken.None).ConfigureAwait(false);
-    var processStartInfo = new ProcessStartInfo
-    {
-        FileName = dotnetPath,
-        Arguments = $"run --file \"{file}\" -- --help",
-        WorkingDirectory = repoRoot,
-        UseShellExecute = false,
-    };
-    using var proc = Process.Start(processStartInfo);
-
-    if (proc != null)
-        await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-
-    if (proc?.ExitCode != 0)
-        return proc?.ExitCode ?? 1;
+    var exitCode = await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", file, "--", "--help"], CancellationToken.None).ConfigureAwait(false);
+    if (exitCode != 0)
+        return exitCode;
 }
 
 await output.WriteLineAsync("OK: all file-based tools responded to --help.", CancellationToken.None).ConfigureAwait(false);
