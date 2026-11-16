@@ -393,80 +393,10 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         private static class CacheOperationContract
         {
-            private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
-
-            /// <summary>
-            /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
-            /// distinct from CAS <c language="csharp">Version mismatch</c> and routing <c language="csharp">StaleOwner</c> texts.
-            /// </summary>
-            /// <param name="detail">The gRPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter-increment type mismatch.</returns>
-            internal static bool IsCounterIncrementTypeMismatchRpcDetail(string? detail) => !string.IsNullOrWhiteSpace(detail) &&
-                                                                                            detail.Contains("Type mismatch", StringComparison.OrdinalIgnoreCase) && detail.Contains(
-                                                                                                "expected",
-                                                                                                StringComparison.OrdinalIgnoreCase);
-
-            /// <summary>Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.</summary>
-            /// <param name="message">An exception or RPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
-            internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
-                                                                                             message.StartsWith(InsertVersionMustExceedCurrentPrefix, StringComparison.Ordinal) &&
-                                                                                             message.Contains(", provided=", StringComparison.Ordinal);
-
             internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
 
             internal static bool IsOperationIdReuseMismatchMessage(string? message) =>
                 string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
-        }
-
-        /// <summary>Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.</summary>
-        private static class CacheOperationContractClassifier
-        {
-            /// <summary>
-            /// Stable contract classification for cache-operation transport faults that must stay aligned across
-            /// gRPC adapters, remote cluster helpers, and <c language="csharp">DomainTransportErrorMapper</c>.
-            /// </summary>
-            private enum CacheOperationFailedPreconditionKind
-            {
-                /// <summary>No recognized stable contract for the given detail string.</summary>
-                None = 0,
-
-                /// <summary>Counter-increment type mismatch (FailedPrecondition detail).</summary>
-                CounterIncrementTypeMismatch = 1,
-
-                /// <summary>Explicit insert version is not greater than the stored version (FailedPrecondition detail).</summary>
-                InsertVersionMustExceedCurrent = 2,
-
-                /// <summary>Operation id was reused with a different mutation fingerprint (FailedPrecondition detail).</summary>
-                OperationIdReuseMismatch = 3,
-            }
-
-            internal static bool IsOperationIdReuseMismatchDetail(string? detail) =>
-                ClassifyFailedPreconditionDetail(detail) is CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
-
-            /// <summary>
-            /// Classifies <see cref="StatusCode.FailedPrecondition" /> status detail strings that map to a stable
-            /// <see cref="InvalidOperationException" /> in the logical cache pipeline.
-            /// </summary>
-            /// <param name="detail">The gRPC status detail string.</param>
-            /// <returns>The classified contract kind; <see cref="CacheOperationFailedPreconditionKind.None" /> when no stable contract matches.</returns>
-            /// <remarks>
-            /// Classification order matches the domain transport error mapper historical behavior:
-            /// counter-increment type mismatch is evaluated before insert-version precondition text.
-            /// </remarks>
-            private static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
-            {
-                var counterMismatch = CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail);
-                var versionDowngrade = CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail);
-                var idReuse = CacheOperationContract.IsOperationIdReuseMismatchMessage(detail);
-                return (counterMismatch, versionDowngrade, idReuse) switch
-                {
-                    (true, _, _) => CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch,
-                    (false, true, _) => CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent,
-                    (false, false, true) => CacheOperationFailedPreconditionKind.OperationIdReuseMismatch,
-                    (false, false, false) => CacheOperationFailedPreconditionKind.None,
-                };
-            }
         }
 
         private static class RemoteRpcErrorMapper
@@ -485,7 +415,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                 if (ex.StatusCode is StatusCode.InvalidArgument && CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
                     throw new OperationIdRequiredException(ex.Status.Detail, ex);
 
-                if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
+                if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContract.IsOperationIdReuseMismatchMessage(ex.Status.Detail))
                     throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
 
                 var commitUnknown = CommitOutcomeUnknownClassifier.Map(ex);
