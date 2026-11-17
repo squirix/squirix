@@ -120,6 +120,9 @@ internal sealed class ConnectionTrustHistory
 
     private bool TryHistorical(JwtBearerOptions options, TimeSpan lifetime, SecurityToken token, DateTime now, ref DateTime expires, out DateTime? started)
     {
+        var tokenExpiry = expires;
+        var selectedExpiry = DateTime.MinValue;
+        DateTime? selectedStarted = null;
         lock (_gate)
         {
             for (var i = 0; i < _entries.Count; i++)
@@ -127,16 +130,21 @@ internal sealed class ConnectionTrustHistory
                 var entry = _entries[i];
                 if (!ReferenceEquals(entry.Options, options) || !Matches(entry.Configuration, token, entry.Options.TokenValidationParameters))
                     continue;
-                var until = AddClamped(entry.Started, lifetime);
-                until = entry.Expires < until ? entry.Expires : until;
-                expires = until < expires ? until : expires;
-                started = entry.Started;
-                return expires > now;
+                var candidate = AddClamped(entry.Started, lifetime);
+                candidate = entry.Expires < candidate ? entry.Expires : candidate;
+                candidate = tokenExpiry < candidate ? tokenExpiry : candidate;
+                if (candidate <= now || candidate <= selectedExpiry)
+                    continue;
+                selectedExpiry = candidate;
+                selectedStarted = entry.Started;
             }
         }
 
-        started = null;
-        return false;
+        started = selectedStarted;
+        if (selectedStarted == null)
+            return false;
+        expires = selectedExpiry;
+        return true;
     }
 
     private readonly record struct Entry(BaseConfiguration Configuration, JwtBearerOptions Options, DateTime Started, DateTime Expires);

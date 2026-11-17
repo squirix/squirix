@@ -206,6 +206,98 @@ public sealed class ConnectionTrustTests
         _ = await Assert.That(expiry).IsEqualTo(DateTime.MaxValue);
     }
 
+    /// <summary>Overlapping proofs select the latest usable bound and its paired start independently of insertion order.</summary>
+    /// <param name="newestFirst">Whether the newer proof was inserted first.</param>
+    /// <param name="tokenExpirySeconds">The token's original expiry offset.</param>
+    /// <param name="lifetimeSeconds">The current LKG lifetime after recording both proofs.</param>
+    /// <param name="nowSeconds">The historical validation time offset.</param>
+    /// <param name="expectedExpirySeconds">The selected expiry offset.</param>
+    [Test]
+    [Arguments(false, 120, 60, 70, 90)]
+    [Arguments(true, 120, 60, 70, 90)]
+    [Arguments(false, 80, 60, 70, 80)]
+    [Arguments(false, 120, 45, 70, 75)]
+    [Arguments(false, 120, 60, 30, 90)]
+    public async Task HistoryChoosesLongestLiveProof(bool newestFirst, int tokenExpirySeconds, int lifetimeSeconds, int nowSeconds, int expectedExpirySeconds)
+    {
+        var options = CreateOptions(out var manager);
+        manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(60);
+        options.TokenValidationParameters.ValidIssuer = "issuer";
+        var key = new SymmetricSecurityKey(new byte[32]);
+        var history = new ConnectionTrustHistory();
+        _ = await Assert.That(ObserveSnapshot(history, options, key, newestFirst ? "B" : "A", newestFirst ? 30 : 0)).IsTrue();
+        _ = await Assert.That(ObserveSnapshot(history, options, key, newestFirst ? "A" : "B", newestFirst ? 0 : 30)).IsTrue();
+        manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(lifetimeSeconds);
+        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var expiry = DateTime.UnixEpoch.AddSeconds(tokenExpirySeconds);
+        var accepted = history.TryAuthorize(options, new OpenIdConnectConfiguration { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(nowSeconds), TimeSpan.MaxValue, ref expiry, out var started);
+        _ = await Assert.That(accepted).IsTrue();
+        _ = await Assert.That(expiry).IsEqualTo(DateTime.UnixEpoch.AddSeconds(expectedExpirySeconds));
+        _ = await Assert.That(started).IsEqualTo(DateTime.UnixEpoch.AddSeconds(30));
+    }
+
+    /// <summary>Expired proofs leave the caller's original token expiry untouched and clear the selected start.</summary>
+    /// <param name="tokenExpirySeconds">The original token expiry offset.</param>
+    /// <param name="lifetimeSeconds">The current LKG lifetime.</param>
+    /// <param name="nowSeconds">The historical validation time offset.</param>
+    [Test]
+    [Arguments(120, 60, 90)]
+    [Arguments(70, 60, 70)]
+    [Arguments(120, 20, 70)]
+    public async Task ExpiredHistoryLeavesBoundsUntouched(int tokenExpirySeconds, int lifetimeSeconds, int nowSeconds)
+    {
+        var options = CreateOptions(out var manager);
+        manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(60);
+        options.TokenValidationParameters.ValidIssuer = "issuer";
+        var key = new SymmetricSecurityKey(new byte[32]);
+        var history = new ConnectionTrustHistory();
+        _ = await Assert.That(ObserveSnapshot(history, options, key, "A", 0)).IsTrue();
+        _ = await Assert.That(ObserveSnapshot(history, options, key, "B", 30)).IsTrue();
+        manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(lifetimeSeconds);
+        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var original = DateTime.UnixEpoch.AddSeconds(tokenExpirySeconds);
+        var expiry = original;
+        var accepted = history.TryAuthorize(options, new OpenIdConnectConfiguration { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(nowSeconds), TimeSpan.MaxValue, ref expiry, out var started);
+        _ = await Assert.That(accepted).IsFalse();
+        _ = await Assert.That(expiry).IsEqualTo(original);
+        _ = await Assert.That(started).IsNull();
+    }
+
+    /// <summary>Other options, key objects, and issuers cannot borrow a later proof or mutate token bounds.</summary>
+    /// <param name="mismatch">The unmatched proof dimension.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(2)]
+    public async Task UnmatchedHistoryLeavesBoundsUntouched(int mismatch)
+    {
+        var options = CreateOptions(out var manager);
+        manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(60);
+        options.TokenValidationParameters.ValidIssuer = "issuer";
+        var key = new SymmetricSecurityKey(new byte[32]) { KeyId = "same" };
+        var history = new ConnectionTrustHistory();
+        _ = await Assert.That(ObserveSnapshot(history, options, key, "A", 0)).IsTrue();
+        _ = await Assert.That(ObserveSnapshot(history, options, key, "B", 30)).IsTrue();
+        var actualOptions = mismatch == 0 ? CreateOptions(out _) : options;
+        var actualKey = mismatch == 1 ? new SymmetricSecurityKey(new byte[32]) { KeyId = "same" } : key;
+        var token = new JwtSecurityToken(issuer: mismatch == 2 ? "other" : "issuer") { SigningKey = actualKey };
+        var original = DateTime.UnixEpoch.AddSeconds(120);
+        var expiry = original;
+        var accepted = history.TryAuthorize(actualOptions, new OpenIdConnectConfiguration { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(70), TimeSpan.MaxValue, ref expiry, out var started);
+        _ = await Assert.That(accepted).IsFalse();
+        _ = await Assert.That(expiry).IsEqualTo(original);
+        _ = await Assert.That(started).IsNull();
+    }
+
+    private static bool ObserveSnapshot(ConnectionTrustHistory history, JwtBearerOptions options, SecurityKey key, string issuer, int startSeconds)
+    {
+        var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
+        configuration.SigningKeys.Add(key);
+        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var expiry = DateTime.MaxValue;
+        return history.TryAuthorize(options, configuration, token, DateTime.UnixEpoch.AddSeconds(startSeconds), TimeSpan.MaxValue, ref expiry, out _);
+    }
+
     private static void ConfigureIssuer(TokenValidationParameters parameters, int issuerMode)
     {
         if (issuerMode == 1)
