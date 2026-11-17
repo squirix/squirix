@@ -36,13 +36,8 @@ public sealed class InterNodeMtlsTests
     public async Task ExternalClientCannotSpoofOwnerHeader(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
-        var bearerToken = JwtHelper.CreateBearerToken(credentials);
-        var security = new TestNodeSecurityOptions
-        {
-            JwtSigningKey = credentials.Base64SigningKey,
-            JwtIssuer = credentials.Issuer,
-            JwtAudience = credentials.Audience,
-        };
+        var bearerToken = TestJwtHelper.CreateBearerToken(credentials);
+        var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
         var status = await InterNodeGrpcProbe.GetValueAsync(cluster.GetUri("nodeB"), bearerToken, true, cancellationToken);
@@ -138,13 +133,8 @@ public sealed class InterNodeMtlsTests
     public async Task JwtAuthIndependentOfInterNodeMtls(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
-        var bearerToken = JwtHelper.CreateBearerToken(credentials);
-        var security = new TestNodeSecurityOptions
-        {
-            JwtSigningKey = credentials.Base64SigningKey,
-            JwtIssuer = credentials.Issuer,
-            JwtAudience = credentials.Audience,
-        };
+        var bearerToken = TestJwtHelper.CreateBearerToken(credentials);
+        var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-jwt-mtls");

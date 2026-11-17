@@ -23,13 +23,8 @@ public sealed class TransportOptionsTests
     public async Task CacheRequestsRequireBearerToken(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
-        var bearerToken = JwtHelper.CreateBearerToken(credentials);
-        var security = new TestNodeSecurityOptions
-        {
-            JwtSigningKey = credentials.Base64SigningKey,
-            JwtIssuer = credentials.Issuer,
-            JwtAudience = credentials.Audience,
-        };
+        var bearerToken = TestJwtHelper.CreateBearerToken(credentials);
+        var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);
 
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
             nameof(CacheRequestsRequireBearerToken),
