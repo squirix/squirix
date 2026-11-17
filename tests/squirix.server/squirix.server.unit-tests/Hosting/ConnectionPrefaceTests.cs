@@ -198,6 +198,51 @@ public sealed class ConnectionPrefaceTests
             validator.Exit();
     }
 
+    /// <summary>Ordinary HTTP/2 retains the complete original preface for the next middleware without an authentication reply.</summary>
+    [Test]
+    public async Task OrdinaryHttp2PrefacePassesThrough()
+    {
+        await using var connection = new ProbeConnection();
+        var preface = GC.AllocateUninitializedArray<byte>(24);
+        "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"u8.CopyTo(preface);
+        _ = await connection.Incoming.Writer.WriteAsync(preface, connection.ConnectionClosed);
+        await connection.Incoming.Writer.CompleteAsync();
+        var admitted = false;
+        var originalBytesPreserved = false;
+        var middleware = new ConnectionAuthenticationMiddleware(
+            async context =>
+            {
+                admitted = true;
+                var result = await context.Transport.Input.ReadAsync(context.ConnectionClosed);
+                var buffer = result.Buffer;
+                originalBytesPreserved = MatchesHttp2Preface(in buffer);
+                context.Transport.Input.AdvanceTo(buffer.End);
+            },
+            null,
+            TimeProvider.System);
+        await middleware.OnConnectionAsync(connection);
+        var replyBytes = 0L;
+        if (connection.Outgoing.Reader.TryRead(out var reply))
+        {
+            replyBytes = reply.Buffer.Length;
+            connection.Outgoing.Reader.AdvanceTo(reply.Buffer.End);
+        }
+
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(connection.Aborted).IsFalse();
+        _ = await Assert.That(originalBytesPreserved).IsTrue();
+        _ = await Assert.That(replyBytes).IsEqualTo(0);
+    }
+
+    private static bool MatchesHttp2Preface(in ReadOnlySequence<byte> buffer)
+    {
+        if (buffer.Length != 24)
+            return false;
+        Span<byte> actual = stackalloc byte[24];
+        buffer.Slice(0, 24).CopyTo(actual);
+        return actual.SequenceEqual("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"u8);
+    }
+
     private static async Task<byte> ReadStatusAsync(ProbeConnection connection)
     {
         var result = await connection.Outgoing.Reader.ReadAtLeastAsync(8, connection.ConnectionClosed);
