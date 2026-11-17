@@ -125,7 +125,7 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-stamp-roundtrip");
         var store = new ActivatedTopologyStampStore(dir);
-        var stamp = new ActivatedTopologyStamp { Generation = 2, Fingerprint = new byte[32], ReplicaCount = 3 };
+        var stamp = new ActivatedTopologyStamp { Generation = 2, Fingerprint = Filled(0x5A), ReplicaCount = 3 };
 
         await store.PublishAsync(stamp, cancellationToken);
         var decoded = await store.ReadAsync(cancellationToken);
@@ -166,15 +166,19 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
     }
 
     /// <summary>A corrupted stamp file fails with InvalidDataException.</summary>
+    /// <param name="offset">The byte to corrupt in the magic, version, or checksum.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReadCorruptThrowsInvalidData(CancellationToken cancellationToken)
+    [Arguments(0)]
+    [Arguments(4)]
+    [Arguments(53)]
+    public async Task ReadCorruptThrowsInvalidData(int offset, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-stamp-corrupt");
         var store = new ActivatedTopologyStampStore(dir);
         await store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 }, cancellationToken);
         var bytes = await File.ReadAllBytesAsync(store.StampPath, cancellationToken);
-        bytes[^1] ^= 0xFF;
+        bytes[offset] ^= 0xFF;
         await File.WriteAllBytesAsync(store.StampPath, bytes, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -191,17 +195,24 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         _ = await Assert.That(await store.ReadAsync(cancellationToken)).IsNull();
     }
 
-    /// <summary>An oversized stamp file fails before its contents are allocated.</summary>
+    /// <summary>Truncated, extended, and oversized stamp files are rejected.</summary>
+    /// <param name="length">The invalid file length.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReadOversizedThrowsInvalidData(CancellationToken cancellationToken)
+    [Arguments(0)]
+    [Arguments(53)]
+    [Arguments(55)]
+    [Arguments(256)]
+    [Arguments(257)]
+    [Arguments(512)]
+    public async Task ReadWrongLengthThrowsInvalidData(int length, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-stamp-oversize");
         var store = new ActivatedTopologyStampStore(dir);
         await store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 }, cancellationToken);
 
         using (var handle = File.OpenHandle(store.StampPath, FileMode.Open, FileAccess.Write, FileShare.None))
-            RandomAccess.SetLength(handle, 512);
+            RandomAccess.SetLength(handle, length);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }

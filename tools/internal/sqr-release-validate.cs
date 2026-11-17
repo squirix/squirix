@@ -348,22 +348,16 @@ static async Task ValidatePackageMetadataAsync(string packagePath, string[] fram
     await using (archive.ConfigureAwait(false))
     {
         var names = new List<string>();
+        ZipArchiveEntry? nuspecEntry = null;
         foreach (var entry in archive.Entries)
-            names.Add(entry.FullName);
-
-        string? nuspecName = null;
-        var nameSpan = CollectionsMarshal.AsSpan(names);
-        for (var i = 0; i < nameSpan.Length; i++)
         {
-            var name = nameSpan[i];
-            if (!name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            nuspecName = name;
-            break;
+            names.Add(entry.FullName);
+            if (nuspecEntry == null && entry.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+                nuspecEntry = entry;
         }
 
-        if (string.IsNullOrWhiteSpace(nuspecName))
+        var nameSpan = CollectionsMarshal.AsSpan(names);
+        if (nuspecEntry == null)
             throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
 
         var hasReadme = false;
@@ -388,7 +382,6 @@ static async Task ValidatePackageMetadataAsync(string packagePath, string[] fram
                 throw new InvalidOperationException($"Package has incomplete tool files under {prefix}: {packagePath}");
         }
 
-        var nuspecEntry = archive.GetEntry(nuspecName) ?? MissingNuspecEntry(packagePath);
         var stream = await nuspecEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using (stream.ConfigureAwait(false))
         {
@@ -513,11 +506,6 @@ static async Task ValidateMetadataElementAsync(XmlReader reader, string packageP
 
     if (string.IsNullOrWhiteSpace(license))
         throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
-}
-
-static ZipArchiveEntry MissingNuspecEntry(string packagePath)
-{
-    throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
 }
 
 static async Task<string> ReadElementTextAsync(XmlReader reader)
