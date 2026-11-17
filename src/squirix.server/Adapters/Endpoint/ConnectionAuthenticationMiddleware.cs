@@ -110,15 +110,19 @@ internal sealed class ConnectionAuthenticationMiddleware
             return (false, null);
         }
 
-        if (!_validator.TryEnter())
-        {
-            await ReplyAsync(context, ConnectionAuthenticationProtocol.Busy, cancellationToken).ConfigureAwait(false);
-            return (false, null);
-        }
+        return await ReadIdentityAsync(context, length, cancellationToken).ConfigureAwait(false);
+    }
 
+    private async ValueTask<(byte Status, AuthenticatedConnection? Identity)> ValidateTokenAsync(string? token, ConnectionContext context, CancellationToken cancellationToken)
+    {
+        if (token == null)
+            return (ConnectionAuthenticationProtocol.InvalidCredentials, null);
+        if (!_validator!.TryEnter())
+            return (ConnectionAuthenticationProtocol.Busy, null);
         try
         {
-            return await ReadIdentityAsync(context, length, cancellationToken).ConfigureAwait(false);
+            var identity = await _validator.ValidateAsync(token, context, cancellationToken).ConfigureAwait(false);
+            return (identity == null ? ConnectionAuthenticationProtocol.InvalidCredentials : ConnectionAuthenticationProtocol.Accepted, identity);
         }
         finally
         {
@@ -140,12 +144,13 @@ internal sealed class ConnectionAuthenticationMiddleware
 
         var payload = ArrayPool<byte>.Shared.Rent(length);
         AuthenticatedConnection? identity;
+        byte status;
         try
         {
             buffer.Slice(0, length).CopyTo(payload);
             input.AdvanceTo(buffer.GetPosition(length));
             var token = DecodeToken(payload, length);
-            identity = token == null ? null : await _validator!.ValidateAsync(token, context, cancellationToken).ConfigureAwait(false);
+            (status, identity) = await ValidateTokenAsync(token, context, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -154,7 +159,7 @@ internal sealed class ConnectionAuthenticationMiddleware
 
         if (identity == null)
         {
-            await ReplyAsync(context, ConnectionAuthenticationProtocol.InvalidCredentials, cancellationToken).ConfigureAwait(false);
+            await ReplyAsync(context, status, cancellationToken).ConfigureAwait(false);
             return (false, null);
         }
 

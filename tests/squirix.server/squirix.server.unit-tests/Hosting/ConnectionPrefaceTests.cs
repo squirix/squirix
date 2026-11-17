@@ -102,6 +102,100 @@ public sealed class ConnectionPrefaceTests
         _ = await Assert.That(await ReadStatusAsync(connection)).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials);
         _ = await Assert.That(admitted).IsFalse();
         _ = await Assert.That(connection.Aborted).IsFalse();
+        var available = HoldPermits(validator, 257);
+        ReleasePermits(validator, available);
+        _ = await Assert.That(available).IsEqualTo(256);
+    }
+
+    /// <summary>A peer waiting for its token body cannot occupy the final validation slot.</summary>
+    [Test]
+    public async Task StalledBodyLeavesValidationAvailable()
+    {
+        var services = new ServiceCollection();
+        _ = services.AddOptions();
+        await using var provider = services.BuildServiceProvider();
+        var clock = new FakeTimeProvider();
+        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), clock, provider.GetRequiredService<IServiceScopeFactory>());
+        await using var connection = new ProbeConnection();
+        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
+        var header = GC.AllocateUninitializedArray<byte>(8);
+        ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
+        _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
+        var held = HoldPermits(validator, 255);
+        var middleware = new ConnectionAuthenticationMiddleware(static _ => Task.CompletedTask, validator, clock);
+        var processing = middleware.OnConnectionAsync(connection);
+        var available = validator.TryEnter();
+        if (available)
+            validator.Exit();
+        clock.Advance(TimeSpan.FromSeconds(5));
+        await processing;
+        ReleasePermits(validator, held);
+        _ = await Assert.That(held).IsEqualTo(255);
+        _ = await Assert.That(available).IsTrue();
+        _ = await Assert.That(connection.Aborted).IsTrue();
+        var restored = HoldPermits(validator, 257);
+        ReleasePermits(validator, restored);
+        _ = await Assert.That(restored).IsEqualTo(256);
+    }
+
+    /// <summary>A complete token is consumed before capacity rejection, without entering the JWT validator.</summary>
+    [Test]
+    public async Task BusyConsumesCompletePayload()
+    {
+        var services = new ServiceCollection();
+        _ = services.AddOptions();
+        await using var provider = services.BuildServiceProvider();
+        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        await using var connection = new ProbeConnection();
+        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
+        var header = GC.AllocateUninitializedArray<byte>(8);
+        ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
+        _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
+        _ = await connection.Incoming.Writer.WriteAsync(new ReadOnlyMemory<byte>([120]), connection.ConnectionClosed);
+        var held = HoldPermits(validator, 256);
+        var admitted = false;
+        var middleware = new ConnectionAuthenticationMiddleware(
+            _ =>
+            {
+                admitted = true;
+                return Task.CompletedTask;
+            },
+            validator,
+            TimeProvider.System);
+        try
+        {
+            await middleware.OnConnectionAsync(connection);
+        }
+        finally
+        {
+            ReleasePermits(validator, held);
+        }
+
+        _ = await Assert.That(held).IsEqualTo(256);
+        _ = await Assert.That(await ReadStatusAsync(connection)).IsEqualTo(ConnectionAuthenticationProtocol.Busy);
+        _ = await Assert.That(admitted).IsFalse();
+        var unread = 0L;
+        if (connection.Incoming.Reader.TryRead(out var remaining))
+        {
+            unread = remaining.Buffer.Length;
+            connection.Incoming.Reader.AdvanceTo(remaining.Buffer.End);
+        }
+
+        _ = await Assert.That(unread).IsEqualTo(0);
+    }
+
+    private static int HoldPermits(ConnectionAuthenticationValidator validator, int maximum)
+    {
+        var held = 0;
+        while (held < maximum && validator.TryEnter())
+            held++;
+        return held;
+    }
+
+    private static void ReleasePermits(ConnectionAuthenticationValidator validator, int held)
+    {
+        for (var i = 0; i < held; i++)
+            validator.Exit();
     }
 
     private static async Task<byte> ReadStatusAsync(ProbeConnection connection)
