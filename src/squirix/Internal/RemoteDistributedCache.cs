@@ -50,9 +50,8 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
         if (!reply.Found)
             return null;
 
-        // Protobuf ReadBytes creates an owned, exact-sized array. Detach it before handing it to the caller.
+        // Protobuf ReadBytes owns this exact-sized array; the private response is never reused.
         _ = MemoryMarshal.TryGetArray(reply.Value.Memory, out var payload);
-        reply.Value = ByteString.Empty;
         return payload.Array!;
     }
 

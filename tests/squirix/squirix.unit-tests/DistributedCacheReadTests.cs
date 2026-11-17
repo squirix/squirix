@@ -20,7 +20,7 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class DistributedCacheReadTests
 {
-    /// <summary>Transfers the parsed array, detaches the response and keeps subsequent reads independent.</summary>
+    /// <summary>Transfers the parsed array and keeps subsequent reads independent.</summary>
     /// <param name="suspend">Whether the first response completes asynchronously.</param>
     [Test]
     [Arguments(false)]
@@ -47,7 +47,6 @@ public sealed class DistributedCacheReadTests
 
         _ = await Assert.That(result).IsSameReferenceAs(parsed.Array);
         _ = await Assert.That(result.AsSpan().SequenceEqual(expected)).IsTrue();
-        _ = await Assert.That(first.Value).IsEqualTo(ByteString.Empty);
         result![0] = 99;
         var next = await cache.GetAsync("key", CancellationToken.None);
         _ = await Assert.That(ReferenceEquals(result, next)).IsFalse();
