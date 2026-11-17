@@ -69,8 +69,13 @@ public sealed class ConnectionAuthenticationTests
             lifetime.RequestClose();
             await probe.CloseRequested.Task.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
             _ = await Assert.That(admitted.IsCompleted).IsFalse();
-            _ = await cache.GetValueAsync("renewed", cancellationToken);
+            using var renewalTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15), TimeProvider.System);
+            using var renewalWindow = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, renewalTimeout.Token);
+            do
+                _ = await cache.GetValueAsync("renewed", renewalWindow.Token);
+            while (Volatile.Read(ref providerCalls) == 1);
             _ = await Assert.That(Volatile.Read(ref providerCalls)).IsEqualTo(2);
+            _ = await Assert.That(admitted.IsCompleted).IsFalse();
         }
         finally
         {
@@ -80,6 +85,42 @@ public sealed class ConnectionAuthenticationTests
         var response = await admitted.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(response.Found).IsFalse();
         _ = await Assert.That(probe.AdmittedCalls).IsEqualTo(1);
+    }
+
+    /// <summary>Maps a real handshake denial to a terminal SDK authentication failure without retries.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InvalidCredentialIsNotRetried(CancellationToken cancellationToken)
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        var wrongKey = TestJwtHelper.CreateRandomCredentials(credentials.Issuer, credentials.Audience);
+        var invalidToken = TestJwtHelper.CreateBearerToken(wrongKey);
+        var providerCalls = 0;
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nameof(InvalidCredentialIsNotRetried),
+            TestNodeSecurityOptions.FromJwtCredentials(credentials),
+            timeProvider: TimeProvider.System,
+            cancellationToken: cancellationToken);
+        using var handler = LoopbackHttp.CreateHandler();
+        var options = new SquirixClientOptions
+        {
+            BearerTokenProvider = token =>
+            {
+                token.ThrowIfCancellationRequested();
+                _ = Interlocked.Increment(ref providerCalls);
+                return ValueTask.FromResult(invalidToken);
+            },
+        };
+        options.Endpoints.Add(cluster.GetUri("nodeA"));
+        await using var client = await SquirixClient.ConnectAsync(options, handler, cancellationToken);
+        var cache = await client.GetCacheAsync<string>("default", cancellationToken);
+        var exception = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            cache.SetAsync("denied", "must-not-write", cancellationToken: cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(exception.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(Volatile.Read(ref providerCalls)).IsEqualTo(1);
     }
 
     private static string CreateToken(TestJwtCredentials credentials, TimeSpan lifetime)
