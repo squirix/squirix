@@ -6,7 +6,7 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 ## What bootstrap endpoints are
 
 - **HA / standby / front door:** interchangeable views of the same Squirix cluster. Each URL should reach a node (or
-  proxy) that can serve the cache API and route to key owners.
+  layer-4 TLS pass-through proxy) that can serve the cache API and route to key owners.
 - **Not shards:** do not list independent partitions as bootstrap endpoints. Key placement is owned by the server
   cluster, not the client URL list.
 
@@ -24,8 +24,10 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
   `squirix_client_pool_bootstrap_warmup_skipped_total` (tags: `node_id`, `reason`) and an OpenTelemetry activity
   `client.bootstrap.warmup.peer_skipped` per skipped peer. Connect semantics are unchanged.
 
-Warm-up connects the gRPC channel; it does not execute a cache RPC or validate a bearer token. `ConnectAsync` can
+Warm-up establishes TCP reachability; it does not execute a cache RPC or complete TLS and connection authentication. `ConnectAsync` can
 succeed against a JWT-protected server without a token, while the first cache operation fails with `Unauthenticated`.
+A fresh physical transport obtains credentials from `BearerTokenProvider` once, before HTTP/2 cache RPCs begin.
+See [cache connection authentication](security/connection-authentication.md) for expiry and automatic transport renewal.
 It also does not establish that recovery has finished or that a replica group has a leader.
 
 ## Per-operation failover (v0.1 exported client)

@@ -36,8 +36,9 @@ public sealed class OidcJwtAuthTests : ServerSurfaceTestBase
         var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
 
-        var validHeaders = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken(Audience)}" } };
-        var response = await client.GetValueAsync(request, new CallOptions(validHeaders, cancellationToken: cancellationToken));
+        using var authenticated = CreateGrpcChannel(uri, authority.CreateBearerToken(Audience));
+        var authenticatedClient = new SquirixCacheService.SquirixCacheServiceClient(authenticated);
+        var response = await authenticatedClient.GetValueAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(response.Found).IsFalse();
     }
 }

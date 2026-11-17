@@ -8,7 +8,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
@@ -45,7 +44,7 @@ internal static class RemoteClientSessionFactory
                 static peer => CallPolicyDefaults.Create(peer, TimeProvider.System),
                 TimeProvider.System,
                 handler,
-                callCredentials: BuildCallCredentials(bearerTokenProvider));
+                bearerTokenProvider: bearerTokenProvider);
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId, CallPolicyDefaults.OperationDeadline, TimeProvider.System);
             var connected = pool;
@@ -67,9 +66,6 @@ internal static class RemoteClientSessionFactory
         var effective = serializer ?? new SystemTextJsonSerializer();
         return effective is MetricsDecoratedSerializer ? effective : new MetricsDecoratedSerializer(effective);
     }
-
-    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? provider) =>
-        provider == null ? null : new BearerTokenCallCredentials(provider).Credentials;
 
     private static string FormatEndpointNodeId(int index)
     {
@@ -284,51 +280,6 @@ internal static class RemoteClientSessionFactory
                 default:
                     return false;
             }
-        }
-    }
-
-    private sealed class BearerTokenCallCredentials
-    {
-        private const string AuthorizationHeader = "authorization";
-        private const string BearerSchemePrefix = "Bearer ";
-
-        private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
-        private string? _cachedAuthorizationHeader;
-
-        internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
-        {
-            _tokenProvider = tokenProvider;
-            Credentials = CallCredentials.FromInterceptor(InterceptAsync);
-        }
-
-        internal CallCredentials Credentials { get; }
-
-        private async Task AddAuthorizationHeaderAsync(ValueTask<string> tokenTask, Metadata metadata)
-        {
-            var token = await tokenTask.ConfigureAwait(false);
-            var header = ResolveAuthorizationHeader(token);
-            metadata.Add(AuthorizationHeader, header);
-        }
-
-        private Task InterceptAsync(AuthInterceptorContext context, Metadata metadata) => AddAuthorizationHeaderAsync(_tokenProvider(context.CancellationToken), metadata);
-
-        private string ResolveAuthorizationHeader(string token)
-        {
-            var cachedHeader = Volatile.Read(ref _cachedAuthorizationHeader);
-            if (cachedHeader?.AsSpan(BearerSchemePrefix.Length).SequenceEqual(token.AsSpan()) == true)
-                return cachedHeader;
-
-            var header = string.Create(
-                BearerSchemePrefix.Length + token.Length,
-                (BearerSchemePrefix, token),
-                static (span, state) =>
-                {
-                    state.BearerSchemePrefix.AsSpan().CopyTo(span);
-                    state.token.AsSpan().CopyTo(span[state.BearerSchemePrefix.Length..]);
-                });
-
-            Volatile.Write(ref _cachedAuthorizationHeader, header);
-            return header;
         }
     }
 }

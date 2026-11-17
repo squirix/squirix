@@ -165,7 +165,7 @@ curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 Remote scrapes (including host → published container port) require authentication with a valid JWT bearer token.
 An unauthenticated remote request receives `401`; disabling JWT does not make remote scrapes anonymous.
 
-gRPC clients must send JWT via `options.BearerTokenProvider` or an `Authorization: Bearer` header, and trust the server's
+Cache clients must supply JWT via `options.BearerTokenProvider` for connection authentication and trust the server's
 HTTPS certificate. The public client does not expose a certificate-validation override.
 For a complete local example, use the [Docker client](../samples/docker-client/README.md): it generates a short-lived JWT
 and trusts the exact server certificate inside an isolated client container, without changing the host trust store.

@@ -42,11 +42,13 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-backpressure");
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-a"));
+        using var channelB = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-b"));
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
 
-        var admittedA = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, "tenant-a"), key, cancellationToken);
-        var admittedB = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, "tenant-b"), key, cancellationToken);
+        var admittedA = await CountAdmittedAsync(clientA, key, cancellationToken);
+        var admittedB = await CountAdmittedAsync(clientB, key, cancellationToken);
 
         _ = await Assert.That(admittedA).IsEqualTo(Burst);
         _ = await Assert.That(admittedB).IsEqualTo(Burst);
@@ -178,15 +180,14 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
     private static async Task ReadAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken) =>
         _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-    private static async Task<int> CountAdmittedAsync(SquirixCacheService.SquirixCacheServiceClient client, string token, string key, CancellationToken cancellationToken)
+    private static async Task<int> CountAdmittedAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, CancellationToken cancellationToken)
     {
-        var headers = new Metadata { { "authorization", $"Bearer {token}" } };
         var admitted = 0;
         while (admitted < MaxCalls)
         {
             try
             {
-                _ = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(headers, cancellationToken: cancellationToken));
+                _ = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
                 admitted++;
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.ResourceExhausted)

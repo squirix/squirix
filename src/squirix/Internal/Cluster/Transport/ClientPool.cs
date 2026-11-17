@@ -41,12 +41,12 @@ internal sealed class ClientPool : IClientPool
         TimeProvider timeProvider,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
-        CallCredentials? callCredentials = null,
+        Func<CancellationToken, ValueTask<string>>? bearerTokenProvider = null,
         BootstrapConnectOptions? connectOptions = null)
     {
         _connectOptions = connectOptions ?? DefaultConnectOptions;
         _timeProvider = timeProvider;
-        _nodeIds = RegisterPeers(peers, policyFactory, handler, GrpcTransportEndpoints.CreateChannelHandler, interceptor, callCredentials);
+        _nodeIds = RegisterPeers(peers, policyFactory, handler, GrpcTransportEndpoints.CreateChannelHandler, interceptor, bearerTokenProvider);
         BootstrapNodeIds = _nodeIds;
     }
 
@@ -188,18 +188,22 @@ internal sealed class ClientPool : IClientPool
         HttpMessageHandler? sharedHandler,
         Func<HttpMessageHandler> ownedHandlerFactory,
         Interceptor? interceptor,
-        CallCredentials? callCredentials)
+        Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
         var ids = new string[peers.Length];
+        if (sharedHandler != null)
+            ConnectionAuthentication.Configure(sharedHandler, bearerTokenProvider, peers);
 
         for (var i = 0; i < peers.Length; i++)
         {
             var p = peers[i];
             GrpcTransportEndpoints.RequireHttps(p.Uri);
+            var httpHandler = sharedHandler ?? ownedHandlerFactory.Invoke();
+            if (sharedHandler == null)
+                ConnectionAuthentication.Configure(httpHandler, bearerTokenProvider, peers);
             var opts = new GrpcChannelOptions
             {
-                Credentials = callCredentials == null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
-                HttpHandler = sharedHandler ?? ownedHandlerFactory.Invoke(),
+                HttpHandler = httpHandler,
 
                 // The pool owns and disposes the handlers it creates; a caller-supplied handler is shared by every channel and stays caller-owned.
                 DisposeHttpClient = sharedHandler == null,

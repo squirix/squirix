@@ -212,12 +212,14 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
     /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
     /// <param name="uri">The node listen URL.</param>
+    /// <param name="bearerToken">Optional JWT used to authenticate the physical connection.</param>
+    /// <param name="acknowledgement">Optional observer of the server acknowledgement status.</param>
     /// <returns>A disposable gRPC channel.</returns>
-    protected static GrpcChannel CreateGrpcChannel(Uri uri) => GrpcChannel.ForAddress(
+    protected static GrpcChannel CreateGrpcChannel(Uri uri, string? bearerToken = null, Action<byte>? acknowledgement = null) => GrpcChannel.ForAddress(
         uri,
         new GrpcChannelOptions
         {
-            HttpHandler = LoopbackHttp.CreateHandler(),
+            HttpHandler = bearerToken == null ? LoopbackHttp.CreateHandler() : LoopbackHttp.CreateAuthenticatedHandler(bearerToken, acknowledgement),
             DisposeHttpClient = true,
             MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,

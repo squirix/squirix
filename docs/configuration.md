@@ -40,7 +40,7 @@ Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 | Member                   | Purpose                                                                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Endpoints`              | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md).                                    |
-| `BearerTokenProvider`    | Supplies a JWT bearer token for each gRPC call when the server requires authentication.                                                              |
+| `BearerTokenProvider`    | Supplies a JWT when a new physical cache connection authenticates; reconnect and renewal can invoke it again.                                        |
 | `Serializer`             | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).                                     |
 | `JsonSerializerContexts` | Source-generated metadata for application value types used by the default serializer. See [Serialization](serialization.md#application-value-types). |
 
@@ -76,7 +76,9 @@ await using var client = await SquirixClient.ConnectAsync(
     cancellationToken);
 ```
 
-Client authentication uses `BearerTokenProvider` when the server requires JWT bearer authentication.
+Client authentication uses `BearerTokenProvider` once per new physical TLS transport when the server requires JWT authentication.
+RPCs then use the connection identity without bearer metadata. See [cache connection authentication](security/connection-authentication.md)
+for credential refresh, transport compatibility and migration from per-RPC authentication.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="memory-pressure-squirixsettingsjson"></a>

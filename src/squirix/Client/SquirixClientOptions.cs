@@ -10,8 +10,9 @@ namespace Squirix.Client;
 public sealed class SquirixClientOptions
 {
     /// <summary>
-    /// Gets or sets a delegate that provides a bearer token for each gRPC call.
-    /// Called before every RPC; implementations should cache tokens when appropriate.
+    /// Gets or sets a delegate that authenticates each new physical TLS connection.
+    /// Called again when a transport reconnects or credentials expire, never for each RPC on an accepted connection.
+    /// Implementations should return a current token and support concurrent invocation for independent connections.
     /// </summary>
     public Func<CancellationToken, ValueTask<string>>? BearerTokenProvider { get; set; }
 
@@ -26,6 +27,8 @@ public sealed class SquirixClientOptions
     ///     After connect, single-RPC operations fail over to the next bootstrap endpoint on transport-level errors
     ///     (for example gRPC <c language="csharp">Unavailable</c>).
     ///     </para>
+    ///     <para>Authenticated cache transports require direct server access or TLS pass-through at layer 4.
+    ///     HTTP/2-terminating proxies are unsupported. Update the SDK and server together.</para>
     ///     <para>This is bootstrap/high-availability routing, not full cluster partition routing or consensus membership.</para>
     /// </remarks>
     public IList<Uri> Endpoints { get; } = [];

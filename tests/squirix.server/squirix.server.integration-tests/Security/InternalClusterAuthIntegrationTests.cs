@@ -35,11 +35,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channel = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {
-            { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" },
             { "squirix-internal-owner-rpc", "true" },
         };
 
@@ -151,9 +150,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward-jwt");
-        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
         var setResponse = await clientA.TryAddEntryAsync(
             new TryAddEntryAsyncRequest
             {
@@ -162,7 +160,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                 Key = key,
                 Entry = new NodeCacheEntry<object?> { Value = "cluster-forwarded-with-jwt", Version = 1 }.MapToProto(),
             },
-            new CallOptions(headers, cancellationToken: cancellationToken));
+            new CallOptions(cancellationToken: cancellationToken));
 
         _ = await Assert.That(setResponse.Added).IsTrue();
     }
@@ -282,11 +280,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
-        using var channel = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var channel = CreateGrpcChannel(cluster["node-b"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {
-            { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" },
             { "squirix-internal-owner-rpc", "true" },
         };
 

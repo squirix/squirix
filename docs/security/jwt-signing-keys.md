@@ -1,7 +1,9 @@
 # External JWT signing keys
 
 Squirix authenticates **external clients** (application SDKs, operators, remote `/metrics` scrapes) on the **primary
-HTTPS listener** with JWT bearer tokens when auth is enabled. This document covers **JWT signing and rotation** only.
+HTTPS listener** with JWT credentials when auth is enabled. Cache RPCs authenticate their physical connection once;
+remote operational HTTP requests retain their bearer-header rules. See [cache connection authentication](connection-authentication.md).
+This document covers **JWT signing and rotation** only.
 
 Internode cluster forwarding uses **mTLS**, not JWT. See [internode-mtls.md](internode-mtls.md).
 
@@ -101,8 +103,9 @@ window. A gateway in front of Squirix does not by itself remove the server's JWT
 
 ## Rotating OIDC / JWKS keys
 
-When `SQUIRIX_JWT_AUTHORITY` is set, Squirix uses the standard JWT bearer middleware to fetch signing keys from the
-authority metadata endpoint. Key rotation is owned by your IdP:
+When `SQUIRIX_JWT_AUTHORITY` is set, Squirix uses the framework JWT configuration manager to obtain signing keys from the
+authority metadata endpoint. Cache connections validate credentials during their authentication exchange and renew when supported trust state changes.
+Key rotation is owned by your IdP:
 
 1. Publish new keys in JWKS (often with a new `kid`).
 2. Allow validators and issuers to overlap during the IdP's rotation window.

@@ -40,6 +40,17 @@ public static class LoopbackHttp
         return handler;
     }
 
+    /// <summary>Creates a loopback handler that authenticates each physical TLS connection.</summary>
+    /// <param name="bearerToken">The JWT presented before HTTP/2 starts.</param>
+    /// <param name="acknowledgement">Optional observer of the server acknowledgement status.</param>
+    /// <returns>An authenticated handler suitable for a raw gRPC test channel.</returns>
+    public static SocketsHttpHandler CreateAuthenticatedHandler(string bearerToken, Action<byte>? acknowledgement = null)
+    {
+        var handler = CreateHandler();
+        ConnectionAuthenticationTransport.Configure(handler, bearerToken, acknowledgement);
+        return handler;
+    }
+
     /// <summary>Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c language="csharp">localhost</c>.</summary>
     /// <returns>A loopback handler that tolerates certificate name mismatch.</returns>
     public static SocketsHttpHandler CreateHandlerAllowingCertNameMismatch()
