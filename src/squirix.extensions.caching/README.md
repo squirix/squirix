@@ -35,6 +35,12 @@ Configure a bearer token delegate through `ClientOptions.BearerTokenProvider` wh
 `Get` returns null for a missing entry. An empty stored value returns an empty array. `Set` replaces the value and its expiration policy together.
 When both absolute options are set, the earlier deadline wins. `Get` and `Refresh` renew sliding entries up to any absolute cap. `Remove` deletes the entry and its policy.
 
+Each network attempt of `Get` reads the current entry and renews that entry atomically. A retry can return newer bytes or a miss.
+Read responses and removed values are not retained as mutation outcomes. Sliding renewals still journal and replicate the updated entry.
+
+Upgrade the adapter, client and all server nodes together. Stop the old nodes and use empty server data directories for this preview format;
+older directories and replication snapshots are rejected. Keep the old data and binaries together for rollback.
+
 The provider stores the bytes supplied by the caller or HybridCache. Native Squirix serializers and JSON contexts are unused.
 Avoid sharing the configured cache namespace with a native application that writes its own values.
 

@@ -8,7 +8,7 @@ namespace Squirix.Server.LocalCache;
 /// <typeparam name="T">The stored value type.</typeparam>
 internal interface ILocalCacheMutationOperations<T>
 {
-    CacheRemoveResult<T> Remove(CacheKey key, CancellationToken cancellationToken);
+    bool Remove(CacheKey key, CancellationToken cancellationToken);
 
     bool RemoveExpiration(CacheKey key, CancellationToken cancellationToken);
 

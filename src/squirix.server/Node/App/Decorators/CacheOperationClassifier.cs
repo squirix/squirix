@@ -11,8 +11,6 @@ internal static class CacheOperationClassifier
     internal static string ClassifyAddOrGetResult<T>(NodeCacheAddOrGetResult<T> result) =>
         result.Added || result.Existing.Found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
-    internal static string ClassifyCacheRemoveResult<T>(CacheRemoveResult<T> result) => result.Removed ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
-
     internal static string ClassifyCacheValueResult<T>(NodeCacheValueResult<T> result) => result.Found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
     internal static string ClassifyException(Exception exception) => exception switch

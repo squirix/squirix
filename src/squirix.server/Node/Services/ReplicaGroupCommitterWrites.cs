@@ -13,22 +13,29 @@ internal static class ReplicaGroupCommitterWrites
     extension(ReplicaGroupCommitter committer)
     {
         /// <summary>Commits or replays a serialized adapter access through the existing group mutation pipeline.</summary>
-        /// <param name="operationId">Client operation identifier.</param>
+        /// <param name="operationId">Client identity for Refresh, or a fresh server identity for Get.</param>
         /// <param name="cacheName">Target cache name.</param>
         /// <param name="key">Target key.</param>
         /// <param name="refresh">Whether the response omits the value.</param>
         /// <param name="cancellationToken">Cancellation token for queueing.</param>
-        /// <returns>The canonical payload observed by Get, if any.</returns>
-        internal Task<ReadOnlyMemory<byte>?> CommitDistributedAccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken) =>
-            committer.CommitAsync(
-                new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, bool Refresh)>(
-                    (cacheName, operationId, key),
-                    (operationId, cacheName, key, refresh),
-                    static write => ReplicaOperationFingerprints.DistributedAccess(write.OperationId, write.CacheName, write.Key, write.Refresh),
-                    static (factory, write, index, token) => factory.PrepareDistributedAccessAsync(write.OperationId, write.CacheName, write.Key, write.Refresh, index, token))
-                { ReplayBeforePrepare = true },
-                ReplicaOutcomeCodec.DecodeAccess,
-                cancellationToken);
+        /// <returns>The transient payload captured by this Get execution, if any.</returns>
+        internal async Task<ReadOnlyMemory<byte>?> CommitDistributedAccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+        {
+            // Read attempts have no replay identity. Allocate an internal identity only when a renewal needs serialization.
+            if (!refresh)
+                operationId = Guid.NewGuid().ToString("N");
+
+            var request = new ReplicaDistributedAccessRequest(operationId, cacheName, key, refresh);
+            try
+            {
+                _ = await committer.CommitAsync(request, ReplicaOutcomeCodec.DecodeApplied, cancellationToken).ConfigureAwait(false);
+                return request.Payload;
+            }
+            finally
+            {
+                request.ReleasePayload();
+            }
+        }
 
         /// <summary>Expires a key whose stored entry may be past its deadline, sharing one run with the concurrent expiries of the key.</summary>
         /// <param name="cacheName">Target cache name.</param>
@@ -51,19 +58,19 @@ internal static class ReplicaGroupCommitterWrites
         internal Task<NodeCacheEntry<object?>?>[] ExpireMany(IReadOnlyList<(string CacheName, string Key)> keys, CancellationToken cancellationToken) =>
             committer.Expiration.ExpireMany(keys, cancellationToken);
 
-        /// <summary>Commits a replicated remove and returns the removed entry, if any.</summary>
+        /// <summary>Commits a replicated remove and returns whether the key was removed.</summary>
         /// <param name="operationId">Client operation identifier.</param>
         /// <param name="cacheName">Target cache name.</param>
         /// <param name="key">Target key.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-        /// <returns>The remove outcome with the previous value when one was observed.</returns>
-        internal Task<CacheRemoveResult<object?>> CommitRemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => committer.CommitAsync(
+        /// <returns>Whether the live entry was removed.</returns>
+        internal Task<bool> CommitRemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => committer.CommitAsync(
             new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key)>(
                 (cacheName, operationId, key),
                 (operationId, cacheName, key),
                 static write => ReplicaOperationFingerprints.Remove(write.OperationId, write.CacheName, write.Key),
                 static (factory, write, index, token) => factory.PrepareRemoveAsync(write.OperationId, write.CacheName, write.Key, index, token)),
-            ReplicaOutcomeCodec.DecodeRemove,
+            ReplicaOutcomeCodec.DecodeApplied,
             cancellationToken);
 
         /// <summary>Commits a replicated expiration removal.</summary>

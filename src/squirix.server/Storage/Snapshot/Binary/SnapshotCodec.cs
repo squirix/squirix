@@ -22,7 +22,7 @@ internal static class SnapshotCodec
     /// <summary>Maximum accepted snapshot record body length; prevents a corrupt record header from allocating multiple GB for the scratch buffer.</summary>
     internal const int MaxRecordBodyLength = 1024 * 1024 * 1024;
 
-    internal const byte Version = 2;
+    internal const byte Version = 3;
 
     /// <summary>Byte size of the UInt16 length prefix framing every UTF-8 string in the snapshot format.</summary>
     private const int Utf8LengthPrefixSize = sizeof(ushort);

@@ -42,7 +42,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.GetValueAsync(cacheName, key, cancellationToken);
     }
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         _ = CacheKeyValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();

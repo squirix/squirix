@@ -61,19 +61,19 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         }
     }
 
-    /// <summary>Retains the immutable payload through response serialization and outcome replay.</summary>
-    /// <param name="payload">Application bytes in an owned cache value or retained replica outcome, never a pooled buffer.</param>
+    /// <summary>Retains the immutable payload only through response serialization.</summary>
+    /// <param name="payload">Application bytes in an owned cache value, never a pooled buffer.</param>
     /// <returns>The response retaining the observed payload.</returns>
     private static GetDistributedAsyncResponse Response(ReadOnlyMemory<byte>? payload) =>
         payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = UnsafeByteOperations.UnsafeWrap(bytes) } : new GetDistributedAsyncResponse();
 
     private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken)
     {
-        if (_outcomes.HasRetainedOperation(operationId))
+        if (refresh && _outcomes.HasRetainedOperation(operationId))
             return await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
 
         var entry = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (_outcomes.HasRetainedOperation(operationId))
+        if (refresh && _outcomes.HasRetainedOperation(operationId))
             return await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
 
         if (entry == null)
@@ -81,9 +81,25 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
 
         var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
         var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
-        return policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry)
-            ? await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false)
-            : Response(readOnlyResult);
+        if (policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry))
+        {
+            var renewal = refresh
+                ? ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, true, cancellationToken)
+                : ReadSingleAsync(cacheName, key, cancellationToken);
+            return await renewal.ConfigureAwait(false);
+        }
+
+        return Response(readOnlyResult);
+    }
+
+    private async Task<GetDistributedAsyncResponse> ReadSingleAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        // The journal key lock or physical cache lock binds the value to its renewal.
+        // No RPC outcome scope retains the response after serialization.
+        var payload = _durable is { } durable
+            ? await durable.DistributedAccess.AccessDistributedAsync(Guid.NewGuid().ToString("N"), cacheName, key, false, cancellationToken).ConfigureAwait(false)
+            : _physical.DistributedAccess.AccessDistributed(new CacheKey(cacheName, key), false, cancellationToken);
+        return Response(payload);
     }
 
     private Task<GetDistributedAsyncResponse> ExecuteSingleAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken) =>

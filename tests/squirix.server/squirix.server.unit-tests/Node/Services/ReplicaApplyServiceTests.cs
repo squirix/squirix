@@ -548,6 +548,6 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var prepared = await factory.PrepareTryAddAsync(NewOperationId(), "cache", "bad", Entry("bad"), 1UL, cancellationToken);
         var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ??
                      ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
-        return record with { OutcomePayload = ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) };
+        return record with { OutcomePayload = ReplicaOutcomeTestBytes.Encode(false, ReadOnlyMemory<byte>.Empty) };
     }
 }

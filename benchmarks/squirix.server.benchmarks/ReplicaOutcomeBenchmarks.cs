@@ -12,27 +12,17 @@ public class ReplicaOutcomeBenchmarks
 {
     private readonly DateTime _now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private NodeCacheEntry<object?> _entry = new(null);
-    private byte[] _previous = [];
 
     /// <summary>Gets or sets the previous payload size in bytes.</summary>
-    [Params(0, 256, 65536)]
+    [Params(0, 65536, 4190208)]
     public int PayloadBytes { get; set; }
 
-    /// <summary>Encodes the applied flag and an already serialized previous payload.</summary>
-    /// <returns>The owned outcome bytes.</returns>
-    [Benchmark]
-    public byte[] Encode() => ReplicaOutcomeCodec.Encode(true, _previous);
-
-    /// <summary>Prepares a live remove, including protobuf serialization of the previous entry.</summary>
+    /// <summary>Prepares a live remove without serializing or retaining the previous value.</summary>
     /// <returns>The owned outcome bytes.</returns>
     [Benchmark]
     public ReadOnlyMemory<byte> Remove() => ReplicaMutationDecisions.DecideRemove(_entry, _now).Outcome;
 
     /// <summary>Creates the previous payload and the live entry outside the measurement.</summary>
     [GlobalSetup]
-    public void Setup()
-    {
-        _previous = new byte[PayloadBytes];
-        _entry = new NodeCacheEntry<object?>(new string('x', PayloadBytes));
-    }
+    public void Setup() => _entry = new NodeCacheEntry<object?>(new byte[PayloadBytes]);
 }

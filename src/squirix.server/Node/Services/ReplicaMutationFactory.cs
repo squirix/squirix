@@ -72,8 +72,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="refresh">Whether to omit the returned value.</param>
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">The group commit budget token.</param>
-    /// <returns>The prepared mutation and its canonical outcome.</returns>
-    internal async ValueTask<PreparedReplicaMutation> PrepareDistributedAccessAsync(
+    /// <returns>The mutation with a compact outcome, and the separately owned transient read payload.</returns>
+    internal async ValueTask<(PreparedReplicaMutation Mutation, ReadOnlyMemory<byte>? Payload)> PrepareDistributedAccessAsync(
         string operationId,
         string cacheName,
         string key,
@@ -83,7 +83,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        var decision = ReplicaMutationDecisions.DecideDistributedAccess(current, now, refresh);
+        var decision = ReplicaMutationDecisions.DecideDistributedAccess(current, now, out var payload);
         var record = new ReplicaLogRecord(
             index,
             _term,
@@ -101,7 +101,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             0);
         var mutation = Build(cacheName, record, index, key, decision.Entry);
         EnsureDistributedRecordFits(mutation.CanonicalPayload.Length);
-        return mutation;
+        return (mutation, refresh ? null : payload);
     }
 
     /// <summary>Prepares the expiration tombstone of a key whose stored entry the leader finds expired at prepare time.</summary>
@@ -168,7 +168,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         return Build(ReplicaLeaderOperationId.OperationScope, record, index);
     }
 
-    /// <summary>Prepares a replicated remove with the observed previous entry as the outcome.</summary>
+    /// <summary>Prepares a replicated remove with only its boolean result as the outcome.</summary>
     /// <param name="operationId">Client operation identifier.</param>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
@@ -257,12 +257,11 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             now.Ticks,
             0);
         var mutation = Build(cacheName, record, index, key, decision.Entry);
-        if (entry.Value is not DistributedCacheWrite { HasSlidingExpiration: true } write)
+        if (entry.Value is not DistributedCacheWrite { HasSlidingExpiration: true })
             return mutation;
 
-        // The renewal uses the same entry, a longer kind name and the present marker plus the original application bytes.
-        var extraBytes = ReplicaMutationKinds.DistributedGet.Length - ReplicaMutationKinds.Set.Length
-            + sizeof(byte) + write.Envelope.Length - DistributedCachePolicy.HeaderLength;
+        // Renewals keep the same entry and compact outcome; only the mutation kind can require more bytes.
+        var extraBytes = ReplicaMutationKinds.DistributedRefresh.Length - ReplicaMutationKinds.Set.Length;
         long recordBytes = mutation.CanonicalPayload.Length;
         EnsureDistributedRecordFits(recordBytes + extraBytes);
         return mutation;

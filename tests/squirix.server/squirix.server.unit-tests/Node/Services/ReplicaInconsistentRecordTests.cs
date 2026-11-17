@@ -130,7 +130,7 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         var record = await InconsistentRecordAsync(cancellationToken) with
         {
             MutationPayload = new byte[] { 1 },
-            OutcomePayload = ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
+            OutcomePayload = ReplicaOutcomeTestBytes.Encode(true, ReadOnlyMemory<byte>.Empty),
         };
         await SeedRecordAsync(dir, record, false, cancellationToken);
         var cache = new StubCache();
@@ -195,6 +195,6 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         _ = await Assert.That(record).IsNotNull();
 
         // The record writes an entry but its outcome says the add was rejected.
-        return record!.Value with { OutcomePayload = ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) };
+        return record!.Value with { OutcomePayload = ReplicaOutcomeTestBytes.Encode(false, ReadOnlyMemory<byte>.Empty) };
     }
 }

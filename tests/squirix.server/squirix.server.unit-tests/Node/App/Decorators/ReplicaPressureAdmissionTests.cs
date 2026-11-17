@@ -96,12 +96,12 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     public async Task RemoveIsAdmittedWhileMemberPressured(CancellationToken cancellationToken)
     {
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.RemoveAsync("op-1", CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(new CacheRemoveResult<string>(true, "v")));
+        _ = inner.Setups.RemoveAsync("op-1", CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var cache = Create(inner.Instance(), CreateAccounting(), static (_, _) => true, null);
 
         var removed = await cache.RemoveAsync("op-1", CacheName, Key, cancellationToken);
 
-        _ = await Assert.That(removed.Removed).IsTrue();
+        _ = await Assert.That(removed).IsTrue();
     }
 
     /// <summary>A write that shrinks the entry passes while a member is pressured.</summary>

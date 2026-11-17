@@ -50,12 +50,12 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyCacheValueResult,
         cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Remove,
         static (inner, args, ct) => inner.RemoveAsync(args.OperationId, args.CacheName, args.Key, ct),
         new MutationKeyArgs(operationId, cacheName, key),
-        CacheOperationClassifier.ClassifyCacheRemoveResult,
+        CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(

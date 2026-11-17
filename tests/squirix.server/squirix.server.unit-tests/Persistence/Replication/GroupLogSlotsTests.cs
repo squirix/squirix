@@ -74,12 +74,12 @@ public sealed class GroupLogSlotsTests : ServerUnitTestBase
     public async Task SelectRefusesOtherVersion()
     {
         var other = WithFrames(Header(1UL));
-        other[VersionOffset] = 2;
+        other[VersionOffset] = 1;
         BinaryPrimitives.WriteUInt32LittleEndian(other.AsSpan(GroupLogSlots.HeaderSize - sizeof(uint)), Crc32C.Compute(other.AsSpan(0, GroupLogSlots.HeaderSize - sizeof(uint))));
 
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(other, WithFrames(Header(2UL)), static (first, second) => Select(first, second));
 
-        _ = await Assert.That(ex.Message).Contains("version 2", StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("version 1", StringComparison.Ordinal);
     }
 
     /// <summary>Generation 0 is never written, so a header carrying it is torn.</summary>

@@ -61,20 +61,13 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = IdempotencyCodec.Read(buffer));
     }
 
-    /// <summary>Pre-upgrade snapshots without the leading state byte still decode.</summary>
+    /// <summary>The new format rejects state-less older records instead of guessing their layout.</summary>
     [Test]
-    public async Task LegacyCompletedRecordReads()
+    public void LegacyCompletedRecordIsRejected()
     {
         var createdUtc = new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc);
         var body = LegacyWireBytes("0123456789abcdef0123456789abcdef", "try-add-entry-async|default|k|abc123", createdUtc, SampleResponse);
-
-        var decoded = IdempotencyCodec.Read(body);
-
-        _ = await Assert.That(decoded.State).IsEqualTo(IdempotencyRecordState.Completed);
-        _ = await Assert.That(decoded.OperationId).IsEqualTo("0123456789abcdef0123456789abcdef");
-        _ = await Assert.That(decoded.Fingerprint).IsEqualTo("try-add-entry-async|default|k|abc123");
-        _ = await Assert.That(decoded.CreatedUtc).IsEqualTo(createdUtc);
-        await SequenceAssert.EqualAsync<byte>([0x08, 0x01], decoded.ResponseBytes);
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = IdempotencyCodec.Read(buffer));
     }
 
     /// <summary>A legacy record without fingerprint bytes is rejected.</summary>
@@ -103,29 +96,35 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
     [Test]
     public void ReadThrowsOnTruncatedBuffer() => _ = NodeExceptionAssert.For<InvalidDataException>().Throws(0, static _ => IdempotencyCodec.Read([]));
 
-    /// <summary>Empty response bytes are rejected during validation on read.</summary>
+    /// <summary>Default protobuf replies are completed outcomes even when their encoding is empty.</summary>
+    /// <param name="kind">The RPC reply kind.</param>
     [Test]
-    public void ReadThrowsWhenResponseBytesAreEmpty()
+    [Arguments("remove")]
+    [Arguments("set")]
+    [Arguments("refresh")]
+    public async Task EmptyProtobufResponseRoundTrips(string kind)
     {
+        IMessage response = kind switch
+        {
+            "remove" => new RemoveAsyncResponse(),
+            "set" => new SetAsyncResponse(),
+            _ => new RefreshDistributedAsyncResponse(),
+        };
         var record = new PersistedIdempotencyRecord(
             "0123456789abcdef0123456789abcdef",
-            "try-add-entry-async|default|k|abc123",
-            [],
+            kind + "|default|k",
+            response.ToByteArray(),
             new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
+        var bytes = BufferKit.ToOwnedBytes(IdempotencyCodec.ComputeEncodedLength(record), record, static (state, buffer) => IdempotencyCodec.Write(state, buffer));
 
-        var length = IdempotencyCodec.ComputeEncodedLength(record);
-        Span<byte> buffer = stackalloc byte[length];
-        IdempotencyCodec.Write(record, buffer);
+        var decoded = IdempotencyCodec.Read(bytes);
 
-        try
-        {
-            _ = IdempotencyCodec.Read(buffer);
-            Assert.Fail("Expected InvalidDataException for empty response bytes.");
-        }
-        catch (InvalidDataException)
-        {
-            // expected
-        }
+        _ = await Assert.That(decoded.State).IsEqualTo(IdempotencyRecordState.Completed);
+        _ = await Assert.That(decoded.OperationId).IsEqualTo(record.OperationId);
+        _ = await Assert.That(decoded.Fingerprint).IsEqualTo(record.Fingerprint);
+        _ = await Assert.That(decoded.CreatedUtc).IsEqualTo(record.CreatedUtc);
+        _ = await Assert.That(decoded.ResponseBytes).IsEmpty();
+        _ = await Assert.That(RemoveAsyncResponse.Parser.ParseFrom(decoded.ResponseBytes).Removed).IsFalse();
     }
 
     /// <summary>A started record with an invalid fingerprint presence flag is rejected.</summary>

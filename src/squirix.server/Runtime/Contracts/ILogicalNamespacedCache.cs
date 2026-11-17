@@ -22,7 +22,7 @@ internal interface ILogicalNamespacedCache<T>
     ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         ValueWithDeadlineOfAsync(GetEntryAsync(cacheName, key, cancellationToken));
 
-    ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
+    ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
 
     ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
 

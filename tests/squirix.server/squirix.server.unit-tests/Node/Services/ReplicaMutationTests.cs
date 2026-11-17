@@ -55,20 +55,12 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         _ = await Assert.That(thrown).IsSameReferenceAs(fault);
     }
 
-    /// <summary>Outcome bytes round-trip the applied flag and the previous entry.</summary>
+    /// <summary>Outcome bytes encode only the applied flag.</summary>
     [Test]
     public async Task OutcomeCodecRoundTrips()
     {
-        var previous = new byte[] { 1, 2, 3 };
-
-        _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(ReplicaOutcomeCodec.Encode(true, previous), out var applied, out var decoded)).IsTrue();
-        _ = await Assert.That(applied).IsTrue();
-        _ = await Assert.That(previous.AsSpan().SequenceEqual(decoded.Span)).IsTrue();
-
-        _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty), out var missed, out var empty)).IsTrue();
-        _ = await Assert.That(missed).IsFalse();
-        _ = await Assert.That(empty.IsEmpty).IsTrue();
-
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(ReplicaOutcomeCodec.Applied)).IsTrue();
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(ReplicaOutcomeCodec.NotApplied)).IsFalse();
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(new byte[] { 1, 2 }, out _, out _)).IsFalse();
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(new byte[] { 1, 9, 0, 0, 0 }, out _, out _)).IsFalse();
     }
@@ -110,10 +102,10 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         _ = await Assert.That(record.RecordKind).IsEqualTo(nameof(GroupRecordKind.UserMutation));
     }
 
-    /// <summary>Remove returns the observed previous value, then reports missing.</summary>
+    /// <summary>Remove records only whether a live entry was removed, then reports missing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RemoveReturnsPrevious(CancellationToken cancellationToken)
+    public async Task RemoveReturnsBoolean(CancellationToken cancellationToken)
     {
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
@@ -124,7 +116,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(mutation), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(mutation.OutcomePayload, out var removed, out var previous)).IsTrue();
         _ = await Assert.That(removed).IsTrue();
-        _ = await Assert.That(previous.IsEmpty).IsFalse();
+        _ = await Assert.That(previous.IsEmpty).IsTrue();
 
         var missing = await factory.PrepareRemoveAsync("op-3", "cache", "k", 3UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
@@ -218,11 +210,11 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
                 : ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
         }
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
         {
-            return _entries.Remove(Key(cacheName, key), out var previous)
-                ? ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value))
-                : ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
+            return _entries.Remove(Key(cacheName, key), out _)
+                ? ValueTask.FromResult(true)
+                : ValueTask.FromResult(false);
         }
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)

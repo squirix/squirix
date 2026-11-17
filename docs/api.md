@@ -178,6 +178,11 @@ call via `RpcOperationIdentity.New()`; custom gRPC clients must supply a conform
 are rejected with gRPC `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
 reuse with a different payload (`FailedPrecondition`).
 
+The adapter's `GetDistributed` uses its request ID for correlation. Every transport execution performs a fresh read and,
+when necessary, atomically renews the entry it observes. A retry may return newer bytes or a miss. The renewal has a separate
+server identity; its retained outcome contains no response bytes. `Remove` retains only its boolean result, so a repeated
+retained removal ID returns that boolean without deleting a replacement entry.
+
 ### Entry limits (v0.1)
 
 | Limit | Value |

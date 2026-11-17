@@ -75,7 +75,7 @@ public sealed class ReplicaMemoryPressureTests : NodeIntegrationTestBase
 
         _ = await Assert.That(refusedKey).IsNotNull().Because("The leader must refuse a growing write once the pressured follower replied.");
         _ = await Assert.That(stored.Found).IsFalse().Because("A refused write appends nothing.");
-        _ = await Assert.That(removed.Removed).IsTrue();
+        _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That(resumed).IsTrue().Because("Growth resumes once the follower is below critical and its report lapsed or cleared.");
     }
 

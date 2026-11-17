@@ -58,7 +58,7 @@ public sealed class CacheQuotaDecoratorTests : DisposableServerUnitTestBase
         _ = expectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
                         .Callback(static (_, _, _) => ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException()));
         _ = expectations.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _, _) => ValueTask.FromException<CacheRemoveResult<string>>(new JournalCapacityExceededException()));
+                        .Callback(static (_, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
         _ = expectations.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
                         .Callback(static (_, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
         _ = expectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())

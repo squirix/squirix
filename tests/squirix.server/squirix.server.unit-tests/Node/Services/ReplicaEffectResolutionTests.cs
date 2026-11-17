@@ -122,9 +122,9 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
     [Arguments(ReplicaMutationKinds.Expire, false, true, 100L, false, Invalid)]
     [Arguments(ReplicaMutationKinds.Expire, false, false, 0L, false, Invalid)]
     [Arguments(ReplicaMutationKinds.Expire, false, false, 100L, true, Invalid)]
-    [Arguments(ReplicaMutationKinds.Remove, true, false, 0L, true, "Delete")]
+    [Arguments(ReplicaMutationKinds.Remove, true, false, 0L, true, Invalid)]
     [Arguments(ReplicaMutationKinds.Remove, false, false, 0L, false, "Delete")]
-    [Arguments(ReplicaMutationKinds.Remove, true, false, 0L, false, Invalid)]
+    [Arguments(ReplicaMutationKinds.Remove, true, false, 0L, false, "Delete")]
     [Arguments(ReplicaMutationKinds.Remove, false, false, 0L, true, Invalid)]
     [Arguments(ReplicaMutationKinds.Remove, true, true, 0L, true, Invalid)]
     [Arguments(ReplicaMutationKinds.Remove, true, false, 100L, true, Invalid)]
@@ -209,7 +209,7 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         KeyBytes,
         kind,
         hasPayload ? EntryBytes : ReadOnlyMemory<byte>.Empty,
-        ReplicaOutcomeCodec.Encode(applied, hasPrevious ? new byte[] { 1 } : ReadOnlyMemory<byte>.Empty),
+        ReplicaOutcomeTestBytes.Encode(applied, hasPrevious ? new byte[] { 1 } : ReadOnlyMemory<byte>.Empty),
         ticks,
         0,
         0);
