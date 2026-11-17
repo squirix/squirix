@@ -149,6 +149,39 @@ public sealed class ConnectionAuthenticationTests
         _ = await Assert.That(stream.Written.Count).IsEqualTo(0);
     }
 
+    /// <summary>A credential at the UTF-8 byte limit preserves its full payload and byte-count header.</summary>
+    [Test]
+    public async Task MaximumUtf8CredentialIsWritten()
+    {
+        var token = new string('\u00e9', 4096);
+        await using var stream = new ExchangeStream(ConnectionAuthenticationProtocol.Accepted);
+        var accepted = await ConnectionAuthentication.AuthenticateAsync(stream, _ => ValueTask.FromResult(token), CancellationToken.None);
+        var length = ReadLength(stream.Written, out var status);
+        _ = await Assert.That(Encoding.UTF8.GetByteCount(token)).IsEqualTo(ConnectionAuthenticationProtocol.MaximumTokenBytes);
+        _ = await Assert.That(ReferenceEquals(accepted, stream)).IsTrue();
+        _ = await Assert.That(status).IsEqualTo(ConnectionAuthenticationProtocol.Accepted);
+        _ = await Assert.That(length).IsEqualTo(ConnectionAuthenticationProtocol.MaximumTokenBytes);
+        _ = await Assert.That(stream.Written.Count).IsEqualTo(ConnectionAuthenticationProtocol.HeaderLength + ConnectionAuthenticationProtocol.MaximumTokenBytes);
+        _ = await Assert.That(ReadCredential(stream.Written, length)).IsEqualTo(token);
+    }
+
+    /// <summary>A short string exceeding the UTF-8 byte limit is rejected before writing any transport bytes.</summary>
+    [Test]
+    public async Task MultibyteOversizeNeverWrites()
+    {
+        var token = new string('\u00e9', 4097);
+        await using var stream = new ExchangeStream(ConnectionAuthenticationProtocol.Accepted);
+        _ = await Assert.That(token.Length).IsLessThan(ConnectionAuthenticationProtocol.MaximumTokenBytes);
+        _ = await Assert.That(Encoding.UTF8.GetByteCount(token)).IsEqualTo(8194);
+        var operation = ConnectionAuthentication.AuthenticateAsync(stream, _ => ValueTask.FromResult(token), CancellationToken.None);
+        _ = await AsyncAssert.ThrowsAsync<ConnectionRejectedException, Stream>(
+            operation,
+            TimeSpan.FromSeconds(10),
+            TimeProvider.System,
+            CancellationToken.None);
+        _ = await Assert.That(stream.Written.Count).IsEqualTo(0);
+    }
+
     /// <summary>A wrapped explicit handshake denial stops the configured three-attempt RPC policy immediately.</summary>
     [Test]
     public async Task ExplicitDenialDoesNotRetry()
