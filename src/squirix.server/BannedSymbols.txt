@@ -1,0 +1,6 @@
+// Server runtime diagnostics must use structured logging; console output belongs to the executable host.
+T:System.Console;Use an explicitly injected logger instead of console I/O in the server library.
+N:Newtonsoft;Use System.Text.Json instead of Newtonsoft.Json.
+N:System.Dynamic;Use explicit contracts instead of dynamic objects in the server library.
+N:LINQPad;Use structured logging instead of debug dumping in the server library.
+M:System.IServiceProvider.GetService(System.Type);Use constructor injection instead of resolving services directly.

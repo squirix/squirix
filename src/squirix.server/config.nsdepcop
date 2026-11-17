@@ -249,6 +249,16 @@
   <Disallowed From="/^Squirix\.Server\.Node\.Observability$/" To="/^Squirix\.Server\.Node\.Observability\..+$/" />
   <Disallowed From="/^Squirix\.Server\.Adapters\.Grpc$/" To="/^Squirix\.Server\.Adapters\.Grpc\..+$/" />
 
+  <!-- Replication may register services, but must not resolve them or create service scopes. -->
+  <Allowed From="Squirix.Server.Cluster.Replication.*" To="Microsoft.Extensions.DependencyInjection">
+    <VisibleMembers>
+      <Type Name="IServiceCollection" />
+      <Type Name="ServiceDescriptor" />
+      <Type Name="ServiceCollectionServiceExtensions" />
+    </VisibleMembers>
+  </Allowed>
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="/^Microsoft\.Extensions\.DependencyInjection\./" />
+
   <!-- Cluster.Replication must stay free of adapters, hosting, Node.App, and routing transport. -->
   <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Node.Hosting.*" />

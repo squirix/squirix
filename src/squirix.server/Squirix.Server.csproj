@@ -40,6 +40,7 @@
 
     <ItemGroup>
         <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+        <AdditionalFiles Include="BannedSymbols.txt"/>
     </ItemGroup>
 
     <ItemGroup>
