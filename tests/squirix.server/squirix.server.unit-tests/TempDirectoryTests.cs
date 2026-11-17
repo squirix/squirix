@@ -48,7 +48,7 @@ public sealed class TempDirectoryTests
             var directory = new TempDirectory("squirix-temp-cleanup-child");
             await File.WriteAllTextAsync(Path.Join(directory, "payload"), "test", cancellationToken);
             await using var output = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
-            await output.WriteLineAsync(PathPrefix + directory);
+            await output.WriteLineAsync((PathPrefix + directory).AsMemory(), cancellationToken);
             if (string.Equals(mode, "wait", StringComparison.Ordinal))
                 await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, cancellationToken);
             return;
@@ -79,6 +79,9 @@ public sealed class TempDirectoryTests
         info.ArgumentList.Add(Path.Join(AppContext.BaseDirectory, "Squirix.Server.UnitTests.dll"));
         info.ArgumentList.Add("--treenode-filter");
         info.ArgumentList.Add("/*/*/TempDirectoryTests/ProcessCleanupRemovesAbandonedData");
+        using var results = new TempDirectory("squirix-temp-cleanup-results");
+        info.ArgumentList.Add("--results-directory");
+        info.ArgumentList.Add(results);
         info.Environment[ChildMode] = kill ? "wait" : "exit";
         using var child = ThrowHelper.Required(Process.Start(info), "Could not start cleanup test child.");
         var errors = child.StandardError.ReadToEndAsync(cancellationToken);

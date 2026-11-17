@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -31,7 +32,7 @@ public sealed class ProcessPortIsolationTests
             using var reservation = ProcessPortReservation.Reserve();
             reservation.ReleaseForStart();
             await using var output = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
-            await output.WriteLineAsync(PortPrefix + reservation.Uri.Port.ToString(CultureInfo.InvariantCulture) + "|" + Path.GetTempPath());
+            await output.WriteLineAsync((PortPrefix + reservation.Uri.Port.ToString(CultureInfo.InvariantCulture) + "|" + Path.GetTempPath()).AsMemory(), cancellationToken);
             _ = await Console.In.ReadLineAsync(cancellationToken);
             return;
         }
@@ -123,17 +124,20 @@ public sealed class ProcessPortIsolationTests
         Func<IReadOnlyList<Process>, string, CancellationToken, Task>? whenReady = null)
     {
         var directory = Directory.CreateDirectory(Path.Join(tempParent ?? Path.GetTempPath(), "squirix-port-isolation-" + Guid.NewGuid().ToString("N")));
+        DirectoryInfo? pipes = null;
         List<Process> children = [];
         List<Task<string>> errors = [];
         try
         {
+            // Keep MTP socket paths short even when the test data root is deeply nested.
+            pipes = Directory.CreateTempSubdirectory("sqi-");
             var slices = new int[3];
             for (var index = 0; index < slices.Length; index++)
             {
-                var child = StartChild(directory.FullName);
+                var child = StartChild(directory.FullName, pipes.FullName);
                 children.Add(child);
                 errors.Add(child.StandardError.ReadToEndAsync(CancellationToken.None));
-                var port = await ReadPortAsync(child, directory.FullName, cancellationToken);
+                var port = await ReadPortAsync(child, directory.FullName, errors[index], cancellationToken);
                 _ = await Assert.That(port >= 14_000 && port < 17_000).IsTrue();
                 slices[index] = (port - 14_000) / 375;
                 for (var previous = 0; previous < index; previous++)
@@ -160,13 +164,21 @@ public sealed class ProcessPortIsolationTests
                     children[index].Dispose();
             }
 
-            directory.Delete(true);
+            try
+            {
+                directory.Delete(true);
+            }
+            finally
+            {
+                pipes?.Delete(true);
+            }
         }
 
         _ = await Assert.That(Directory.Exists(directory.FullName)).IsFalse();
+        _ = await Assert.That(Directory.Exists(pipes?.FullName)).IsFalse();
     }
 
-    private static Process StartChild(string tempRoot)
+    private static Process StartChild(string tempRoot, string pipeRoot)
     {
         var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
@@ -180,6 +192,9 @@ public sealed class ProcessPortIsolationTests
         info.ArgumentList.Add(Path.Join(AppContext.BaseDirectory, "Squirix.E2ETests.dll"));
         info.ArgumentList.Add("--treenode-filter");
         info.ArgumentList.Add("/*/*/ProcessPortIsolationTests/ProcessesReserveDisjointSmokeSlices");
+        info.ArgumentList.Add("--results-directory");
+        info.ArgumentList.Add(Path.Join(tempRoot, "results"));
+        info.Environment["TESTINGPLATFORM_PIPE_DIRECTORY"] = pipeRoot;
         info.Environment[ChildMode] = "worker";
         info.Environment["TEMP"] = tempRoot;
         info.Environment["TMP"] = tempRoot;
@@ -189,19 +204,24 @@ public sealed class ProcessPortIsolationTests
 
     private static Process ThrowStartFailed() => throw new InvalidOperationException("Could not start port-isolation test child.");
 
-    private static async Task<int> ReadPortAsync(Process child, string tempRoot, CancellationToken cancellationToken)
+    private static async Task<int> ReadPortAsync(Process child, string tempRoot, Task<string> errors, CancellationToken cancellationToken)
     {
+        var output = new StringBuilder();
         while (await child.StandardOutput.ReadLineAsync(cancellationToken) is { } line)
         {
             if (!line.StartsWith(PortPrefix, StringComparison.Ordinal))
+            {
+                _ = output.AppendLine(line);
                 continue;
+            }
+
             var separator = line.IndexOf('|', StringComparison.Ordinal);
             var actualRoot = Path.TrimEndingDirectorySeparator(line[(separator + 1)..]);
             _ = await Assert.That(actualRoot).IsEqualTo(Path.TrimEndingDirectorySeparator(tempRoot));
             return int.Parse(line.AsSpan(PortPrefix.Length, separator - PortPrefix.Length), CultureInfo.InvariantCulture);
         }
 
-        throw new InvalidOperationException("Child did not reserve a port.");
+        throw new InvalidOperationException("Child did not reserve a port: " + output + await errors.WaitAsync(cancellationToken));
     }
 
     private static Task StopChildrenAsync(List<Process> children)
