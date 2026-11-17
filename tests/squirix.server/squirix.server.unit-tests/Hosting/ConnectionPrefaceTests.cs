@@ -184,20 +184,6 @@ public sealed class ConnectionPrefaceTests
         _ = await Assert.That(unread).IsEqualTo(0);
     }
 
-    private static int HoldPermits(ConnectionAuthenticationValidator validator, int maximum)
-    {
-        var held = 0;
-        while (held < maximum && validator.TryEnter())
-            held++;
-        return held;
-    }
-
-    private static void ReleasePermits(ConnectionAuthenticationValidator validator, int held)
-    {
-        for (var i = 0; i < held; i++)
-            validator.Exit();
-    }
-
     /// <summary>Ordinary HTTP/2 retains the complete original preface for the next middleware without an authentication reply.</summary>
     [Test]
     public async Task OrdinaryHttp2PrefacePassesThrough()
@@ -232,6 +218,20 @@ public sealed class ConnectionPrefaceTests
         _ = await Assert.That(connection.Aborted).IsFalse();
         _ = await Assert.That(originalBytesPreserved).IsTrue();
         _ = await Assert.That(replyBytes).IsEqualTo(0);
+    }
+
+    private static int HoldPermits(ConnectionAuthenticationValidator validator, int maximum)
+    {
+        var held = 0;
+        while (held < maximum && validator.TryEnter())
+            held++;
+        return held;
+    }
+
+    private static void ReleasePermits(ConnectionAuthenticationValidator validator, int held)
+    {
+        for (var i = 0; i < held; i++)
+            validator.Exit();
     }
 
     private static bool MatchesHttp2Preface(in ReadOnlySequence<byte> buffer)
