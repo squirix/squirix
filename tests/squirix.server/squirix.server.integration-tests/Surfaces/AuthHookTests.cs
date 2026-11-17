@@ -55,6 +55,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
         _ = await Assert.That(probe.Events).IsEqualTo(2);
         _ = await Assert.That(probe.ContextErrors).IsEqualTo(0);
+        await probe.BothScopesDisposed.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(probe.ScopesDisposed).IsEqualTo(2);
     }
 
@@ -100,6 +101,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
     private sealed class HookProbe
     {
+        private readonly TaskCompletionSource _bothScopesDisposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _events;
         private int _scopesDisposed;
         private int _rpcEntries;
@@ -118,6 +120,8 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
         internal int ScopesDisposed => Volatile.Read(ref _scopesDisposed);
 
+        internal Task BothScopesDisposed => _bothScopesDisposed.Task;
+
         internal int RpcEntries => Volatile.Read(ref _rpcEntries);
 
         internal int Transforms => Volatile.Read(ref _transforms);
@@ -128,7 +132,11 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
         internal void RecordEvents() => _ = Interlocked.Increment(ref _events);
 
-        internal void RecordScopesDisposed() => _ = Interlocked.Increment(ref _scopesDisposed);
+        internal void RecordScopesDisposed()
+        {
+            if (Interlocked.Increment(ref _scopesDisposed) == 2)
+                _ = _bothScopesDisposed.TrySetResult();
+        }
 
         internal void RecordRpcEntries() => _ = Interlocked.Increment(ref _rpcEntries);
 
