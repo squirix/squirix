@@ -138,12 +138,9 @@ internal sealed class ActivatedTopologyStampStore
                     read += received;
                 }
 
-                if (read != count)
-                    throw new InvalidDataException("Activated topology stamp length is invalid.");
-
-                var exact = GC.AllocateUninitializedArray<byte>(count);
-                bytes.AsSpan(0, count).CopyTo(exact);
-                return Decode(exact);
+                return read != count
+                    ? throw new InvalidDataException("Activated topology stamp length is invalid.")
+                    : Decode(bytes.AsSpan(0, count));
             }
             finally
             {
@@ -156,24 +153,24 @@ internal sealed class ActivatedTopologyStampStore
         }
     }
 
-    private static ActivatedTopologyStamp Decode(byte[] bytes)
+    private static ActivatedTopologyStamp Decode(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length != StampLength)
             throw new InvalidDataException("Activated topology stamp length is invalid.");
-        if (BinaryPrimitives.ReadUInt32LittleEndian(bytes) != Magic || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(4)) != Version)
+        if (BinaryPrimitives.ReadUInt32LittleEndian(bytes) != Magic || BinaryPrimitives.ReadUInt16LittleEndian(bytes[4..]) != Version)
             throw new InvalidDataException("Activated topology stamp header is invalid or unsupported.");
 
-        var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(18 + FingerprintLength));
-        return Crc32C.Compute(bytes.AsSpan(0, 18 + FingerprintLength)) != expectedChecksum
+        var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(18 + FingerprintLength)..]);
+        return Crc32C.Compute(bytes[..(18 + FingerprintLength)]) != expectedChecksum
             ? throw new InvalidDataException("Activated topology stamp checksum is invalid.")
             : ReadStamp(bytes);
     }
 
-    private static ActivatedTopologyStamp ReadStamp(byte[] bytes) => new()
+    private static ActivatedTopologyStamp ReadStamp(ReadOnlySpan<byte> bytes) => new()
     {
-        Generation = BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(6)),
-        ReplicaCount = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(14)),
-        Fingerprint = OwnedBufferKit.CopyToOwned(bytes.AsSpan(18, FingerprintLength)),
+        Generation = BinaryPrimitives.ReadUInt64LittleEndian(bytes[6..]),
+        ReplicaCount = BinaryPrimitives.ReadInt32LittleEndian(bytes[14..]),
+        Fingerprint = OwnedBufferKit.CopyToOwned(bytes.Slice(18, FingerprintLength)),
     };
 
     /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
