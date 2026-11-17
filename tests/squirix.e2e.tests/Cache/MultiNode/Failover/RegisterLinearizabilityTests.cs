@@ -11,6 +11,40 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// <summary>Independent controls for the complete single-writer register checker.</summary>
 public sealed class RegisterLinearizabilityTests
 {
+    /// <summary>Invisible failed writes must not multiply the search when a read needs to precede an overlapping write.</summary>
+    [Test]
+    public async Task OmitsUnobservedAmbiguousWrites()
+    {
+        var writes = new RegisterWrite[24];
+        writes[0] = new RegisterWrite("k", 1, 0, 1, true);
+        for (var i = 1; i <= 22; i++)
+            writes[i] = new RegisterWrite("k", i + 1, i * 10, (i * 10) + 1, false);
+        writes[23] = new RegisterWrite("k", 24, 300, 310, true);
+        RegisterRead[] reads = [new("k", 305, 315, 1), new("k", 320, 330, 24)];
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        _ = await Assert.That(RegisterLinearizability.Check(writes, reads, cancellation.Token)).IsEmpty();
+    }
+
+    /// <summary>Pruning invisible failed writes must preserve a visible late write and detect its impossible resurrection.</summary>
+    [Test]
+    public async Task RetainsObservedAmbiguousWrites()
+    {
+        var writes = new RegisterWrite[24];
+        for (var i = 0; i < 23; i++)
+            writes[i] = new RegisterWrite("k", i + 1, i * 10, (i * 10) + 1, false);
+        writes[23] = new RegisterWrite("k", 24, 300, 310, true);
+        RegisterRead[] legal = [new("k", 320, 330, 24), new("k", 340, 350, 1)];
+        RegisterRead[] resurrection = [.. legal, new("k", 360, 370, 24)];
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        _ = await Assert.That(RegisterLinearizability.Check(writes, legal, cancellation.Token)).IsEmpty();
+        _ = await Assert.That(RegisterHistory.Check(writes, resurrection)).IsEmpty();
+        var violations = RegisterLinearizability.Check(writes, resurrection, cancellation.Token);
+        _ = await Assert.That(violations).HasSingleItem();
+        _ = await Assert.That(violations[0]).Contains("no linearization exists", StringComparison.Ordinal);
+    }
+
     /// <summary>A timed-out write cannot be undone by an acknowledged write already observed before it.</summary>
     [Test]
     public async Task RejectsResurrectionMissedByPairwiseCheck()
