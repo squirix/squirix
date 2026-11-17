@@ -96,6 +96,20 @@ squirix-server run --urls https://localhost:5501 --persist --data-dir data
 
 For Docker, JWT authentication, and ASP.NET Core embedding, see [Getting started](docs/getting-started.md).
 
+## How it works
+
+Applications connect through the Squirix client SDK over gRPC.
+The server routes each key to its owner or the current leader of its replica group.
+
+![Squirix request routing, replication, and local storage](docs/assets/squirix-architecture.svg)
+
+Entries are stored in memory. Optional persistence uses local logs and snapshots to recover state after a restart.
+Replicated deployments require persistence and internode mTLS; writes reach a durable quorum before they are applied to memory.
+With quorum reads enabled, the leader confirms its read index with a majority before reading local memory.
+
+See [Clustering](docs/clustering.md), [Persistence](docs/persistence.md),
+and [Consistency](docs/consistency.md) for configuration and guarantees.
+
 ## Microsoft distributed caching
 
 The preview.11 adapter provides `IDistributedCache` and integrates with Microsoft HybridCache as its secondary cache.
