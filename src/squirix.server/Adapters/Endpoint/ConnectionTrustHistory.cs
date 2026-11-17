@@ -33,19 +33,19 @@ internal sealed class ConnectionTrustHistory
         historicalStarted = null;
         if (configuration == null || options.ConfigurationManager is not BaseConfigurationManager manager)
             return true;
-        if (Matches(configuration, token))
+        if (Matches(configuration, token, options.TokenValidationParameters))
         {
             Record(configuration, options, started, observedLifetime < manager.LastKnownGoodLifetime ? observedLifetime : manager.LastKnownGoodLifetime);
             return true;
         }
 
-        return HasExplicitTrust(options.TokenValidationParameters, token) ||
+        return HasExplicitTrust(configuration, options.TokenValidationParameters, token) ||
                (manager.UseLastKnownGoodConfiguration &&
                 TryHistorical(options, manager.LastKnownGoodLifetime, token, started, ref expires, out historicalStarted));
     }
 
-    private static bool Matches(BaseConfiguration configuration, SecurityToken token) =>
-        string.Equals(configuration.Issuer, token.Issuer, StringComparison.Ordinal) && ContainsKey(configuration, token.SigningKey);
+    private static bool Matches(BaseConfiguration configuration, SecurityToken token, TokenValidationParameters parameters) =>
+        ContainsKey(configuration, token.SigningKey) && IsIssuerTrusted(configuration, parameters, token.Issuer);
 
     private static bool ContainsKey(BaseConfiguration configuration, SecurityKey? key)
     {
@@ -58,17 +58,21 @@ internal sealed class ConnectionTrustHistory
         return false;
     }
 
-    private static bool HasExplicitTrust(TokenValidationParameters parameters, SecurityToken token)
+    private static bool HasExplicitTrust(BaseConfiguration configuration, TokenValidationParameters parameters, SecurityToken token)
+        => ContainsExplicitKey(parameters, token.SigningKey) && IsIssuerTrusted(configuration, parameters, token.Issuer);
+
+    private static bool IsIssuerTrusted(BaseConfiguration configuration, TokenValidationParameters parameters, string issuer) =>
+        string.Equals(configuration.Issuer, issuer, StringComparison.Ordinal) || IsExplicitIssuer(parameters, issuer);
+
+    private static bool IsExplicitIssuer(TokenValidationParameters parameters, string issuer)
     {
-        if (!ContainsExplicitKey(parameters, token.SigningKey))
-            return false;
-        if (string.Equals(parameters.ValidIssuer, token.Issuer, StringComparison.Ordinal))
+        if (string.Equals(parameters.ValidIssuer, issuer, StringComparison.Ordinal))
             return true;
         if (parameters.ValidIssuers != null)
         {
-            foreach (var issuer in parameters.ValidIssuers)
+            foreach (var candidate in parameters.ValidIssuers)
             {
-                if (string.Equals(issuer, token.Issuer, StringComparison.Ordinal))
+                if (string.Equals(candidate, issuer, StringComparison.Ordinal))
                     return true;
             }
         }
@@ -121,7 +125,7 @@ internal sealed class ConnectionTrustHistory
             for (var i = 0; i < _entries.Count; i++)
             {
                 var entry = _entries[i];
-                if (!ReferenceEquals(entry.Options, options) || !Matches(entry.Configuration, token))
+                if (!ReferenceEquals(entry.Options, options) || !Matches(entry.Configuration, token, entry.Options.TokenValidationParameters))
                     continue;
                 var until = AddClamped(entry.Started, lifetime);
                 until = entry.Expires < until ? entry.Expires : until;

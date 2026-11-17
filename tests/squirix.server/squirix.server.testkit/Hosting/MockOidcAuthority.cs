@@ -93,8 +93,9 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     /// <summary>Issues a bearer token signed with the authority's RSA key.</summary>
     /// <param name="audience">JWT audience claim.</param>
     /// <param name="lifetime">Optional token lifetime; defaults to five minutes.</param>
+    /// <param name="issuer">Optional issuer claim; defaults to the discovery document issuer.</param>
     /// <returns>A compact JWT bearer token string.</returns>
-    public string CreateBearerToken(string audience, TimeSpan? lifetime = null)
+    public string CreateBearerToken(string audience, TimeSpan? lifetime = null, string? issuer = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(audience);
 
@@ -103,7 +104,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         var effectiveLifetime = lifetime ?? TimeSpan.FromMinutes(5);
         var expires = now.Add(effectiveLifetime);
         var notBefore = effectiveLifetime < TimeSpan.Zero ? expires.AddMinutes(-1) : now.AddMinutes(-1);
-        var token = new JwtSecurityToken(Issuer, audience, notBefore: notBefore, expires: expires, signingCredentials: credentials);
+        var token = new JwtSecurityToken(issuer ?? Issuer, audience, notBefore: notBefore, expires: expires, signingCredentials: credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
