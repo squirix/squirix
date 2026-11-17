@@ -164,12 +164,12 @@ internal static class BinaryJournalCodec
     /// <exception cref="InvalidDataException">When the operation-id prefix is truncated.</exception>
     private static JournalRecord DecodeMutationPrefixed(JournalOpcode opcode, ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen)
     {
-        var mutationOperationId = MutationOperationIdCodec.DecodeMutationOperationId(frameBuffer.AsSpan(offset, payloadLen), out var mutationFingerprint);
-        var stamp = new MutationStamp(mutationOperationId, mutationFingerprint);
+        var mutationOperationId = MutationOperationIdCodec.DecodeMutationOperationId(frameBuffer.AsSpan(offset, payloadLen), out var mutationFingerprint, out var prefixLength);
+        var stamp = new MutationStamp(mutationOperationId, mutationFingerprint, prefixLength);
         return opcode switch
         {
-            JournalOpcode.PutWithMutationOperationId => DecodePut(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen, stamp),
-            JournalOpcode.RemoveWithMutationOperationId => DecodeMutationWithoutPayload(seq, unixMs, cacheKey, JournalOperationKind.Remove, payloadLen, stamp),
+            JournalOpcode.PutWithMutationOperationId => DecodePut(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen, in stamp),
+            JournalOpcode.RemoveWithMutationOperationId => DecodeMutationWithoutPayload(seq, unixMs, cacheKey, JournalOperationKind.Remove, payloadLen, in stamp),
             JournalOpcode.Put => throw new InvalidDataException(UnknownJournalOpcodeMessage),
             JournalOpcode.Remove => throw new InvalidDataException(UnknownJournalOpcodeMessage),
             JournalOpcode.IdempotencyOutcome => throw new InvalidDataException(UnknownJournalOpcodeMessage),
@@ -184,19 +184,17 @@ internal static class BinaryJournalCodec
         CacheKey cacheKey,
         JournalOperationKind operation,
         int payloadLen,
-        MutationStamp stamp)
+        in MutationStamp stamp)
     {
-        var length = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(stamp.OperationId, stamp.Fingerprint);
-        return payloadLen < length
+        return payloadLen < stamp.PrefixLength
             ? throw new InvalidDataException("mutation frame payload is truncated.")
             : new JournalRecord { Sequence = seq, UnixMs = unixMs, Operation = operation, Key = cacheKey, MutationOperationId = stamp.OperationId, MutationFingerprint = stamp.Fingerprint };
     }
 
-    private static JournalRecord DecodePut(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen, MutationStamp stamp)
+    private static JournalRecord DecodePut(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen, in MutationStamp stamp)
     {
-        var prefixLength = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(stamp.OperationId, stamp.Fingerprint);
-        var entryStart = offset + prefixLength;
-        var entryLength = payloadLen - prefixLength;
+        var entryStart = offset + stamp.PrefixLength;
+        var entryLength = payloadLen - stamp.PrefixLength;
         return (entryLength < 0, !WireBounds.Fits(entryLength, entryStart, frameBuffer.Length)) switch
         {
             (true, _) => throw new InvalidDataException("binary journal put frame has invalid payload length."),
@@ -378,7 +376,7 @@ internal static class BinaryJournalCodec
     }
 
     [Immutable]
-    private readonly record struct MutationStamp(string? OperationId, string? Fingerprint);
+    private readonly record struct MutationStamp(string? OperationId, string? Fingerprint, int PrefixLength);
 
     [Immutable]
     [StructLayout(LayoutKind.Auto)]

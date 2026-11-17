@@ -102,6 +102,35 @@ public sealed class WriteAheadMutationCodecTests
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
     }
 
+    /// <summary>Both mutation opcodes reject malformed fingerprint bytes after a valid operation id.</summary>
+    /// <param name="opcodeWire">The mutation opcode wire value.</param>
+    [Test]
+    [Arguments(4)]
+    [Arguments(5)]
+    public async Task MalformedFingerprintUtf8Throws(int opcodeWire)
+    {
+        var body = FrameBody(Convert.ToByte(opcodeWire), [0x01, 0x00, 0x61, 0x02, 0x00, 0xFF, 0xFF]);
+
+        var error = NodeExceptionAssert.For<InvalidDataException>().Throws(body, static buffer => _ = BinaryJournalCodec.Decode(buffer, buffer.Length));
+
+        _ = await Assert.That(error.Message).IsEqualTo("mutation fingerprint is not valid UTF-8.");
+        _ = await Assert.That(error.InnerException).IsTypeOf<DecoderFallbackException>();
+    }
+
+    /// <summary>A Unicode prefix ends exactly where the put entry bytes begin.</summary>
+    [Test]
+    public async Task UnicodePrefixKeepsExactPutPayload()
+    {
+        var body = FrameBody(4, [0x05, 0x00, 0x6F, 0x70, 0x2D, 0xC3, 0xA9, 0x07, 0x00, 0x66, 0x70, 0x2D, 0xF0, 0x9F, 0x98, 0x80, 0x01, 0x02, 0x03]);
+
+        var decoded = BinaryJournalCodec.Decode(body, body.Length);
+
+        _ = await Assert.That(decoded.Operation).IsEqualTo(JournalOperationKind.Put);
+        _ = await Assert.That(decoded.MutationOperationId).IsEqualTo("op-é");
+        _ = await Assert.That(decoded.MutationFingerprint).IsEqualTo("fp-😀");
+        _ = await Assert.That(Convert.ToHexString(decoded.PutEntryBytes.Span)).IsEqualTo("010203");
+    }
+
     /// <summary>A put payload shorter than its operation-id prefix is rejected.</summary>
     [Test]
     public void PutPayloadLengthMismatchThrows()
