@@ -137,7 +137,7 @@ internal sealed class ConnectionAuthenticationValidator : IDisposable
         var lifetime = connection.Features.Get<IConnectionLifetimeNotificationFeature>();
         if (lifetime == null)
             return null;
-        var accepted = new AuthenticatedConnection(result.Principal.Clone(), (lower, upper), options, configuration, historical, lifetime);
+        var accepted = new AuthenticatedConnection(result.Principal, (lower, upper), options, configuration, historical, lifetime);
         return accepted.IsWithinLifetime(_timeProvider.GetUtcNow().UtcDateTime) ? accepted : null;
     }
 }

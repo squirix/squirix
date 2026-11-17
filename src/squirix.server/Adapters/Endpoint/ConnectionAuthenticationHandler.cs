@@ -37,7 +37,7 @@ internal sealed class ConnectionAuthenticationHandler : AuthenticationHandler<Jw
             return AuthenticateResult.Fail("The connection must authenticate again.");
         }
 
-        return AuthenticateResult.Success(new AuthenticationTicket(connection.Principal.Clone(), Scheme.Name));
+        return AuthenticateResult.Success(new AuthenticationTicket(connection.ClonePrincipal(), Scheme.Name));
     }
 
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)

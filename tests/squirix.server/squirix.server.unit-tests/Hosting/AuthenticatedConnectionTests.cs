@@ -46,6 +46,51 @@ public sealed class AuthenticatedConnectionTests
         _ = await Assert.That(lifetime.Requests).IsEqualTo(1);
     }
 
+    /// <summary>The connection owns identity claims and property dictionaries independently of the validated principal.</summary>
+    [Test]
+    public async Task SnapshotOwnsIdentityClaims()
+    {
+        var identity = CreateIdentity();
+        var connection = new AuthenticatedConnection(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime());
+        identity.FindFirst("seed")!.Properties["state"] = "changed";
+        identity.AddClaim(new Claim("source-change", "unexpected"));
+        var snapshot = connection.ClonePrincipal();
+        _ = await Assert.That(snapshot.HasClaim("seed", "original")).IsTrue();
+        _ = await Assert.That(snapshot.FindFirst("seed")!.Properties["state"]).IsEqualTo("original");
+        _ = await Assert.That(snapshot.HasClaim("source-change", "unexpected")).IsFalse();
+    }
+
+    /// <summary>Changing an existing request identity cannot mutate another request or the connection snapshot.</summary>
+    [Test]
+    public async Task RequestIdentityCopiesAreIndependent()
+    {
+        var identity = CreateIdentity();
+        var connection = new AuthenticatedConnection(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime());
+        var first = connection.ClonePrincipal();
+        var second = connection.ClonePrincipal();
+        first.FindFirst("seed")!.Properties["state"] = "changed";
+        if (first.Identity is ClaimsIdentity firstIdentity)
+        {
+            firstIdentity.RemoveClaim(firstIdentity.FindFirst("seed"));
+            firstIdentity.AddClaim(new Claim("request-change", "unexpected"));
+        }
+
+        var later = connection.ClonePrincipal();
+        _ = await Assert.That(second.HasClaim("seed", "original")).IsTrue();
+        _ = await Assert.That(second.FindFirst("seed")!.Properties["state"]).IsEqualTo("original");
+        _ = await Assert.That(second.HasClaim("request-change", "unexpected")).IsFalse();
+        _ = await Assert.That(later.HasClaim("seed", "original")).IsTrue();
+        _ = await Assert.That(later.FindFirst("seed")!.Properties["state"]).IsEqualTo("original");
+        _ = await Assert.That(later.HasClaim("request-change", "unexpected")).IsFalse();
+    }
+
+    private static ClaimsIdentity CreateIdentity()
+    {
+        var identity = new ClaimsIdentity([new Claim("seed", "original")], "Bearer");
+        identity.FindFirst("seed")!.Properties.Add("state", "original");
+        return identity;
+    }
+
     private sealed class Lifetime : IConnectionLifetimeNotificationFeature
     {
         public CancellationToken ConnectionClosedRequested { get; set; }

@@ -11,6 +11,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 internal sealed class AuthenticatedConnection
 {
     private readonly IConnectionLifetimeNotificationFeature _lifetime;
+    private readonly ClaimsPrincipal _principal;
 
     internal AuthenticatedConnection(
         ClaimsPrincipal principal,
@@ -20,7 +21,7 @@ internal sealed class AuthenticatedConnection
         DateTime? historicalStarted,
         IConnectionLifetimeNotificationFeature lifetime)
     {
-        Principal = principal;
+        _principal = CloneIdentities(principal);
         NotBefore = bounds.NotBefore;
         Expires = bounds.Expires;
         Options = options;
@@ -28,8 +29,6 @@ internal sealed class AuthenticatedConnection
         HistoricalStarted = historicalStarted;
         _lifetime = lifetime;
     }
-
-    internal ClaimsPrincipal Principal { get; }
 
     internal DateTime NotBefore { get; }
 
@@ -40,6 +39,8 @@ internal sealed class AuthenticatedConnection
     internal OpenIdConnectConfiguration? Configuration { get; }
 
     internal DateTime? HistoricalStarted { get; }
+
+    internal ClaimsPrincipal ClonePrincipal() => CloneIdentities(_principal);
 
     internal bool IsWithinLifetime(DateTime now) => now >= NotBefore && now < Expires;
 
@@ -54,5 +55,13 @@ internal sealed class AuthenticatedConnection
         if (due > maximum)
             due = maximum;
         return timeProvider.CreateTimer(static state => { if (state is AuthenticatedConnection connection) connection.RequestClose(); }, this, due, Timeout.InfiniteTimeSpan);
+    }
+
+    private static ClaimsPrincipal CloneIdentities(ClaimsPrincipal principal)
+    {
+        var clone = new ClaimsPrincipal();
+        foreach (var identity in principal.Identities)
+            clone.AddIdentity(identity.Clone());
+        return clone;
     }
 }

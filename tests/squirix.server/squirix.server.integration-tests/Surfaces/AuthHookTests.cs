@@ -179,9 +179,16 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
             if (!ReferenceEquals(context.HttpContext, _accessor.HttpContext) || !ReferenceEquals(_scope, context.HttpContext.RequestServices.GetRequiredService<EventScope>()))
                 _probe.RecordContextErrors();
             if (_probe.Reject)
+            {
                 context.Fail("Rejected by the configured scoped validation event.");
+            }
             else
-                context.Principal!.AddIdentity(new ClaimsIdentity([new Claim("token-event", "retained")]));
+            {
+                var identity = new ClaimsIdentity([new Claim("token-event", "retained")]);
+                identity.FindFirst("token-event")!.Properties["state"] = "original";
+                context.Principal!.AddIdentity(identity);
+            }
+
             return Task.CompletedTask;
         }
     }
@@ -204,7 +211,18 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
                 _probe.RecordContextErrors();
             if (principal.HasClaim(static claim => string.Equals(claim.Type, "request-transform", StringComparison.Ordinal)) || !principal.HasClaim("token-event", "retained"))
                 _probe.RecordClaimErrors();
-            principal.AddIdentity(new ClaimsIdentity([new Claim("request-transform", "fresh")]));
+            foreach (var identity in principal.Identities)
+            {
+                var claim = identity.FindFirst("token-event");
+                if (claim == null)
+                    continue;
+                if (!claim.Properties.TryGetValue("state", out var state) || !string.Equals(state, "original", StringComparison.Ordinal))
+                    _probe.RecordClaimErrors();
+                claim.Properties["state"] = "request";
+                identity.AddClaim(new Claim("request-transform", "fresh"));
+                break;
+            }
+
             return Task.FromResult(principal);
         }
     }
