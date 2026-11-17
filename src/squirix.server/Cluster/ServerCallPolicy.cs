@@ -470,30 +470,13 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             {
                 RpcException rx => ClassifyRetryReason(rx.StatusCode),
                 HttpRequestException => "http_request",
-                TaskCanceledException => "task_canceled",
-                OperationCanceledException => "operation_canceled",
                 _ => "transient",
             };
 
             private static string ClassifyRetryReason(StatusCode statusCode) => statusCode switch
             {
-                StatusCode.Cancelled => Canceled,
-                StatusCode.DeadlineExceeded => DeadlineExceeded,
                 StatusCode.Unavailable => "unavailable",
                 StatusCode.Internal => "internal",
-                StatusCode.ResourceExhausted => "resource_exhausted",
-                StatusCode.Aborted => "aborted",
-                StatusCode.AlreadyExists => "already_exists",
-                StatusCode.NotFound => "not_found",
-                StatusCode.PermissionDenied => "permission_denied",
-                StatusCode.Unauthenticated => "unauthenticated",
-                StatusCode.OutOfRange => "out_of_range",
-                StatusCode.Unimplemented => "unimplemented",
-                StatusCode.DataLoss => "data_loss",
-                StatusCode.FailedPrecondition => "failed_precondition",
-                StatusCode.InvalidArgument => "invalid_argument",
-                StatusCode.Unknown => "unknown",
-                StatusCode.OK => "ok",
                 _ => "transient",
             };
         }

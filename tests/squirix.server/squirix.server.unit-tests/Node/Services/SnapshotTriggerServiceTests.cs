@@ -260,7 +260,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         private readonly Ledger _ledger;
         private readonly WriterState _writer;
 
-        private Harness(Ledger ledger, SnapshotCutJournal journal, FakeTimeProvider clock, SnapshotTriggerService<object?> service, WriterState writer)
+        private Harness(Ledger ledger, SnapshotCutJournal journal, FakeTimeProvider clock, SnapshotTriggerService service, WriterState writer)
         {
             _ledger = ledger;
             Journal = journal;
@@ -273,7 +273,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
 
         internal SnapshotCutJournal Journal { get; }
 
-        internal SnapshotTriggerService<object?> Service { get; }
+        internal SnapshotTriggerService Service { get; }
 
         internal bool Succeeded => _writer.Succeeded;
 
@@ -308,7 +308,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
                 journal,
                 new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, exporterExpectations.Instance(), "test-node", NoOpSnapshotTelemetry.Instance),
                 clock);
-            var service = new SnapshotTriggerService<object?>(NullLogger<SnapshotTriggerService<object?>>.Instance, coordinator, journal, clock);
+            var service = new SnapshotTriggerService(NullLogger<SnapshotTriggerService>.Instance, coordinator, journal, clock);
             return new Harness(ledger, journal, clock, service, writer);
         }
 

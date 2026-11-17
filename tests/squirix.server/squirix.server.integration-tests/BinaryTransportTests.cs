@@ -145,7 +145,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
         var node = cluster[NodeId];
-        await node.GetRequiredService<SnapshotTriggerService<object?>>().StopAsync(cancellationToken);
+        await node.GetRequiredService<SnapshotTriggerService>().StopAsync(cancellationToken);
         byte[] expected = [0, 255, 128, 34, 0];
         using (var channel = CreateGrpcChannel(node.Uri))
         {
@@ -236,7 +236,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
         var node = cluster[NodeId];
         if (persistent)
-            await node.GetRequiredService<SnapshotTriggerService<object?>>().StopAsync(cancellationToken);
+            await node.GetRequiredService<SnapshotTriggerService>().StopAsync(cancellationToken);
 
         var key = new CacheKey(CacheName, "policy");
         using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
@@ -582,7 +582,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
         var node = cluster[NodeId];
         if (persistent)
-            await node.GetRequiredService<SnapshotTriggerService<object?>>().StopAsync(cancellationToken);
+            await node.GetRequiredService<SnapshotTriggerService>().StopAsync(cancellationToken);
 
         using var channel = CreateGrpcChannel(node.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

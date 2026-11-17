@@ -36,13 +36,8 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        var durable = _journal.ResolveExpiration(entry);
-        var prepared = JournalEntryPayload.PrepareEncode(durable);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        return _journal.SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
-    }
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _journal.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
     /// <inheritdoc />
     /// <remarks>An entry with a relative expiration is measured like any other: resolving it adds a deadline the known length may not cover.</remarks>
@@ -59,13 +54,8 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         _journal.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        var durable = _journal.ResolveExpiration(entry);
-        var prepared = JournalEntryPayload.PrepareEncode(durable);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        return _journal.TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
-    }
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _journal.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         _journal.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
