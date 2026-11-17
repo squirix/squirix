@@ -29,6 +29,8 @@ public sealed class ProcessPortTests
         using var unused = ProcessPortReservation.Reserve();
         var unusedPort = unused.Uri.Port;
         unused.Dispose();
+        unused.Dispose();
+        unused.ReleaseForStart();
         _ = await Assert.That(CanBind(unusedPort)).IsTrue();
     }
 
