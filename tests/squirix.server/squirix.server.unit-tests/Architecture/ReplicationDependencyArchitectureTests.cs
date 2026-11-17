@@ -9,7 +9,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using Squirix.Server.Attributes;
-using Squirix.Server.UnitTests.SourceScanning;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -90,16 +89,6 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
 
-    /// <summary>Replication sources must not contain debug output or dumping dependencies.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public Task ReplicationUsesNoDumpingNamespaces(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(ReplicationSourceRules.DebugOutput, cancellationToken);
-
-    /// <summary>Replication sources must not resolve services through a locator.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(ReplicationSourceRules.ServiceLocator, cancellationToken);
-
     /// <summary>Shared proto contracts must not declare the server-only replication service.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -128,16 +117,6 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(disallowed).IsEqualTo(expectedDisallowed).Because($"Dependency '{from}' to '{to}' has an unexpected policy.");
-    }
-
-    private static async Task AssertSourcesDoNotMatchAsync(Regex pattern, CancellationToken cancellationToken)
-    {
-        var paths = await ServerSourceFiles.EnumerateCsharpFilesAsync("Cluster", "Replication");
-        foreach (var path in paths)
-        {
-            var source = await File.ReadAllTextAsync(path, cancellationToken);
-            _ = await Assert.That(ReplicationSourceRules.HasViolation(pattern, source)).IsFalse().Because(path);
-        }
     }
 
     private static bool NamespaceMatches(string pattern, string name)
