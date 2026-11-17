@@ -23,7 +23,7 @@ public sealed class AuthenticatedConnectionTests
     {
         var lower = DateTime.UnixEpoch.AddMinutes(1);
         var upper = lower.AddMinutes(1);
-        var connection = new AuthenticatedConnection(new ClaimsPrincipal(), (lower, upper), new JwtBearerOptions(), null, null, new Lifetime());
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (lower, upper), new JwtBearerOptions(), null, null, new Lifetime())!;
         _ = await Assert.That(connection.IsWithinLifetime(lower.AddTicks(-1))).IsFalse();
         _ = await Assert.That(connection.IsWithinLifetime(lower)).IsTrue();
         _ = await Assert.That(connection.IsWithinLifetime(upper.AddTicks(-1))).IsTrue();
@@ -36,7 +36,7 @@ public sealed class AuthenticatedConnectionTests
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var lifetime = new Lifetime();
-        var connection = new AuthenticatedConnection(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddMinutes(1)), new JwtBearerOptions(), null, null, lifetime);
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddMinutes(1)), new JwtBearerOptions(), null, null, lifetime)!;
         await using var timer = connection.CreateExpiryTimer(clock);
         clock.Advance(TimeSpan.FromSeconds(59));
         _ = await Assert.That(lifetime.Requests).IsEqualTo(0);
@@ -51,10 +51,10 @@ public sealed class AuthenticatedConnectionTests
     public async Task SnapshotOwnsIdentityClaims()
     {
         var identity = CreateIdentity();
-        var connection = new AuthenticatedConnection(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime());
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime())!;
         identity.FindFirst("seed")!.Properties["state"] = "changed";
         identity.AddClaim(new Claim("source-change", "unexpected"));
-        var snapshot = connection.ClonePrincipal();
+        var snapshot = connection.ClonePrincipal()!;
         _ = await Assert.That(snapshot.HasClaim("seed", "original")).IsTrue();
         _ = await Assert.That(snapshot.FindFirst("seed")!.Properties["state"]).IsEqualTo("original");
         _ = await Assert.That(snapshot.HasClaim("source-change", "unexpected")).IsFalse();
@@ -65,9 +65,9 @@ public sealed class AuthenticatedConnectionTests
     public async Task RequestIdentityCopiesAreIndependent()
     {
         var identity = CreateIdentity();
-        var connection = new AuthenticatedConnection(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime());
-        var first = connection.ClonePrincipal();
-        var second = connection.ClonePrincipal();
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime())!;
+        var first = connection.ClonePrincipal()!;
+        var second = connection.ClonePrincipal()!;
         first.FindFirst("seed")!.Properties["state"] = "changed";
         if (first.Identity is ClaimsIdentity firstIdentity)
         {
@@ -75,7 +75,7 @@ public sealed class AuthenticatedConnectionTests
             firstIdentity.AddClaim(new Claim("request-change", "unexpected"));
         }
 
-        var later = connection.ClonePrincipal();
+        var later = connection.ClonePrincipal()!;
         _ = await Assert.That(second.HasClaim("seed", "original")).IsTrue();
         _ = await Assert.That(second.FindFirst("seed")!.Properties["state"]).IsEqualTo("original");
         _ = await Assert.That(second.HasClaim("request-change", "unexpected")).IsFalse();

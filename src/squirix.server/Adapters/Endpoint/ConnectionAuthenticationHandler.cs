@@ -37,7 +37,10 @@ internal sealed class ConnectionAuthenticationHandler : AuthenticationHandler<Jw
             return AuthenticateResult.Fail("The connection must authenticate again.");
         }
 
-        return AuthenticateResult.Success(new AuthenticationTicket(connection.ClonePrincipal(), Scheme.Name));
+        var principal = connection.ClonePrincipal();
+        return principal == null
+            ? AuthenticateResult.Fail("The connection identity cannot provide an independent authorization snapshot.")
+            : AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
     }
 
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)

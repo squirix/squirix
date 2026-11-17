@@ -13,7 +13,7 @@ internal sealed class AuthenticatedConnection
     private readonly IConnectionLifetimeNotificationFeature _lifetime;
     private readonly ClaimsPrincipal _principal;
 
-    internal AuthenticatedConnection(
+    private AuthenticatedConnection(
         ClaimsPrincipal principal,
         (DateTime NotBefore, DateTime Expires) bounds,
         JwtBearerOptions options,
@@ -21,7 +21,7 @@ internal sealed class AuthenticatedConnection
         DateTime? historicalStarted,
         IConnectionLifetimeNotificationFeature lifetime)
     {
-        _principal = CloneIdentities(principal);
+        _principal = principal;
         NotBefore = bounds.NotBefore;
         Expires = bounds.Expires;
         Options = options;
@@ -40,7 +40,19 @@ internal sealed class AuthenticatedConnection
 
     internal DateTime? HistoricalStarted { get; }
 
-    internal ClaimsPrincipal ClonePrincipal() => CloneIdentities(_principal);
+    internal static AuthenticatedConnection? Create(
+        ClaimsPrincipal principal,
+        (DateTime NotBefore, DateTime Expires) bounds,
+        JwtBearerOptions options,
+        OpenIdConnectConfiguration? configuration,
+        DateTime? historicalStarted,
+        IConnectionLifetimeNotificationFeature lifetime)
+    {
+        var snapshot = CopyPrincipal(principal);
+        return snapshot == null ? null : new AuthenticatedConnection(snapshot, bounds, options, configuration, historicalStarted, lifetime);
+    }
+
+    internal ClaimsPrincipal? ClonePrincipal() => CopyPrincipal(_principal);
 
     internal bool IsWithinLifetime(DateTime now) => now >= NotBefore && now < Expires;
 
@@ -57,11 +69,48 @@ internal sealed class AuthenticatedConnection
         return timeProvider.CreateTimer(static state => { if (state is AuthenticatedConnection connection) connection.RequestClose(); }, this, due, Timeout.InfiniteTimeSpan);
     }
 
-    private static ClaimsPrincipal CloneIdentities(ClaimsPrincipal principal)
+    private static ClaimsPrincipal? CopyPrincipal(ClaimsPrincipal principal)
     {
+        if (principal.GetType() != typeof(ClaimsPrincipal))
+        {
+            var custom = principal.Clone();
+            var supported = custom != null && !ReferenceEquals(custom, principal) && custom.GetType() == principal.GetType() &&
+                            HasIndependentIdentities(principal, custom);
+            return supported ? custom : null;
+        }
+
         var clone = new ClaimsPrincipal();
         foreach (var identity in principal.Identities)
-            clone.AddIdentity(identity.Clone());
+        {
+            var copy = identity.Clone();
+            if (copy == null || copy.GetType() != identity.GetType() || SharesIdentity(principal, copy))
+                return null;
+            clone.AddIdentity(copy);
+        }
+
         return clone;
+    }
+
+    private static bool HasIndependentIdentities(ClaimsPrincipal principal, ClaimsPrincipal clone)
+    {
+        using var copies = clone.Identities.GetEnumerator();
+        foreach (var identity in principal.Identities)
+        {
+            if (!copies.MoveNext() || copies.Current == null || copies.Current.GetType() != identity.GetType() || SharesIdentity(principal, copies.Current))
+                return false;
+        }
+
+        return !copies.MoveNext();
+    }
+
+    private static bool SharesIdentity(ClaimsPrincipal principal, ClaimsIdentity candidate)
+    {
+        foreach (var identity in principal.Identities)
+        {
+            if (ReferenceEquals(identity, candidate))
+                return true;
+        }
+
+        return false;
     }
 }

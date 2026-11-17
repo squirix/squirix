@@ -57,6 +57,12 @@ Framework last-known-good configuration is not an immediate token-revocation ser
 Connections accepted through historical signing configuration are bounded by the history that the server can verify;
 unverifiable or expired historical trust fails closed and requires current credentials or usable authority metadata.
 
+Custom principal and identity types must provide thread-safe virtual `Clone()` implementations that return independent objects of the same runtime type.
+Principal clones must preserve identity order and types and share no identities with their source.
+Custom clones are responsible for independently owning hidden mutable state and preserving their virtual authorization behavior.
+Malformed returned clones are rejected during connection authentication or request authentication, without fallback to base types.
+Exceptions thrown by custom clones remain host hook errors.
+
 ## Transport and migration
 
 The authenticated cache transport uses a versioned exchange inside TLS before the standard HTTP/2 preface.
