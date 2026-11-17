@@ -22,17 +22,24 @@ internal static class RegisterLinearizability
             return violations;
 
         var keys = new SortedDictionary<string, List<Operation>>(StringComparer.Ordinal);
+        var observed = new HashSet<(string Key, long Value)>();
         for (var i = 0; i < reads.Count; i++)
         {
             var read = reads[i];
             if (read.End < read.Start)
                 throw new ArgumentException("A read ends before it starts.", nameof(reads));
             Add(read.Key, new Operation(read.Start, read.End, read.Observed, true, true));
+            _ = observed.Add((read.Key, read.Observed));
         }
 
         for (var i = 0; i < writes.Count; i++)
         {
             var write = writes[i];
+
+            // An unobserved ambiguous write can be omitted from any legal order without changing a read.
+            // Keeping it would enumerate invisible overwrites and their permutations during backtracking.
+            if (!write.Acked && !observed.Contains((write.Key, write.Value)))
+                continue;
 
             // A timeout is not a completion: the request may apply arbitrarily late, or be omitted.
             Add(write.Key, new Operation(write.Start, write.Acked ? write.End : long.MaxValue, write.Value, false, write.Acked));

@@ -1,15 +1,56 @@
 """Deterministic controls for the process nemesis schedule and network topology."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from run import Cluster, CommandFailed, FAULTS, command, parse_leader, schedule
+from run import Cluster, CommandFailed, FAULTS, command, find_disk_write_failure, parse_leader, schedule
 
 
 class ScheduleTests(unittest.TestCase):
+    def testUnknownCommitRequiresItsOwnDiskCause(self):
+        operation = "0123456789abcdef0123456789abcdef"
+        unknown = f"System.InvalidOperationException: COMMIT_OUTCOME_UNKNOWN: operation '{operation}'."
+        disk = (" ---> Squirix.Server.Storage.Replication.GroupLogAppendUnconfirmedException: unconfirmed"
+                " ---> System.IO.IOException: No space left on device : '/data/replication/grp-6E31/group.log.0'")
+        event = {"EventId": 4006, "Category": "Squirix.Server.Node.Services.ReplicaGroupCommitter",
+                 "Exception": unknown + disk}
+        evidence = find_disk_write_failure(json.dumps(event), "n1")
+        self.assertEqual(evidence, {"group": "n1", "operation_id": operation, "exception": unknown + disk})
+        causes = (unknown + " ---> quorum timed out", unknown + disk.replace("grp-6E31", "grp-6E30"),
+                  "Grpc.Core.RpcException: Unavailable", "Grpc.Core.RpcException: DeadlineExceeded")
+        for cause in causes:
+            with self.subTest(cause=cause):
+                self.assertIsNone(find_disk_write_failure(json.dumps({**event, "Exception": cause}), "n1"))
+        separate_events = json.dumps({**event, "Exception": unknown}) + "\n" + json.dumps({**event, "EventId": 4077, "Exception": disk})
+        self.assertIsNone(find_disk_write_failure(separate_events, "n1"))
+
+    def testDiskFaultRequiresExhaustedBlocks(self):
+        for available in ("0", "1", "239"):
+            with self.subTest(available=available), tempfile.TemporaryDirectory() as directory:
+                cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))
+                with patch.object(cluster, "execute", side_effect=["No space left on device", available]), \
+                        patch.object(cluster, "record") as record:
+                    if available == "0":
+                        cluster.fault({"kind": "disk-full", "nodes": [1, 2, 0]})
+                        record.assert_called_once_with("fault-active", kind="disk-full", nodes=[1, 2, 0])
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "available blocks"):
+                            cluster.fault({"kind": "disk-full", "nodes": [1, 2, 0]})
+                        record.assert_not_called()
+
+    def testDiskFaultRequiresNoSpaceError(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))
+            with patch.object(cluster, "execute", return_value="Permission denied"), \
+                    patch.object(cluster, "record") as record:
+                with self.assertRaisesRegex(RuntimeError, "Disk full was not observed"):
+                    cluster.fault({"kind": "disk-full", "nodes": [1, 2, 0]})
+                record.assert_not_called()
+
     def testCutResolvesAddressAgainAfterRestart(self):
         with tempfile.TemporaryDirectory() as directory:
             cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))

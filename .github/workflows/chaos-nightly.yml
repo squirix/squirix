@@ -106,6 +106,12 @@ jobs:
                   cp tools/chaos/start.sh "$CHAOS_ROOT/bundle/start.sh"
                   docker build -f tools/chaos/Dockerfile -t squirix-chaos:local "$CHAOS_ROOT/bundle"
 
+            - name: Verify disk-full write refusal and recovery
+              if: matrix.replicas == 3
+              run: |
+                  python3 tools/chaos/run.py --replicas 3 --scenario disk-recovery \
+                    --output "$CHAOS_ROOT/disk-recovery" --commit "$(git rev-parse HEAD)"
+
             - name: Run real-process nemeses
               run: |
                   python3 tools/chaos/run.py --replicas '${{ matrix.replicas }}' \
@@ -122,3 +128,6 @@ jobs:
                       ${{ runner.temp }}/squirix-chaos/run/run.json
                       ${{ runner.temp }}/squirix-chaos/run/*.log
                       ${{ runner.temp }}/squirix-chaos/run/control/**
+                      ${{ runner.temp }}/squirix-chaos/disk-recovery/run.json
+                      ${{ runner.temp }}/squirix-chaos/disk-recovery/*.log
+                      ${{ runner.temp }}/squirix-chaos/disk-recovery/control/**

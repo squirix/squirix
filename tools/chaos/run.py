@@ -66,6 +66,7 @@ def wait_until(predicate, seconds, description):
 class Cluster:
     def __init__(self, args):
         self.args = args
+        self.scenario = getattr(args, "scenario", "chaos")
         self.root = args.output.resolve()
         self.root.mkdir(parents=True, exist_ok=False)
         self.name = "squirix-chaos-" + uuid.uuid4().hex[:12]
@@ -75,7 +76,7 @@ class Cluster:
         self.created = []
         self.events = []
         self.network_created = False
-        self.plan = schedule(args.seed, args.replicas)
+        self.plan = schedule(args.seed, args.replicas) if self.scenario == "chaos" else [{"kind": "disk-full", "nodes": [1, 0, 2]}]
         self.signing_key = secrets.token_bytes(32)
         self.token = token_for(self.signing_key)
 
@@ -83,6 +84,7 @@ class Cluster:
         self.events.append({"event": event, "elapsed": time.monotonic() - self.started, **details})
         (self.root / "run.json").write_text(json.dumps({
             "seed": self.args.seed, "replicas": self.args.replicas,
+            "scenario": self.scenario,
             "schedule": self.plan, "events": self.events,
             "image": self.args.image, "commit": self.args.commit,
             "fault_seconds": self.args.fault_seconds,
@@ -132,7 +134,9 @@ class Cluster:
             settings = {"Squirix": {"Cluster": {
                 "ClusterId": self.name, "NodeId": f"n{i}", "Uri": peers[i]["Uri"], "Peers": peers,
                 "ReplicaCount": self.args.replicas, "PersistenceEnabled": True, "ReplicationEnabled": True,
-                "AutomaticFailoverEnabled": True, "QuorumReadsEnabled": True, "DataDirectory": "/data",
+                # Static ownership keeps the full owner responsible for the regression's refused write.
+                "AutomaticFailoverEnabled": self.scenario == "chaos", "QuorumReadsEnabled": self.scenario == "chaos",
+                "DataDirectory": "/data",
             }}}
             (directory / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
             environment = {
@@ -144,10 +148,14 @@ class Cluster:
                 "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1",
                 "FAKETIME_TIMESTAMP_FILE": "/config/clock", "FAKETIME_NO_CACHE": "1",
                 "FAKETIME_DONT_FAKE_MONOTONIC": "1",
+                # The glibc workaround otherwise makes .NET native waits time out immediately, even at +0.
+                "FAKETIME_FORCE_MONOTONIC_FIX": "0",
                 "SQUIRIX_JWT_ISSUER": "squirix-chaos",
                 "SQUIRIX_JWT_AUDIENCE": "squirix-chaos",
                 "SQUIRIX_JWT_SIGNING_KEY": base64.b64encode(self.signing_key).decode("ascii"),
             }
+            if self.scenario == "disk-recovery":
+                environment["Logging__Console__FormatterName"] = "json"
             arguments = ["docker", "run", "-d", "--name", name, "--network", self.name, "--cap-add", "NET_ADMIN",
                          "--mount", f"type=bind,src={self.root / 'certs'},dst=/certs,readonly",
                          "--mount", f"type=bind,src={directory},dst=/config,readonly",
@@ -168,6 +176,7 @@ class Cluster:
     def start_client(self):
         control = self.root / "control"
         control.mkdir()
+        test = "DiskFullRecoversConfirmedWrites" if self.scenario == "disk-recovery" else "ProcessFaultsKeepRegistersLinearizable"
         self.created.append(self.client)
         command("docker", "run", "-d", "--name", self.client, "--network", self.name,
                 "--mount", f"type=bind,src={self.root / 'certs'},dst=/certs,readonly",
@@ -177,7 +186,7 @@ class Cluster:
                 "-e", "SQUIRIX_CHAOS_TOKEN=" + self.token,
                 "-e", "SQUIRIX_CHAOS_ENDPOINTS=" + ";".join(f"https://{n}:5000" for n in self.nodes),
                 self.args.image, "dotnet", "/app/client/Squirix.E2ETests.dll",
-                "--treenode-filter", "/*/*/ProcessChaosTests/ProcessFaultsKeepRegistersLinearizable",
+                "--treenode-filter", f"/*/*/ProcessChaosTests/{test}",
                 "--report-trx", "--results-directory", "/control/results")
 
     def execute(self, node, *args):
@@ -289,9 +298,13 @@ class Cluster:
             if after - before < 290:
                 raise RuntimeError("Clock step was not observed inside the node")
         elif kind == "disk-full":
-            output = self.execute(victim, "sh", "-c", "LC_ALL=C dd if=/dev/zero of=/data/chaos-fill bs=1M; test $? -ne 0")
+            output = self.execute(victim, "sh", "-c", "LC_ALL=C dd if=/dev/zero of=/data/chaos-fill bs=4096 conv=fsync; test $? -ne 0")
             if "No space left on device" not in output:
                 raise RuntimeError("Disk full was not observed: " + output)
+            # A large dd block can fail while enough smaller blocks remain for the journal to keep writing.
+            available = int(self.execute(victim, "stat", "-f", "-c", "%a", "/data").strip())
+            if available != 0:
+                raise RuntimeError(f"Disk full left {available} available blocks")
         else:
             raise ValueError(kind)
         self.record("fault-active", **step)
@@ -342,6 +355,10 @@ class Cluster:
 
     def run(self):
         self.start()
+        if self.scenario == "disk-recovery":
+            self.run_disk_recovery()
+            self.finish_client()
+            return
         for index, step in enumerate(self.plan):
             ready = self.root / "control" / f"{index}.ready"
             def prepared():
@@ -362,6 +379,61 @@ class Cluster:
                 if command("docker", "inspect", "-f", "{{.State.Running}}", name).strip() != "true":
                     raise RuntimeError("Node did not recover: " + command("docker", "logs", name))
             (self.root / "control" / f"{index}.done").write_text("done", encoding="ascii")
+        self.finish_client()
+
+    def wait_for_control(self, name):
+        def observed():
+            self.client_alive()
+            return (self.root / "control" / name).exists()
+        wait_until(observed, 120, f"client did not signal {name}")
+
+    def await_ready(self):
+        def ready():
+            self.client_alive()
+            try:
+                for node in range(self.args.replicas):
+                    self.http(node, "/health/ready", (200,))
+                return True
+            except RuntimeError:
+                return False
+        wait_until(ready, 90, "Nodes did not become ready after restart")
+
+    def run_disk_recovery(self):
+        control = self.root / "control"
+        self.wait_for_control("disk-ready")
+        self.record("confirmed-values-written")
+        step = self.plan[0]
+        self.fault(step)
+        since = str(time.time())
+        (control / "disk-full").write_text("full", encoding="ascii")
+        self.wait_for_control("write-refused")
+        self.record("write-refused", failure=(control / "write-refused").read_text(encoding="utf-8"))
+        self.confirm_disk_write_failure(step["nodes"][0], since)
+        self.heal(step)
+        self.await_ready()
+        (control / "owner-restarted").write_text("restarted", encoding="ascii")
+        self.wait_for_control("recovery-verified")
+        self.record("confirmed-values-recovered-and-new-write-acknowledged")
+        command("docker", "restart", *self.nodes)
+        self.record("full-cluster-restart")
+        self.await_ready()
+        (control / "cluster-restarted").write_text("restarted", encoding="ascii")
+
+    def confirm_disk_write_failure(self, victim, since):
+        name = self.nodes[victim]
+        if command("docker", "inspect", "-f", "{{.State.Running}}", name).strip() != "true":
+            raise RuntimeError("The owner exited instead of refusing the disk write")
+        self.http(victim, "/health/live", (200,))
+        evidence = None
+        def observed():
+            nonlocal evidence
+            output = command("docker", "logs", "--since", since, name)
+            evidence = find_disk_write_failure(output, f"n{victim}")
+            return evidence is not None
+        wait_until(observed, 5, "The refused write has no owner-log ENOSPC cause in its request window")
+        self.record("disk-write-failure-confirmed", node=victim, **evidence)
+
+    def finish_client(self):
         wait_until(lambda: command("docker", "inspect", "-f", "{{.State.Running}}", self.client).strip() == "false",
                    120, "client did not finish")
         code = int(command("docker", "inspect", "-f", "{{.State.ExitCode}}", self.client))
@@ -420,6 +492,7 @@ def main():
     parser.add_argument("--commit", required=True)
     parser.add_argument("--seed", type=int, default=os.environ.get("SQUIRIX_FAULT_SEED") or str(secrets.randbits(31)))
     parser.add_argument("--fault-seconds", type=int, default=15)
+    parser.add_argument("--scenario", choices=("chaos", "disk-recovery"), default="chaos")
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("Linux is required for network namespaces and bounded ext4 disks")
@@ -450,6 +523,27 @@ def token_for(key):
                                 "nbf": int(time.time()) - 600, "exp": int(time.time()) + 7200}).encode())
     payload = header + b"." + claims
     return (payload + b"." + encode(hmac.new(key, payload, hashlib.sha256).digest())).decode("ascii")
+
+
+def find_disk_write_failure(output, group):
+    path = "/data/replication/grp-" + group.encode("utf-8").hex().upper() + "/group.log."
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("EventId") != 4006:
+            continue
+        if event.get("Category") != "Squirix.Server.Node.Services.ReplicaGroupCommitter":
+            continue
+        cause = event.get("Exception", "")
+        if not isinstance(cause, str) or not all(part in cause for part in (
+                "GroupLogAppendUnconfirmedException", "System.IO.IOException: No space left on device", path)):
+            continue
+        operation = re.search(r"COMMIT_OUTCOME_UNKNOWN: operation '([0-9a-f]{32})'\.", cause)
+        if operation is not None:
+            return {"group": group, "operation_id": operation[1], "exception": cause}
+    return None
 
 
 def parse_leader(text, group):

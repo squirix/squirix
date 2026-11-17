@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -19,6 +20,54 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 [Property("Suite", "ProcessChaos")]
 public sealed class ProcessChaosTests
 {
+    /// <summary>A full owner disk refuses a write; confirmed values and subsequent writes survive node and cluster restarts.</summary>
+    /// <param name="cancellationToken">Test cancellation token.</param>
+    [Test]
+    [Explicit]
+    [Timeout(300_000)]
+    public async Task DiskFullRecoversConfirmedWrites(CancellationToken cancellationToken)
+    {
+        var control = Required("SQUIRIX_CHAOS_CONTROL");
+        var endpoints = Required("SQUIRIX_CHAOS_ENDPOINTS").Split(';');
+        var keys = DiskKeys(endpoints.Length);
+        var confirmed = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var i = 0; i < 4; i++)
+            confirmed.Add(keys[i], DiskPayload(i + 1));
+
+        await using (var client = await ConnectAsync([endpoints[1]], cancellationToken))
+        {
+            var cache = await client.GetCacheAsync<string>("disk-recovery", cancellationToken);
+            foreach (var (key, value) in confirmed)
+                await cache.SetAsync(key, value, cancellationToken: cancellationToken);
+            await AssertConfirmedAsync(cache, confirmed, cancellationToken);
+            await File.WriteAllTextAsync(Path.Join(control, "disk-ready"), "ready", cancellationToken);
+            await WaitForFileAsync(Path.Join(control, "disk-full"), cancellationToken);
+
+            var refusal = await RequireDiskRefusalAsync(cache, keys[4], cancellationToken);
+            await File.WriteAllTextAsync(Path.Join(control, "write-refused"), refusal, cancellationToken);
+        }
+
+        await WaitForFileAsync(Path.Join(control, "owner-restarted"), cancellationToken);
+        await using (var client = await ConnectAsync([endpoints[1]], cancellationToken))
+        {
+            var cache = await client.GetCacheAsync<string>("disk-recovery", cancellationToken);
+            await AssertConfirmedAsync(cache, confirmed, cancellationToken);
+            var value = DiskPayload(127);
+            await cache.SetAsync(keys[5], value, cancellationToken: cancellationToken);
+            confirmed.Add(keys[5], value);
+            await AssertConfirmedAsync(cache, confirmed, cancellationToken);
+        }
+
+        await File.WriteAllTextAsync(Path.Join(control, "recovery-verified"), "verified", cancellationToken);
+        await WaitForFileAsync(Path.Join(control, "cluster-restarted"), cancellationToken);
+        foreach (var endpoint in endpoints)
+        {
+            await using var client = await ConnectAsync([endpoint], cancellationToken);
+            var cache = await client.GetCacheAsync<string>("disk-recovery", cancellationToken);
+            await AssertConfirmedAsync(cache, confirmed, cancellationToken);
+        }
+    }
+
     /// <summary>Checks histories across every externally controlled fault and again after all nodes recover.</summary>
     /// <param name="cancellationToken">Test cancellation token.</param>
     [Test]
@@ -105,6 +154,16 @@ public sealed class ProcessChaosTests
         }
     }
 
+    private static async Task AssertConfirmedAsync(ICache<string> cache, Dictionary<string, string> confirmed, CancellationToken cancellationToken)
+    {
+        foreach (var (key, expected) in confirmed)
+        {
+            var actual = await cache.GetValueAsync(key, cancellationToken);
+            _ = await Assert.That(actual.Found).IsTrue().Because($"confirmed key {key} must survive recovery");
+            _ = await Assert.That(actual.Value).IsEqualTo(expected).Because($"confirmed value of {key} must survive recovery intact");
+        }
+    }
+
     private static void CheckAbort(string control)
     {
         if (File.Exists(Path.Join(control, "abort")))
@@ -120,6 +179,26 @@ public sealed class ProcessChaosTests
             options.BearerTokenProvider = _ => ValueTask.FromResult(token);
         },
         cancellationToken);
+
+    private static string[] DiskKeys(int replicas)
+    {
+        var nodes = new string[replicas];
+        for (var i = 0; i < nodes.Length; i++)
+            nodes[i] = "n" + i.ToString(CultureInfo.InvariantCulture);
+        var ring = new TestKeyOwnerHelper(nodes);
+        var keys = new string[6];
+        for (var i = 0; i < keys.Length; i++)
+            keys[i] = ring.FindKeyOwnedBy("disk-recovery", "n1", $"confirmed-{i}-");
+        return keys;
+    }
+
+    private static string DiskPayload(int seed)
+    {
+        var value = new byte[64 * 1024];
+        for (var offset = 0; offset < value.Length; offset += SHA256.HashSizeInBytes)
+            _ = SHA256.HashData(BitConverter.GetBytes(offset ^ seed), value.AsSpan(offset, SHA256.HashSizeInBytes));
+        return Convert.ToBase64String(value);
+    }
 
     private static string[] KeysForStep(int replicas, int step)
     {
@@ -158,6 +237,23 @@ public sealed class ProcessChaosTests
     }
 
     private static string Required(string name) => Environment.GetEnvironmentVariable(name) ?? Missing(name);
+
+    private static async Task<string> RequireDiskRefusalAsync(ICache<string> cache, string key, CancellationToken cancellationToken)
+    {
+        var pending = DiskPayload(0);
+        CommitOutcomeUnknownException? refusal = null;
+        try
+        {
+            await cache.SetAsync(key, pending, cancellationToken: cancellationToken);
+        }
+        catch (CommitOutcomeUnknownException exception)
+        {
+            refusal = exception;
+        }
+
+        _ = await Assert.That(refusal).IsNotNull().Because("the full owner must return the unknown-commit contract for its failed local append");
+        return refusal!.ToString();
+    }
 
     private static async Task VerifyHistoryAsync(ICache<long> cache, (RegisterHistory History, string[] Keys, string Path) entry, CancellationToken cancellationToken)
     {
