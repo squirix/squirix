@@ -4,7 +4,6 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Diagnostics;
-using Squirix.Testing;
 
 namespace Squirix.Server.TestKit.IO;
 
@@ -68,7 +67,8 @@ public sealed class TempDirectory : IDisposable
         if (!string.IsNullOrEmpty(hint))
             PathValidationKit.ValidateSegmentName(hint, nameof(hint));
 
-        var root = System.IO.Path.Join(System.IO.Path.GetTempPath(), PathKit.TestTempRootName, innerDirectory, Guid.NewGuid().ToString("N"));
+        // Share the process lifetime and stale-process sweep with persistence test directories.
+        var root = System.IO.Path.Join(ProcTempRoot.Claim(), innerDirectory, Guid.NewGuid().ToString("N"));
         var d = string.IsNullOrEmpty(hint) ? root : System.IO.Path.Join(root, hint);
         _ = Directory.CreateDirectory(d);
         return (root, d);
