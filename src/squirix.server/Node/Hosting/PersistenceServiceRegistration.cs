@@ -85,7 +85,11 @@ internal static class PersistenceServiceRegistration
 
         _ = services.AddSingleton(static sp =>
         {
-            var service = ActivatorUtilities.CreateInstance<SnapshotTriggerService>(sp);
+            var service = new SnapshotTriggerService(
+                sp.GetRequiredService<ILogger<SnapshotTriggerService>>(),
+                sp.GetRequiredService<Coordinator>(),
+                sp.GetRequiredService<IJournalCoordinator>(),
+                sp.GetRequiredService<TimeProvider>());
             sp.GetRequiredService<OpenTelemetrySnapshotTelemetry>().ObserveConsecutiveFailures(sp.GetRequiredService<TopologyOptions>().NodeId, () => service.CurrentFailure?.ConsecutiveFailures ?? 0);
             return service;
         });
