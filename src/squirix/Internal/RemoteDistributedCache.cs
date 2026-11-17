@@ -50,12 +50,10 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
         if (!reply.Found)
             return null;
 
-        // The generated protobuf parser owns an unpooled array for this response's bytes field.
-        // Detach it from the private RPC response before transferring ownership to the caller.
-        var value = reply.Value;
+        // Protobuf ReadBytes creates an owned, exact-sized array. Detach it before handing it to the caller.
+        _ = MemoryMarshal.TryGetArray(reply.Value.Memory, out var payload);
         reply.Value = ByteString.Empty;
-        var arrayBacked = MemoryMarshal.TryGetArray(value.Memory, out var segment);
-        return arrayBacked && segment.Offset == 0 && segment.Array is { } array && segment.Count == array.Length ? array : value.ToByteArray();
+        return payload.Array!;
     }
 
     /// <summary>Sends an owned payload and one normalized policy under a stable operation identity.</summary>

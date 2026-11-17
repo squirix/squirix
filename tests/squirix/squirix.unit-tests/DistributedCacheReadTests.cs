@@ -32,6 +32,8 @@ public sealed class DistributedCacheReadTests
         var first = GetDistributedAsyncResponse.Parser.ParseFrom(wire);
         var second = GetDistributedAsyncResponse.Parser.ParseFrom(wire);
         _ = await Assert.That(MemoryMarshal.TryGetArray(first.Value.Memory, out var parsed)).IsTrue();
+        _ = await Assert.That(parsed.Offset).IsEqualTo(0);
+        _ = await Assert.That(parsed.Count).IsEqualTo(parsed.Array!.Length);
         var release = new TaskCompletionSource<GetDistributedAsyncResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var transport = new ResponseTransport(suspend ? release.Task : Task.FromResult(first), Task.FromResult(second));
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(30));
@@ -70,28 +72,6 @@ public sealed class DistributedCacheReadTests
             _ = await Assert.That(result is { Length: 0 }).IsTrue();
         else
             _ = await Assert.That(result).IsNull();
-    }
-
-    /// <summary>Copies a sliced backing array without exposing prefix or suffix bytes.</summary>
-    /// <param name="offset">The start of the payload within the backing array.</param>
-    [Test]
-    [Arguments(0)]
-    [Arguments(1)]
-    public async Task GetCopiesOnlyPayloadForSlicedBuffers(int offset)
-    {
-        byte[] backing = [10, 20, 30, 40, 50];
-        byte[] expected = offset == 0 ? [10, 20, 30] : [20, 30, 40];
-        var response = new GetDistributedAsyncResponse { Found = true, Value = UnsafeByteOperations.UnsafeWrap(backing.AsMemory(offset, 3)) };
-        await using var policy = new CallPolicy(TimeProvider.System);
-        await using var cache = CreateCache(new ResponseTransport(Task.FromResult(response)), policy);
-
-        var result = await cache.GetAsync("key", CancellationToken.None);
-
-        _ = await Assert.That(result.AsSpan().SequenceEqual(expected)).IsTrue();
-        _ = await Assert.That(ReferenceEquals(result, backing)).IsFalse();
-        _ = await Assert.That(response.Value).IsEqualTo(ByteString.Empty);
-        result![0] = 99;
-        _ = await Assert.That(backing.AsSpan().SequenceEqual(new byte[] { 10, 20, 30, 40, 50 })).IsTrue();
     }
 
     [SuppressMessage("Reliability", "CA2000", Justification = "The returned cache owns the session, which owns and disposes the client pool.")]
