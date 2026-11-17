@@ -86,7 +86,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     }
 
     /// <inheritdoc />
-    public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         new(_committers.ForKey(cacheName, key).CommitRemoveAsync(operationId, cacheName, key, cancellationToken));
 
     /// <inheritdoc />
@@ -119,11 +119,11 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     internal async ValueTask<ReadOnlyMemory<byte>?> AccessDistributedAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
     {
         var committer = _committers.ForKey(cacheName, key);
-        if (committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+        if (refresh && committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
             return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
 
         var entry = await GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+        if (refresh && committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
             return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
 
         if (entry == null)

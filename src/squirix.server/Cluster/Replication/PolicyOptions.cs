@@ -17,7 +17,7 @@ internal static class PolicyOptions
     internal const int ClosedSnapshotMaxBytes = 64 * 1024 * 1024;
 
     /// <summary>Durability schema version included in the topology fingerprint.</summary>
-    internal const int DurabilitySchemaVersion = 1;
+    internal const int DurabilitySchemaVersion = 2;
 
     /// <summary>Consistent-hash algorithm version for vnode ownership.</summary>
     internal const int HashAlgorithmVersion = 1;
@@ -26,7 +26,7 @@ internal static class PolicyOptions
     internal const int MaxReplicaCount = TopologyConstraints.MaxReplicaCount;
 
     /// <summary>Minimum cluster package version required for RF>1 topology agreement.</summary>
-    internal const string MinClusterPackageVersion = "0.1.0-preview.10";
+    internal const string MinClusterPackageVersion = "0.1.0-preview.11";
 
     /// <summary>Physical replica placement algorithm version.</summary>
     internal const int PlacementAlgorithmVersion = 1;

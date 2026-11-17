@@ -172,7 +172,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
                         .Callback((_, _, _, _) =>
                          {
                              calls.Value++;
-                             return ValueTask.FromResult(new CacheRemoveResult<string>(false, null));
+                             return ValueTask.FromResult(false);
                          });
         _ = expectations.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
                         .Callback((_, _, _, _) =>

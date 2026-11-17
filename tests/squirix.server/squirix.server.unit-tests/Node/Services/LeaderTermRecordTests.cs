@@ -78,7 +78,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
     {
         var cache = new StubCache();
         var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1");
-        var applied = PrepareNoop(2UL, 1UL) with { OutcomePayload = ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty) };
+        var applied = PrepareNoop(2UL, 1UL) with { OutcomePayload = ReplicaOutcomeTestBytes.Encode(true, ReadOnlyMemory<byte>.Empty) };
         var cached = PrepareNoop(2UL, 1UL) with { CacheName = "cache" };
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in applied), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

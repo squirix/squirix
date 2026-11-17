@@ -3,7 +3,6 @@ using System.Collections.Frozen;
 using System.Runtime.InteropServices;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Utils;
 
@@ -21,15 +20,16 @@ internal static class ReplicaMutationDecisions
     /// <summary>Decides an adapter access against the entry observed under the replica commit gate.</summary>
     /// <param name="current">The current stored entry, if present.</param>
     /// <param name="now">The leader clock at prepare.</param>
-    /// <param name="refresh">Whether the operation omits the payload from its outcome.</param>
+    /// <param name="payload">The transient payload observed by this read, never part of the retained outcome.</param>
     /// <returns>The pinned upsert, expiration tombstone, or result-only decision.</returns>
-    internal static ReplicaDecision DecideDistributedAccess(NodeCacheEntry<object?>? current, DateTime now, bool refresh)
+    internal static ReplicaDecision DecideDistributedAccess(NodeCacheEntry<object?>? current, DateTime now, out ReadOnlyMemory<byte>? payload)
     {
         var access = DistributedCacheAccess.Decide(current, now);
+        payload = access.Payload;
         if (access.Expired)
             return Expired(current!);
 
-        var outcome = ReplicaOutcomeCodec.EncodeAccess(access.RenewTo != null, refresh ? null : access.Payload);
+        var outcome = access.RenewTo != null ? ReplicaOutcomeCodec.Applied : ReplicaOutcomeCodec.NotApplied;
         return access.RenewTo is { } deadline
             ? new ReplicaDecision(PreparedJournalEntry.ForReplicaUpsert(current!.Value, current.Version, current.Tags, deadline), outcome, deadline.Ticks)
             : new ReplicaDecision(null, outcome, 0);
@@ -90,7 +90,7 @@ internal static class ReplicaMutationDecisions
         _ => Upsert(current.Value, current.Version, current.Tags, 0),
     };
 
-    /// <summary>Decides a remove: applied when the key is live, with the removed entry as the outcome; the effect deletes the key either way.</summary>
+    /// <summary>Decides a remove: applied when the key is live, with only its applied flag as the outcome; the effect deletes the key either way.</summary>
     /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision.</returns>
@@ -98,7 +98,7 @@ internal static class ReplicaMutationDecisions
     {
         var outcome = current == null || IsExpired(current, now)
             ? ReplicaOutcomeCodec.NotApplied
-            : ReplicaOutcomeCodec.EncodeRemove(current.MapToProto());
+            : ReplicaOutcomeCodec.Applied;
         return new ReplicaDecision(null, outcome, 0);
     }
 

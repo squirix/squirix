@@ -58,13 +58,13 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         var cacheKey = new CacheKey(cacheName, key);
         return _executor.ExecuteAsync(
             cacheKey,
             static (s, ct) => EvaluateRemovePreconditionAsync(s.Self, s.Memory, ct),
-            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, RemoveJournalArgs Journal, RemoveMemoryArgs Memory), CacheRemoveResult<T>>(
+            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, RemoveJournalArgs Journal, RemoveMemoryArgs Memory), bool>(
                 (this, new RemoveJournalArgs(cacheKey), new RemoveMemoryArgs(operationId, cacheName, key)),
                 static (s, ownership, ct) => s.Self._journal.AppendRemoveAsync(ownership, s.Journal.CacheKey, ct),
                 static (s, ct) => s.Self._inner.RemoveAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, ct),
@@ -172,19 +172,19 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         return existing.Found ? DurableMutationCondition<bool>.Skip(false) : DurableMutationCondition<bool>.Apply(true);
     }
 
-    private static async ValueTask<DurableMutationCondition<CacheRemoveResult<T>>> EvaluateRemovePreconditionAsync(
+    private static async ValueTask<DurableMutationCondition<bool>> EvaluateRemovePreconditionAsync(
         JournalLoggingCacheDecorator<T> self,
         RemoveMemoryArgs args,
         CancellationToken cancellationToken)
     {
         // Only a write stamped by an RPC scope can append its outcome ahead of the apply, so every other remove pays no extra read.
         if (RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue == null)
-            return DurableMutationCondition<CacheRemoveResult<T>>.Apply();
+            return DurableMutationCondition<bool>.Apply();
 
         // The remove frame is appended whatever is found. The key lock and the apply slot hold from this read to the apply, so what is read
-        // is what the apply removes; a live entry that expires in between is reported with its value, as of the moment of this read.
+        // is what the apply removes; a live entry that expires in between is reported removed, as of the moment of this read.
         var current = await self.ReadCurrentAsync(args.CacheName, args.Key, cancellationToken).ConfigureAwait(false);
-        return DurableMutationCondition<CacheRemoveResult<T>>.Apply(current == null ? new CacheRemoveResult<T>(false, default) : new CacheRemoveResult<T>(true, current.Value));
+        return DurableMutationCondition<bool>.Apply(current != null);
     }
 
     private static async ValueTask<bool> ApplyDecidedAsync<TArgs>(DecidedUpsertState<TArgs> state, CancellationToken cancellationToken)

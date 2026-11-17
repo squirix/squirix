@@ -552,7 +552,7 @@ build is refused and left unchanged.
   past the limit too.
 - **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. The outcomes a group
   keeps are bounded to 48 MiB of snapshot bytes: the 64 MiB snapshot limit less one 16 MiB replication message, the
-  largest outcome one entry can carry. Large outcomes such as removed values therefore do not stall compaction. The
+  largest outcome one entry can carry. The headroom remains reserved even though current removal and renewal outcomes contain only a boolean. The
   rest of the limit is headroom for outcomes kept past the bound: on a follower whose clock ages them later than the
   leader's, and after a restart that keeps outcomes younger than the 30-second retry window. At a full table the headroom
   covers about 10 seconds of follower clock lag (16 MiB at 48 MiB per 30 seconds). Above the limit compaction stalls with
@@ -635,7 +635,7 @@ Each attempt is logged when it starts and ends on the leader and on the follower
 ### Replicated mutation effects
 
 The leader decides every replicated mutation once, at prepare time, from one read of the key and one reading of its
-clock. The record carries the decision: the outcome (the applied flag and, for a remove, the removed entry), the
+clock. The record carries the decision: the compact boolean outcome, the
 effect, and the pinned absolute expiration deadline.
 
 | Kind             | Applied when                 | Effect when applied                   | Effect otherwise                     |
@@ -682,7 +682,7 @@ per operation id.
 
 A replica group admits up to 524,288 idempotency outcomes within a 48 MiB outcome-byte bound; recovery may briefly keep young
 outcomes above that bound. An outcome counts the bytes
-it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
+it takes in the group snapshot: framing, scope, operation id, request fingerprint and compact result. Remove and sliding renewal outcomes contain only a boolean, never the value.
 The leader decides the result before it reserves the operation, so a write in flight counts its outcome from the start
 and writes running at the same time cannot together pass the bound. An outcome is replayable for at least the retry window of 30 seconds
 by the clock of the node that answers the retry, and with node clocks within 10 seconds of each other, for at least 20 seconds after the
@@ -691,8 +691,9 @@ covers the deadline, a clock skew of up to 10 seconds between nodes, and the tim
 not rely on it. A raw gRPC client that retries after that may get a new execution of the mutation. Outcomes past the window expire before
 room is made, so when the table is full by count or by bytes under the default policy (minimum retention equal to the window), no outcome
 can be evicted and a new write is refused for capacity; where the minimum retention is below the retention, a new write takes the place of
-the oldest outcome older than the minimum retention. A group therefore sustains the smaller of 524,288 outcomes and 48 MiB of outcomes per window: with 1 KiB removed
-values, about 1,400 removes per second, and with small sets about 13,000 writes per second. A group that takes no writes drops its expired
+the oldest outcome older than the minimum retention. A group therefore admits the smaller of 524,288 records and the number that fit in 48 MiB per window.
+For example, a 132-byte record permits about 12,700 outcomes per second over a 30-second window; this is a budget calculation, not a throughput benchmark.
+The removed value size does not affect this retained-outcome bound. A group that takes no writes drops its expired
 outcomes in the periodic maintenance pass. A write that commits is never refused for its own
 outcome. Admission is not fair by size: a write with a large outcome needs that much room at once, so while a steady
 flow of small writes keeps the table full, each outcome that passes the window makes room for the next small write
@@ -747,8 +748,23 @@ and on every follower alike.
 Pinned deadlines are rounded up to whole milliseconds, the precision of the cache journal, so a journal recovery and a log re-apply write
 the same entry.
 
-The canonical record encoding is version 4 and nodes refuse records of any other version, version 3 included: every node
-of a replica group must run the same replica log codec version.
+The canonical record encoding is version 6 and nodes refuse records of any other version: every node
+of a replica group must run the same replica log codec version. Durability schema 2 and minimum cluster package
+preview.11 participate in the topology fingerprint, so older peers cannot agree on this topology.
+
+Remove retains only its original boolean, not the deleted entry. A retry with the same retained identity returns
+that boolean and leaves a replacement untouched. Adapter Get uses a fresh server renewal identity per transport
+execution. Under the existing commit serialization it captures the current payload and the renewal decision together,
+waits for majority commit and apply, and returns that transient payload. Its retained outcome contains no response bytes.
+A network retry reads the current entry and can return newer bytes or a miss. It does not replay a historical observation.
+
+A renewal still writes the full decided entry in log order. An old pending renewal is applied before any later write,
+so retrying an internal append cannot renew or replace a newer incarnation out of order. Read fencing, term checks,
+unknown-commit handling and the existing finite retention and capacity limits remain in force.
+
+The preview changes manifest slots to version 3, node snapshots to version 3, group log files to version 2 and group
+snapshots to version 5. Stop all nodes and start the new version with empty data directories; no old-format reader or
+rolling upgrade is provided.
 
 ### Expiry
 

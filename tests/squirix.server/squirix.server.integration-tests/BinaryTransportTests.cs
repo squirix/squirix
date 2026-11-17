@@ -8,7 +8,6 @@ using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Core;
-using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
@@ -33,7 +32,39 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     private const string NodeId = "binary-node";
     private const string CacheName = "binary";
 
-    /// <summary>Only a renewal or replay computes its request fingerprint, without changing retained response semantics.</summary>
+    /// <summary>Large removals keep only booleans and replay without deleting a replacement.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LargeRemoveKeepsBudgetAndReplay(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", WipedCluster.Options("compact-remove", true), cancellationToken);
+        await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
+        var owner = cluster["node-a"];
+        var key = owner.FindKeyOwnedBy(CacheName, "node-a");
+        using var channel = CreateGrpcChannel(cluster["node-b"].Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var log = WipedCluster.Log(owner, "node-a");
+        var value = new byte[4190208];
+        var first = new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = Guid.NewGuid().ToString("N") };
+        for (var i = 0; i < 32; i++)
+        {
+            _ = await client.SetEntryAsync(Request(key, value), cancellationToken: cancellationToken);
+            var remove = i == 0 ? first : new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = Guid.NewGuid().ToString("N") };
+            _ = await Assert.That((await client.RemoveAsync(remove, cancellationToken: cancellationToken)).Removed).IsTrue();
+        }
+
+        _ = await Assert.That(log.Idempotency.OutcomeBytes < 65536L).IsTrue();
+        foreach (var outcome in log.Idempotency.ExportResolved(out _))
+            _ = await Assert.That(outcome.OutcomePayload.Length).IsEqualTo(5);
+        var missing = new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = Guid.NewGuid().ToString("N") };
+        _ = await Assert.That((await client.RemoveAsync(missing, cancellationToken: cancellationToken)).Removed).IsFalse();
+        _ = await client.SetEntryAsync(Request(key, [7]), cancellationToken: cancellationToken);
+        _ = await Assert.That((await client.RemoveAsync(first, cancellationToken: cancellationToken)).Removed).IsTrue();
+        _ = await Assert.That((await client.RemoveAsync(missing, cancellationToken: cancellationToken)).Removed).IsFalse();
+        await AssertValueAsync(client, key, [7], cancellationToken);
+    }
+
+    /// <summary>Reads never compute mutation fingerprints or retain response replay state.</summary>
     /// <param name="persistent">Whether outcomes are journaled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -74,20 +105,15 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var operationId = Guid.NewGuid().ToString("N");
         var renewed = await access.AccessAsync(operationId, CacheName, "lazy", Fingerprint, false, cancellationToken);
         _ = await Assert.That(renewed.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
-        _ = await Assert.That(fingerprints).IsEqualTo(1);
+        _ = await Assert.That(fingerprints).IsEqualTo(0);
         set.OperationId = Guid.NewGuid().ToString("N");
         set.Value = ByteString.CopyFrom(13);
         _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
         var replay = await access.AccessAsync(operationId, CacheName, "lazy", Fingerprint, false, cancellationToken);
-        _ = await Assert.That(replay.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
-        _ = await Assert.That(fingerprints).IsEqualTo(2);
-        var mismatch = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(
-            access.AccessAsync(operationId, CacheName, "lazy", Fingerprint, true, cancellationToken),
-            TimeSpan.FromSeconds(30),
-            TimeProvider.System,
-            cancellationToken);
-        _ = await Assert.That(mismatch.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
-        _ = await Assert.That(fingerprints).IsEqualTo(3);
+        _ = await Assert.That(replay.Value.Span.SequenceEqual(new byte[] { 13 })).IsTrue();
+        _ = await Assert.That(fingerprints).IsEqualTo(0);
+        _ = await access.AccessAsync(operationId, CacheName, "lazy", Fingerprint, true, cancellationToken);
+        _ = await Assert.That(fingerprints).IsEqualTo(0);
     }
 
     /// <summary>Concurrent calls through a shared gRPC service keep cache names and payloads isolated.</summary>
@@ -161,6 +187,13 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             _ = await client.SetEntryAsync(Request("empty", []), cancellationToken: cancellationToken);
             var manifest = await node.GetRequiredService<Ledger>().ReadCurrentOrDefaultAsync(cancellationToken);
             _ = await Assert.That(manifest.LastSnapshot != null).IsEqualTo(withSnapshot);
+            if (manifest.LastSnapshot is { } published)
+            {
+                var loaded = await node.GetRequiredService<ISnapshotReader>().LoadStrictAsync<object?>(SnapshotFileName.BuildPath(node.DataDir, published.Index), null, cancellationToken);
+                _ = await Assert.That(loaded.Entries.Count).IsEqualTo(1);
+                var bytes = (await Assert.That(loaded.Entries[0].Entry.Value).IsTypeOf<byte[]>())!;
+                _ = await Assert.That(bytes.AsSpan().SequenceEqual(expected)).IsTrue();
+            }
         }
 
         await node.AbruptShutdownAsync();
@@ -327,13 +360,13 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         _ = await Assert.That(conflict.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
     }
 
-    /// <summary>A new leader replays a renewal before interpreting a replacement at the same key.</summary>
+    /// <summary>A new leader reads the replacement on a repeated Get while Refresh preserves mutation replay.</summary>
     /// <param name="refresh">Whether to exercise the payload-free refresh outcome.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task DistributedAccessReplaysOriginalResult(bool refresh, CancellationToken cancellationToken)
+    public async Task DistributedAccessRetriesReadCurrent(bool refresh, CancellationToken cancellationToken)
     {
         var loss = new LostForwardResponseProbe();
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", WipedCluster.Options("distributed-access", true, services: loss.Register), cancellationToken);
@@ -364,7 +397,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await AssertRepairedRenewalAsync(cluster, cacheKey, operationId, refresh, payload, cap, cancellationToken);
 
         byte[] replacement = [0, 1];
-        _ = await client.SetEntryAsync(Request(key, replacement), cancellationToken: cancellationToken);
+        _ = await client.SetEntryAsync(Request(key, new DistributedCachePolicy(null, null).Encode(replacement)), cancellationToken: cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, "node-a", WipedCluster.Bound);
         await cluster.StopNodeAsync("node-a");
         var (leaderId, _) = await ledger.LeaderAsync(["node-b", "node-c"], 0UL, "a new leader can replay the access", cancellationToken);
@@ -374,14 +407,14 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var replay = await AccessRpcAsync(replacementClient, operationId, key, refresh, cancellationToken);
         _ = await Assert.That(replay != null).IsEqualTo(!refresh);
         if (!refresh)
-            _ = await Assert.That(replay.GetValueOrDefault().Span.SequenceEqual(payload)).IsTrue();
+            _ = await Assert.That(replay.GetValueOrDefault().Span.SequenceEqual(replacement)).IsTrue();
 
-        await AssertValueAsync(replacementClient, key, replacement, cancellationToken);
-        await AssertReplayAfterRemovalAsync(replacementClient, key, operationId, refresh, payload, cancellationToken);
+        await AssertValueAsync(replacementClient, key, new DistributedCachePolicy(null, null).Encode(replacement), cancellationToken);
+        await AssertReplayAfterRemovalAsync(replacementClient, key, operationId, refresh, cancellationToken);
     }
 
     /// <summary>Measures the canonical record cost of each sliding operation using equivalent entries.</summary>
-    /// <param name="maximum">Whether to exercise the largest legal entry, including the combined Get effect and outcome.</param>
+    /// <param name="maximum">Whether to exercise the largest legal entry without duplicating its payload in the outcome.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
@@ -401,15 +434,20 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
 
         // An untagged binary entry adds a 17-byte header and an Int64 deadline.
         var bytes = new byte[maximum ? EntryLimits.MaxEntrySizeBytes - 17 - sizeof(long) - DistributedCachePolicy.HeaderLength : 65536];
+        _ = await client.SetDistributedAsync(
+            new SetDistributedAsyncRequest
+            {
+                CacheName = CacheName,
+                Key = key,
+                Value = ByteString.CopyFrom(bytes),
+                SlidingTicks = TimeSpan.FromMinutes(5).Ticks,
+                ExpiresAtUnixMs = cap,
+                OperationId = Guid.NewGuid().ToString("N"),
+            },
+            cancellationToken: cancellationToken);
         var seed = Request(key, policy.Encode(bytes));
         seed.Entry.ExpiresUtc = Timestamp.FromDateTimeOffset(DateTimeOffset.FromUnixTimeMilliseconds(cap).AddMinutes(-1));
         _ = await client.SetEntryAsync(seed, cancellationToken: cancellationToken);
-        if (maximum)
-        {
-            await AssertRenewalRecordLimitAsync(client, log, key, bytes, cancellationToken);
-            return;
-        }
-
         var beforeGet = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
         var read = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), key, false, cancellationToken);
         var getEntries = await log.GetCommittedEntriesAsync(beforeGet, 2, cancellationToken);
@@ -423,7 +461,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var refreshEntries = await log.GetCommittedEntriesAsync(beforeRefresh, 2, cancellationToken);
         _ = await Assert.That(refreshEntries.Count).IsEqualTo(1);
         _ = await Assert.That(refreshEntries[0].Payload.Length >= bytes.Length).IsTrue();
-        _ = await Assert.That(getEntries[0].Payload.Length - refreshEntries[0].Payload.Length).IsEqualTo(bytes.Length - 3);
+        _ = await Assert.That(getEntries[0].Payload.Length - refreshEntries[0].Payload.Length).IsEqualTo(-4);
     }
 
     /// <summary>Ordinary reads and Refresh without sliding expiration do not write a group log record.</summary>
@@ -534,9 +572,9 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before);
         clock.Advance(TimeSpan.FromTicks(1));
         _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, false, cancellationToken);
-        _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before + 1);
+        _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before);
         _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, true, cancellationToken);
-        _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before + 1);
+        _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before);
         await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<object?>>(), new CacheKey(CacheName, set.Key), set, deadline.AddMilliseconds(1), cancellationToken);
     }
 
@@ -568,7 +606,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(before);
     }
 
-    /// <summary>A single node replays the exact renewal response even after a conflicting replacement and journal recovery.</summary>
+    /// <summary>A repeated Get reads the current entry after journal recovery or snapshot recovery.</summary>
     /// <param name="persistent">Whether the node uses a journal and can be restarted.</param>
     /// <param name="snapshot">Whether to publish a snapshot of the renewed deadline before restarting.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -576,7 +614,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     [Arguments(false, false)]
     [Arguments(true, false)]
     [Arguments(true, true)]
-    public async Task SingleNodeAccessReplaysOriginal(bool persistent, bool snapshot, CancellationToken cancellationToken)
+    public async Task SingleNodeAccessReadsCurrent(bool persistent, bool snapshot, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
@@ -599,6 +637,8 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var operationId = Guid.NewGuid().ToString("N");
         var access = new GetDistributedAsyncRequest { CacheName = CacheName, Key = request.Key, OperationId = operationId };
         var first = await client.GetDistributedAsync(access, cancellationToken: cancellationToken);
+        var missingRemove = new RemoveAsyncRequest { CacheName = CacheName, Key = "missing-replay", OperationId = Guid.NewGuid().ToString("N") };
+        _ = await Assert.That((await client.RemoveAsync(missingRemove, cancellationToken: cancellationToken)).Removed).IsFalse();
         _ = await Assert.That(first.Found).IsTrue();
         _ = await Assert.That(first.Value).IsEqualTo(request.Value);
         var renewedDeadline = clock.GetUtcNow().AddSeconds(10).UtcDateTime;
@@ -607,12 +647,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         if (persistent)
         {
             if (snapshot)
-            {
-                var coordinator = node.GetRequiredService<Coordinator>();
-                _ = await Assert.That(await coordinator.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken)).IsTrue();
-                var manifest = await node.GetRequiredService<Ledger>().ReadCurrentOrDefaultAsync(cancellationToken);
-                _ = await Assert.That(manifest.LastSnapshot).IsNotNull();
-            }
+                await AssertRenewalSnapshotAsync(node, request.Key, clock.GetUtcNow().UtcDateTime, renewedDeadline, cancellationToken);
 
             await node.AbruptShutdownAsync();
             await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
@@ -623,10 +658,26 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         using var replayChannel = CreateGrpcChannel(node.Uri);
         var replayClient = new SquirixCacheService.SquirixCacheServiceClient(replayChannel);
         byte[] replacement = [1];
-        _ = await replayClient.SetEntryAsync(Request(request.Key, replacement), cancellationToken: cancellationToken);
+        _ = await replayClient.SetEntryAsync(Request(request.Key, new DistributedCachePolicy(null, null).Encode(replacement)), cancellationToken: cancellationToken);
         var replay = await replayClient.GetDistributedAsync(access, cancellationToken: cancellationToken);
-        _ = await Assert.That(replay).IsEqualTo(first);
-        await AssertValueAsync(replayClient, request.Key, replacement, cancellationToken);
+        _ = await Assert.That(replay.Value.Span.SequenceEqual(replacement)).IsTrue();
+        await AssertValueAsync(replayClient, request.Key, new DistributedCachePolicy(null, null).Encode(replacement), cancellationToken);
+        _ = await replayClient.SetEntryAsync(Request(missingRemove.Key, [7]), cancellationToken: cancellationToken);
+        _ = await Assert.That((await replayClient.RemoveAsync(missingRemove, cancellationToken: cancellationToken)).Removed).IsFalse();
+        await AssertValueAsync(replayClient, missingRemove.Key, [7], cancellationToken);
+    }
+
+    private static async Task AssertRenewalSnapshotAsync(ITestNodeHost node, string key, DateTime cutoff, DateTime deadline, CancellationToken cancellationToken)
+    {
+        var coordinator = node.GetRequiredService<Coordinator>();
+        _ = await Assert.That(await coordinator.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken)).IsTrue();
+        var manifest = await node.GetRequiredService<Ledger>().ReadCurrentOrDefaultAsync(cancellationToken);
+        _ = await Assert.That(manifest.LastSnapshot).IsNotNull();
+        var path = SnapshotFileName.BuildPath(node.DataDir, manifest.LastSnapshot.Index);
+        var loaded = await node.GetRequiredService<ISnapshotReader>().LoadStrictAsync<object?>(path, cutoff, cancellationToken);
+        _ = await Assert.That(loaded.Entries.Count).IsEqualTo(1);
+        _ = await Assert.That(loaded.Entries[0].Key).IsEqualTo(new CacheKey(CacheName, key));
+        _ = await Assert.That(loaded.Entries[0].Entry.ExpiresUtc).IsEqualTo(deadline);
     }
 
     private static async Task AssertRepairedRenewalAsync(TestCluster<IntegrationStartOptions> cluster, CacheKey key, string operationId, bool refresh, byte[] payload, long cap, CancellationToken cancellationToken)
@@ -642,49 +693,19 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var state = WipedCluster.Log(repaired, "node-a").Idempotency;
         var fingerprint = ReplicaOperationFingerprints.DistributedAccess(operationId, CacheName, key.Key, refresh);
         var lookup = state.Lookup(CacheName, operationId, fingerprint, out var outcome);
-        _ = await Assert.That(lookup).IsEqualTo(GroupIdempotencyLookup.Found);
-        var reply = ReplicaOutcomeCodec.DecodeAccess(outcome.OutcomePayload);
-        _ = await Assert.That(reply != null).IsEqualTo(!refresh);
-        if (!refresh)
-            _ = await Assert.That(reply.GetValueOrDefault().Span.SequenceEqual(payload)).IsTrue();
+        _ = await Assert.That(lookup).IsEqualTo(refresh ? GroupIdempotencyLookup.Found : GroupIdempotencyLookup.Miss);
+        if (refresh)
+            _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(outcome.OutcomePayload)).IsTrue();
+        foreach (var result in state.ExportResolved(out _))
+            _ = await Assert.That(result.OutcomePayload.Length).IsEqualTo(5);
     }
 
-    private static async Task AssertRenewalRecordLimitAsync(SquirixCacheService.SquirixCacheServiceClient client, IFollowerLog log, string key, byte[] bytes, CancellationToken cancellationToken)
-    {
-        var before = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
-        var pending = AccessRpcAsync(client, Guid.NewGuid().ToString("N"), key, false, cancellationToken);
-        var getFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(getFailure.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(before);
-
-        var set = new SetDistributedAsyncRequest
-        {
-            CacheName = CacheName,
-            Key = key,
-            Value = ByteString.CopyFrom(bytes),
-            SlidingTicks = TimeSpan.FromMinutes(5).Ticks,
-            OperationId = Guid.NewGuid().ToString("N"),
-        };
-        var write = client.SetDistributedAsync(set, cancellationToken: cancellationToken).ResponseAsync;
-        var setFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(setFailure.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(before);
-
-        _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), key, true, cancellationToken);
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
-    }
-
-    private static async Task AssertReplayAfterRemovalAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, string operationId, bool refresh, byte[] payload, CancellationToken cancellationToken)
+    private static async Task AssertReplayAfterRemovalAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, string operationId, bool refresh, CancellationToken cancellationToken)
     {
         _ = await client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = Guid.NewGuid().ToString("N") }, cancellationToken: cancellationToken);
         var afterRemoval = await AccessRpcAsync(client, operationId, key, refresh, cancellationToken);
-        _ = await Assert.That(afterRemoval != null).IsEqualTo(!refresh);
-        if (!refresh)
-            _ = await Assert.That(afterRemoval.GetValueOrDefault().Span.SequenceEqual(payload)).IsTrue();
-
-        var wrongOperation = AccessRpcAsync(client, operationId, key, !refresh, cancellationToken);
-        var mismatch = await NodeAsyncAssert.ThrowsAsync<RpcException>(wrongOperation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(mismatch.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(afterRemoval).IsNull();
+        _ = await Assert.That(await AccessRpcAsync(client, operationId, key, !refresh, cancellationToken)).IsNull();
         var missing = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), key, false, cancellationToken);
         _ = await Assert.That(missing).IsNull();
     }

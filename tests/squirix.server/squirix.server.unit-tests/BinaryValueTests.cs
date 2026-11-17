@@ -146,16 +146,15 @@ public sealed class BinaryValueTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Canonical remove outcomes preserve binary bytes without JSON or metadata changes.</summary>
+    /// <summary>Canonical remove outcomes omit binary bytes entirely.</summary>
     [Test]
-    public async Task BinaryRemoveOutcomeIsLossless()
+    public async Task BinaryRemoveOutcomeOmitsPayload()
     {
         byte[] expected = [0, 255, 128];
         var decision = ReplicaMutationDecisions.DecideRemove(new NodeCacheEntry<object?>(expected), new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-        var result = ReplicaOutcomeCodec.DecodeRemove(decision.Outcome);
-        _ = await Assert.That(result.Removed).IsTrue();
-        var value = (await Assert.That(result.Value).IsTypeOf<byte[]>())!;
-        _ = await Assert.That(value.AsSpan().SequenceEqual(expected)).IsTrue();
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(decision.Outcome)).IsTrue();
+        _ = await Assert.That(decision.Outcome.Length).IsEqualTo(5);
+        _ = await Assert.That(decision.Entry).IsNull();
     }
 
     /// <summary>Memory accounting measures actual binary length and retains the estimate after codec recovery.</summary>

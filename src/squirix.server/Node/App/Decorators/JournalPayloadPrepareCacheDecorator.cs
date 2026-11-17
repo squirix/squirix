@@ -30,7 +30,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.RemoveAsync(operationId, cacheName, key, cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>

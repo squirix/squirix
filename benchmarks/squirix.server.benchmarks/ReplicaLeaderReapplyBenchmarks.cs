@@ -107,7 +107,7 @@ public class ReplicaLeaderReapplyBenchmarks
                 Encoding.UTF8.GetBytes("k" + NodeInvariantIndexStrings.Format(i)),
                 ReplicaMutationKinds.Set,
                 entry,
-                ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
+                ReplicaOutcomeCodec.Applied,
                 0,
                 0,
                 0);
@@ -142,8 +142,8 @@ public class ReplicaLeaderReapplyBenchmarks
                 ? new NodeCacheValueResult<object?>(true, entry.Value)
                 : new NodeCacheValueResult<object?>(false, null));
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
-            _store.TryRemove(new CacheKey(cacheName, key), out var entry) ? new CacheRemoveResult<object?>(true, entry.Value) : new CacheRemoveResult<object?>(false, null));
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
+            _store.TryRemove(new CacheKey(cacheName, key), out _));
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Distributed;
@@ -19,9 +20,19 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     /// <exception cref="ArgumentNullException"><paramref name="optionsAccessor"/> is null.</exception>
     /// <exception cref="OptionsValidationException">The cache name or endpoints are invalid.</exception>
     public SquirixDistributedCache(IOptions<SquirixCacheOptions> optionsAccessor)
+        : this(optionsAccessor, null)
+    {
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="SquirixDistributedCache"/> class with a caller-owned transport.</summary>
+    /// <param name="optionsAccessor">Options for this cache instance.</param>
+    /// <param name="handler">Optional caller-owned HTTP transport, used by loopback tests.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="optionsAccessor"/> is null.</exception>
+    /// <exception cref="OptionsValidationException">The cache name or endpoints are invalid.</exception>
+    internal SquirixDistributedCache(IOptions<SquirixCacheOptions> optionsAccessor, HttpMessageHandler? handler)
     {
         ArgumentNullException.ThrowIfNull(optionsAccessor);
-        _session = CreateSession(optionsAccessor.Value);
+        _session = CreateSession(optionsAccessor.Value, handler);
     }
 
     /// <inheritdoc />
@@ -32,9 +43,11 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     public ValueTask DisposeAsync() => _session.DisposeAsync();
 
     /// <inheritdoc />
+    /// <remarks>Each network attempt reads and renews the current entry atomically; retries can observe a newer value or a miss.</remarks>
     public byte[]? Get(string key) => Block(InvokeSyncAsync(() => GetAsync(key, CancellationToken.None)));
 
     /// <inheritdoc />
+    /// <remarks>Each network attempt reads and renews the current entry atomically; retries can observe a newer value or a miss.</remarks>
     public async Task<byte[]?> GetAsync(string key, CancellationToken token = default)
     {
         _session.ThrowIfDisposed();
@@ -109,7 +122,7 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         return owned;
     }
 
-    private static DistributedCacheSession<RemoteDistributedCache> CreateSession(SquirixCacheOptions options)
+    private static DistributedCacheSession<RemoteDistributedCache> CreateSession(SquirixCacheOptions options, HttpMessageHandler? handler)
     {
         try
         {
@@ -126,7 +139,7 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
 
             var tokenProvider = options.ClientOptions.BearerTokenProvider;
             return new DistributedCacheSession<RemoteDistributedCache>(
-                token => RemoteDistributedCache.ConnectAsync(endpoints, tokenProvider, name, token),
+                token => RemoteDistributedCache.ConnectAsync(endpoints, tokenProvider, name, token, handler),
                 TimeProvider.System);
         }
         catch (ArgumentException ex)

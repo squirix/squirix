@@ -192,8 +192,8 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(25));
 
-        _ = await Assert.That(cache.Remove(CacheKey.Default("k"), cancellationToken).Removed).IsFalse();
-        _ = await Assert.That(cache.Remove(CacheKey.Default("k"), cancellationToken).Removed).IsFalse();
+        _ = await Assert.That(cache.Remove(CacheKey.Default("k"), cancellationToken)).IsFalse();
+        _ = await Assert.That(cache.Remove(CacheKey.Default("k"), cancellationToken)).IsFalse();
     }
 
     /// <summary>Relative expiration exceeding the DateTime range saturates instead of throwing.</summary>

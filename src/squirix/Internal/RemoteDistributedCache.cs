@@ -1,4 +1,5 @@
 using System;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -31,10 +32,10 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
 
     internal static void ValidateKey(string key) => KeyInputValidator.Validate(key, nameof(key));
 
-    internal static async Task<RemoteDistributedCache> ConnectAsync(Uri[] endpoints, Func<CancellationToken, ValueTask<string>>? tokenProvider, string cacheName, CancellationToken cancellationToken)
+    internal static async Task<RemoteDistributedCache> ConnectAsync(Uri[] endpoints, Func<CancellationToken, ValueTask<string>>? tokenProvider, string cacheName, CancellationToken cancellationToken, HttpMessageHandler? handler = null)
     {
         var name = ValidateCacheName(cacheName);
-        var session = await RemoteClientSessionFactory.ConnectAsync(endpoints, tokenProvider, null, null, cancellationToken).ConfigureAwait(false);
+        var session = await RemoteClientSessionFactory.ConnectAsync(endpoints, tokenProvider, null, handler, cancellationToken).ConfigureAwait(false);
         return session.OpenDistributedCache(name);
     }
 

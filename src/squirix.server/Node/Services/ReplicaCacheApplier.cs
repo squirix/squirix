@@ -197,9 +197,8 @@ internal static class ReplicaCacheApplier
 
     private static ReplicaEffectKind ResolveDistributedAccess(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> value)
     {
-        var refresh = string.Equals(record.MutationKind, ReplicaMutationKinds.DistributedRefresh, StringComparison.Ordinal);
-        if (refresh ? !value.IsEmpty : !ReplicaOutcomeCodec.IsAccessValue(value) || (applied && value.IsEmpty))
-            throw Inconsistent(in record, "the distributed access outcome is invalid", applied);
+        if (!value.IsEmpty)
+            throw Inconsistent(in record, "the distributed access outcome carries a value", applied);
 
         if (IsExpiryShape(in record, applied, value))
             return ReplicaEffectKind.Delete;
@@ -215,7 +214,7 @@ internal static class ReplicaCacheApplier
 
     private static ReplicaEffectKind ResolveRemove(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
     {
-        var wellFormed = record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && applied == !previous.IsEmpty;
-        return wellFormed ? ReplicaEffectKind.Delete : throw Inconsistent(in record, "a remove carries a payload or a deadline, or its removed entry disagrees with the applied flag", applied);
+        var wellFormed = record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && previous.IsEmpty;
+        return wellFormed ? ReplicaEffectKind.Delete : throw Inconsistent(in record, "a remove carries a payload or a deadline, or a non-empty outcome value", applied);
     }
 }

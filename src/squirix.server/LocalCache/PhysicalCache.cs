@@ -171,14 +171,11 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         return ValueTask.CompletedTask;
     }
 
-    public CacheRemoveResult<T> Remove(CacheKey key, CancellationToken cancellationToken)
+    public bool Remove(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
-        {
-            var (removed, value) = RemoveLocked(key);
-            return new CacheRemoveResult<T>(removed, value);
-        }
+            return RemoveLocked(key);
     }
 
     public bool RemoveExpiration(CacheKey key, CancellationToken cancellationToken)
@@ -205,7 +202,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
-            return ValueTask.FromResult(RemoveLocked(key).Removed);
+            return ValueTask.FromResult(RemoveLocked(key));
     }
 
     public void Set(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
@@ -321,15 +318,14 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         return (candidate, bytes);
     }
 
-    private (bool Removed, T? Value) RemoveLocked(CacheKey key)
+    private bool RemoveLocked(CacheKey key)
     {
         if (!_store.RemoveLocked(key, out var node))
-            return (false, default);
+            return false;
 
-        var value = node.Value;
         var expired = IsExpired(node.ExpiresUtc);
         UntrackLocked(node);
-        return expired ? (false, default) : (true, value);
+        return !expired;
     }
 
     private void TouchOrderLocked(CacheKey key, Node node)

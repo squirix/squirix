@@ -58,28 +58,11 @@ internal static class IdempotencyCodec
         }
     }
 
-    /// <summary>Decodes one idempotency record in the current snapshot layout, with a fallback for pre-upgrade snapshots.</summary>
+    /// <summary>Decodes one idempotency record in the current snapshot layout.</summary>
     /// <param name="source">The record body bytes.</param>
     /// <returns>The decoded record.</returns>
     /// <exception cref="InvalidDataException">When the record is truncated or invalid.</exception>
-    internal static PersistedIdempotencyRecord Read(ReadOnlySpan<byte> source)
-    {
-        try
-        {
-            return ReadVersioned(source);
-        }
-        catch (InvalidDataException)
-        {
-            // Pre-upgrade snapshots encode completed records without the leading state byte:
-            // u16 opId + opId + u16 fingerprint + fingerprint + i64 created + i32 response length + response.
-            // Without this fallback every pre-upgrade snapshot is rejected and recovery falls back to a
-            // full journal replay (fatal when the journal range is unavailable).
-            if (TryReadLegacy(source, out var legacy) && legacy != null)
-                return legacy;
-
-            throw;
-        }
-    }
+    internal static PersistedIdempotencyRecord Read(ReadOnlySpan<byte> source) => ReadVersioned(source);
 
     internal static void Write(PersistedIdempotencyRecord record, Span<byte> destination)
     {
@@ -138,23 +121,6 @@ internal static class IdempotencyCodec
 
         offset += 8;
         return createdUtc;
-    }
-
-    private static PersistedIdempotencyRecord ReadLegacy(ReadOnlySpan<byte> source)
-    {
-        var offset = 0;
-        if (!TryReadUtf8Prefixed(source, ref offset, out var operationId))
-            throw new InvalidDataException("Snapshot idempotency operation id is missing.");
-
-        if (!TryReadUtf8Prefixed(source, ref offset, out var fingerprint))
-            throw new InvalidDataException(FingerprintMissingMessage);
-
-        var createdUtc = ReadCreatedUtc(source, ref offset);
-        var responseBytes = ReadResponseBytes(source, ref offset);
-        var record = new PersistedIdempotencyRecord(operationId, fingerprint, responseBytes, createdUtc);
-        Validate(record);
-        EnsureFullyConsumed(source, offset);
-        return record;
     }
 
     private static byte[] ReadResponseBytes(ReadOnlySpan<byte> source, ref int offset)
@@ -220,20 +186,6 @@ internal static class IdempotencyCodec
         return record;
     }
 
-    private static bool TryReadLegacy(ReadOnlySpan<byte> source, out PersistedIdempotencyRecord? record)
-    {
-        try
-        {
-            record = ReadLegacy(source);
-            return true;
-        }
-        catch (InvalidDataException)
-        {
-            record = null;
-            return false;
-        }
-    }
-
     private static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, ref int offset, out string text)
     {
         text = string.Empty;
@@ -260,9 +212,6 @@ internal static class IdempotencyCodec
 
         if (string.IsNullOrWhiteSpace(record.Fingerprint))
             throw new InvalidDataException(FingerprintMissingMessage);
-
-        if (record.ResponseBytes.Length == 0)
-            throw new InvalidDataException("Snapshot idempotency response bytes are empty.");
     }
 
     private static void WriteCreatedUtc(DateTime createdUtc, Span<byte> destination, ref int offset)

@@ -47,7 +47,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var removedCount = 0;
         foreach (var result in results)
         {
-            if (result.Removed)
+            if (result)
                 removedCount++;
         }
 
@@ -363,7 +363,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             Update = UpdateCoreAsync;
         }
 
-        internal Func<int, Task<CacheRemoveResult<string>>> Remove { get; }
+        internal Func<int, Task<bool>> Remove { get; }
 
         internal Func<int, Task> SetEntry { get; }
 
@@ -371,7 +371,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
         internal Func<int, Task<bool>> Update { get; }
 
-        private Task<CacheRemoveResult<string>> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, _cancellationToken).AsTask();
+        private Task<bool> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, _cancellationToken).AsTask();
 
         private Task SetEntryCoreAsync(int index)
         {

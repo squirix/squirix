@@ -19,11 +19,11 @@ internal static class ReplicaLogCodec
 {
     /// <summary>The canonical encoding version.</summary>
     /// <remarks>
-    /// Version 5 carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
+    /// Version 6 carries compact boolean outcomes for removal and distributed renewal, without response values. It carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
     /// absolute deadline, or the passed deadline of an entry the leader expired, and no payload checksum. Records of any other version are refused, so every node
     /// of a replica group must run the same encoding version.
     /// </remarks>
-    private const ushort Version = 5;
+    private const ushort Version = 6;
 
     private const int VersionSize = sizeof(ushort);
 

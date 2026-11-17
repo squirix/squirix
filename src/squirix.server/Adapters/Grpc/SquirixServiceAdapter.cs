@@ -309,7 +309,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<CacheRemoveResult<T>>(static result => RemoveResponse(result));
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static result => RemoveResponse(result));
             var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken)
                                                .ConfigureAwait(false);
             return RemoveResponse(result);
@@ -392,6 +392,6 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
 
         private static GetOrAddAsyncResponse AddedResponse() => new() { Added = true, Found = true };
 
-        private static RemoveAsyncResponse RemoveResponse(CacheRemoveResult<T> result) => new() { Removed = result.Removed };
+        private static RemoveAsyncResponse RemoveResponse(bool result) => new() { Removed = result };
     }
 }

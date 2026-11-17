@@ -41,7 +41,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         new ReadKeyArgs(cacheName, key),
         cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
         static (inner, args, ct) => inner.RemoveAsync(args.OperationId, args.CacheName, args.Key, ct),
         new MutationKeyArgs(operationId, cacheName, key),
         cancellationToken);

@@ -68,7 +68,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
         _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
     }
 
-    /// <summary>Removing the expired entry reports it removed, with its value.</summary>
+    /// <summary>Removing the expired entry reports whether it was removed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RemoveReportsExpiredEntry(CancellationToken cancellationToken)
@@ -77,8 +77,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
 
         var removed = cache.Remove(Key, cancellationToken);
 
-        _ = await Assert.That(removed.Removed).IsTrue();
-        _ = await Assert.That(removed.Value).IsEqualTo("old");
+        _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That(cache.GetEntry(Key, cancellationToken)).IsNull();
     }
 

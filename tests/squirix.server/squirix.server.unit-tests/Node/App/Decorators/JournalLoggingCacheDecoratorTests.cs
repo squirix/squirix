@@ -68,7 +68,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         var removed = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken);
 
-        _ = await Assert.That(removed.Removed).IsTrue();
+        _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
     }
 
@@ -214,7 +214,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
         _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), cancellationToken)).IsTrue();
-        _ = await Assert.That((await harness.Inner.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).Removed).IsTrue();
+        _ = await Assert.That(await harness.Inner.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
         _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", cancellationToken)).IsFalse();

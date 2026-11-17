@@ -14,7 +14,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// Simulates a lost response on the hop from an entry node to a key owner: the owner executes the forwarded mutation and records its outcome,
 /// but the entry node never receives the response and every further forward of that key from the entry node fails as unreachable.
 /// </summary>
-/// <remarks>Only SetEntry, TryAddEntry, GetOrAdd and distributed access forwards of armed keys are affected.</remarks>
+/// <remarks>Only SetEntry, Remove, TryAddEntry, GetOrAdd and distributed access forwards of armed keys are affected.</remarks>
 internal sealed class LostForwardResponseProbe
 {
     private readonly ConcurrentDictionary<string, KeyFault> _faults = new(StringComparer.Ordinal);
@@ -115,6 +115,9 @@ internal sealed class LostForwardResponseProbe
             _probe = probe;
         }
 
+        public override AsyncUnaryCall<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CallOptions options) =>
+            _probe.Forward(request.Key, () => _inner.RemoveAsync(request, options));
+
         public override AsyncUnaryCall<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, CallOptions options) =>
             _probe.Forward(request.Key, () => _inner.GetDistributedAsync(request, options));
 
@@ -129,8 +132,6 @@ internal sealed class LostForwardResponseProbe
 
         public override AsyncUnaryCall<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, CallOptions options) =>
             _probe.Forward(request.Key, () => _inner.RefreshDistributedAsync(request, options));
-
-        public override AsyncUnaryCall<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CallOptions options) => _inner.RemoveAsync(request, options);
 
         public override AsyncUnaryCall<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, CallOptions options) =>
             _inner.RemoveExpirationAsync(request, options);

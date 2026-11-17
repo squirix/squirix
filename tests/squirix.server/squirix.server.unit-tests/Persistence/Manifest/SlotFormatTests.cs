@@ -25,17 +25,35 @@ public sealed class SlotFormatTests
 
     private static readonly byte[] GoldenWithSnapshot =
     [
-        0x53, 0x51, 0x4D, 0x50, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
+        0x53, 0x51, 0x4D, 0x50, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
         0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB3, 0xA6, 0x9E, 0xA1, 0xDA, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x93, 0x79, 0x81, 0x72,
+        0x00, 0x00, 0x00, 0x00, 0x6B, 0xA4, 0xCB, 0xEC,
     ];
 
     private static readonly byte[] GoldenWithoutSnapshot =
     [
-        0x53, 0x51, 0x4D, 0x50, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x53, 0x51, 0x4D, 0x50, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x46, 0x71, 0x31, 0xB8,
+        0x00, 0x00, 0x00, 0x00, 0xBE, 0xAC, 0x7B, 0x26,
     ];
+
+    /// <summary>A previous preview manifest cannot hide behind a valid current slot.</summary>
+    /// <param name="inFirst">Whether the previous-format slot comes first.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SelectRefusesPreviousPreview(bool inFirst)
+    {
+        byte[] previous = [.. GoldenWithoutSnapshot];
+        previous[4] = 2;
+        BinaryPrimitives.WriteUInt32LittleEndian(previous.AsSpan(CrcOffset), Crc32C.Compute(previous.AsSpan(0, CrcOffset)));
+        byte[] unchanged = [.. previous];
+        var failure = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            (Previous: previous, First: inFirst),
+            static state => SlotFormat.Select(state.First ? state.Previous : GoldenWithoutSnapshot, state.First ? GoldenWithoutSnapshot : state.Previous, SlotFormat.FileSize, FilePath));
+        _ = await Assert.That(failure.Message).Contains("earlier build");
+        await SequenceAssert.EqualAsync(unchanged, previous);
+    }
 
     /// <summary>Encode emits the documented golden bytes: magic, version, sequence, manifest fields, padding, then CRC over all of them.</summary>
     [Test]
@@ -156,6 +174,52 @@ public sealed class SlotFormatTests
         var failure = NodeExceptionAssert.For<InvalidDataException>().Throws(
             (earlier, inFirst),
             static state => SlotFormat.Select(state.inFirst ? state.earlier : [], state.inFirst ? [] : state.earlier, SlotFormat.FileSize, FilePath));
+
+        _ = await Assert.That(failure.Message).Contains("earlier build");
+    }
+
+    /// <summary>An interrupted header never hides the other valid slot as an unsupported older format.</summary>
+    /// <param name="shape">The damaged header shape.</param>
+    /// <param name="inFirst">Whether the damaged record occupies the first slot.</param>
+    [Test]
+    [Arguments("short", true)]
+    [Arguments("short", false)]
+    [Arguments("zero", true)]
+    [Arguments("zero", false)]
+    [Arguments("bad-crc", true)]
+    [Arguments("bad-crc", false)]
+    public async Task TornOlderHeaderKeepsValidSlot(string shape, bool inFirst)
+    {
+        var damaged = Shape("v9:7");
+        damaged[4] = 2;
+        if (string.Equals(shape, "short", StringComparison.Ordinal))
+            damaged = damaged[..5];
+        else if (string.Equals(shape, "zero", StringComparison.Ordinal))
+            damaged.AsSpan(4).Clear();
+        var valid = Shape("v3:8");
+
+        var selection = SlotFormat.Select(inFirst ? damaged : valid, inFirst ? valid : damaged, SlotFormat.FileSize, FilePath);
+
+        _ = await Assert.That(selection.Slot).IsEqualTo(inFirst ? 1 : 0);
+        _ = await Assert.That(selection.Sequence).IsEqualTo(3UL);
+        _ = await Assert.That(selection.State.CurrentJournal).IsEqualTo(8);
+    }
+
+    /// <summary>A complete checksum-valid previous slot format is rejected even beside a valid current slot.</summary>
+    /// <param name="inFirst">Whether the earlier record occupies the first slot.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task SelectRefusesPreviousFullSlot(bool inFirst)
+    {
+        var earlier = Shape("v9:7");
+        earlier[4] = 2;
+        BinaryPrimitives.WriteUInt32LittleEndian(earlier.AsSpan(CrcOffset), Crc32C.Compute(earlier.AsSpan(0, CrcOffset)));
+        var valid = Shape("v3:8");
+
+        var failure = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            (earlier, valid, inFirst),
+            static state => SlotFormat.Select(state.inFirst ? state.earlier : state.valid, state.inFirst ? state.valid : state.earlier, SlotFormat.FileSize, FilePath));
 
         _ = await Assert.That(failure.Message).Contains("earlier build");
     }

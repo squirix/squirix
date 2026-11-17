@@ -28,7 +28,7 @@ internal sealed class DistributedCacheWrite
     /// <summary>Gets the owned, immutable envelope.</summary>
     internal byte[] Envelope { get; }
 
-    /// <summary>Gets a value indicating whether a future read can both rewrite the entry and retain its payload as an outcome.</summary>
+    /// <summary>Gets a value indicating whether a future access can renew the stored entry.</summary>
     internal bool HasSlidingExpiration => _policy.SlidingTicks != null;
 
     /// <summary>Gets the relative expiration cap requested by the client, in ticks.</summary>

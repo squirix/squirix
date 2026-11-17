@@ -190,7 +190,8 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         _ = await Assert.That(original.Found).IsTrue();
         _ = await Assert.That(original.Value).IsEqualTo(ByteString.CopyFrom(0, 255));
         var replay = await client.GetDistributedAsync(access, cancellationToken: cancellationToken);
-        _ = await Assert.That(replay).IsEqualTo(original);
+        _ = await Assert.That(replay.Found).IsEqualTo(!remove);
+        _ = await Assert.That(replay.Value).IsEqualTo(remove ? ByteString.Empty : ByteString.CopyFrom(7));
         var fresh = access.Clone();
         fresh.OperationId = Guid.NewGuid().ToString("N");
         var current = await client.GetDistributedAsync(fresh, cancellationToken: cancellationToken);
@@ -202,7 +203,11 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
     {
         var entries = await log.GetCommittedEntriesAsync(before, 2, cancellationToken);
         _ = await Assert.That(entries.Count).IsEqualTo(2);
-        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries[0].Payload)?.OperationId).IsEqualTo(accessId);
+        var renewal = ReplicaLogCodec.DecodeBorrowed(entries[0].Payload);
+        _ = await Assert.That(renewal).IsNotNull();
+        _ = await Assert.That(renewal.Value.OperationId).IsNotEqualTo(accessId);
+        _ = await Assert.That(renewal.Value.MutationKind).IsEqualTo(ReplicaMutationKinds.DistributedGet);
+        _ = await Assert.That(renewal.Value.OutcomePayload.Length).IsEqualTo(5);
         _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries[1].Payload)?.OperationId).IsEqualTo(mutationId);
     }
 

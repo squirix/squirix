@@ -1,10 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
+using Squirix.Extensions.Caching;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -71,6 +75,72 @@ public sealed class LostForwardResponseE2ETests
         _ = await Assert.That(read.Value).IsEqualTo("second");
     }
 
+    /// <summary>The public SDK replays the original Remove boolean after a lost forwarded response.</summary>
+    /// <param name="present">Whether the first removal finds a live entry.</param>
+    /// <param name="replicas">Replica count.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false, 1)]
+    [Arguments(true, 1)]
+    [Arguments(false, 3)]
+    [Arguments(true, 3)]
+    public async Task RemoveReplaysAfterLostResponse(bool present, int replicas, CancellationToken cancellationToken)
+    {
+        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-remove");
+        await using var scenario = await Scenario.StartAsync(
+            nameof(RemoveReplaysAfterLostResponse),
+            key,
+            static (owner, k, ct) => owner.SetAsync(k, "second", cancellationToken: ct),
+            cancellationToken,
+            replicas);
+        if (present)
+            await scenario.Owner.SetAsync(key, "first", cancellationToken: cancellationToken);
+
+        _ = await Assert.That(await scenario.Cache.RemoveAsync(key, cancellationToken)).IsEqualTo(present);
+        await scenario.AssertFailedOverWithSingleExecutionAsync();
+        _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("second");
+    }
+
+    /// <summary>The adapter retries Get as a current read after a lost forwarded response.</summary>
+    /// <param name="remove">Whether the later writer removes instead of replacing the entry.</param>
+    /// <param name="replicas">Replica count.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false, 1)]
+    [Arguments(true, 1)]
+    [Arguments(false, 3)]
+    [Arguments(true, 3)]
+    public async Task SlidingGetReadsCurrentAfterLostResponse(bool remove, int replicas, CancellationToken cancellationToken)
+    {
+        var probe = new LostForwardResponseProbe();
+        var options = new MultiNodeStartOptions { ReplicaCount = replicas, ServicesConfigure = new EntryProbe(probe).Configure };
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(SlidingGetReadsCurrentAfterLostResponse), options, replicas > 1, cancellationToken);
+        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-sliding-get");
+        using var handler = LoopbackHttp.CreateHandler();
+        var ownerOptions = new SquirixCacheOptions { CacheName = CacheName };
+        ownerOptions.ClientOptions.Endpoints.Add(cluster.GetUri("nodeB"));
+        await using var owner = new SquirixDistributedCache(Options.Create(ownerOptions), handler);
+        var readerOptions = new SquirixCacheOptions { CacheName = CacheName };
+        readerOptions.ClientOptions.Endpoints.Add(cluster.GetUri("nodeA"));
+        readerOptions.ClientOptions.Endpoints.Add(cluster.GetUri("nodeC"));
+        await using var reader = new SquirixDistributedCache(Options.Create(readerOptions), handler);
+        await owner.SetAsync(key, [0, 255], new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(5) }, cancellationToken);
+        probe.Lose(
+            key,
+            () => remove
+                ? owner.RemoveAsync(key, cancellationToken)
+                : owner.SetAsync(key, [7], new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromSeconds(30) }, cancellationToken));
+
+        var current = await reader.GetAsync(key, cancellationToken);
+
+        if (remove)
+            _ = await Assert.That(current).IsNull();
+        else
+            _ = await Assert.That(current!.AsSpan().SequenceEqual(new byte[] { 7 })).IsTrue();
+        _ = await Assert.That(probe.OwnerExecutions(key)).IsEqualTo(1);
+        _ = await Assert.That(probe.ForwardAttempts(key)).IsEqualTo(3);
+    }
+
     private sealed class EntryProbe
     {
         private readonly LostForwardResponseProbe _probe;
@@ -120,12 +190,13 @@ public sealed class LostForwardResponseE2ETests
         /// <param name="key">The key owned by nodeB.</param>
         /// <param name="laterWrite">The direct write to the owner that happens while the response is lost.</param>
         /// <param name="cancellationToken">The test cancellation token.</param>
+        /// <param name="replicas">Replica count.</param>
         /// <returns>The started scenario.</returns>
-        internal static async ValueTask<Scenario> StartAsync(string testName, string key, Func<ICache<string>, string, CancellationToken, Task> laterWrite, CancellationToken cancellationToken)
+        internal static async ValueTask<Scenario> StartAsync(string testName, string key, Func<ICache<string>, string, CancellationToken, Task> laterWrite, CancellationToken cancellationToken, int replicas = 1)
         {
             var probe = new LostForwardResponseProbe();
-            var options = new MultiNodeStartOptions { ServicesConfigure = new EntryProbe(probe).Configure };
-            var cluster = await HostedCluster.StartThreeNodeAsync(testName, options, cancellationToken: cancellationToken);
+            var options = new MultiNodeStartOptions { ReplicaCount = replicas, ServicesConfigure = new EntryProbe(probe).Configure };
+            var cluster = await HostedCluster.StartThreeNodeAsync(testName, options, replicas > 1, cancellationToken);
             try
             {
                 var owner = await cluster.GetCacheAsync<string>(CacheName, "nodeB", cancellationToken);

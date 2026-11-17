@@ -94,7 +94,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         _ = await Assert.That(filledEntries).IsGreaterThan(0);
         _ = await Assert.That(stats.EntryCount).IsGreaterThan(filledEntries);
         _ = await Assert.That(appliedBytes).IsGreaterThan(filledBytes);
-        _ = await Assert.That(removed.Removed).IsTrue();
+        _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That(stats.EstimatedBytes).IsLessThan(appliedBytes);
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }

@@ -83,13 +83,13 @@ public sealed class DistributedCachePolicyTests : ServerUnitTestBase
     {
         var policy = new DistributedCachePolicy(null, null);
         var entry = new NodeCacheEntry<object?>(policy.Encode([]));
-        var present = ReplicaMutationDecisions.DecideDistributedAccess(entry, DateTime.UnixEpoch, false);
-        var missing = ReplicaMutationDecisions.DecideDistributedAccess(null, DateTime.UnixEpoch, false);
+        var present = ReplicaMutationDecisions.DecideDistributedAccess(entry, DateTime.UnixEpoch, out var payload);
+        var missing = ReplicaMutationDecisions.DecideDistributedAccess(null, DateTime.UnixEpoch, out var missingPayload);
         _ = await Assert.That(present.Entry).IsNull();
-        var payload = ReplicaOutcomeCodec.DecodeAccess(present.Outcome);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(missing.Outcome)).IsFalse();
         _ = await Assert.That(payload).IsNotNull();
         _ = await Assert.That(payload.GetValueOrDefault().Length).IsEqualTo(0);
-        _ = await Assert.That(ReplicaOutcomeCodec.DecodeAccess(missing.Outcome)).IsNull();
+        _ = await Assert.That(missingPayload).IsNull();
     }
 
     /// <summary>An access at the inclusive deadline records expiry even if its sliding interval could extend it.</summary>
@@ -99,9 +99,9 @@ public sealed class DistributedCachePolicyTests : ServerUnitTestBase
         var deadline = DateTime.UnixEpoch.AddSeconds(1);
         var policy = new DistributedCachePolicy(null, TimeSpan.FromSeconds(10).Ticks);
         var entry = new NodeCacheEntry<object?>(policy.Encode([1]), expiresUtc: deadline);
-        var decision = ReplicaMutationDecisions.DecideDistributedAccess(entry, deadline, false);
+        var decision = ReplicaMutationDecisions.DecideDistributedAccess(entry, deadline, out var payload);
         _ = await Assert.That(decision.Entry).IsNull();
-        _ = await Assert.That(ReplicaOutcomeCodec.DecodeAccess(decision.Outcome)).IsNull();
+        _ = await Assert.That(payload).IsNull();
         _ = await Assert.That(decision.ExpiresUtcTicks).IsEqualTo(deadline.Ticks);
     }
 }

@@ -7,14 +7,14 @@ On-disk snapshot files use extension `.bsqx` and filename pattern `snp-NNNNNN.bs
 | Region  | Size     | Value                                      |
 | ------- | -------- | ------------------------------------------ |
 | magic   | 4        | ASCII `SQSS`                               |
-| version | 1        | `2`                                        |
+| version | 1        | `3`                                        |
 | records | variable | typed records                              |
 | fileCrc | 4        | CRC32C over `version` + all record bytes   |
 
 CRC32C uses the Castagnoli polynomial (`0x82F63B78`, reflected), matching journal and manifest files.
 
 The file stores no total length. Writer and reader address the file with 64-bit offsets, so its size is limited only by
-the file system; a single record body is at most 1 GiB. A reader accepts only the current format version `2`; a snapshot
+the file system; a single record body is at most 1 GiB. A reader accepts only the current format version `3`; a snapshot
 of any other version stops recovery with an error and is never skipped in favor of the journal. See
 [Publish semantics](#publish-semantics) for file creation and the
 [runbook](operational-runbook.md#snapshot-artifacts-and-memory-pressure) for disk headroom.
@@ -97,9 +97,9 @@ A started record (`state = 1`) continues with:
 | fingerprint    | `u16` UTF-8 byte length + UTF-8 bytes, if present |
 | createdUtc     | `i64` Unix milliseconds UTC                       |
 
-The reader also accepts the legacy completed-record body without the leading state byte: `operationId`,
-`fingerprint`, `createdUtc`, `responseLength`, and `responseBytes` in that order. This record-level compatibility does
-not allow a different snapshot file version. The implementation is
+A completed response can contain zero bytes: protobuf encodes default replies such as an unsuccessful Remove or a successful Set this way.
+The record state, identity and fingerprint distinguish this completed outcome from a started intent.
+The current reader rejects state-less older record layouts and accepts only file version 3. The implementation is
 [`IdempotencyCodec`](../src/squirix.server/Storage/Snapshot/Binary/IdempotencyCodec.cs).
 
 ## Publish semantics
@@ -121,6 +121,7 @@ Replica-group recovery snapshots are separate from cache snapshots. Each immutab
 SQRS | version:u8 | payloadLength:u32 | payload | CRC32C(payload):u32
 ```
 
+The current replica snapshot version is 5; its mutation outcomes contain compact booleans, never removed values or Get response bytes.
 This image is also what a state transfer carries. The `group.snapshot.meta` file contains two 4 KiB pointer
 slots. Each stores a magic value, a publication sequence, a snapshot generation ID, local WAL offsets, zero
 padding, and a CRC32C over the preceding slot bytes. The empty generation ID represents recovery from the full WAL.
