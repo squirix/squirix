@@ -266,7 +266,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         _ = await clientB.SetEntryAsync(CreateSet(key, "intervening"), cancellationToken: cancellationToken);
         var secondResponse = await SendAsync(mutation, second, key, operationId, cancellationToken);
 
-        _ = await Assert.That(secondResponse).IsEqualTo(firstResponse);
+        _ = await Assert.That(secondResponse.Span.SequenceEqual(firstResponse.Span)).IsTrue();
         var value = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
         var expiration = await clientB.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(value.Found).IsTrue();
