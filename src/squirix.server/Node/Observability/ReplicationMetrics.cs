@@ -116,7 +116,7 @@ internal sealed class ReplicationMetrics
         var tags = new TagList
         {
             { "node", nodeId },
-            { "group", groupId },
+            { GroupTag, groupId },
         };
         _idempotencyRefusalsTotal.Add(1, in tags);
     }
