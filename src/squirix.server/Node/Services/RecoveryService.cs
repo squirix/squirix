@@ -318,10 +318,7 @@ internal sealed class RecoveryService<T> : IHostedService
             return new ReplayState(fromSegment, lastAppliedSeq, true);
         }
 
-        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
-        RequireFullJournalReplayRange(context.ManifestCurrentJournal);
-        fromSegment = context.FirstJournalSegmentOrDefault;
-        lastAppliedSeq = 0;
+        HandleSnapshotLoadFailure(context, snapshotPath, out fromSegment, out lastAppliedSeq);
         return new ReplayState(fromSegment, lastAppliedSeq);
     }
 
