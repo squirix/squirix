@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -46,7 +47,15 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
             static (client, wire, options) => new ValueTask<GetDistributedAsyncResponse>(client.GetDistributedAsync(wire, options).ResponseAsync),
             request,
             cancellationToken).ConfigureAwait(false);
-        return reply.Found ? reply.Value.ToByteArray() : null;
+        if (!reply.Found)
+            return null;
+
+        // The generated protobuf parser owns an unpooled array for this response's bytes field.
+        // Detach it from the private RPC response before transferring ownership to the caller.
+        var value = reply.Value;
+        reply.Value = ByteString.Empty;
+        var arrayBacked = MemoryMarshal.TryGetArray(value.Memory, out var segment);
+        return arrayBacked && segment.Offset == 0 && segment.Array is { } array && segment.Count == array.Length ? array : value.ToByteArray();
     }
 
     /// <summary>Sends an owned payload and one normalized policy under a stable operation identity.</summary>
