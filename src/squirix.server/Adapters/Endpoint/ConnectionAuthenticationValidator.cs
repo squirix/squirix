@@ -67,7 +67,11 @@ internal sealed class ConnectionAuthenticationValidator : IDisposable
             !ReferenceEquals(connection.Options, _options.Get(JwtBearerDefaults.AuthenticationScheme)))
             return false;
         var current = await GetConfigurationAsync(connection.Options, cancellationToken).ConfigureAwait(false);
-        return ReferenceEquals(current, connection.Configuration) && ConnectionTrustHistory.IsCurrent(connection, _timeProvider.GetUtcNow().UtcDateTime);
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        return connection.IsWithinLifetime(now) &&
+               ReferenceEquals(connection.Options, _options.Get(JwtBearerDefaults.AuthenticationScheme)) &&
+               ReferenceEquals(current, connection.Configuration) &&
+               ConnectionTrustHistory.IsCurrent(connection, now);
     }
 
     private static async Task<OpenIdConnectConfiguration?> GetConfigurationAsync(JwtBearerOptions options, CancellationToken cancellationToken) =>
