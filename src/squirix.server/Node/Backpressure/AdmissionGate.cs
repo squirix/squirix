@@ -58,27 +58,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        ArgumentException.ThrowIfNullOrWhiteSpace(transport);
-        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-        ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
-
-        if (InboundAdmissionScope.IsAdmitted(this))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return (Decision.Accepted(), Lease.Empty);
-        }
-
-        var disabledResult = BypassWhenDisabled(transport, operation);
-        if (disabledResult != null)
-            return disabledResult.Value;
-
-        cancellationToken.ThrowIfCancellationRequested();
-        if (_sharedClient == null)
-            _sweeper.SweepIfDue();
-
-        if (string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal))
-            return AcquireForwarded(transport, operation);
+        var immediateResult = ResolveImmediateAdmission(transport, operation, clientId, cancellationToken);
+        if (immediateResult != null)
+            return immediateResult.Value;
 
         var client = ResolveClient(clientId);
 
@@ -119,6 +101,34 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     }
 
     internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
+
+    private (Decision Decision, Lease Lease)? ResolveImmediateAdmission(string transport, string operation, string clientId, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(transport);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
+
+        if (InboundAdmissionScope.IsAdmitted(this))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return (Decision.Accepted(), Lease.Empty);
+        }
+
+        if (!_options.Enabled)
+        {
+            _metrics.AddBypass(transport, operation);
+            return (Decision.Accepted(), Lease.Empty);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_sharedClient == null)
+            _sweeper.SweepIfDue();
+
+        return string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal)
+            ? AcquireForwarded(transport, operation)
+            : null;
+    }
 
     private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(
         string transport,
@@ -218,15 +228,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         _metrics.AddSlowdown(transport, operation);
         await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
-    }
-
-    private (Decision Decision, Lease Lease)? BypassWhenDisabled(string transport, string operation)
-    {
-        if (_options.Enabled)
-            return null;
-
-        _metrics.AddBypass(transport, operation);
-        return (Decision.Accepted(), Lease.Empty);
     }
 
     private (Decision Decision, Lease Lease)? RejectByRateLimitsIfLimited(string transport, string operation, ClientState client)

@@ -46,7 +46,7 @@ internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadi
 
     private int _fatalFailure;
 
-    public SnapshotTriggerService(ILogger<SnapshotTriggerService> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
+    internal SnapshotTriggerService(ILogger<SnapshotTriggerService> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(log);

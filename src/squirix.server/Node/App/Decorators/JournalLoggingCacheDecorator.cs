@@ -163,40 +163,6 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
             cancellationToken).ConfigureAwait(false);
     }
 
-    internal ValueTask<bool> TryAddEntryWithPreparedPayloadAsync(
-        string operationId,
-        string cacheName,
-        string key,
-        NodeCacheEntry<T> entry,
-        PreparedJournalEntry prepared,
-        CancellationToken cancellationToken)
-    {
-        var cacheKey = new CacheKey(cacheName, key);
-        var args = new TryAddMutationArgs(operationId, cacheName, key, entry, prepared, cacheKey);
-        return _executor.ExecuteAsync(
-            cacheKey,
-            static (s, ct) => EvaluateTryAddPreconditionAsync(s.Self, s.Args, ct),
-            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, TryAddMutationArgs Args), bool>(
-                (this, args),
-                static async (s, ownership, ct) =>
-                {
-                    using var payload = JournalEntryPayload.Encode(s.Args.Prepared);
-                    await s.Self._journal.AppendPutAsync(ownership, s.Args.CacheKey, payload.Memory, ct).ConfigureAwait(false);
-                },
-                static (s, ct) => s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, s.Args.Prepared.EncodedLength, ct),
-                static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static (s, actual) =>
-                {
-                    // The precondition predicted an add under the key lock: an apply that refused it leaves a put frame the memory never took.
-                    // The latch keeps the outcome unconfirmed, so nothing is promoted.
-                    if (actual)
-                        RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply();
-                    else
-                        s.Self._journal.FailJournalPipeline(new InvalidOperationException("an add predicted to take effect was refused by memory after its journal frame entered the ring."));
-                }),
-            cancellationToken);
-    }
-
     private static async ValueTask<DurableMutationCondition<bool>> EvaluateTryAddPreconditionAsync(
         JournalLoggingCacheDecorator<T> self,
         TryAddMutationArgs args,
@@ -249,6 +215,40 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         var prepared = JournalEntryPayload.PrepareEncode(decided);
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
         return JournalEntryPayload.Encode(in prepared);
+    }
+
+    private ValueTask<bool> TryAddEntryWithPreparedPayloadAsync(
+        string operationId,
+        string cacheName,
+        string key,
+        NodeCacheEntry<T> entry,
+        PreparedJournalEntry prepared,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = new CacheKey(cacheName, key);
+        var args = new TryAddMutationArgs(operationId, cacheName, key, entry, prepared, cacheKey);
+        return _executor.ExecuteAsync(
+            cacheKey,
+            static (s, ct) => EvaluateTryAddPreconditionAsync(s.Self, s.Args, ct),
+            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, TryAddMutationArgs Args), bool>(
+                (this, args),
+                static async (s, ownership, ct) =>
+                {
+                    using var payload = JournalEntryPayload.Encode(s.Args.Prepared);
+                    await s.Self._journal.AppendPutAsync(ownership, s.Args.CacheKey, payload.Memory, ct).ConfigureAwait(false);
+                },
+                static (s, ct) => s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, s.Args.Prepared.EncodedLength, ct),
+                static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
+                static (s, actual) =>
+                {
+                    // The precondition predicted an add under the key lock: an apply that refused it leaves a put frame the memory never took.
+                    // The latch keeps the outcome unconfirmed, so nothing is promoted.
+                    if (actual)
+                        RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply();
+                    else
+                        s.Self._journal.FailJournalPipeline(new InvalidOperationException("an add predicted to take effect was refused by memory after its journal frame entered the ring."));
+                }),
+            cancellationToken);
     }
 
     private async ValueTask<bool> ApplySetEntryAsync(SetMemoryArgs args, CancellationToken cancellationToken)

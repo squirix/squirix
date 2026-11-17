@@ -63,6 +63,13 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
                 sp.GetRequiredService<CacheExpiryAuthority>()));
 
+            _ = services.AddRequestRoutingServices();
+
+            return services;
+        }
+
+        private IServiceCollection AddRequestRoutingServices()
+        {
             _ = services.AddSingleton(static sp => CreateOwnerRouter(sp));
             _ = services.AddSingleton(static sp => new OwnerRpcForwarder(
                 sp.GetRequiredService<IServerClientPool>(),
