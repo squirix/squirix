@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.IO;
-using System.Net;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,15 +20,17 @@ internal sealed class ServerProcess : IAsyncDisposable
     private readonly Task<string> _output;
     private readonly Task<string> _errors;
     private readonly SocketsHttpHandler _handler;
+    private readonly ProcessPortReservation _port;
 
-    private ServerProcess(Process process, DirectoryInfo directory, Uri uri, string? bearerToken)
+    private ServerProcess(Process process, DirectoryInfo directory, ProcessPortReservation port, string? bearerToken)
     {
         _process = process;
         _directory = directory;
-        Uri = uri;
+        _port = port;
+        Uri = port.Uri;
         BearerToken = bearerToken;
         _handler = new SocketsHttpHandler { UseProxy = false };
-        HttpClient = new HttpClient(_handler, false) { BaseAddress = uri };
+        HttpClient = new HttpClient(_handler, false) { BaseAddress = Uri };
         _output = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
         _errors = process.StandardError.ReadToEndAsync(CancellationToken.None);
     }
@@ -50,7 +50,17 @@ internal sealed class ServerProcess : IAsyncDisposable
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await StopAsync(timeout.Token).ConfigureAwait(false);
+            try
+            {
+                await StopAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+                // The child was killed before the wait; retain its reservation until termination is confirmed.
+                await _process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            _port.Dispose();
             _ = await _output.ConfigureAwait(false);
             _ = await _errors.ConfigureAwait(false);
         }
@@ -71,8 +81,19 @@ internal sealed class ServerProcess : IAsyncDisposable
     internal static async Task<ServerProcess> StartAsync(bool authenticated, CancellationToken cancellationToken, Func<ProcessStartInfo, CancellationToken, Task>? configure = null)
     {
         var hostPath = FindHostPath();
-        var directory = Directory.CreateTempSubdirectory("squirix-process-smoke-");
-        var uri = ReserveUri();
+        var port = ProcessPortReservation.Reserve();
+        DirectoryInfo directory;
+        try
+        {
+            directory = Directory.CreateTempSubdirectory("squirix-process-smoke-");
+        }
+        catch
+        {
+            port.Dispose();
+            throw;
+        }
+
+        var uri = port.Uri;
         var settingsPath = Path.Join(directory.FullName, "Squirix.settings.json");
         var settings = $$$$"""{"Squirix":{"Cluster":{"ClusterId":"process-smoke","NodeId":"node-a","Uri":"{{{{uri}}}}","PersistenceEnabled":false,"Peers":[{"NodeId":"node-a","Uri":"{{{{uri}}}}"}]}}}""";
         Process? process = null;
@@ -84,8 +105,9 @@ internal sealed class ServerProcess : IAsyncDisposable
             if (configure != null)
                 await configure(start, cancellationToken).ConfigureAwait(false);
             var bearerToken = authenticated ? ConfigureAuthentication(start) : null;
+            port.ReleaseForStart();
             process = Process.Start(start) ?? ThrowStartFailed();
-            server = new ServerProcess(process, directory, uri, bearerToken);
+            server = new ServerProcess(process, directory, port, bearerToken);
             await server.WaitUntilReadyAsync(cancellationToken).ConfigureAwait(false);
             return server;
         }
@@ -98,6 +120,7 @@ internal sealed class ServerProcess : IAsyncDisposable
             else
             {
                 process?.Dispose();
+                port.Dispose();
                 directory.Delete(true);
             }
 
@@ -178,15 +201,6 @@ internal sealed class ServerProcess : IAsyncDisposable
         var path = Path.Join(directory.FullName, "src", "squirix.server.host", "bin", configuration, PathKit.GetTargetFrameworkDirectory(), "Squirix.Server.Host.dll");
         return File.Exists(path) ? path : throw new FileNotFoundException("Build the server host before running process tests.", path);
     }
-
-    private static Uri ReserveUri()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return listener.LocalEndpoint is IPEndPoint endpoint ? new Uri($"https://localhost:{endpoint.Port}") : ThrowEndpointMissing();
-    }
-
-    private static Uri ThrowEndpointMissing() => throw new InvalidOperationException("The loopback listener did not expose an IP endpoint.");
 
     private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
     {
