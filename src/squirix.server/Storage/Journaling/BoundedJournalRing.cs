@@ -127,6 +127,15 @@ internal sealed class BoundedJournalRing : IDisposable
         }
     }
 
+    /// <summary>Waits for a control notification or deadline while the journal cannot drain the ring.</summary>
+    /// <param name="timeoutMs">Milliseconds until the next deadline, or <see cref="Timeout.Infinite" />.</param>
+    /// <remarks>Control notifications remain latched. Producers do not wake this wait because it leaves their wait registration unset.</remarks>
+    internal void WaitForControl(int timeoutMs)
+    {
+        if (timeoutMs > 0 || timeoutMs == Timeout.Infinite)
+            _deadlineWait.Wait(timeoutMs);
+    }
+
     private bool HasQueuedWork() => Volatile.Read(ref _tail) > Volatile.Read(ref _head);
 
     private bool TryDequeueCore([NotNullWhen(true)] out JournalWorkItem? item)

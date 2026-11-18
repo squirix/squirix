@@ -156,6 +156,7 @@ internal sealed class JournalDurabilityCoordinator
 
         _ = FailPendingDurabilityAcks(effective);
         _ = _owner.GroupCommit?.CancelPendingCore(effective);
+        _owner.Ring.NotifyWorkAvailable();
     }
 
     /// <summary>Faults every tracked durability checkpoint, pending or in flight, and closes the registry.</summary>
@@ -175,7 +176,6 @@ internal sealed class JournalDurabilityCoordinator
     {
         _owner.EventLoop.MarkRollAborted();
         FailJournalPipeline(ex);
-        _owner.Ring.NotifyWorkAvailable();
     }
 
     internal void OnManifestRollSucceeded()

@@ -246,7 +246,10 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
                 _owner.Host.ThrowIfJournalThreadFailed();
                 DrainDueGroupCommitBatches();
                 var rollWaitMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
-                _owner.Ring.WaitForWork(rollWaitMs, _owner.BackgroundToken);
+
+                // The deferred append must land before queued work, including the shutdown marker.
+                // Only a control notification or deadline can make progress while the roll is pending.
+                _owner.Ring.WaitForControl(rollWaitMs);
                 _owner.ReportDeadlineWaitFallbackOnce();
                 DrainDueGroupCommitBatches();
                 return true;
