@@ -272,6 +272,51 @@ public sealed class ConnectionPrefaceTests
         }
     }
 
+    /// <summary>Already queued Get calls drain after the endpoint stops accepting new requests.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task QueuedBinaryGetsDrainOnGracefulShutdown(CancellationToken cancellationToken)
+    {
+        const int requests = 4;
+        var control = (System.Runtime.CompilerServices.Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.GetDistributed) << 16) | 1;
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var guard = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        guard.CancelAfter(TimeSpan.FromSeconds(5));
+        var input = connection.Incoming.Writer;
+        for (var id = 1; id <= requests; id++)
+        {
+            Frames.Write(input.GetSpan(Frames.HeaderBytes), id, 0, control);
+            input.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await input.FlushAsync(guard.Token);
+        var pump = new BinaryConnectionPump(
+            connection,
+            async (frame, _) =>
+            {
+                if (frame.Id == 1)
+                    await stop.CancelAsync().ConfigureAwait(false);
+
+                return default;
+            },
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        var output = connection.Outgoing.Reader;
+        const int size = requests * Frames.HeaderBytes;
+        var result = await output.ReadAtLeastAsync(size, guard.Token);
+        var ids = GC.AllocateUninitializedArray<int>(requests);
+        for (var i = 0; i < ids.Length; i++)
+            ids[i] = ReadReplyId(result.Buffer, i * Frames.HeaderBytes);
+
+        output.AdvanceTo(result.Buffer.GetPosition(size));
+        await processing.WaitAsync(guard.Token);
+        Array.Sort(ids);
+        _ = await Assert.That(ids.AsSpan().SequenceEqual([1, 2, 3, 4])).IsTrue();
+        _ = await Assert.That(connection.Aborted).IsFalse();
+    }
+
     /// <summary>A split header resumes when exactly its remaining bytes arrive.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
