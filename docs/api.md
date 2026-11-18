@@ -119,17 +119,17 @@ Protobuf schema: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (
 
 The binary protocol exposes **13** cache operations:
 
-| Wire RPC (`SquirixCache.proto`)   | SDK API   | Notes                                                                                                                 |
+| Wire RPC (`SquirixCache.proto`) | SDK API | Notes |
 | :-------------------------------- | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
-| `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire`                                                     |
-| `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire`; `AddAsync` throws when the key exists |
-| `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
-| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error) and the time left (`remaining`)  |
-| `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
-| `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically; no value on add       |
-| `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
-| `Remove`                          | `RemoveAsync`               |                                                                                                                       |
-| `Touch`                           | `TouchAsync`                | Relative expiration (`Duration`)                                                                                      |
+| `SetEntry` | `SetAsync` | Upsert via `CacheEntryWire` |
+| `TryAddEntry` | `TryAddAsync` / `AddAsync` | Insert-if-absent via `CacheEntryWire`; `AddAsync` throws when the key exists |
+| `GetValue` | `GetValueAsync` | Value-only read; returns `found` + value |
+| `GetEntry` | `GetEntryAsync` | Full entry read; returns `found` + entry (missing key → `found=false`, not an error) and the time left (`remaining`) |
+| `GetExpiration` | `GetExpirationAsync` | Expiration metadata only; handler reads via runtime `GetEntry` |
+| `GetOrAdd` | `GetOrAddAsync` | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically; no value on add |
+| `Update` | `UpdateAsync` | Update value if key exists via `CacheEntryWire` (value field only) |
+| `Remove` | `RemoveAsync` | Removes an entry and reports whether it was present. |
+| `Touch` | `TouchAsync` | Relative expiration (`Duration`) |
 | `RemoveExpiration` | `ICache<T>.RemoveExpirationAsync` | Clears an existing expiration. |
 | `SetDistributed` | `IDistributedCache.SetAsync` | Stores opaque bytes and their expiration policy. |
 | `GetDistributed` | `IDistributedCache.GetAsync` | Reads the current value and renews sliding expiration when applicable. |
