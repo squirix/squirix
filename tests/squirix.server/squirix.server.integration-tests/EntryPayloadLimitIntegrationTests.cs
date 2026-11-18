@@ -29,7 +29,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit");
         var value = EntryLimitKit.CreateStringOverEntryLimit();
 
-        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             clientA.TryAddEntryAsync(
@@ -47,7 +47,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
 
-        using var channelB = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var channelB = CreateBinaryChannel(cluster["node-b"].Uri);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getResponse = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsFalse();
@@ -62,7 +62,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit-update");
 
-        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
 
         _ = await clientA.SetEntryAsync(
@@ -104,7 +104,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var value = EntryLimitKit.CreateStringOverEntryLimit();
 
@@ -136,7 +136,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         _ = await client.SetEntryAsync(

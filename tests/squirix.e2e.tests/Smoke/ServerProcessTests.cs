@@ -3,9 +3,9 @@ using System.Globalization;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures.ProcessHosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -49,7 +49,7 @@ public sealed class ServerProcessTests
     public async Task AuthenticatedServerRequiresJwt(CancellationToken cancellationToken)
     {
         await using var server = await ServerProcess.StartAsync(true, cancellationToken);
-        _ = await Assert.That(await ProbeAnonymousAsync(server.Uri, cancellationToken)).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(await ProbeAnonymousAsync(server.Uri, cancellationToken)).IsEqualTo(CacheTransportStatusCode.Unauthenticated);
 
         await using var client = await SquirixClient.ConnectAsync(
             options =>
@@ -65,16 +65,16 @@ public sealed class ServerProcessTests
         _ = await Assert.That(live.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
-    private static async Task<StatusCode> ProbeAnonymousAsync(Uri uri, CancellationToken cancellationToken)
+    private static async Task<CacheTransportStatusCode> ProbeAnonymousAsync(Uri uri, CancellationToken cancellationToken)
     {
         try
         {
             await using var client = await SquirixClient.ConnectAsync(uri, cancellationToken);
             var cache = await client.GetCacheAsync<string>("anonymous-smoke", cancellationToken);
             _ = await cache.GetValueAsync("key", cancellationToken);
-            return StatusCode.OK;
+            return CacheTransportStatusCode.Ok;
         }
-        catch (RpcException ex)
+        catch (SquirixTransportException ex)
         {
             return ex.StatusCode;
         }

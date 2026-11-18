@@ -43,7 +43,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster[OwnerId];
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        using var channel = CreateGrpcChannel(owner.Uri);
+        using var channel = CreateBinaryChannel(owner.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
         var log = WipedCluster.Log(owner, OwnerId);
@@ -98,7 +98,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster[OwnerId];
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        using var channel = CreateGrpcChannel(owner.Uri);
+        using var channel = CreateBinaryChannel(owner.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
         ILocalCacheReadOperations<object?> local = owner.GetRequiredService<PhysicalCache<object?>>();
@@ -146,7 +146,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster[OwnerId];
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        using var channel = CreateGrpcChannel(owner.Uri);
+        using var channel = CreateBinaryChannel(owner.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
         var log = WipedCluster.Log(owner, OwnerId);

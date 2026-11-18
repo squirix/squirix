@@ -688,7 +688,7 @@ and writes running at the same time cannot together pass the bound. An outcome i
 by the clock of the node that answers the retry, and with node clocks within 10 seconds of each other, for at least 20 seconds after the
 leader decided it, across a leader change or a restart too. The window is twice the 15 s operation deadline of the `squirix` client, which
 covers the deadline, a clock skew of up to 10 seconds between nodes, and the time of transit and commit. An outcome may be kept longer; do
-not rely on it. A raw gRPC client that retries after that may get a new execution of the mutation. Outcomes past the window expire before
+not rely on it. A raw binary client that retries after that may get a new execution of the mutation. Outcomes past the window expire before
 room is made, so when the table is full by count or by bytes under the default policy (minimum retention equal to the window), no outcome
 can be evicted and a new write is refused for capacity; where the minimum retention is below the retention, a new write takes the place of
 the oldest outcome older than the minimum retention. A group therefore admits the smaller of 524,288 records and the number that fit in 48 MiB per window.
@@ -774,7 +774,7 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
 
 - A read on the leader that finds its entry at or past the deadline commits an Expire record and applies it before it
   reports the miss. Concurrent reads of one key share one commit. A read whose Expire record cannot commit (no write
-  majority, a pending apply, the commit budget, or an unknown outcome) is refused with gRPC `Unavailable` and the detail
+  majority, a pending apply, the commit budget, or an unknown outcome) is refused with `Unavailable` and the detail
   `replica_expiration_pending`; nothing was read, and a retry may succeed. It is never reported as `COMMIT_OUTCOME_UNKNOWN`.
 - A background sweep on the leader expires, every 10 seconds, up to 1024 owned keys that no read touched; a pass stops
   at its first failure, logs it once, and the next pass retries. Keys of groups the node only follows are left to their

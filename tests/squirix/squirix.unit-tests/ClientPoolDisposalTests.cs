@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Squirix.Attributes;
@@ -12,7 +11,7 @@ using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
-/// <summary><see cref="ClientPool" /> disposal of the HTTP handlers it owns.</summary>
+/// <summary><see cref="ClientPool" /> disposal and per-peer policy lifecycle.</summary>
 [Immutable]
 public sealed class ClientPoolDisposalTests
 {
@@ -23,36 +22,6 @@ public sealed class ClientPoolDisposalTests
         new() { NodeId = "node-a", Uri = new Uri("https://127.0.0.1:6510") },
         new() { NodeId = "node-b", Uri = new Uri("https://127.0.0.1:6511") },
     ];
-
-    /// <summary>A channel that fails to dispose is counted and does not stop the pool from releasing the other peers.</summary>
-    [Test]
-    public async Task ChannelFailureKeepsDisposingPeersAsync()
-    {
-        using var sink = new MeasurementSink("Squirix");
-        var peers = CreatePeers("channel-dispose-failure");
-        var created = new List<TrackingHandler>();
-        var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System, () => created.Count == 0 ? Track(created, new TrackingHandler(true)) : Track(created, new TrackingHandler()));
-
-        await pool.DisposeAsync();
-
-        _ = await Assert.That(created.Count).IsEqualTo(peers.Length);
-        _ = await Assert.That(created[1].Disposed).IsTrue();
-        _ = await Assert.That(sink.HasEvent(DisposeFailuresInstrumentName, ("node_id", peers[0].NodeId), ("stage", "channel"))).IsTrue();
-        _ = await Assert.That(sink.HasEvent(DisposeFailuresInstrumentName, ("node_id", peers[0].NodeId), ("exception_type", nameof(InvalidOperationException)))).IsTrue();
-    }
-
-    /// <summary>Disposing the pool must dispose every per-peer handler the pool created.</summary>
-    [Test]
-    public async Task DisposeReleasesPoolCreatedHandlersAsync()
-    {
-        var created = new List<TrackingHandler>();
-        var pool = new ClientPool(Peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System, () => Track(created));
-        await pool.DisposeAsync();
-
-        _ = await Assert.That(created.Count).IsEqualTo(Peers.Length);
-        for (var i = 0; i < created.Count; i++)
-            _ = await Assert.That(created[i].Disposed).IsTrue();
-    }
 
     /// <summary>A caller-supplied handler is shared by every channel and stays owned by the caller.</summary>
     [Test]
@@ -84,16 +53,11 @@ public sealed class ClientPoolDisposalTests
             return ValueTask.CompletedTask;
         });
         var secondPolicy = second.Instance();
-        var created = new List<TrackingHandler>();
-        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : secondPolicy, TimeProvider.System, () => Track(created));
+        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : secondPolicy, TimeProvider.System);
 
         await pool.DisposeAsync();
 
         _ = await Assert.That(secondDisposed).IsTrue();
-        _ = await Assert.That(created.Count).IsEqualTo(peers.Length);
-        for (var i = 0; i < created.Count; i++)
-            _ = await Assert.That(created[i].Disposed).IsTrue();
-
         _ = await Assert.That(sink.HasEvent(DisposeFailuresInstrumentName, ("node_id", peers[0].NodeId), ("stage", "policy"))).IsTrue();
     }
 
@@ -107,14 +71,9 @@ public sealed class ClientPoolDisposalTests
         _ = failing.Setups.BeginDrain().Callback(static () => throw new InvalidOperationException("Policy drain failed."));
         _ = failing.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         var failingPolicy = failing.Instance();
-        var created = new List<TrackingHandler>();
-        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : new CallPolicy(TimeProvider.System), TimeProvider.System, () => Track(created));
+        var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : new CallPolicy(TimeProvider.System), TimeProvider.System);
 
         await pool.DisposeAsync();
-
-        _ = await Assert.That(created.Count).IsEqualTo(peers.Length);
-        for (var i = 0; i < created.Count; i++)
-            _ = await Assert.That(created[i].Disposed).IsTrue();
 
         _ = await Assert.That(sink.HasEvent(DisposeFailuresInstrumentName, ("node_id", peers[0].NodeId), ("stage", "policy"))).IsTrue();
     }
@@ -132,7 +91,7 @@ public sealed class ClientPoolDisposalTests
             return ValueTask.CompletedTask;
         });
         var policy = expectations.Instance();
-        var pool = new ClientPool(Peers, _ => policy, TimeProvider.System, static () => new TrackingHandler());
+        var pool = new ClientPool(Peers, _ => policy, TimeProvider.System);
 
         await pool.DisposeAsync();
         await pool.DisposeAsync();
@@ -149,7 +108,7 @@ public sealed class ClientPoolDisposalTests
         _ = expectations.Setups.BeginDrain();
         _ = expectations.Setups.DisposeAsync().ReturnValue(new ValueTask(release.Task));
         var policy = expectations.Instance();
-        var pool = new ClientPool([Peers[0]], _ => policy, TimeProvider.System, static () => new TrackingHandler());
+        var pool = new ClientPool([Peers[0]], _ => policy, TimeProvider.System);
 
         var first = StartDisposeAsync(pool);
         var second = StartDisposeAsync(pool);
@@ -168,29 +127,9 @@ public sealed class ClientPoolDisposalTests
         new() { NodeId = prefix + "-b", Uri = new Uri("https://127.0.0.1:6511") },
     ];
 
-    private static TrackingHandler Track(List<TrackingHandler> created, TrackingHandler handler)
-    {
-        created.Add(handler);
-        return handler;
-    }
-
-    private static TrackingHandler Track(List<TrackingHandler> created)
-    {
-        var handler = new TrackingHandler();
-        created.Add(handler);
-        return handler;
-    }
-
     /// <summary>Records whether the owner disposed the handler; Rocks cannot observe the protected dispose overload.</summary>
     private sealed class TrackingHandler : DelegatingHandler
     {
-        private readonly bool _throwOnDispose;
-
-        internal TrackingHandler(bool throwOnDispose = false)
-        {
-            _throwOnDispose = throwOnDispose;
-        }
-
         internal bool Disposed { get; private set; }
 
         protected override void Dispose(bool disposing)
@@ -199,8 +138,6 @@ public sealed class ClientPoolDisposalTests
                 Disposed = true;
 
             base.Dispose(disposing);
-            if (disposing && _throwOnDispose)
-                throw new InvalidOperationException("Handler dispose failed.");
         }
     }
 }

@@ -42,8 +42,8 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-backpressure");
-        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-a"));
-        using var channelB = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-b"));
+        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-a"));
+        using var channelB = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-b"));
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
 
@@ -76,7 +76,7 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-saturated");
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channel = CreateBinaryChannel(cluster["node-a"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
         var ownerGate = cluster["node-b"].GetRequiredService<IBackpressureGate>();
@@ -113,7 +113,7 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-busy-peer");
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channel = CreateBinaryChannel(cluster["node-a"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
         var policy = cluster["node-a"].GetRequiredService<IServerClientPool>().PolicyFor("node-b");

@@ -163,6 +163,44 @@ message GetDistributedAsyncResponse {
     bytes value = 2;
 }
 
+// Optional envelope for a binary request carrying W3C trace context.
+message BinaryTracedRequest {
+    string trace_parent = 1;
+    string trace_state = 2;
+    bytes payload = 3;
+}
+
+// Error payload for the batched binary transport.
+message BinaryCallError {
+    message Trailer {
+        string key = 1;
+        oneof value {
+            string text = 2;
+            bytes binary = 3;
+        }
+    }
+
+    string detail = 1;
+    repeated Trailer trailers = 2;
+}
+
+enum BinaryOperation {
+    BINARY_OPERATION_UNSPECIFIED = 0;
+    BINARY_OPERATION_SET_ENTRY = 1;
+    BINARY_OPERATION_GET_ENTRY = 2;
+    BINARY_OPERATION_GET_VALUE = 3;
+    BINARY_OPERATION_REMOVE = 4;
+    BINARY_OPERATION_TRY_ADD_ENTRY = 5;
+    BINARY_OPERATION_TOUCH = 6;
+    BINARY_OPERATION_REMOVE_EXPIRATION = 7;
+    BINARY_OPERATION_UPDATE = 8;
+    BINARY_OPERATION_GET_EXPIRATION = 9;
+    BINARY_OPERATION_GET_OR_ADD = 10;
+    BINARY_OPERATION_SET_DISTRIBUTED = 11;
+    BINARY_OPERATION_GET_DISTRIBUTED = 12;
+    BINARY_OPERATION_REFRESH_DISTRIBUTED = 13;
+}
+
 message RefreshDistributedAsyncRequest {
     string cache_name = 1;
     string key = 2;

@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
+using Squirix.Transport;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
@@ -50,18 +50,18 @@ internal static class ProtoEx
     /// <summary>Converts a server-reported duration to a <see cref="TimeSpan" />, rejecting a non-normalized value.</summary>
     /// <param name="duration">The wire duration.</param>
     /// <returns>The converted time span.</returns>
-    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.Internal" /> when the server sent a malformed or missing duration.</exception>
+    /// <exception cref="SquirixTransportException">Thrown with <see cref="CacheTransportStatusCode.Internal" /> when the server sent a malformed or missing duration.</exception>
     internal static TimeSpan ReadDuration(Duration? duration) => duration != null && WireDuration.IsNormalized(duration)
         ? WireDuration.ToTimeSpan(duration)
-        : throw new RpcException(new Status(StatusCode.Internal, MalformedDurationDetail));
+        : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MalformedDurationDetail));
 
     /// <summary>Converts a server-reported timestamp to a UTC <see cref="DateTime" />, rejecting a non-normalized value.</summary>
     /// <param name="timestamp">The wire timestamp.</param>
     /// <returns>The converted UTC date and time.</returns>
-    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.Internal" /> when the server sent a malformed timestamp.</exception>
+    /// <exception cref="SquirixTransportException">Thrown with <see cref="CacheTransportStatusCode.Internal" /> when the server sent a malformed timestamp.</exception>
     internal static DateTime ReadTimestamp(Timestamp timestamp) => WireTimestamp.IsNormalized(timestamp)
         ? timestamp.ToDateTime().ToUniversalTime()
-        : throw new RpcException(new Status(StatusCode.Internal, MalformedTimestampDetail));
+        : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MalformedTimestampDetail));
 
     private static T? DeserializeScalar<T>(CacheValue value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null)
     {
@@ -85,7 +85,7 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.NullValue => null,
         CacheValue.KindOneofCase.JsonUtf8 => ParseElement(value.JsonUtf8.Span),
         CacheValue.KindOneofCase.BinaryValue => value.BinaryValue.ToByteArray(),
-        _ => throw new RpcException(new Status(StatusCode.Internal, MissingValueDetail)),
+        _ => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MissingValueDetail)),
     };
 
     private static T? DecodeTyped<T>(CacheValue value, ISquirixSerializer serializer) =>
@@ -101,7 +101,7 @@ internal static class ProtoEx
 
     private static T? DecodeBinary<T>(CacheValue value) => typeof(T) == typeof(byte[])
         ? ProtoScalarMapping.Coerce<T>(value.BinaryValue.ToByteArray())
-        : throw new RpcException(new Status(StatusCode.Internal, IncompatibleBinaryDetail));
+        : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, IncompatibleBinaryDetail));
 
     private static JsonElement ParseElement(ReadOnlySpan<byte> json)
     {
@@ -110,7 +110,7 @@ internal static class ProtoEx
     }
 
     private static CacheValue RequireValue(CacheValue? value) =>
-        value == null || value.KindCase == CacheValue.KindOneofCase.None ? throw new RpcException(new Status(StatusCode.Internal, MissingValueDetail)) : value;
+        value == null || value.KindCase == CacheValue.KindOneofCase.None ? throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MissingValueDetail)) : value;
 
     private static CacheValue ToCacheValue<T>(T? value, ISquirixSerializer serializer)
     {

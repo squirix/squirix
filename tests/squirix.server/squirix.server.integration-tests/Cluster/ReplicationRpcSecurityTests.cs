@@ -116,7 +116,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     public async Task ExternalListenerRefusesReplicationRpc(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var handler = LoopbackHttp.CreateHandler();
+        using var channel = GrpcChannel.ForAddress(cluster["node-a"].Uri, new GrpcChannelOptions { HttpHandler = handler });
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -129,7 +130,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     public async Task ExternalListenerRefusesVoteRpc(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var handler = LoopbackHttp.CreateHandler();
+        using var channel = GrpcChannel.ForAddress(cluster["node-a"].Uri, new GrpcChannelOptions { HttpHandler = handler });
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
 
         var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.PreVoteAsync(CreateVoteRequest("node-b", "node-b"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

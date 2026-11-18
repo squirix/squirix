@@ -1,6 +1,6 @@
 # API reference (v0.1 preview)
 
-squirix exposes a typed gRPC client SDK. Cache operations use gRPC only; HTTP endpoints are limited to health and metrics.
+The Squirix client SDK uses a binary TLS transport for cache operations. HTTP endpoints serve health and metrics.
 
 Preview.11 also provides an [`IDistributedCache` adapter](distributed-cache.md) for ASP.NET Core and HybridCache.
 
@@ -108,21 +108,21 @@ The SDK maps specific server responses to public exceptions:
 | Operation id is reused with a different fingerprint | `OperationIdReuseMismatchException` |
 | `COMMIT_OUTCOME_UNKNOWN` | `CommitOutcomeUnknownException` |
 
-Other gRPC failures remain `Grpc.Core.RpcException`; inspect `StatusCode` and server details. For example, missing or
+Other transport failures surface as `Squirix.Transport.SquirixTransportException`. Inspect `StatusCode` and `Message`. For example, missing or
 invalid credentials yield `Unauthenticated`, and payload or capacity refusals use `ResourceExhausted`.
 `Squirix.Server` exception types are not the SDK's remote exception contract; applications do not need to reference the
 server package to handle these failures. See [retry and failover behavior](bootstrap-client-failover.md#per-operation-failover-v01-exported-client).
 
 ## Wire contract
 
-gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
+Protobuf schema: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
 
-`SquirixCacheService` exposes **10** unary RPCs on the v0.1 server surface:
+The binary protocol exposes **13** cache operations:
 
-| Wire RPC (`SquirixCache.proto`)   | gRPC client / `ICache<T>`   | Notes                                                                                                                 |
+| Wire RPC (`SquirixCache.proto`)   | SDK API   | Notes                                                                                                                 |
 | :-------------------------------- | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
-| `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire` (`SetEntryAsync` on generated client)                                                     |
-| `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire` (`TryAddEntryAsync` on generated client); `AddAsync` throws when the key exists |
+| `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire`                                                     |
+| `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire`; `AddAsync` throws when the key exists |
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
 | `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error) and the time left (`remaining`)  |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
@@ -130,25 +130,26 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
 | `Remove`                          | `RemoveAsync`               |                                                                                                                       |
 | `Touch`                           | `TouchAsync`                | Relative expiration (`Duration`)                                                                                      |
-| `RemoveExpiration`                | `RemoveExpirationAsync`     |                                                                                                                       |
+| `RemoveExpiration` | `ICache<T>.RemoveExpirationAsync` | Clears an existing expiration. |
+| `SetDistributed` | `IDistributedCache.SetAsync` | Stores opaque bytes and their expiration policy. |
+| `GetDistributed` | `IDistributedCache.GetAsync` | Reads the current value and renews sliding expiration when applicable. |
+| `RefreshDistributed` | `IDistributedCache.RefreshAsync` | Renews sliding expiration without returning the value. |
 
 Mutations that accept expiration use `SetEntry` / `TryAddEntry` with `CacheEntryWire`. There are no flat `Set` / `TryAdd`
 value-only mutation RPCs on the wire surface.
 
-The server runtime pipeline (`ICacheApi`) is entry-based only (eight methods). gRPC handlers translate wire requests into
+The server runtime pipeline (`ICacheApi`) is entry-based only (eight methods). Cache handlers translate wire requests into
 that runtime surface; `GetExpiration` and `GetOrAdd` are wire convenience RPCs whose handlers may compose runtime calls
 internally — the client SDK calls one RPC per exported method and does not stitch multiple RPCs together.
 
-Wire RPC names omit the `Async` suffix; grpc-dotnet appends it on generated client methods (for example `SetEntry` →
-`SetEntryAsync`). Public `ICache<T>` names stay `SetAsync` / `TryAddAsync`.
+Wire operation names use the `BinaryOperation` enum. Public `ICache<T>` methods use their asynchronous API names.
 
 There is no `Contains` RPC. Prefer `GetValueAsync` or `GetEntryAsync` for presence checks (`found=false` is not an
 error). HTTP on the primary listener is limited to health and metrics — there is no REST cache `HEAD` route in v0.1.
 
 ### Value encoding
 
-The public cache gRPC service uses the proto package `squirix.cache.v2`. A client calling this service under an older
-package name receives `Unimplemented`. Internode replication uses the separate proto package `squirix.replication`.
+Cache messages use the proto package `squirix.cache.v2`. Internode replication uses `squirix.replication`.
 
 | Kind | Used for |
 | :--- | :------- |
@@ -172,10 +173,10 @@ JSON text. `ICache<object>` reads native integers as `long` and JSON values as `
 A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
 the key already held one (`added=false`, `found=true`); when it added, the caller already has the value.
 
-Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
+Mutating cache requests require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
 hyphens, for example `0123456789abcdef0123456789abcdef`). The `Squirix` client SDK generates a fresh id per mutating
-call via `RpcOperationIdentity.New()`; custom gRPC clients must supply a conforming value. Over-length or malformed ids
-are rejected with gRPC `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
+call via `RpcOperationIdentity.New()`; custom binary clients must supply a conforming value. Over-length or malformed ids
+are rejected with `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
 reuse with a different payload (`FailedPrecondition`).
 
 The adapter's `GetDistributed` uses its request ID for correlation. Every transport execution performs a fresh read and,
@@ -195,12 +196,12 @@ retained removal ID returns that boolean without deleting a replacement entry.
 The 4 MiB limit applies to the encoded entry, including value encoding, expiration, version, and tag metadata, not just
 to the original application value. A byte array written through the native typed SDK with the default serializer becomes
 Base64 JSON. The distributed cache adapter sends bytes directly. Leave room for entry and adapter metadata within the 4 MiB limit.
-The v0.1 SDK has no public API for assigning entry tags; the tag limits also apply to raw gRPC entries.
+The v0.1 SDK has no public API for assigning entry tags; the tag limits also apply to raw binary entries.
 
-Violations return stable public codes: `INVALID_ENTRY_TAGS` as gRPC `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as
-gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `TOO_MANY_REQUESTS`,
+Violations return stable public codes: `INVALID_ENTRY_TAGS` as `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as
+`ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `TOO_MANY_REQUESTS`,
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
-`ArgumentException` → gRPC `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
+`ArgumentException` → `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
 In a multi-node cluster, the entry node forwards the client request to the key owner (the replica group leader when automatic failover is on) over internode gRPC unchanged, with
 the **client** `operation_id` and without running the cache pipeline itself. Only the owner records the outcome:
@@ -209,7 +210,7 @@ the entry node keeps none. When a retry lands on a different entry node (bootstr
 failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
 applied twice. In a replicated cache an outcome is replayable for at least 30 seconds by the clock of the node that answers the retry; with
 node clocks within 10 seconds of each other, it is replayable for at least 20 seconds after the leader decided it, across a leader change or
-a restart too. The `squirix` client retries within its 15 s operation deadline, so it is covered. A raw gRPC client that retries later than
+a restart too. The `squirix` client retries within its 15 s operation deadline, so it is covered. A raw binary client that retries later than
 that may get a new execution of the mutation. On an RF=1 node an outcome is replayable for at least 30 seconds, and up to 15 minutes while
 the byte budget of the store has room.
 The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
@@ -219,10 +220,10 @@ the replica group of its key and keeps no node-wide record of it. There, a condi
 `GetOrAdd` over a present key, `Update` of an absent key) is evaluated again on retry instead of replayed, and the read of `GetOrAdd`
 reflects the current value.
 
-The approved RPC list is locked by a golden snapshot test:
-`tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt`.
+The public binary operation names and wire IDs are recorded in a golden snapshot:
+`tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixBinaryOperations.golden.txt`.
 
-Transport requires HTTPS endpoints. Cleartext `http://` URLs are rejected at configuration time.
+The SDK accepts `https://` endpoints and uses TLS for the binary transport.
 
 When JWT authentication is enabled on the server, set `SquirixClientOptions.BearerTokenProvider` to supply a token for each new physical connection.
 Subsequent RPCs use the bound identity without bearer metadata; see [cache connection authentication](security/connection-authentication.md).
@@ -232,7 +233,7 @@ Setting the client provider does not enable authentication on the server. See [C
 
 Keys are strings of at most 1024 UTF-16 code units (`string.Length`), not 1024 UTF-8 bytes. Null, empty, whitespace-only
 keys and keys containing control characters are rejected with `ArgumentException` by the SDK. Keys are not restricted
-to the ASCII character set required for cache names. Raw gRPC requests with invalid keys are rejected with
+to the ASCII character set required for cache names. Raw binary requests with invalid keys are rejected with
 `InvalidArgument` and the `INVALID_CACHE_KEY` code.
 
 ## Cache names

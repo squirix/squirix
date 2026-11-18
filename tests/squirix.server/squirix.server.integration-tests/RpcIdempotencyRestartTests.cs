@@ -46,7 +46,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         var snapshot = node.GetRequiredService<Coordinator>();
         var ledger = node.GetRequiredService<Ledger>();
         var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
-        using (var channel = CreateGrpcChannel(node.Uri))
+        using (var channel = CreateBinaryChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
@@ -63,7 +63,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             "node-c",
             new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = SnapshotScope },
             cancellationToken);
-        using (var channel = CreateGrpcChannel(restartCluster["node-c"].Uri))
+        using (var channel = CreateBinaryChannel(restartCluster["node-c"].Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
@@ -86,7 +86,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { UsePersistence = true, ExtraScope = Scope }, cancellationToken);
         var node = cluster["node-a"];
-        using (var channel = CreateGrpcChannel(node.Uri))
+        using (var channel = CreateBinaryChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
@@ -101,7 +101,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             "node-a",
             new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope },
             cancellationToken);
-        using (var channel = CreateGrpcChannel(restartCluster["node-a"].Uri))
+        using (var channel = CreateBinaryChannel(restartCluster["node-a"].Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
@@ -127,7 +127,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync("node-b", new IntegrationStartOptions { UsePersistence = true, ExtraScope = SetScope }, cancellationToken);
         var node = cluster["node-b"];
-        using (var channel = CreateGrpcChannel(node.Uri))
+        using (var channel = CreateBinaryChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var first = await client.SetEntryAsync(request, cancellationToken: cancellationToken);
@@ -141,7 +141,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             "node-b",
             new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = SetScope },
             cancellationToken);
-        using (var channel = CreateGrpcChannel(restartCluster["node-b"].Uri))
+        using (var channel = CreateBinaryChannel(restartCluster["node-b"].Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var retry = await client.SetEntryAsync(request, cancellationToken: cancellationToken);

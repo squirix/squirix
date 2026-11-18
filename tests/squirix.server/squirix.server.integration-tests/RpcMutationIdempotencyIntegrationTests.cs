@@ -49,7 +49,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [MethodDataSource(nameof(InvalidOperationIds))]
     public async Task InvalidOperationIdReturnsInvalidArgument(string operationId, string key, string expectedDetail, CancellationToken cancellationToken)
     {
-        using var channel = CreateGrpcChannel(Uri);
+        using var channel = CreateBinaryChannel(Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -75,7 +75,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [Test]
     public async Task RepeatedOperationIdReplaysResponse(CancellationToken cancellationToken)
     {
-        using var channel = CreateGrpcChannel(Uri);
+        using var channel = CreateBinaryChannel(Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new TryAddEntryAsyncRequest
         {
@@ -97,7 +97,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [Test]
     public async Task ReuseReturnsFailedPrecondition(CancellationToken cancellationToken)
     {
-        using var channel = CreateGrpcChannel(Uri);
+        using var channel = CreateBinaryChannel(Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         _ = await client.TryAddEntryAsync(

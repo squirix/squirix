@@ -34,25 +34,23 @@ public sealed class ClientArchitectureTests
         _clientProject = new XPathDocument(reader);
     }
 
-    /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
+    /// <summary>Checks that neither the SDK project nor its compiled assembly references gRPC.</summary>
     [Test]
-    public async Task GeneratesNarrowCacheGrpcFromShared()
+    public async Task CacheTransportDoesNotReferenceGrpc()
     {
-        var protobuf = await Assert.That(FindIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto")).IsNotNull();
+        _ = await Assert.That(GetIncludes("PackageReference")).DoesNotContain(static include => include.StartsWith("Grpc.", StringComparison.Ordinal));
+        _ = await Assert.That(GetIncludes("Protobuf")).IsEmpty();
 
-        _ = await Assert.That(protobuf.GetAttribute("GrpcServices", string.Empty)).IsEqualTo("Client");
-        _ = await Assert.That(protobuf.GetAttribute("ProtoRoot", string.Empty)).IsEqualTo(@"..\shared\Squirix\Transport\Grpc\Protos");
-        _ = await Assert.That(protobuf.GetAttribute("Access", string.Empty)).IsEqualTo("Internal");
-        _ = typeof(SquirixCacheService.SquirixCacheServiceClient);
-    }
+        await using var stream = File.OpenRead(PathKit.Combine(AppContext.BaseDirectory, "Squirix.dll"));
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        foreach (var handle in reader.AssemblyReferences)
+        {
+            var reference = reader.GetAssemblyReference(handle);
+            _ = await Assert.That(reader.GetString(reference.Name).StartsWith("Grpc.", StringComparison.Ordinal)).IsFalse();
+        }
 
-    /// <summary>Ensures the client-generated gRPC CLR transport types remain internal and client-only.</summary>
-    [Test]
-    public async Task GrpcTransportTypesRemainInternal()
-    {
         _ = await Assert.That(typeof(CacheEntryWire).IsPublic).IsFalse();
-        _ = await Assert.That(typeof(SquirixCacheService).IsPublic).IsFalse();
-        _ = typeof(SquirixCacheService.SquirixCacheServiceClient);
     }
 
     /// <summary>Ensures the client package does not grant the server assembly access to internal SDK types.</summary>
@@ -114,20 +112,6 @@ public sealed class ClientArchitectureTests
         }
 
         return includes;
-    }
-
-    private static XPathNavigator? FindIncludedElement(string itemName, string include)
-    {
-        var elements = ProjectElements();
-        while (elements.MoveNext())
-        {
-            var element = elements.Current!;
-            if (string.Equals(element.LocalName, itemName, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
-                return element;
-        }
-
-        return null;
     }
 
     private static XPathNodeIterator ProjectElements() =>

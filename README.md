@@ -6,7 +6,7 @@
 [![.NET 10 and 11](https://img.shields.io/badge/.NET-10%20and%2011-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet)
 [![Slack](https://img.shields.io/badge/Slack-join-4A154B?logo=slack&logoColor=white)](https://squirix.slack.com)
 
-Experimental distributed cache for **.NET 10 and .NET 11**. Apps use the `Squirix` client SDK over HTTPS gRPC; server nodes own
+Experimental distributed cache for **.NET 10 and .NET 11**. Apps use the `Squirix` client SDK over the binary TLS transport; server nodes own
 cache state, routing, durability, and ops endpoints.
 Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC); see [consistency](docs/consistency.md#cap-and-pacelc).
 
@@ -23,7 +23,7 @@ All packages are published under the [squirix NuGet profile](https://www.nuget.o
 | Package                                                                                    | Role                                                     |
 |--------------------------------------------------------------------------------------------|----------------------------------------------------------|
 | [`squirix`](https://www.nuget.org/packages/squirix/)                                       | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)                         | Server runtime — routing, durability, gRPC host          |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)                         | Server runtime — routing, durability, and cache hosting          |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/)               | Standalone `squirix-server` global tool                  |
 | [`squirix.extensions.caching`](https://www.nuget.org/packages/squirix.extensions.caching/) | `IDistributedCache` provider for HybridCache L2          |
 
@@ -100,7 +100,7 @@ See [cache connection authentication](docs/security/connection-authentication.md
 
 ## How it works
 
-Applications connect through the Squirix client SDK over gRPC.
+Applications connect through the Squirix client SDK over the binary TLS transport.
 The server routes each key to its owner or the current leader of its replica group.
 
 ![Squirix request routing, replication, and local storage](docs/assets/squirix-architecture.svg)

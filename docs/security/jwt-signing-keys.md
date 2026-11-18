@@ -30,7 +30,7 @@ Implementation (symmetric mode): `SecurityServiceRegistration` accepts **one** s
 `SQUIRIX_JWT_SIGNING_KEY` is a **shared secret**. Any party that knows the key can mint JWTs that every Squirix node
 configured with the same key will accept on the primary listener.
 
-A compromised symmetric signing key allows forgery of **external** API access (cache gRPC, remote metrics / readiness
+A compromised symmetric signing key allows forgery of **external** API access (binary cache connections, remote metrics / readiness
 details when JWT is required). It does **not** bypass internode mTLS: cluster forwarding still requires valid node
 certificates on the internal listener.
 

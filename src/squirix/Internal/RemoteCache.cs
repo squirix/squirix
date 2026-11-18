@@ -4,10 +4,10 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.Internal.Cluster.Transport;
+using Squirix.Transport;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
@@ -41,8 +41,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, options) =>
             {
-                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
-                                          .ResponseAsync;
+                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options)
+;
                 return new ValueTask<GetEntryAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
@@ -66,8 +66,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, options) =>
             {
-                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
-                                          .ResponseAsync;
+                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options)
+;
                 return new ValueTask<GetExpirationAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
@@ -108,8 +108,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var r = await _rpc.ExecuteAsync(
             static (client, state, options) =>
             {
-                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
-                                          .ResponseAsync;
+                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options)
+;
                 return new ValueTask<GetValueAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
@@ -126,7 +126,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             {
                 var responseAsync = client.RemoveAsync(
                     new RemoveAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    options).ResponseAsync;
+                    in options);
                 return new ValueTask<RemoveAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
@@ -143,7 +143,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             {
                 var responseAsync = client.RemoveExpirationAsync(
                     new RemoveExpirationAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    options).ResponseAsync;
+                    in options);
                 return new ValueTask<RemoveExpirationAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
@@ -162,7 +162,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         _ = await _rpc.ExecuteAsync(
             static (client, state, options) =>
             {
-                var responseAsync = client.SetEntryAsync(state, options).ResponseAsync;
+                var responseAsync = client.SetEntryAsync(state, in options);
                 return new ValueTask<SetAsyncResponse>(responseAsync);
             },
             request,
@@ -183,7 +183,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                     Key = state.Key,
                     Expiration = state.Expiration,
                 };
-                var responseAsync = client.TouchAsync(touchAsyncRequest, options).ResponseAsync;
+                var responseAsync = client.TouchAsync(touchAsyncRequest, in options);
                 return new ValueTask<TouchAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: WireDuration.FromTimeSpan(expiration)),
@@ -209,7 +209,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, options) =>
             {
-                var responseAsync = client.TryAddEntryAsync(state, options).ResponseAsync;
+                var responseAsync = client.AddEntryIfMissingAsync(state, in options);
                 return new ValueTask<TryAddAsyncResponse>(responseAsync);
             },
             request,
@@ -232,7 +232,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, options) =>
             {
-                var responseAsync = client.UpdateAsync(state, options).ResponseAsync;
+                var responseAsync = client.UpdateAsync(state, in options);
                 return new ValueTask<UpdateAsyncResponse>(responseAsync);
             },
             request,
@@ -250,7 +250,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         var r = await cache._rpc.ExecuteAsync(
             static (client, requestState, options) =>
             {
-                var responseAsync = client.GetOrAddAsync(requestState, options).ResponseAsync;
+                var responseAsync = client.GetOrAddAsync(requestState, in options);
                 return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
             },
             request,
@@ -333,7 +333,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         }
 
         internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
-            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CallOptions, ValueTask<TResult>> action,
+            Func<BinaryCacheClient, TState, BinaryCallOptions, ValueTask<TResult>> action,
             TState state,
             CancellationToken cancellationToken) => AwaitRpcGuardedAsync(ExecuteCoreAsync(action, state, cancellationToken));
 
@@ -365,7 +365,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             {
                 return await task.ConfigureAwait(false);
             }
-            catch (RpcException ex)
+            catch (SquirixTransportException ex)
             {
                 RemoteRpcErrorMapper.Map(ex);
                 throw;
@@ -373,7 +373,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         }
 
         private ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
-            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CallOptions, ValueTask<TResult>> action,
+            Func<BinaryCacheClient, TState, BinaryCallOptions, ValueTask<TResult>> action,
             TState state,
             CancellationToken cancellationToken) => _failover.ExecuteAsync(
             static (nodeId, execution, budget, ct) =>
@@ -383,12 +383,12 @@ internal sealed class RemoteCache<T> : ICache<T>
                     static (policyState, token) => policyState.Action(
                         policyState.Client,
                         policyState.State,
-                        new CallOptions(deadline: policyState.Budget.ForwardDeadlineUtc, cancellationToken: token)),
-                    (execution.Action, node.Client, execution.State, Budget: budget),
+                        new BinaryCallOptions(policyState.Budget.ForwardDeadlineUtc, token, policyState.CallerToken)),
+                    (execution.Action, node.Client, execution.State, Budget: budget, execution.CallerToken),
                     ct,
                     budget);
             },
-            (Cache: this, Action: action, State: state),
+            (Cache: this, Action: action, State: state, CallerToken: cancellationToken),
             cancellationToken);
 
         private static class CacheOperationContract
@@ -402,20 +402,20 @@ internal sealed class RemoteCache<T> : ICache<T>
         private static class RemoteRpcErrorMapper
         {
             /// <summary>Applies remote RPC error mapping and always throws (never returns normally).</summary>
-            /// <param name="ex">The gRPC transport exception from the remote cache pipeline.</param>
+            /// <param name="ex">The transport exception from the remote cache pipeline.</param>
             /// <exception cref="OperationIdRequiredException">When the server rejected a missing operation id.</exception>
             /// <exception cref="OperationIdReuseMismatchException">When the server rejected an operation-id reuse mismatch.</exception>
             /// <exception cref="CommitOutcomeUnknownException">When the server reports an ambiguous durable commit outcome.</exception>
-            /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
+            /// <exception cref="SquirixTransportException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
             [DoesNotReturn]
-            internal static void Map(RpcException ex)
+            internal static void Map(SquirixTransportException ex)
             {
                 ArgumentNullException.ThrowIfNull(ex);
 
-                if (ex.StatusCode is StatusCode.InvalidArgument && CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
+                if (ex.StatusCode is CacheTransportStatusCode.InvalidArgument && CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
                     throw new OperationIdRequiredException(ex.Status.Detail, ex);
 
-                if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContract.IsOperationIdReuseMismatchMessage(ex.Status.Detail))
+                if (ex.StatusCode is CacheTransportStatusCode.FailedPrecondition && CacheOperationContract.IsOperationIdReuseMismatchMessage(ex.Status.Detail))
                     throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
 
                 var commitUnknown = CommitOutcomeUnknownClassifier.Map(ex);

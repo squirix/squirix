@@ -9,6 +9,7 @@ using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -135,8 +136,8 @@ public sealed class PartitionFailoverTests
         var (holder, _) = scene.Probe.Ledger(Group).Observe([scene.Former.NodeId]);
         var writing = scene.Clients.Isolated.SetAsync(scene.Singles.Lost, 99L, cancellationToken: cancellationToken);
         var reading = scene.Clients.Isolated.GetValueAsync(scene.Singles.Stale, cancellationToken);
-        var write = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(writing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var read = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var write = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(writing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var read = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(reading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var heldAuthority = string.Equals(holder, scene.Former.NodeId, StringComparison.Ordinal);
         var (probeRead, elapsed) = await recovery;
         var leader = await scene.Probe.WaitForNewLeaderAsync(Group, scene.Former.Term, FailoverSteps.Bound, cancellationToken);

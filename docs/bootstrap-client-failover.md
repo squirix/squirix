@@ -26,16 +26,16 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 
 Warm-up establishes TCP reachability; it does not execute a cache RPC or complete TLS and connection authentication. `ConnectAsync` can
 succeed against a JWT-protected server without a token, while the first cache operation fails with `Unauthenticated`.
-A fresh physical transport obtains credentials from `BearerTokenProvider` once, before HTTP/2 cache RPCs begin.
+A fresh physical transport obtains credentials from `BearerTokenProvider` once, during the binary TLS connection handshake.
 See [cache connection authentication](security/connection-authentication.md) for expiry and automatic transport renewal.
 It also does not establish that recovery has finished or that a replica group has a leader.
 
 ## Per-operation failover (v0.1 exported client)
 
-Each exported `ICache<T>` operation maps to one unary gRPC method. The SDK can retry that request on the same
+Each exported `ICache<T>` operation maps to one binary cache operation. The SDK can retry that request on the same
 bootstrap endpoint or send it to another endpoint.
 
-The retry policy uses gRPC status codes, not a distinction between transport and application errors. It retries
+The retry policy uses cache transport status codes, not a distinction between transport and application errors. It retries
 `Unavailable`, `Internal`, and `ResourceExhausted`, as well as attempt timeouts, while attempts and the operation budget
 remain. After the endpoint policy fails, `Unavailable`, `DeadlineExceeded`, `Internal`, and `ResourceExhausted` can move
 the call to another bootstrap endpoint. This includes capacity refusals such as memory pressure, journal quota, and
@@ -56,9 +56,9 @@ Every exported `ICache<T>` operation runs under one absolute deadline, 15s after
 shared by everything the operation does: retries on one endpoint (3 attempts of up to 3s each), failover to the next
 bootstrap endpoint, and the server-side routing to the key owner. It does not grow with the number of endpoints.
 
-- The client sends the deadline to the server as the gRPC call deadline. The entry node and any owner-routing hop work
+- The client sends the deadline to the server as a timeout in the binary request. The entry node and any owner-routing hop work
   within the same remaining budget.
-- When the deadline passes, the operation fails with `RpcException` and status `DeadlineExceeded`; no further attempt or
+- When the deadline passes, the operation fails with `SquirixTransportException` and status `DeadlineExceeded`; no further attempt or
   endpoint is tried. When the deadline passes after an endpoint failed with a transport error, that endpoint's error is
   surfaced and the remaining endpoints are not tried.
 - For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by
@@ -77,7 +77,7 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
   an unreachable peer using production connect defaults.
 - Client integration tests (`ClientPoolWarmUpTests`) cover unreachable-only warm-up with explicit fail-fast options.
 - Client unit tests (`OperationDeadlineTests`) drive a real `RemoteCache` against hung endpoints and check the shared
-  deadline, its gRPC call deadline, caller cancellation and the `operation_id` across retries.
+  deadline, its transport deadline, caller cancellation and the `operation_id` across retries.
 - E2E (`OperationDeadlineE2ETests`) checks that the server receives the client deadline and that an owner-routing hop
   gets a budget no larger than the entry node's.
 

@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Rocks;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -28,7 +28,7 @@ public sealed class RegisterWorkloadTests
         _ = writer.Setups.SetAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CacheEntryOptions?>(), Arg.Any<CancellationToken>())
                   .Callback(static (_, value, _, _) => value switch
                   {
-                      1L => Task.FromException(new RpcException(new Status(StatusCode.Unavailable, "down"))),
+                      1L => Task.FromException(new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "down"))),
                       2L => Task.FromException(new CommitOutcomeUnknownException("unknown")),
                       _ => Task.CompletedTask,
                   });
@@ -36,7 +36,7 @@ public sealed class RegisterWorkloadTests
         var reader = new ICacheCreateExpectations<long>();
         _ = reader.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
                   .Callback((_, _) => Interlocked.Increment(ref reads) == 1
-                      ? Task.FromException<CacheValueResult<long>>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow")))
+                      ? Task.FromException<CacheValueResult<long>>(new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "slow")))
                       : Task.FromResult(new CacheValueResult<long>(false, 0L)));
         var workload = new RegisterWorkload(writer.Instance(), reader.Instance(), Keys);
 

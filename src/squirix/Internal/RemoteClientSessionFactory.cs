@@ -44,7 +44,7 @@ internal static class RemoteClientSessionFactory
                 static peer => CallPolicyDefaults.Create(peer, TimeProvider.System),
                 TimeProvider.System,
                 handler,
-                bearerTokenProvider: bearerTokenProvider);
+                bearerTokenProvider);
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId, CallPolicyDefaults.OperationDeadline, TimeProvider.System);
             var connected = pool;
@@ -124,7 +124,7 @@ internal static class RemoteClientSessionFactory
     private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, string paramName, ref int count)
     {
         var validated = RequireAbsoluteEndpoint(endpoint, paramName);
-        GrpcTransportEndpoints.RequireHttps(validated);
+        BinaryCacheClient.RequireHttps(validated);
         if (!seen.Add(validated.GetLeftPart(UriPartial.Authority)))
             return false;
 

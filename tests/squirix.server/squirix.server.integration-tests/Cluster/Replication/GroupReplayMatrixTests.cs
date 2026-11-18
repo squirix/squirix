@@ -54,7 +54,7 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, CleanTestDir = true, ExtraScope = $"group-replay-{mutation}" };
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", options, cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
         _ = await client.SetEntryAsync(CreateSet(key, "initial", TimeSpan.FromHours(1)), cancellationToken: cancellationToken);

@@ -9,7 +9,6 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Net.Client;
 using JetBrains.Annotations;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -210,20 +209,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <returns>A held loopback port; the hold is released by node startup, disposing it earlier releases it manually.</returns>
     protected static HeldPort AllocateDedicatedPort() => ListenPortPool.IntegrationTests.HoldPort();
 
-    /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
+    /// <summary>Creates a public binary TLS channel against a test node URL.</summary>
     /// <param name="uri">The node listen URL.</param>
     /// <param name="bearerToken">Optional JWT used to authenticate the physical connection.</param>
     /// <param name="acknowledgement">Optional observer of the server acknowledgement status.</param>
     /// <returns>A disposable gRPC channel.</returns>
-    protected static GrpcChannel CreateGrpcChannel(Uri uri, string? bearerToken = null, Action<byte>? acknowledgement = null) => GrpcChannel.ForAddress(
-        uri,
-        new GrpcChannelOptions
-        {
-            HttpHandler = bearerToken == null ? LoopbackHttp.CreateHandler() : LoopbackHttp.CreateAuthenticatedHandler(bearerToken, acknowledgement),
-            DisposeHttpClient = true,
-            MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-            MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-        });
+    protected static PublicBinaryChannel CreateBinaryChannel(Uri uri, string? bearerToken = null, Action<byte>? acknowledgement = null) => new(uri, bearerToken, acknowledgement);
 
     /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until node startup (or disposal of a cluster whose node never started) releases it.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>

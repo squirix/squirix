@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.E2ETests.Fixtures.ProcessHosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -43,17 +43,17 @@ public sealed class DistributedCacheProcessShutdownTests
         _ = await Assert.That(await cache.GetAsync("expires", cancellationToken)).IsNull();
 
         await server.StopAsync(cancellationToken);
-        _ = await Assert.That(await ProbeAsync(cache, cancellationToken)).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(await ProbeAsync(cache, cancellationToken)).IsEqualTo(CacheTransportStatusCode.Unavailable);
     }
 
-    private static async Task<StatusCode> ProbeAsync(IDistributedCache cache, CancellationToken cancellationToken)
+    private static async Task<CacheTransportStatusCode> ProbeAsync(IDistributedCache cache, CancellationToken cancellationToken)
     {
         try
         {
             _ = await cache.GetAsync("binary", cancellationToken).ConfigureAwait(false);
-            return StatusCode.OK;
+            return CacheTransportStatusCode.Ok;
         }
-        catch (RpcException ex)
+        catch (SquirixTransportException ex)
         {
             return ex.StatusCode;
         }

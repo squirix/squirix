@@ -5,14 +5,13 @@ The SDK obtains a JWT from `SquirixClientOptions.BearerTokenProvider` during tha
 Subsequent RPCs use the identity bound to the connection and do not send a bearer token or repeat its signature verification.
 Authorization, the accepted lifetime bounds and the active trust configuration are still checked at each request boundary.
 
-This replaces per-RPC bearer authentication for cache operations. There is no setting that restores the former mode.
-Update SDK and server together. A raw gRPC client that only adds `Authorization: Bearer` metadata cannot authenticate a cache connection.
+Update SDK and server together. The client presents its bearer token during the binary TLS connection handshake.
 
 ## Supply credentials
 
-Keep using `BearerTokenProvider`; its invocation frequency has changed from each RPC to each new physical transport.
+Set `BearerTokenProvider` to supply a JWT for each new physical connection.
 The provider must return a currently valid token and support cancellation and concurrent invocations.
-A channel may create multiple connections, and reconnect or failover can invoke the provider again.
+A client may connect to multiple endpoints. Reconnect or failover can invoke the provider again.
 Transports can also rotate before token expiry; the provider must remain available for the client lifetime.
 
 Cache identity-provider acquisitions inside your provider when appropriate, but refresh expiring credentials.
@@ -29,7 +28,7 @@ The server applies the configured JWT issuer, audience, signature and lifetime v
 The existing two-minute clock-skew allowance still applies. Each RPC must remain inside the accepted not-before and expiry bounds.
 Expiry does not cancel an operation that the server has already admitted.
 
-When the connection's authorization expires, the server requests graceful HTTP/2 connection closure.
+When the connection's authorization expires, the server requests graceful connection closure.
 The SDK establishes a new transport and calls the provider again. Supply a refreshed token from that invocation.
 A request refused before admission for connection renewal can retry under the existing operation deadline and retry limits.
 Already admitted requests can finish while the old connection drains.
@@ -63,14 +62,13 @@ Custom clones are responsible for independently owning hidden mutable state and 
 Malformed returned clones are rejected during connection authentication or request authentication, without fallback to base types.
 Exceptions thrown by custom clones remain host hook errors.
 
-## Transport and migration
+## Transport
 
-The authenticated cache transport uses a versioned exchange inside TLS before the standard HTTP/2 preface.
+The authenticated cache transport uses a versioned authentication exchange inside TLS before the first cache request.
 The token is encrypted on the wire. Tokens must fit within the protocol's 8,192-byte UTF-8 limit.
 The server bounds authentication input, waiting and concurrent work.
 
 Use a direct SDK-to-server connection or a layer-4 proxy that passes the encrypted transport through unchanged.
-An ordinary HTTP/2-terminating proxy does not transparently support this exchange.
 Do not put bearer metadata on data RPCs or share one physical authenticated connection between different identities.
 
 Ordinary HTTP health probes still use the primary HTTPS port without the cache authentication exchange.

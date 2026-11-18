@@ -9,6 +9,7 @@ using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -222,10 +223,10 @@ public sealed class FiveNodeMinorityTests
             calls.Add(deposedLeaderReading);
             var deposedFollowerReading = wires.Follower.ReadAsync(CacheName, singles.Stale, DeposedReadDeadline, cancellationToken);
             calls.Add(deposedFollowerReading);
-            leaderWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(leaderWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            followerWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(followerWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            leaderRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(leaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            followerRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(followerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            leaderWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(leaderWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            followerWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(followerWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            leaderRead = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(leaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            followerRead = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(followerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             deposedLeaderRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(deposedLeaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             deposedFollowerRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(deposedFollowerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }

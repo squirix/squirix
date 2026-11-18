@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -34,7 +34,7 @@ public sealed class EndpointFailoverTests
                 {
                     _ = budget;
                     if (string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
-                        throw new RpcException(new Status(StatusCode.Unavailable, "down"));
+                        throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "down"));
 
                     _ = state.Ready.Release();
                     await state.Release.WaitAsync(ct).ConfigureAwait(false);
@@ -74,7 +74,7 @@ public sealed class EndpointFailoverTests
                 if (!string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
                     return ValueTask.FromResult(budget.Remaining);
                 state.Advance(TimeSpan.FromSeconds(10));
-                throw new RpcException(new Status(StatusCode.Unavailable, "down"));
+                throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "down"));
             },
             clock,
             CancellationToken.None);
@@ -89,13 +89,13 @@ public sealed class EndpointFailoverTests
     {
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken),
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
+            failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.NotFound, "missing")), 0, cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.NotFound);
     }
 
     /// <summary>
@@ -109,12 +109,12 @@ public sealed class EndpointFailoverTests
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var callCount = new MutableCallCount();
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
             failover.ExecuteAsync<MutableCallCount, int>(
                 static (_, state, _, _) =>
                 {
                     state.Value++;
-                    throw new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
+                    throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
                 },
                 callCount,
                 cancellationToken),
@@ -122,7 +122,7 @@ public sealed class EndpointFailoverTests
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.Unavailable);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(CommitOutcomeUnknownException.StableDetail);
         _ = await Assert.That(callCount.Value).IsEqualTo(1);
     }

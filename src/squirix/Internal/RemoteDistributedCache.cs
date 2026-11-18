@@ -43,7 +43,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     {
         var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
         var reply = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<GetDistributedAsyncResponse>(client.GetDistributedAsync(wire, options).ResponseAsync),
+            static (client, wire, options) => new ValueTask<GetDistributedAsyncResponse>(client.GetDistributedAsync(wire, in options)),
             request,
             cancellationToken).ConfigureAwait(false);
         return reply.Found ? reply.Value.ToByteArray() : null;
@@ -74,7 +74,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
             request.SlidingTicks = interval;
 
         _ = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<SetAsyncResponse>(client.SetDistributedAsync(wire, options).ResponseAsync),
+            static (client, wire, options) => new ValueTask<SetAsyncResponse>(client.SetDistributedAsync(wire, in options)),
             request,
             cancellationToken).ConfigureAwait(false);
     }
@@ -83,7 +83,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     {
         var request = new RefreshDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
         _ = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<RefreshDistributedAsyncResponse>(client.RefreshDistributedAsync(wire, options).ResponseAsync),
+            static (client, wire, options) => new ValueTask<RefreshDistributedAsyncResponse>(client.RefreshDistributedAsync(wire, in options)),
             request,
             cancellationToken).ConfigureAwait(false);
     }
@@ -92,7 +92,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     {
         var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
         _ = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<RemoveAsyncResponse>(client.RemoveAsync(wire, options).ResponseAsync),
+            static (client, wire, options) => new ValueTask<RemoveAsyncResponse>(client.RemoveAsync(wire, in options)),
             request,
             cancellationToken).ConfigureAwait(false);
     }

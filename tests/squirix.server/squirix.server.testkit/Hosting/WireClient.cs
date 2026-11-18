@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Net.Client;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit.Networking;
@@ -9,17 +8,17 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
 
-/// <summary>Sends <see cref="WireMutation" /> instances to one node over the public gRPC contract, without the SDK.</summary>
+/// <summary>Sends <see cref="WireMutation" /> instances to one node over the public binary contract, without the SDK.</summary>
 [Immutable]
 internal sealed class WireClient : IAsyncDisposable
 {
     /// <summary>The detail of the refusal a node returns when it knows no leader with authority for the group of a call.</summary>
     internal const string NoLeaderRefusalDetail = ServerOpContract.NoLeaderAuthorityDetail;
 
-    private readonly GrpcChannel _channel;
+    private readonly PublicBinaryChannel _channel;
     private readonly SquirixCacheService.SquirixCacheServiceClient _client;
 
-    private WireClient(GrpcChannel channel)
+    private WireClient(PublicBinaryChannel channel)
     {
         _channel = channel;
         _client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -38,7 +37,7 @@ internal sealed class WireClient : IAsyncDisposable
     internal static WireClient Connect(Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
-        return new WireClient(GrpcChannel.ForAddress(uri, new GrpcChannelOptions { HttpHandler = LoopbackHttp.CreateHandler(), DisposeHttpClient = true }));
+        return new WireClient(new PublicBinaryChannel(uri));
     }
 
     /// <summary>Reads a key once, with no retry and no reroute.</summary>

@@ -1,8 +1,8 @@
 using System;
 using System.IO;
-using Grpc.Core;
+using Squirix.Transport;
 
-namespace Squirix.Internal.Cluster.Transport;
+namespace Squirix.Internal.Cluster;
 
 /// <summary>Identifies an explicit authentication rejection received over the verified TLS transport.</summary>
 internal sealed class ConnectionRejectedException : IOException
@@ -27,12 +27,12 @@ internal sealed class ConnectionRejectedException : IOException
     {
     }
 
-    internal static RpcException? Map(Exception exception)
+    internal static SquirixTransportException? Map(Exception exception)
     {
-        for (Exception? current = exception; current != null; current = current is RpcException rpc ? rpc.Status.DebugException ?? rpc.InnerException : current.InnerException)
+        for (var current = exception; current != null; current = current.InnerException)
         {
             if (current is ConnectionRejectedException)
-                return new RpcException(new Status(StatusCode.Unauthenticated, "Connection authentication was rejected."));
+                return new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unauthenticated, "Connection authentication was rejected."));
         }
 
         return null;

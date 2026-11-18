@@ -26,7 +26,7 @@ dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
 squirix-server run
 ```
 
-The commands in this guide use the published `0.1.0-preview.10` packages. See the [root README](../README.md) for the current package version.
+The NuGet commands in this guide use the published `0.1.0-preview.10` packages. See the [root README](../README.md) for the current package version.
 
 The host listens on `https://localhost:5001` by default (loopback bind), runs as an in-memory cache, and prints
 ready-to-use client and operational endpoint URLs. **No JWT is required** on this default URL — any local process can
@@ -73,16 +73,28 @@ dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 
 ## 2. Add the client SDK
 
-Keep the server running. In a second terminal, create a console app and install the client SDK:
+Keep the server running. In a second terminal, create a console app. If you started the server from source,
+change to the repository root before creating the app.
 
 ```bash
 dotnet new console --framework net10.0 -o SquirixDemo
+```
+
+For the published preview.10 server tool, install the matching SDK package:
+
+```bash
 dotnet add SquirixDemo/SquirixDemo.csproj package squirix --version 0.1.0-preview.10
+```
+
+If you started the server from this checkout, run the following command from the repository root to reference the SDK from the same checkout:
+
+```bash
+dotnet add SquirixDemo/SquirixDemo.csproj reference src/squirix/Squirix.csproj
 ```
 
 ## 3. Connect and use a typed cache
 
-Use the HTTPS gRPC endpoint from the host output.
+Use the public TLS endpoint from the host output.
 
 **Local tool or `dotnet run`** (default `https://localhost:5001`, no JWT unless you configure auth):
 

@@ -44,6 +44,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\ConnectionAuthenticationProtocol.cs" Link="Adapters\Grpc\ConnectionAuthenticationProtocol.cs"/>
     </ItemGroup>
 
@@ -58,4 +59,10 @@
         <None Include="README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>
+
+    <Target Name="GenerateSdkProtobuf" DependsOnTargets="Protobuf_Compile">
+        <Copy SourceFiles="$(Protobuf_OutputPath)/SquirixCache.cs"
+              DestinationFiles="$(MSBuildProjectDirectory)/../squirix/Transport/Generated/SquirixCache.cs"
+              SkipUnchangedFiles="true"/>
+    </Target>
 </Project>

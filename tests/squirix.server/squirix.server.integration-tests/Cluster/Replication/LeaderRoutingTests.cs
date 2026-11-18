@@ -95,7 +95,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             cancellationToken);
 
         var key = KeyOwnedByOwner(cluster[entry]);
-        using var channel = CreateGrpcChannel(cluster[entry].Uri);
+        using var channel = CreateBinaryChannel(cluster[entry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[entry], 1), cancellationToken);
         var request = new SetEntryAsyncRequest
@@ -132,7 +132,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var term = 0UL;
         await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _), Bound, TimeProvider.System, cancellationToken);
         var key = KeyOwnedByOwner(cluster[entry]);
-        using var channel = CreateGrpcChannel(cluster[entry].Uri);
+        using var channel = CreateBinaryChannel(cluster[entry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[entry], 1), cancellationToken);
         await WarmUpStaleRouteAsync(probe, (entry, new LeaderRoute(follower, term)), client, KeyOwnedByOwner(cluster[entry], 2), cancellationToken);
@@ -174,7 +174,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-non-member", fabric, true), cancellationToken);
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
-        using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
+        using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new SetEntryAsyncRequest
         {
@@ -231,7 +231,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-cut-off", fabric), cancellationToken);
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
-        using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
+        using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = Calls.Write(key, "cut-off");
 
@@ -277,7 +277,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-black-hole", fabric, true), cancellationToken);
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
-        using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
+        using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new SetEntryAsyncRequest
         {
@@ -333,7 +333,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-silent", fabric, true), cancellationToken);
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
-        using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
+        using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[EntryOutsideGroup], 1), cancellationToken);
 
@@ -410,7 +410,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var third = Array.Find(Nodes, id => !string.Equals(id, leader, StringComparison.Ordinal) && !string.Equals(id, SilentEntry, StringComparison.Ordinal))!;
         await cluster.WaitUntilAsync(nodes => Follows(nodes[SilentEntry], leader, out _), Bound, TimeProvider.System, cancellationToken);
         var key = KeyOwnedByOwner(cluster[SilentEntry]);
-        using var channel = CreateGrpcChannel(cluster[SilentEntry].Uri);
+        using var channel = CreateBinaryChannel(cluster[SilentEntry].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[SilentEntry], 1), cancellationToken);
         await AwaitCaughtUpAsync(cluster[leader], cluster[third], cancellationToken);
@@ -449,7 +449,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(Table(entry)).IsTypeOf<StaticLeaderTable>();
 
         var key = KeyOwnedByOwner(entry);
-        using var channel = CreateGrpcChannel(entry.Uri);
+        using var channel = CreateBinaryChannel(entry.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(entry, 1), cancellationToken);
         var request = new SetEntryAsyncRequest
@@ -462,7 +462,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         _ = await Assert.That(await Calls.SetAsync(client, request, cancellationToken)).IsNull();
 
-        using var ownerChannel = CreateGrpcChannel(cluster[OwnerId].Uri);
+        using var ownerChannel = CreateBinaryChannel(cluster[OwnerId].Uri);
         var owner = new SquirixCacheService.SquirixCacheServiceClient(ownerChannel);
         var read = await owner.GetValueAsync(
             new GetValueAsyncRequest { CacheName = CacheName, Key = key },

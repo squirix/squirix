@@ -150,7 +150,7 @@ What clients see:
   leader wait, a stale reroute or a fallback keeps at least the margin, so a host that is down or drops connection attempts is refused as owner
   unreachable before that forward's deadline; a first forward with less deadline left than the connect timeout, or a host that accepts TCP but
   hangs in the TLS handshake, can still end as a deadline.
-- While no leader is available the call fails with gRPC `Unavailable`: `Replica group has no leader with authority on
+- While no leader is available the call fails with `Unavailable`: `Replica group has no leader with authority on
   this node; nothing was read or written.` or the detail `replica_leader_changed`. Nothing was written, so a retry
   with the same `operation_id` is safe.
 - The `squirix` client retries transport failures and moves to the next bootstrap endpoint within its single 15 s

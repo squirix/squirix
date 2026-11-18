@@ -2,9 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -65,7 +65,7 @@ public sealed class ReplicaSetsReleaseE2ETests
         using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bound.Token);
         var started = Stopwatch.GetTimestamp();
-        var exception = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(cache.SetAsync(key, "v2", cancellationToken: linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var exception = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(cache.SetAsync(key, "v2", cancellationToken: linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         // The framework token cancelling first means the harness tore down, not that mirror loss was observed.
@@ -75,7 +75,7 @@ public sealed class ReplicaSetsReleaseE2ETests
         _ = await Assert.That(bound.IsCancellationRequested).IsFalse().Because("The mutation stalled until the bound instead of refusing.");
 
         // RF=2 refuses with a product quorum error.
-        var condition = exception is CommitOutcomeUnknownException or RpcException;
+        var condition = exception is CommitOutcomeUnknownException or SquirixTransportException;
         _ = await Assert.That(condition).IsTrue().Because($"RF=2 without its mirror must refuse the mutation; observed {exception.GetType()} after {elapsed}.");
     }
 }

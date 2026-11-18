@@ -13,13 +13,11 @@ namespace Squirix.Server.TestKit.Mtls;
 /// <summary>Direct gRPC probes for internode mTLS security scenarios in black-box tests.</summary>
 public static class InterNodeGrpcProbe
 {
-    /// <summary>Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.</summary>
+    /// <summary>Attempts an owner-routing gRPC read on the public listener.</summary>
     /// <param name="uri">Primary external HTTPS listener URL.</param>
-    /// <param name="bearerToken">Optional external bearer token.</param>
-    /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The resulting gRPC status code.</returns>
-    public static async Task<StatusCode> GetValueAsync(Uri uri, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
+    public static async Task<StatusCode> GetValueAsync(Uri uri, CancellationToken cancellationToken)
     {
         using var channel = GrpcChannel.ForAddress(
             uri,
@@ -30,12 +28,10 @@ public static class InterNodeGrpcProbe
                 MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
-        var headers = new Metadata();
-        if (!string.IsNullOrWhiteSpace(bearerToken))
-            headers.Add("authorization", $"Bearer {bearerToken}");
-
-        if (includeInternalOwnerHeader)
-            headers.Add(RemoteInvocationContract.InternalOwnerRpcHeaderName, RemoteInvocationContract.InternalOwnerRpcHeaderValue);
+        var headers = new Metadata
+        {
+            { RemoteInvocationContract.InternalOwnerRpcHeaderName, RemoteInvocationContract.InternalOwnerRpcHeaderValue },
+        };
 
         try
         {

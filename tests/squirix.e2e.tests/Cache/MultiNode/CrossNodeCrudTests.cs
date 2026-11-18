@@ -22,6 +22,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         _ = await Assert.That(await Cluster.CacheB.TryAddAsync(key, "v2", cancellationToken: cancellationToken)).IsFalse();
+        _ = await Assert.That((await Cluster.CacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("v1");
     }
 
     /// <summary>Verifies AddAsync(string, T) observes existing named-cache entries across nodes.</summary>
@@ -83,7 +84,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
         _ = await Assert.That(valueB.Value).IsEqualTo(valueA.Value);
     }
 
-    /// <summary>Verifies an external gRPC client connected to a non-owner node is routed through the server-side cluster pipeline.</summary>
+    /// <summary>Verifies an external SDK client connected to a non-owner node is routed through the server-side cluster pipeline.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ExternalClientMutationsOwnedByNodeB(CancellationToken cancellationToken)

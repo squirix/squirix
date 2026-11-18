@@ -60,7 +60,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             cancellationToken);
 
         var stored = cluster["node-a"].GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey("default", key), cancellationToken);
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unimplemented);
         _ = await Assert.That(stored.Found).IsFalse();
     }
 
@@ -77,7 +77,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "forged-host-read");
 
-        using var seedChannel = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        using var seedChannel = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var seeded = await new SquirixCacheService.SquirixCacheServiceClient(seedChannel).SetEntryAsync(
             new SetEntryAsyncRequest
             {
@@ -97,8 +97,8 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
         var value = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var entry = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(value.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
-        _ = await Assert.That(entry.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(value.StatusCode).IsEqualTo(StatusCode.Unimplemented);
+        _ = await Assert.That(entry.StatusCode).IsEqualTo(StatusCode.Unimplemented);
     }
 
     /// <summary>A forged Host header on the public listener never reaches the closed replication service.</summary>
@@ -139,7 +139,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
     /// <summary>A forged Host header does not bypass JWT auth but a valid token still works on the public listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ForgedHostWithValidTokenStillServed(CancellationToken cancellationToken)
+    public async Task BinaryReadAfterForgedHostRejection(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "forged-host");
         await using var cluster = await StartClusterAsync(
@@ -149,12 +149,17 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "forged-host-token");
 
-        using var inner = LoopbackHttp.CreateAuthenticatedHandler(TestJwtHelper.CreateBearerToken(credentials));
+        using var inner = LoopbackHttp.CreateHandler();
         using var handler = new ForgedHostHandler(ForgedHost(cluster["node-a"]), inner);
-        using var channel = CreateChannel(cluster["node-a"], handler);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        using var legacy = CreateChannel(cluster["node-a"], handler);
+        var oldClient = new SquirixCacheService.SquirixCacheServiceClient(legacy);
+        var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
+        var rejected = await NodeAsyncAssert.ThrowsAsync<RpcException>(oldClient.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(rejected.StatusCode).IsEqualTo(StatusCode.Unimplemented);
 
-        var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(cancellationToken: cancellationToken));
+        using var channel = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var response = await client.GetValueAsync(request, cancellationToken: cancellationToken);
 
         _ = await Assert.That(response.Found).IsFalse();
     }

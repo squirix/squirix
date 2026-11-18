@@ -28,44 +28,48 @@ Package dependency rule:
 Squirix.Server does not reference the Squirix client assembly.
 ```
 
-Wire compatibility is through the shared gRPC proto contract (and HTTP health/metrics JSON), not a project reference from
+Wire compatibility is through the shared protobuf schema (and HTTP health/metrics JSON), not a project reference from
 server to client.
 
-The v0.1 gRPC wire contract is the shared source file at
-`src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto`, not a separate NuGet package. `Squirix` generates
-internal client transport types from that file with `GrpcServices="Client"`.
-`Squirix.Server` generates internal server and cluster client transport types from the same file with
-`GrpcServices="Server;Client"`. Share-sourced transport under `src/shared/Squirix/Transport/Grpc/Mappers/` is limited to
+The cache message schema lives in `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto`.
+`Squirix.Server` generates internal protobuf messages and internode gRPC stubs from this schema.
+The SDK compiles its checked-in copy of the generated messages. After editing the schema, refresh that copy from the repository root.
+
+```sh
+dotnet build src/squirix.server/Squirix.Server.csproj -t:GenerateSdkProtobuf
+```
+
+Share-sourced transport under `src/shared/Squirix/Transport/Grpc/Mappers/` is limited to
 cluster routing signals such as stale-owner markers (`GrpcStaleOwnerMarkers.cs`). Extended-operation wire mappers are
 outside this repository. Generated transport CLR types use internal transport namespaces, remain assembly-local
 implementation details, and must not become exported product API.
 
 `Squirix.Server` owns data placement, partition ownership, static cluster topology, owner routing, server-side
 KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycle, backpressure, memory pressure,
-health/security/metrics endpoints, and gRPC hosting. The separate `Squirix.Server.Host` executable owns the
+health/security/metrics endpoints, the binary cache listener, and internode gRPC. The separate `Squirix.Server.Host` executable owns the
 standalone process lifecycle.
 
 `Squirix` owns cache value/result types (`ICache<T>`, entry/result types, `ISquirixSerializer`). The exported v0.1 client
 entry surface lives in `Squirix.Client` (`SquirixClient`, `ISquirixClient`, `SquirixClientOptions`), typed facade,
 serializer boundary, and server-backed client connection configuration with bootstrap failover. Applications connect to
-`Squirix.Server` over gRPC (cache) and HTTPS for health/metrics; the client package does not host cache state or run the
+`Squirix.Server` over binary TLS for cache calls and HTTPS for health and metrics; the client package does not host cache state or run the
 durability stack in the application process.
 
 v0.1 `ICache<T>` is limited to basic async key/value and expiration operations (`AddAsync`, `TryAddAsync`, `SetAsync`,
 `UpdateAsync`, `GetValueAsync`, `GetEntryAsync`, `GetExpirationAsync`, `GetOrAddAsync`, `RemoveAsync`, `TouchAsync`,
 `RemoveExpirationAsync`). Prefer `GetValueAsync` for reads with explicit presence; there is no `GetValueOrDefaultAsync`
-on `ICache<T>`. `ContainsAsync` is not part of the v0.1 public client surface or the gRPC wire surface because existence
+on `ICache<T>`. `ContainsAsync` is not part of the v0.1 public client surface or the binary wire surface because existence
 can become stale immediately in a distributed cache; use `GetValueAsync` / `GetEntryAsync` instead.
 Writes accept a value plus optional `CacheEntryOptions`; `CacheEntry<T>` is a read model returned by lookup APIs, not a
 mutation parameter. When write options omit expiration (`options` is null, or neither `Expiration` nor `ExpiresAt` is
 set), the entry is stored without TTL and does not expire by time; overwriting an expiring key that way clears its TTL.
 Compare-and-set, counters, batch, scan, watch, and tag invalidation are not part of the v0.1 exported client surface.
 
-The v0.1 gRPC service surface in `SquirixCache.proto` exposes ten unary cache RPCs. Mutations with expiration use
+The binary protocol defines 13 operations in `SquirixCache.proto`, including three for `IDistributedCache`. Mutations with expiration use
 `SetEntry` / `TryAddEntry` with `CacheEntryWire`; the client SDK maps them to public `SetAsync` / `TryAddAsync`.
 `GetValue` and `GetEntry` are separate read paths; `GetExpiration` and `GetOrAdd` are additional wire RPCs aligned with
 `ICache<T>` without requiring the client to compose multiple calls. See [api.md](api.md#wire-contract). Regressions are
-caught by `SquirixGrpcEndpointSurface.golden.txt` in server unit tests.
+covered by SDK and server transport tests.
 
 The exported client entry point is asynchronous and remote:
 

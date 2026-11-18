@@ -12,12 +12,12 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Surfaces;
 
-/// <summary>Endpoint integration tests verifying JWT auth on gRPC cache RPCs when credentials are configured.</summary>
+/// <summary>Endpoint integration tests verifying JWT auth on binary cache calls when credentials are configured.</summary>
 public sealed class AuthTests : ServerSurfaceTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
 
-    /// <summary>Ensures gRPC cache RPCs reject missing and invalid JWT credentials and accept a valid bearer token.</summary>
+    /// <summary>Ensures binary cache calls reject missing and invalid JWT credentials and accept a valid bearer token.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task CacheRpcValidatesJwtWhenConfigured(CancellationToken cancellationToken)
@@ -30,7 +30,7 @@ public sealed class AuthTests : ServerSurfaceTestBase
             cancellationToken);
         var uri = cluster["node-grpc-auth"].Uri;
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateBinaryChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
@@ -38,19 +38,15 @@ public sealed class AuthTests : ServerSurfaceTestBase
         _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated).Because(missingAuth.Message);
 
         var token = TestJwtHelper.CreateBearerToken(credentials);
-        var bearerHeaders = new Metadata { { "authorization", $"Bearer {token}" } };
-        var unboundAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(getRequest, new CallOptions(bearerHeaders, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(unboundAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
-
         var rejectedStatus = byte.MaxValue;
-        using var invalidChannel = CreateGrpcChannel(uri, InvalidBearerToken, status => rejectedStatus = status);
+        using var invalidChannel = CreateBinaryChannel(uri, InvalidBearerToken, status => rejectedStatus = status);
         var invalidClient = new SquirixCacheService.SquirixCacheServiceClient(invalidChannel);
         var invalidAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(invalidClient.GetEntryAsync(getRequest, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(invalidAuth.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(rejectedStatus).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials);
 
         var acceptedHandshakes = 0;
-        using var authenticated = CreateGrpcChannel(uri, token, status =>
+        using var authenticated = CreateBinaryChannel(uri, token, status =>
         {
             if (status == ConnectionAuthenticationProtocol.Accepted)
                 _ = Interlocked.Increment(ref acceptedHandshakes);
@@ -61,8 +57,5 @@ public sealed class AuthTests : ServerSurfaceTestBase
         _ = await Assert.That(response.Found).IsFalse();
         _ = await Assert.That(repeated.Found).IsFalse();
         _ = await Assert.That(acceptedHandshakes).IsEqualTo(1);
-
-        var replacement = await NodeAsyncAssert.ThrowsAsync<RpcException>(authenticatedClient.GetEntryAsync(getRequest, new CallOptions(bearerHeaders, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(replacement.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 }

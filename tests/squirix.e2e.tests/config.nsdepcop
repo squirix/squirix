@@ -59,10 +59,10 @@
   <!-- Process smoke scenarios use only the exported SDK and their process fixture.
        The fixture shares test-only port coordination; server hosting and internals stay inaccessible. -->
   <Disallowed From="Squirix.E2ETests.Smoke.*" To="Squirix.Server.*" />
-  <Disallowed From="Squirix.E2ETests.Smoke.*" To="Squirix.Transport.*" />
+  <Disallowed From="Squirix.E2ETests.Smoke.*" To="/^Squirix\.Transport\./" />
   <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*"
               To="/^Squirix\.Server(?:\.(?!TestKit\.Networking(?:\.|$)).*)?$/" />
-  <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*" To="Squirix.Transport.*" />
+  <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*" To="/^Squirix\.Transport\./" />
   <Disallowed From="Squirix.E2ETests.Smoke.*"
               To="/^Squirix\.E2ETests(?:$|\.(?!(?:Smoke|Fixtures\.ProcessHosting)(?:\.|$)).*)$/" />
   <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*"

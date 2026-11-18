@@ -52,7 +52,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
         await using (app)
         {
-            using var channel = CreateGrpcChannel(uri);
+            using var channel = CreateBinaryChannel(uri);
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             _ = await client.SetEntryAsync(CreateSet("warm-up", "warm"), cancellationToken: cancellationToken);
 
@@ -76,7 +76,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         {
             _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsTrue();
 
-            using var channel = CreateGrpcChannel(uri);
+            using var channel = CreateBinaryChannel(uri);
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
             // The first call opens the connection and the segment, so the measured writes arrive together.
@@ -112,7 +112,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
         await using (app)
         {
-            using var channel = CreateGrpcChannel(uri);
+            using var channel = CreateBinaryChannel(uri);
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
             var mutations = new Task[Concurrency];
@@ -128,7 +128,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         var (restarted, restartedUri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
         await using (restarted)
         {
-            using var channel = CreateGrpcChannel(restartedUri);
+            using var channel = CreateBinaryChannel(restartedUri);
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
             var after = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);

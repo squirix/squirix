@@ -18,18 +18,18 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
-/// <summary>Integration coverage proving the server refuses compressed gRPC requests.</summary>
+/// <summary>Verifies a compressed legacy gRPC request cannot reach the public cache.</summary>
 public sealed class GrpcRequestCompressionTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-request-compression";
     private const string GzipEncoding = "gzip";
     private const string RequestEncodingHeader = "grpc-internal-encoding-request";
-    private const string UnsupportedEncodingDetail = "Unsupported grpc-encoding value 'gzip'";
+    private const string RemovedRouteDetail = "HTTP status code: 404";
 
     /// <summary>Verifies a gzip-compressed cache request fails with Unimplemented and is not applied.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CompressedCacheRequestIsRefused(CancellationToken cancellationToken)
+    public async Task PublicGrpcCompressionCannotReachCache(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
@@ -59,9 +59,9 @@ public sealed class GrpcRequestCompressionTests : NodeIntegrationTestBase
             cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unimplemented);
-        _ = await Assert.That(ex.Status.Detail).Contains(UnsupportedEncodingDetail);
+        _ = await Assert.That(ex.Status.Detail).Contains(RemovedRouteDetail);
 
-        using var plainChannel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var plainChannel = CreateBinaryChannel(cluster[NodeId].Uri);
         var plainClient = new SquirixCacheService.SquirixCacheServiceClient(plainChannel);
         var getResponse = await plainClient.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "compressed-request" }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsFalse();

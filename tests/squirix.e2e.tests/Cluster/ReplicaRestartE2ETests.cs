@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -61,8 +61,8 @@ public sealed class ReplicaRestartE2ETests
 
         // A client attempt that times out before the server reports the unknown outcome surfaces as a deadline error. The tail assertion
         // below then covers the case where the server had not yet appended the write before the abrupt shutdown.
-        var refused = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var unknownOrDeadline = refused is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.DeadlineExceeded };
+        var refused = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var unknownOrDeadline = refused is CommitOutcomeUnknownException or SquirixTransportException { StatusCode: CacheTransportStatusCode.DeadlineExceeded };
         _ = await Assert.That(unknownOrDeadline).IsTrue().Because($"A write without its followers must end with an unknown outcome or a deadline error; observed {refused.GetType()}.");
         await cluster.AbruptShutdownNodeAsync("nodeA");
         await cluster.RestartNodeAsync("nodeB", cancellationToken);
@@ -112,7 +112,7 @@ public sealed class ReplicaRestartE2ETests
                 await cache.SetAsync(key, value, cancellationToken: cancellationToken);
                 return;
             }
-            catch (RpcException)
+            catch (SquirixTransportException)
             {
                 // Refused before the append while the recovered tail is still pending: nothing was written, so retrying is safe.
                 await Task.Delay(RetryDelay, TimeProvider.System, cancellationToken);

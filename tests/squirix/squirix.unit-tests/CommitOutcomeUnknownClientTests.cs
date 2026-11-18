@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Google.Protobuf;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
+using Squirix.Transport;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -23,7 +25,7 @@ public sealed class CommitOutcomeUnknownClientTests
     [Test]
     public async Task MapsStableCodeToPublicException()
     {
-        var transport = new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
+        var transport = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
 
         _ = await Assert.That(CommitOutcomeUnknownClassifier.Map(transport)).IsTypeOf<CommitOutcomeUnknownException>();
         var error = CommitOutcomeUnknownClassifier.Map(transport)!;
@@ -36,7 +38,7 @@ public sealed class CommitOutcomeUnknownClientTests
     [Test]
     public async Task OtherUnavailableRemainsTransportError()
     {
-        var transport = new RpcException(new Status(StatusCode.Unavailable, "peer unavailable"));
+        var transport = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "peer unavailable"));
 
         var error = CommitOutcomeUnknownClassifier.Map(transport);
 
@@ -57,7 +59,7 @@ public sealed class CommitOutcomeUnknownClientTests
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var transport = new UnknownOutcomeTransport(suspend ? release.Task : Task.CompletedTask);
-        await using var pool = SingleNodeClientPool.Create(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
         var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromHours(1), clock), pool, RemoteClientSessionFactory.CreateSerializer());
 
         var operation = SetAndProjectAsync(cache).AsTask();
@@ -80,7 +82,7 @@ public sealed class CommitOutcomeUnknownClientTests
         return true;
     }
 
-    private sealed class UnknownOutcomeTransport : CallInvoker
+    private sealed class UnknownOutcomeTransport
     {
         private readonly Task _release;
 
@@ -89,41 +91,12 @@ public sealed class CommitOutcomeUnknownClientTests
             _release = release;
         }
 
-        internal List<RpcException> Failures { get; } = [];
+        internal List<SquirixTransportException> Failures { get; } = [];
 
         internal List<string> OperationIds { get; } = [];
 
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The commit-unknown transport supports unary calls only.");
-
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The commit-unknown transport supports unary calls only.");
-
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options,
-            TRequest request) => throw new InvalidOperationException("The commit-unknown transport supports unary calls only.");
-
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
-        {
-            var failure = new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
-            Failures.Add(failure);
-            OperationIds.Add(ExtractOperationId(request));
-            return new AsyncUnaryCall<TResponse>(
-                FailAfterReleaseAsync<TResponse>(_release, failure),
-                Task.FromResult(new Metadata()),
-                static () => new Status(StatusCode.OK, string.Empty),
-                static () => [],
-                static () => { });
-        }
-
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new InvalidOperationException("The commit-unknown transport supports asynchronous calls only.");
+        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+            (_, request, _, _) => HandleAsync(request);
 
         private static string ExtractOperationId<TRequest>(TRequest request) => request switch
         {
@@ -137,10 +110,18 @@ public sealed class CommitOutcomeUnknownClientTests
             _ => string.Empty,
         };
 
-        private static async Task<TResponse> FailAfterReleaseAsync<TResponse>(Task release, RpcException failure)
+        private static async Task<IMessage> FailAfterReleaseAsync(Task release, SquirixTransportException failure)
         {
             await release.ConfigureAwait(false);
             throw failure;
+        }
+
+        private Task<IMessage> HandleAsync(IMessage request)
+        {
+            var failure = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
+            Failures.Add(failure);
+            OperationIds.Add(ExtractOperationId(request));
+            return FailAfterReleaseAsync(_release, failure);
         }
     }
 }

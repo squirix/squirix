@@ -1,5 +1,6 @@
+using System;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Google.Protobuf;
 using Rocks;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
@@ -9,13 +10,15 @@ namespace Squirix.UnitTests;
 
 internal static class SingleNodeClientPool
 {
-    internal static IClientPool Create(CallInvoker transport, CallPolicy policy)
+    internal static IClientPool Create(Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> transport, CallPolicy policy)
     {
-        var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
+#pragma warning disable CA2000 // The mock pool delegates disposal to this client.
+        var client = new BinaryCacheClient(new Uri("https://localhost"), null, null, transport);
+#pragma warning restore CA2000
         var poolExpectations = new IClientPoolCreateExpectations();
         _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
         _ = poolExpectations.Setups.BeginDrain();
-        _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
+        _ = poolExpectations.Setups.DisposeAsync().Callback(client.DisposeAsync);
         return poolExpectations.Instance();
     }
 }

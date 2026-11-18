@@ -1,0 +1,14 @@
+0 Unspecified
+1 SetEntry
+2 GetEntry
+3 GetValue
+4 Remove
+5 TryAddEntry
+6 Touch
+7 RemoveExpiration
+8 Update
+9 GetExpiration
+10 GetOrAdd
+11 SetDistributed
+12 GetDistributed
+13 RefreshDistributed

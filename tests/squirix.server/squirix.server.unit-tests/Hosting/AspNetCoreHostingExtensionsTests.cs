@@ -15,6 +15,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -52,11 +53,12 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
                 });
             DevelopmentCertificate.AddTo(builder.Services);
 
+            var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port));
             _ = await builder.AddSquirixServerAsync(
                 options =>
                 {
                     options.NodeId = "aspnet-test";
-                    options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port));
+                    options.Uri = uri;
                 },
                 loadDiscoveredSettings: false,
                 cancellationToken: cancellationToken);
@@ -65,11 +67,17 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             _ = await app.MapSquirixServerAsync(cancellationToken);
 
             var endpoints = GetMappedEndpoints(app);
-            _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
             _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
 
             held.Dispose();
             await app.StartAsync(cancellationToken);
+
+            using var channel = new PublicBinaryChannel(uri);
+            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var request = new GetValueAsyncRequest { CacheName = "default", Key = "hosting-probe" };
+            var reply = await client.GetValueAsync(request, cancellationToken: cancellationToken);
+            _ = await Assert.That(reply.Found).IsFalse();
+
             await app.StopAsync(cancellationToken);
         }
         finally

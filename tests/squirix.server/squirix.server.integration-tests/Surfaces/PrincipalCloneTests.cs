@@ -3,9 +3,9 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Grpc.Core.Interceptors;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc;
@@ -27,7 +27,7 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var probe = new PolicyProbe(true);
         await using var cluster = await StartClusterAsync("clone-role", _ => CreateOptions(credentials, probe, 0), cancellationToken);
-        using var channel = CreateGrpcChannel(cluster["clone-role"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        using var channel = CreateBinaryChannel(cluster["clone-role"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         _ = await client.SetEntryAsync(CreateMutation("clone-role"), cancellationToken: cancellationToken);
         var result = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "clone-role" }, cancellationToken: cancellationToken);
@@ -50,7 +50,7 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         await using var cluster = await StartClusterAsync("clone-denial", _ => CreateOptions(credentials, probe, duringRequest ? 2 : 1), cancellationToken);
         var uri = cluster["clone-denial"].Uri;
         var acknowledgement = byte.MaxValue;
-        using var channel = CreateGrpcChannel(uri, TestJwtHelper.CreateBearerToken(credentials), status => acknowledgement = status);
+        using var channel = CreateBinaryChannel(uri, TestJwtHelper.CreateBearerToken(credentials), status => acknowledgement = status);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var exception = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.SetEntryAsync(CreateMutation("clone-denial"), cancellationToken: cancellationToken).ResponseAsync,
@@ -61,7 +61,7 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         _ = await Assert.That(exception.StatusCode).IsEqualTo(duringRequest ? StatusCode.Unauthenticated : StatusCode.Unavailable);
         _ = await Assert.That(probe.Entries).IsEqualTo(0);
         probe.EnableControl();
-        using var control = CreateGrpcChannel(uri, TestJwtHelper.CreateBearerToken(credentials));
+        using var control = CreateBinaryChannel(uri, TestJwtHelper.CreateBearerToken(credentials));
         var controlClient = new SquirixCacheService.SquirixCacheServiceClient(control);
         var result = await controlClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "clone-denial" }, cancellationToken: cancellationToken);
         _ = await Assert.That(result.Found).IsFalse();
@@ -79,10 +79,9 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
     private static BlackBoxStartOptions CreateOptions(TestJwtCredentials credentials, PolicyProbe probe, int mode) => new()
     {
         Security = TestNodeSecurityOptions.FromJwtCredentials(credentials),
-        ConfigureGrpc = static options => options.Interceptors.Add<PolicyInterceptor>(),
         ServicesConfigure = services =>
         {
-            _ = services.AddSingleton(static provider => new PolicyInterceptor(provider.GetRequiredService<PolicyProbe>()));
+            _ = services.AddSingleton(static provider => new BinaryCallObserver(new PolicyInterceptor(provider.GetRequiredService<PolicyProbe>()).Observe));
             _ = services.AddSingleton(probe);
             _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options => options.Events.OnTokenValidated = context =>
             {
@@ -168,7 +167,7 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         internal void EnableControl() => _ = Interlocked.Exchange(ref _allowControl, 1);
     }
 
-    private sealed class PolicyInterceptor : Interceptor
+    private sealed class PolicyInterceptor
     {
         private readonly PolicyProbe _probe;
 
@@ -177,13 +176,12 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
             _probe = probe;
         }
 
-        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
+        internal void Observe(ServerCallContext context)
         {
             _probe.RecordEntry();
             var principal = context.GetHttpContext().User;
             if (_probe.CheckPolicy && (principal.IsInRole("admin") || principal.HasClaim("permission", "grant") || !string.Equals(principal.FindFirst("permission")?.Value, "grant", StringComparison.Ordinal)))
                 _probe.RecordError();
-            return continuation(request, context);
         }
     }
 }

@@ -20,9 +20,7 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixEndpointMapping
 {
-    private static readonly string[] JwtBearerAuthorizationPolicies = [SquirixAuthorizationPolicies.JwtBearer];
-
-    internal static WebApplication MapSquirixEndpoints(this WebApplication app, bool authEnabled)
+    internal static WebApplication MapSquirixEndpoints(this WebApplication app)
     {
         MapHealthEndpoints(app);
 
@@ -33,14 +31,8 @@ internal static class SquirixEndpointMapping
         var mtlsOptions = app.Services.GetRequiredService<MtlsOptions>();
         var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificate>();
         var featureState = app.Services.GetRequiredService<FeatureState>();
-        var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
-        if (authEnabled)
-            _ = cacheGrpc.RequireAuthorization(JwtBearerAuthorizationPolicies);
-
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
             return app;
-
-        _ = cacheGrpc.WithMetadata(new InternalListenerEndpointMetadata(mtlsOptions.InternalListenPort, false));
 
         // The Host header is client-controlled, so the anonymous internal mappings are selected by the accepted connection
         // (listener port plus peer certificate) through InternalListenerMatcherPolicy, never by host filters.

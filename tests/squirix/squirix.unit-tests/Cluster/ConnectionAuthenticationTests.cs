@@ -7,11 +7,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
+using Squirix.Internal.Cluster;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
+using Squirix.Transport;
 using Squirix.Transport.Grpc;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -78,9 +79,9 @@ public sealed class ConnectionAuthenticationTests
             TimeSpan.FromSeconds(10),
             TimeProvider.System,
             CancellationToken.None);
-        var wrapped = new RpcException(new Status(StatusCode.Unavailable, "transport", new HttpRequestException("request", exception)));
+        var wrapped = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "transport", new HttpRequestException("request", exception)));
         var mapped = ConnectionRejectedException.Map(wrapped);
-        _ = await Assert.That(mapped!.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(mapped!.StatusCode).IsEqualTo(CacheTransportStatusCode.Unauthenticated);
         _ = await Assert.That(mapped.Status.Detail.Contains("secret", StringComparison.Ordinal)).IsFalse();
     }
 
@@ -95,28 +96,6 @@ public sealed class ConnectionAuthenticationTests
             TimeProvider.System,
             CancellationToken.None);
         _ = await Assert.That(ConnectionRejectedException.Map(exception)).IsNull();
-    }
-
-    /// <summary>Refuses a transport that cannot perform the authentication preface.</summary>
-    [Test]
-    public async Task UnsupportedHandlerFailsLocally()
-    {
-        using var handler = new HttpClientHandler();
-        var exception = ExceptionAssert.For<NotSupportedException>().Throws(handler, static state => ConnectionAuthentication.Configure(state, static _ => ValueTask.FromResult("token"), []));
-        _ = await Assert.That(exception.Message.Contains("SocketsHttpHandler", StringComparison.Ordinal)).IsTrue();
-    }
-
-    /// <summary>Preserves an existing physical stream filter instead of overwriting its identity.</summary>
-    [Test]
-    public async Task ExistingFilterIsNotOverwritten()
-    {
-        using var handler = new SocketsHttpHandler
-        {
-            PlaintextStreamFilter = static (context, _) => ValueTask.FromResult(context.PlaintextStream),
-        };
-        var original = handler.PlaintextStreamFilter;
-        _ = ExceptionAssert.For<InvalidOperationException>().Throws(handler, static state => ConnectionAuthentication.Configure(state, static _ => ValueTask.FromResult("token"), []));
-        _ = await Assert.That(ReferenceEquals(handler.PlaintextStreamFilter, original)).IsTrue();
     }
 
     /// <summary>Invalid acknowledgement fields cannot be mistaken for a credential denial or success.</summary>
@@ -188,71 +167,20 @@ public sealed class ConnectionAuthenticationTests
     {
         await using var policy = new CallPolicy(TimeProvider.System);
         var attempts = new StrongBox<int>();
-        var exception = await AsyncAssert.ThrowsAsync<RpcException, int>(
+        var exception = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
             policy.ExecuteAsync(
                 static (state, _) =>
                 {
                     state.Value++;
-                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "transport", new HttpRequestException("request", new ConnectionRejectedException()))));
+                    return ValueTask.FromException<int>(new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "transport", new HttpRequestException("request", new ConnectionRejectedException()))));
                 },
                 attempts,
                 CancellationToken.None),
             TimeSpan.FromSeconds(10),
             TimeProvider.System,
             CancellationToken.None);
-        _ = await Assert.That(exception.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(exception.StatusCode).IsEqualTo(CacheTransportStatusCode.Unauthenticated);
         _ = await Assert.That(attempts.Value).IsEqualTo(1);
-    }
-
-    /// <summary>Caller-owned handlers never send credentials to cleartext or unrelated HTTPS destinations.</summary>
-    /// <param name="index">The destination case.</param>
-    [Test]
-    [Arguments(0)]
-    [Arguments(1)]
-    [Arguments(2)]
-    public async Task UnrelatedDestinationGetsNoCredential(int index)
-    {
-        await using var stream = new ExchangeStream(0);
-        var calls = 0;
-        var destination = index switch
-        {
-            0 => new UriBuilder(Uri.UriSchemeHttp, "allowed.test").Uri,
-            1 => new Uri("https://foreign.test"),
-            _ => new Uri("https://allowed.test:444"),
-        };
-        var accepted = await ConnectionAuthentication.AuthenticateTransportAsync(
-            stream,
-            destination,
-            ["allowed.test"],
-            _ =>
-            {
-                calls++;
-                return ValueTask.FromResult("secret");
-            },
-            CancellationToken.None);
-        _ = await Assert.That(calls).IsEqualTo(0);
-        _ = await Assert.That(stream.Written.Count).IsEqualTo(0);
-        _ = await Assert.That(ReferenceEquals(accepted, stream)).IsTrue();
-    }
-
-    /// <summary>The authorized HTTPS authority obtains its credential before HTTP/2 starts.</summary>
-    [Test]
-    public async Task AuthorizedDestinationObtainsCredential()
-    {
-        await using var stream = new ExchangeStream(0);
-        var calls = 0;
-        _ = await ConnectionAuthentication.AuthenticateTransportAsync(
-            stream,
-            new Uri("https://allowed.test"),
-            ["allowed.test"],
-            _ =>
-            {
-                calls++;
-                return ValueTask.FromResult("secret");
-            },
-            CancellationToken.None);
-        _ = await Assert.That(calls).IsEqualTo(1);
-        _ = await Assert.That(stream.Written.Count).IsEqualTo(14);
     }
 
     private static int ReadLength(List<byte> written, out byte status)

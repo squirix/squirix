@@ -4,11 +4,11 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
+using Squirix.Transport;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -102,9 +102,9 @@ public sealed class ProtoExTests
     {
         var serializer = new SystemTextJsonSerializer();
 
-        var failure = ExceptionAssert.For<RpcException>().Throws(serializer, static value => _ = ProtoEx.Read<string>(new CacheValue(), value));
+        var failure = ExceptionAssert.For<SquirixTransportException>().Throws(serializer, static value => _ = ProtoEx.Read<string>(new CacheValue(), value));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.Internal);
     }
 
     /// <summary>Scalars are written as their native kinds, and an int travels as an int64.</summary>
@@ -208,18 +208,18 @@ public sealed class ProtoExTests
     {
         var duration = new Duration { Seconds = seconds, Nanos = nanos };
 
-        var failure = ExceptionAssert.For<RpcException>().Throws(duration, static value => _ = ProtoEx.ReadDuration(value));
+        var failure = ExceptionAssert.For<SquirixTransportException>().Throws(duration, static value => _ = ProtoEx.ReadDuration(value));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.Internal);
     }
 
     /// <summary>A missing server duration is reported as a stable RPC failure instead of an unhandled exception.</summary>
     [Test]
     public async Task MissingDurationIsRejectedAsync()
     {
-        var failure = ExceptionAssert.For<RpcException>().Throws<Duration?>(null, static value => _ = ProtoEx.ReadDuration(value));
+        var failure = ExceptionAssert.For<SquirixTransportException>().Throws<Duration?>(null, static value => _ = ProtoEx.ReadDuration(value));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.Internal);
     }
 
     /// <summary>A non-normalized server timestamp is reported as a stable RPC failure instead of an unhandled exception.</summary>
@@ -234,9 +234,9 @@ public sealed class ProtoExTests
     {
         var timestamp = new Timestamp { Seconds = seconds, Nanos = nanos };
 
-        var failure = ExceptionAssert.For<RpcException>().Throws(timestamp, static value => _ = ProtoEx.ReadTimestamp(value));
+        var failure = ExceptionAssert.For<SquirixTransportException>().Throws(timestamp, static value => _ = ProtoEx.ReadTimestamp(value));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.Internal);
     }
 
     /// <summary>A malformed expiration inside an entry fails entry mapping with the stable RPC failure.</summary>
@@ -247,11 +247,11 @@ public sealed class ProtoExTests
         var wire = ProtoEx.MapEntryToProto(new CacheEntry<string> { Value = "payload" }, serializer);
         wire.ExpiresUtc = new Timestamp { Seconds = 1L, Nanos = -1 };
 
-        var failure = ExceptionAssert.For<RpcException>().Throws(
+        var failure = ExceptionAssert.For<SquirixTransportException>().Throws(
             (Wire: wire, Serializer: serializer),
             static state => _ = ProtoEx.MapProtoEntryToCacheEntry<string>(state.Wire, state.Serializer));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.Internal);
     }
 
     /// <summary>Boundary timestamps and durations are accepted.</summary>
