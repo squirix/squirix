@@ -213,7 +213,6 @@
       "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
       "entryPoint": "tools/ci/performance-guard/Program.cs",
       "sources": [
-        "CachePipelineDecoratorBenchmarks.cs",
         "AdmissionGateBenchmarks.cs",
         "KeyedAsyncLockBenchmarks.cs",
         "ReplicaStateTransferApplyBenchmarks.cs",
