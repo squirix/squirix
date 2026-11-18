@@ -1,12 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -40,10 +40,15 @@ public sealed class TransportOptionsTests
         await cache.SetAsync("jwt-e2e", "ok", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("jwt-e2e", cancellationToken)).Value).IsEqualTo("ok");
 
-        await using var anonymousClient = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
-        var anonymousCache = await anonymousClient.GetCacheAsync<string>("default", cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(anonymousCache.SetAsync("jwt-missing", "v", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(AnonymousConnectAsync(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(CacheTransportStatusCode.Unauthenticated);
+        return;
+
+        async Task AnonymousConnectAsync()
+        {
+            await using var anonymousConnection = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
+        }
     }
 
     private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;

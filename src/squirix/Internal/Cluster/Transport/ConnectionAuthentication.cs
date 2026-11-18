@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.IO;
-using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,45 +8,10 @@ using Squirix.Transport.Grpc;
 
 namespace Squirix.Internal.Cluster.Transport;
 
-/// <summary>Authenticates each physical TLS transport before HTTP/2 can send cache operations.</summary>
+/// <summary>Authenticates each physical TLS transport before the client can send cache operations.</summary>
 internal static class ConnectionAuthentication
 {
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(5);
-
-    internal static void Configure(HttpMessageHandler handler, Func<CancellationToken, ValueTask<string>>? provider, Peer[] peers)
-    {
-        if (provider == null)
-            return;
-
-        while (handler is DelegatingHandler { InnerHandler: { } inner })
-            handler = inner;
-
-        if (handler is not SocketsHttpHandler sockets)
-            throw new NotSupportedException("Connection authentication requires a SocketsHttpHandler transport.");
-        if (sockets.PlaintextStreamFilter != null)
-            throw new InvalidOperationException("The transport already has a plaintext stream filter.");
-        var authorities = new string[peers.Length];
-        for (var i = 0; i < peers.Length; i++)
-        {
-            GrpcTransportEndpoints.RequireHttps(peers[i].Uri);
-            authorities[i] = peers[i].Uri.Authority;
-        }
-
-        sockets.PlaintextStreamFilter = (context, token) => AuthenticateTransportAsync(context.PlaintextStream, context.InitialRequestMessage.RequestUri, authorities, provider, token);
-    }
-
-    internal static ValueTask<Stream> AuthenticateTransportAsync(Stream stream, Uri? requestUri, string[] authorities, Func<CancellationToken, ValueTask<string>> provider, CancellationToken cancellationToken)
-    {
-        if (requestUri is not { IsAbsoluteUri: true } || !string.Equals(requestUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            return ValueTask.FromResult(stream);
-        foreach (var authority in authorities)
-        {
-            if (string.Equals(requestUri.Authority, authority, StringComparison.OrdinalIgnoreCase))
-                return AuthenticateAsync(stream, provider, cancellationToken);
-        }
-
-        return ValueTask.FromResult(stream);
-    }
 
     internal static async ValueTask<Stream> AuthenticateAsync(Stream stream, Func<CancellationToken, ValueTask<string>> provider, CancellationToken cancellationToken)
     {

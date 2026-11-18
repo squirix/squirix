@@ -7,6 +7,7 @@ using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -36,12 +37,11 @@ public sealed class InterNodeMtlsTests
     public async Task ExternalClientCannotSpoofOwnerHeader(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
-        var bearerToken = TestJwtHelper.CreateBearerToken(credentials);
         var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
-        var status = await InterNodeGrpcProbe.GetValueAsync(cluster.GetUri("nodeB"), bearerToken, true, cancellationToken);
-        _ = await Assert.That(status).IsEqualTo(StatusCode.Unauthenticated);
+        var status = await InterNodeGrpcProbe.GetValueAsync(cluster.GetUri("nodeB"), cancellationToken);
+        _ = await Assert.That(status).IsEqualTo(StatusCode.Unimplemented);
     }
 
     /// <summary>Verifies node B rejects internode forwarding when node A presents a certificate signed by an untrusted CA.</summary>
@@ -55,7 +55,7 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -71,7 +71,7 @@ public sealed class InterNodeMtlsTests
         await using var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
         var cacheA = await clientA.GetCacheAsync<object?>("orders", cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cacheA.SetAsync(rejectedKey, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cacheA.SetAsync(rejectedKey, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
 
@@ -92,7 +92,7 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-server");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -106,7 +106,7 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-expired-peer");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -122,7 +122,7 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -133,12 +133,11 @@ public sealed class InterNodeMtlsTests
     public async Task JwtAuthIndependentOfInterNodeMtls(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
-        var bearerToken = TestJwtHelper.CreateBearerToken(credentials);
         var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-jwt-mtls");
-        var provider = CreateBearerTokenProvider(bearerToken);
+        var provider = CreateBearerTokenProvider(TestJwtHelper.CreateBearerToken(credentials));
         var nodeA = cluster.GetUri("nodeA");
         var nodeB = cluster.GetUri("nodeB");
         await using var clientA = await LoopbackConnect.ConnectAsync(nodeA, provider, cancellationToken);
@@ -164,11 +163,11 @@ public sealed class InterNodeMtlsTests
         _ = await Assert.That((await cluster.CacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("forwarded");
     }
 
-    private static async Task AssertForwardRejectedAsync(RpcException exception)
+    private static async Task AssertForwardRejectedAsync(SquirixTransportException exception)
     {
         _ = await Assert.That(
-            exception.StatusCode == StatusCode.Unavailable || exception.StatusCode == StatusCode.Internal || exception.StatusCode == StatusCode.Unknown ||
-            exception.StatusCode == StatusCode.DeadlineExceeded).IsTrue();
+            exception.StatusCode == CacheTransportStatusCode.Unavailable || exception.StatusCode == CacheTransportStatusCode.Internal || exception.StatusCode == CacheTransportStatusCode.Unknown ||
+            exception.StatusCode == CacheTransportStatusCode.DeadlineExceeded).IsTrue();
     }
 
     private static async Task<ICache<object?>> ConnectForForwardingAsync(HostedCluster cluster, CancellationToken cancellationToken)

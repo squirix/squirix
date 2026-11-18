@@ -1,10 +1,9 @@
 using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Google.Protobuf;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Attributes;
@@ -13,6 +12,7 @@ using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Testing;
 using Squirix.TestKit;
+using Squirix.Transport;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -35,7 +35,7 @@ public sealed class OperationDeadlineTests
         Hang = 0,
         Unavailable = 1,
         Succeed = 2,
-        GrpcDeadline = 3,
+        WireDeadline = 3,
     }
 
     /// <summary>A caller token that is never cancelled does not lift the deadline.</summary>
@@ -50,10 +50,10 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         var pending = !operation.IsCompleted;
         harness.Clock.Advance(ShortDeadline);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
     }
 
     /// <summary>Every exported cache operation sends the operation deadline as an absolute UTC call deadline.</summary>
@@ -126,7 +126,7 @@ public sealed class OperationDeadlineTests
         var operation = GetAsync(harness.Cache, CancellationToken.None);
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         harness.Clock.Advance(ShortDeadline);
-        _ = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await AsyncAssert.ThrowsAsync<SquirixTransportException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsTrue();
     }
@@ -134,15 +134,15 @@ public sealed class OperationDeadlineTests
     /// <summary>A gRPC deadline expiry that coincides with the budget is reported as budget expiry, not retried.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task GrpcDeadlineFirstRecordsBudgetMetric(CancellationToken cancellationToken)
+    public async Task WireDeadlineFirstRecordsBudgetMetric(CancellationToken cancellationToken)
     {
         var peer = $"deadline-grpc-{Guid.NewGuid():N}";
         using var sink = new MeasurementSink("Squirix");
-        await using var harness = new Harness(peer, ShortDeadline, TransportMode.GrpcDeadline, TransportMode.GrpcDeadline, 64, true);
+        await using var harness = new Harness(peer, ShortDeadline, TransportMode.WireDeadline, TransportMode.WireDeadline, 64, true);
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(GetAsync(harness.Cache, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, bool>(GetAsync(harness.Cache, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
         _ = await Assert.That(harness.FirstTransport.Calls.Count).IsEqualTo(1);
         _ = await Assert.That(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", peer), ("kind", "deadline_budget"))).IsTrue();
@@ -180,10 +180,10 @@ public sealed class OperationDeadlineTests
         _ = await Assert.That(await harness.FirstTransport.WaitForCallAsync()).IsTrue();
         var pending = !operation.IsCompleted;
         harness.Clock.Advance(ShortDeadline);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, bool>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
     }
 
     /// <summary>A mutation keeps one operation id across retries and endpoint failover.</summary>
@@ -220,13 +220,13 @@ public sealed class OperationDeadlineTests
         var pending = !queued.IsCompleted;
         harness.Clock.Advance(TimeSpan.FromTicks(1));
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, bool>(new ValueTask<bool>(queued.AsTask()), CompletionBound, TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, bool>(new ValueTask<bool>(queued.AsTask()), CompletionBound, TimeProvider.System, cancellationToken);
 
         await holderSource.CancelAsync();
         _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(holder, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
         _ = await Assert.That(harness.FirstTransport.Calls.Count).IsEqualTo(callsBeforeQueued);
     }
@@ -269,6 +269,8 @@ public sealed class OperationDeadlineTests
     {
         private readonly IClientPool _pool;
         private readonly CallPolicy _policy;
+        private readonly BinaryCacheClient _firstClient;
+        private readonly BinaryCacheClient _secondClient;
 
         internal Harness(string peer, TimeSpan deadline, TransportMode first, TransportMode second, int maxConcurrentPerPeer = 64, bool singleEndpoint = false)
         {
@@ -277,10 +279,10 @@ public sealed class OperationDeadlineTests
             SecondTransport = new ScriptedTransport(second, Clock);
             _policy = new CallPolicy(Clock, LongPerAttempt, 3, TimeSpan.Zero, TimeSpan.Zero, maxConcurrentPerPeer, peer);
             SingleEndpoint = singleEndpoint;
-            var firstClient = new SquirixCacheService.SquirixCacheServiceClient(FirstTransport);
-            var secondClient = new SquirixCacheService.SquirixCacheServiceClient(SecondTransport);
+            _firstClient = new BinaryCacheClient(new Uri("https://localhost"), null, null, FirstTransport.InvokeAsync);
+            _secondClient = new BinaryCacheClient(new Uri("https://localhost"), null, null, SecondTransport.InvokeAsync);
             var expectations = new IClientPoolCreateExpectations();
-            _ = expectations.Setups.ForNode(Arg.Any<string>()).Callback(nodeId => new NodeClient(string.Equals(nodeId, "node-0", StringComparison.Ordinal) ? firstClient : secondClient, _policy));
+            _ = expectations.Setups.ForNode(Arg.Any<string>()).Callback(nodeId => new NodeClient(string.Equals(nodeId, "node-0", StringComparison.Ordinal) ? _firstClient : _secondClient, _policy));
             _ = expectations.Setups.BeginDrain();
             _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
             _pool = expectations.Instance();
@@ -301,6 +303,8 @@ public sealed class OperationDeadlineTests
         {
             await _policy.DisposeAsync().ConfigureAwait(false);
             await _pool.DisposeAsync().ConfigureAwait(false);
+            await _firstClient.DisposeAsync().ConfigureAwait(false);
+            await _secondClient.DisposeAsync().ConfigureAwait(false);
             FirstTransport.Dispose();
             SecondTransport.Dispose();
         }
@@ -314,9 +318,8 @@ public sealed class OperationDeadlineTests
         }
     }
 
-    /// <summary>A unary transport that scripts one answer per mode, records the deadline and operation id of every call, and lets the fake clock end a stalled gRPC deadline.</summary>
-    /// <remarks>A hand-written double, not a Rocks mock: the scripted call invoker is an abstract class of Grpc.Core, which Rocks cannot mock, and the modes model answers across calls.</remarks>
-    private sealed class ScriptedTransport : CallInvoker, IDisposable
+    /// <summary>A unary transport that scripts one answer per mode, records the deadline and operation id of every call, and lets the fake clock end a stalled transport deadline.</summary>
+    private sealed class ScriptedTransport : IDisposable
     {
         private readonly ConcurrentQueue<CapturedCall> _calls = new();
         private readonly FakeTimeProvider _clock;
@@ -331,58 +334,9 @@ public sealed class OperationDeadlineTests
 
         internal List<CapturedCall> Calls => [.. _calls];
 
+        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync => HandleAsync;
+
         public void Dispose() => _firstCall.Dispose();
-
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The scripted transport supports unary calls only.");
-
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The scripted transport supports unary calls only.");
-
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options,
-            TRequest request) => throw new InvalidOperationException("The scripted transport supports unary calls only.");
-
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
-        {
-            _calls.Enqueue(new CapturedCall(options.Deadline, ExtractOperationId(request)));
-            _ = _firstCall.Release();
-
-            var completion = new TaskCompletionSource<TResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-            switch (_mode)
-            {
-                case TransportMode.Hang:
-                    _ = options.CancellationToken.Register(() => completion.TrySetCanceled(options.CancellationToken));
-                    break;
-                case TransportMode.GrpcDeadline:
-                    FailAtDeadline(completion, options.Deadline!.Value);
-                    break;
-                case TransportMode.Unavailable:
-                    completion.SetException(new RpcException(new Status(StatusCode.Unavailable, "endpoint down")));
-                    break;
-                case TransportMode.Succeed:
-                    completion.SetResult(method.ResponseMarshaller.ContextualDeserializer(new EmptyDeserializationContext()));
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(method), _mode, "Unsupported transport mode.");
-            }
-
-            return new AsyncUnaryCall<TResponse>(
-                completion.Task,
-                Task.FromResult(new Metadata()),
-                static () => new Status(StatusCode.OK, string.Empty),
-                static () => [],
-                static () => { });
-        }
-
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new InvalidOperationException("The scripted transport supports asynchronous calls only.");
 
         internal Task<bool> WaitForCallAsync() => _firstCall.WaitAsync(CompletionBound, CancellationToken.None);
 
@@ -392,23 +346,41 @@ public sealed class OperationDeadlineTests
             _ => string.Empty,
         };
 
+        private Task<IMessage> HandleAsync(BinaryOperation operation, IMessage request, MessageParser parser, BinaryCallOptions options)
+        {
+            _calls.Enqueue(new CapturedCall(options.Deadline, ExtractOperationId(request)));
+            _ = _firstCall.Release();
+
+            var completion = new TaskCompletionSource<IMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            switch (_mode)
+            {
+                case TransportMode.Hang:
+                    _ = options.CancellationToken.Register(() => completion.TrySetCanceled(options.CancellationToken));
+                    break;
+                case TransportMode.WireDeadline:
+                    FailAtDeadline(completion, options.Deadline);
+                    break;
+                case TransportMode.Unavailable:
+                    completion.SetException(new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "endpoint down")));
+                    break;
+                case TransportMode.Succeed:
+                    completion.SetResult(parser.ParseFrom([]));
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported transport mode {_mode} for {operation}.");
+            }
+
+            return completion.Task;
+        }
+
         private void FailAtDeadline<TResponse>(TaskCompletionSource<TResponse> completion, DateTime deadlineUtc)
         {
-            // Like Grpc.Net.Client, fail only once the wall clock reached the deadline: move the fake clock there first.
+            // Fail only once the wall clock reached the deadline: move the fake clock there first.
             var remaining = deadlineUtc - _clock.GetUtcNow().UtcDateTime;
             if (remaining > TimeSpan.Zero)
                 _clock.Advance(remaining);
 
-            _ = completion.TrySetException(new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")));
+            _ = completion.TrySetException(new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Deadline Exceeded")));
         }
-    }
-
-    private sealed class EmptyDeserializationContext : DeserializationContext
-    {
-        public override int PayloadLength => 0;
-
-        public override byte[] PayloadAsNewBuffer() => [];
-
-        public override ReadOnlySequence<byte> PayloadAsReadOnlySequence() => ReadOnlySequence<byte>.Empty;
     }
 }

@@ -14,6 +14,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -35,7 +36,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        using var channel = GrpcChannel.ForAddress(cluster["node-a"].Uri, new GrpcChannelOptions { HttpHandler = LoopbackHttp.CreateHandler(), DisposeHttpClient = true });
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {
@@ -50,7 +51,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unimplemented);
     }
 
     /// <summary>Verifies cluster forwarding over trusted internode mTLS succeeds without propagating external JWT.</summary>
@@ -64,7 +65,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward");
         const string value = "cluster-forwarded-value";
 
-        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var setResponse = await clientA.TryAddEntryAsync(
             new TryAddEntryAsyncRequest
@@ -78,7 +79,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         _ = await Assert.That(setResponse.Added).IsTrue();
 
-        using var channelB = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var channelB = CreateBinaryChannel(cluster["node-b"].Uri);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
 
@@ -123,17 +124,18 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     {
         await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "external-ring-header");
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channel = CreateBinaryChannel(cluster["node-a"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var plain = new Metadata { { "squirix-ring-fingerprint", "garbage" } };
-        var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(plain, cancellationToken: cancellationToken));
+        var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(cancellationToken: cancellationToken));
         _ = await Assert.That(response.Found).IsFalse();
         await AssertReadyAsync(cluster["node-a"], cancellationToken);
 
         var spoofed = new Metadata { { "squirix-internal-owner-rpc", "true" }, { "squirix-ring-fingerprint", "garbage" } };
-        var rejected = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(spoofed, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(rejected.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        using var legacy = GrpcChannel.ForAddress(cluster["node-a"].Uri, new GrpcChannelOptions { HttpHandler = LoopbackHttp.CreateHandler(), DisposeHttpClient = true });
+        var legacyClient = new SquirixCacheService.SquirixCacheServiceClient(legacy);
+        var rejected = await NodeAsyncAssert.ThrowsAsync<RpcException>(legacyClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(spoofed, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(rejected.StatusCode).IsEqualTo(StatusCode.Unimplemented);
         await AssertReadyAsync(cluster["node-a"], cancellationToken);
     }
 
@@ -150,7 +152,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward-jwt");
-        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var setResponse = await clientA.TryAddEntryAsync(
             new TryAddEntryAsyncRequest
@@ -280,7 +282,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
-        using var channel = CreateGrpcChannel(cluster["node-b"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        using var channel = GrpcChannel.ForAddress(cluster["node-b"].Uri, new GrpcChannelOptions { HttpHandler = LoopbackHttp.CreateHandler(), DisposeHttpClient = true });
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {
@@ -301,7 +303,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unimplemented);
     }
 
     private static Metadata CreateOwnerHeaders(string? ringFingerprint)
@@ -359,7 +361,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo("ring-mismatch");
 
         // The receiver is fenced: even a client call is refused, and the refused write left no trace in the cache or the idempotency store.
-        using var clientChannel = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var clientChannel = CreateBinaryChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(clientChannel);
         var fenced = await NodeAsyncAssert.ThrowsAsync<RpcException>(clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 

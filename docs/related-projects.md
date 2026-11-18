@@ -8,7 +8,7 @@ Facts about other projects come from their public documentation and package page
 
 - **Pure .NET.** Client SDK and server runtime are managed .NET code with no native storage engine; the server runs as
   the `squirix-server` tool or embedded in an ASP.NET Core host. See [architecture.md](architecture.md).
-- **Typed client.** Applications use `SquirixClient` and `ICache<T>` over HTTPS gRPC, with pluggable
+- **Typed client.** Applications use `SquirixClient` and `ICache<T>` over binary TLS, with pluggable
   [serialization](serialization.md).
 - **Replica groups with majority commit.** Each key has one owner group (static topology, consistent-hash routing).
   RF>=3 commits on a majority and can opt into automatic failover with quorum reads; RF=2 is a synchronous mirror.
@@ -85,7 +85,7 @@ asynchronous leader-follower log shipping, with options that trade performance f
 not supported.
 
 How squirix differs: Garnet optimizes for throughput and Redis compatibility with asynchronous replicas; squirix exposes
-its own typed gRPC API and chooses consistency over availability for replicated groups.
+its own typed binary API and chooses consistency over availability for replicated groups.
 
 ## JVM data grids
 

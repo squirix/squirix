@@ -2,12 +2,12 @@ using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -41,10 +41,10 @@ public sealed class PhaseBudgetTests
         var timerCount = clock.TimerCount;
 
         clock.Advance(scenario == 0 ? timeout : duration, scenario != 3);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(timerCount).IsEqualTo(1);
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(scenario == 0 ? "All attempts timed out." : "Request deadline exceeded.");
     }
 
@@ -67,7 +67,7 @@ public sealed class PhaseBudgetTests
         clock.Advance(TimeSpan.FromMinutes(1) - TimeSpan.FromTicks(1), advanceTimestamp);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromTicks(1), advanceTimestamp);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(state.Attempts).IsEqualTo(1);
@@ -99,9 +99,9 @@ public sealed class PhaseBudgetTests
             CancellationToken.None,
             budget).AsTask();
         budgetClock.Advance(TimeSpan.FromHours(1), false);
-        var failure = new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
+        var failure = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
         _ = response.TrySetException(failure);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error).IsSameReferenceAs(failure);
         _ = await Assert.That(attempts[0]).IsEqualTo(1);
@@ -143,7 +143,7 @@ public sealed class PhaseBudgetTests
         _ = await Assert.That(await entered.WaitAsync(Bound, CancellationToken.None)).IsTrue();
         _ = await Assert.That(clock.TimerCount).IsEqualTo(2);
         clock.Advance(TimeSpan.FromMinutes(60));
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(queued), Bound, TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(queued), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
         return;
@@ -169,7 +169,7 @@ public sealed class PhaseBudgetTests
         _ = await Assert.That(await attempts.WaitAsync(Bound, CancellationToken.None)).IsTrue();
         var timerCount = clock.TimerCount;
         clock.Advance(TimeSpan.FromMinutes(30));
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(timerCount).IsEqualTo(2);
         _ = await Assert.That(attempts.CurrentCount).IsEqualTo(0);
@@ -185,7 +185,7 @@ public sealed class PhaseBudgetTests
         await using var policy = new CallPolicy(clock);
         var budget = DeadlineBudget.Start(clock.GetUtcNow().UtcDateTime.AddSeconds(-1), clock);
         var state = new FailureState(false);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (counter, _) => counter.FailAsync(), state, CancellationToken.None, budget), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(policy.ExecuteAsync(static (counter, _) => counter.FailAsync(), state, CancellationToken.None, budget), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(state.Attempts).IsEqualTo(0);
         _ = await Assert.That(clock.TimerCount).IsEqualTo(0);
@@ -242,7 +242,7 @@ public sealed class PhaseBudgetTests
         internal ValueTask<int> FailAsync()
         {
             _ = Interlocked.Increment(ref _attempts);
-            return ValueTask.FromException<int>(_httpFailure ? new HttpRequestException("down") : new RpcException(new Status(StatusCode.Unavailable, "down")));
+            return ValueTask.FromException<int>(_httpFailure ? new HttpRequestException("down") : new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "down")));
         }
     }
 }

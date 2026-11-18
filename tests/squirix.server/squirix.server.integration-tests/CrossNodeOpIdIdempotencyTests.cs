@@ -76,11 +76,11 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
             Entry = new NodeCacheEntry<object?> { Value = "bootstrap-value", Version = 1 }.MapToProto(),
         };
 
-        using var channelA = CreateGrpcChannel(UriA);
+        using var channelA = CreateBinaryChannel(UriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         _ = await clientA.SetEntryAsync(request, cancellationToken: cancellationToken);
 
-        using var channelB = CreateGrpcChannel(UriB);
+        using var channelB = CreateBinaryChannel(UriB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         _ = await clientB.SetEntryAsync(request, cancellationToken: cancellationToken);
 
@@ -103,12 +103,12 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        using var channelA = CreateGrpcChannel(UriA);
+        using var channelA = CreateBinaryChannel(UriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var first = await clientA.TryAddEntryAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(first.Added).IsTrue();
 
-        using var channelB = CreateGrpcChannel(UriB);
+        using var channelB = CreateBinaryChannel(UriB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var second = await clientB.TryAddEntryAsync(request, cancellationToken: cancellationToken);
 
@@ -127,7 +127,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         var keyA = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-a");
         var keyB = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-b");
 
-        using var channelA = CreateGrpcChannel(UriA);
+        using var channelA = CreateBinaryChannel(UriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
 
         var r1 = new TryAddEntryAsyncRequest
@@ -184,9 +184,9 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
     public async Task ForwardedReadsReturnOwnerState(CancellationToken cancellationToken)
     {
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-reads");
-        using var channelA = CreateGrpcChannel(UriA);
+        using var channelA = CreateBinaryChannel(UriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        using var channelB = CreateGrpcChannel(UriB);
+        using var channelB = CreateBinaryChannel(UriB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         _ = await clientB.SetEntryAsync(CreateSet(key, "owner-value", TimeSpan.FromHours(1)), cancellationToken: cancellationToken);
 
@@ -249,9 +249,9 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
     private async Task AssertReplayOnceAsync(ForwardedMutation mutation, bool nonOwnerFirst, CancellationToken cancellationToken)
     {
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", $"replay-once-{mutation}-{nonOwnerFirst}");
-        using var channelA = CreateGrpcChannel(UriA);
+        using var channelA = CreateBinaryChannel(UriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        using var channelB = CreateGrpcChannel(UriB);
+        using var channelB = CreateBinaryChannel(UriB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var first = nonOwnerFirst ? clientA : clientB;
         var second = nonOwnerFirst ? clientB : clientA;

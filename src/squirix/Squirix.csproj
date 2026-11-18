@@ -7,10 +7,10 @@
         <RootNamespace>Squirix</RootNamespace>
         <PackageId>squirix</PackageId>
         <Authors>Squirix Team</Authors>
-        <Description>Experimental distributed cache client SDK for .NET 10. Typed ICache&lt;T&gt; API, gRPC connectivity, custom serialization, and bootstrap failover to Squirix.Server nodes. Early preview — not production-ready.</Description>
+        <Description>Experimental distributed cache client SDK for .NET 10. Typed ICache&lt;T&gt; API, binary TLS connectivity, custom serialization, and bootstrap failover to Squirix.Server nodes. Early preview — not production-ready.</Description>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
         <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
-        <PackageTags>dotnet;cache;distributed-cache;csharp;grpc;key-value-store;client</PackageTags>
+        <PackageTags>dotnet;cache;distributed-cache;csharp;tls;key-value-store;client</PackageTags>
         <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
         <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
         <IncludeSymbols>true</IncludeSymbols>
@@ -24,17 +24,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Protobuf Include="..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto" GrpcServices="Client" ProtoRoot="..\shared\Squirix\Transport\Grpc\Protos" Access="Internal"/>
-    </ItemGroup>
-
-    <ItemGroup>
         <PackageReference Include="Google.Protobuf"/>
-        <PackageReference Include="Grpc.Net.Client"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
-        <PackageReference Include="Grpc.Tools" PrivateAssets="All"/>
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\ConnectionAuthenticationProtocol.cs" Link="Internal\Cluster\Transport\Grpc\ConnectionAuthenticationProtocol.cs"/>
     </ItemGroup>
 

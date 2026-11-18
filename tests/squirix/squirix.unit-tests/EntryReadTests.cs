@@ -1,15 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
-using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -45,8 +44,8 @@ public sealed class EntryReadTests
                 },
             Remaining = scenario == 2 ? Duration.FromTimeSpan(TimeSpan.FromSeconds(30)) : null,
         };
-        var release = new TaskCompletionSource<GetEntryAsyncResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(new EntryTransport(release.Task));
+        var release = new TaskCompletionSource<IMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var client = new BinaryCacheClient(new Uri("https://localhost"), null, null, new EntryTransport(release.Task).InvokeAsync);
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2));
         var expectations = new IClientPoolCreateExpectations();
         _ = expectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
@@ -71,35 +70,16 @@ public sealed class EntryReadTests
         _ = await Assert.That(result.ExpiresUtc).IsEqualTo(scenario == 2 ? clock.GetUtcNow().UtcDateTime.AddSeconds(30) : wireDeadline);
     }
 
-    private sealed class EntryTransport : CallInvoker
+    private sealed class EntryTransport
     {
-        private readonly Task<GetEntryAsyncResponse> _response;
+        private readonly Task<IMessage> _response;
 
-        internal EntryTransport(Task<GetEntryAsyncResponse> response)
+        internal EntryTransport(Task<IMessage> response)
         {
             _response = response;
         }
 
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) =>
-            throw new InvalidOperationException("The entry transport supports unary calls only.");
-
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) =>
-            throw new InvalidOperationException("The entry transport supports unary calls only.");
-
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new InvalidOperationException("The entry transport supports unary calls only.");
-
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => new(
-            ReadResponseAsync<TResponse>(_response, options.CancellationToken),
-            Task.FromResult(new Metadata()),
-            static () => new Status(StatusCode.OK, string.Empty),
-            static () => [],
-            static () => { });
-
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new InvalidOperationException("The entry transport supports asynchronous calls only.");
-
-        private static async Task<TResponse> ReadResponseAsync<TResponse>(Task<GetEntryAsyncResponse> response, CancellationToken cancellationToken)
-            where TResponse : class => KitThrowHelper.Required(await response.WaitAsync(cancellationToken).ConfigureAwait(false) as TResponse, "The entry transport got an unexpected response type.");
+        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+            (_, _, _, options) => _response.WaitAsync(options.CancellationToken);
     }
 }

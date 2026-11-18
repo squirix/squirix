@@ -1,11 +1,11 @@
 using System;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
+using Squirix.Transport;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -51,10 +51,10 @@ public sealed class BinaryValueTests
     public async Task BinaryTypeMismatchIsProtocolFailure()
     {
         var serializer = new ISquirixSerializerCreateExpectations().Instance();
-        var failure = ExceptionAssert.For<RpcException>().Throws(
+        var failure = ExceptionAssert.For<SquirixTransportException>().Throws(
             serializer,
             static value => _ = ProtoEx.Read<string>(new CacheValue { BinaryValue = ByteString.Empty }, value));
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.Internal);
     }
 
     /// <summary>Existing typed byte-array writes continue to use the configured serializer.</summary>

@@ -31,7 +31,7 @@ public sealed class PemNodeCertificateTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "pem-forward");
-        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
+        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var setResponse = await clientA.TryAddEntryAsync(
             new TryAddEntryAsyncRequest
@@ -45,7 +45,7 @@ public sealed class PemNodeCertificateTests : NodeIntegrationTestBase
 
         _ = await Assert.That(setResponse.Added).IsTrue();
 
-        using var channelB = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var channelB = CreateBinaryChannel(cluster["node-b"].Uri);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
 

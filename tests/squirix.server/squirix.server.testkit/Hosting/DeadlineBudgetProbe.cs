@@ -7,6 +7,7 @@ using Grpc.Core.Interceptors;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 
@@ -36,6 +37,7 @@ public sealed class DeadlineBudgetProbe
     public void Register(IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        _ = services.AddSingleton(new BinaryCallObserver(_ => Record(ServerRpcDeadlineContext.CurrentBudget?.Remaining)));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<GrpcServiceOptions>>(new ProbeOptionsConfigurator(this)));
     }
 

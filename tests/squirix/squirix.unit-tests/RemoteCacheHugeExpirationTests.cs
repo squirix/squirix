@@ -1,13 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
-using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -33,7 +32,7 @@ public sealed class RemoteCacheHugeExpirationTests
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = SingleNodeClientPool.Create(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
 
         _ = await CreateCache(pool).TryAddAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
 
@@ -50,7 +49,7 @@ public sealed class RemoteCacheHugeExpirationTests
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = SingleNodeClientPool.Create(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
 
         await CreateCache(pool).SetAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
 
@@ -67,7 +66,7 @@ public sealed class RemoteCacheHugeExpirationTests
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = SingleNodeClientPool.Create(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
 
         _ = await CreateCache(pool).TouchAsync(Key, TimeSpan.FromTicks(ticks), cancellationToken);
 
@@ -82,29 +81,16 @@ public sealed class RemoteCacheHugeExpirationTests
 
     private static CallPolicy CreatePolicy() => new(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "huge-expiration");
 
-    private sealed class CaptureTransport : CallInvoker
+    private sealed class CaptureTransport
     {
         internal Duration? Expiration { get; private set; }
 
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The capture transport supports unary calls only.");
+        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+            (_, request, _, _) => HandleAsync(request);
 
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The capture transport supports unary calls only.");
-
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options,
-            TRequest request) => throw new InvalidOperationException("The capture transport supports unary calls only.");
-
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
+        private Task<IMessage> HandleAsync(IMessage request)
         {
-            object response;
+            IMessage response;
             switch (request)
             {
                 case SetEntryAsyncRequest set:
@@ -123,16 +109,7 @@ public sealed class RemoteCacheHugeExpirationTests
                     throw new InvalidOperationException("The capture transport supports set, try-add and touch requests only.");
             }
 
-            var typed = KitThrowHelper.Required(response as TResponse, "The capture transport got an unexpected response type.");
-            return new AsyncUnaryCall<TResponse>(
-                Task.FromResult(typed),
-                Task.FromResult(new Metadata()),
-                static () => new Status(StatusCode.OK, string.Empty),
-                static () => [],
-                static () => { });
+            return Task.FromResult(response);
         }
-
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new InvalidOperationException("The capture transport supports asynchronous calls only.");
     }
 }

@@ -40,7 +40,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var key = FindKeyBothRingsAssign("n2");
         var operationId = RpcOperationIdentity.New();
 
-        using var channel = CreateGrpcChannel(cluster["n1"].Uri);
+        using var channel = CreateBinaryChannel(cluster["n1"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var refused = await RefusalAsync(
             (Client: client, Request: CreateSetRequest(operationId, key)),
@@ -69,7 +69,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var key = FindKeyBothRingsAssign("n1");
         var operationId = RpcOperationIdentity.New();
 
-        using var channel = CreateGrpcChannel(cluster["n2"].Uri);
+        using var channel = CreateBinaryChannel(cluster["n2"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var refused = await RefusalAsync(
             (Client: client, Request: CreateSetRequest(operationId, key)),
@@ -92,7 +92,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         await using var cluster = await StartDivergentClusterAsync(cancellationToken);
         var key = FindKeyBothRingsAssign("n2");
 
-        using var channel = CreateGrpcChannel(cluster["n1"].Uri);
+        using var channel = CreateBinaryChannel(cluster["n1"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetOrAddAsyncRequest
         {
@@ -120,7 +120,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("n1", "n2", options, cancellationToken);
         var key = FindKeyOwnedByInShortRing("n2");
 
-        using var channel = CreateGrpcChannel(cluster["n1"].Uri);
+        using var channel = CreateBinaryChannel(cluster["n1"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var response = await client.SetEntryAsync(CreateSetRequest(RpcOperationIdentity.New(), key), cancellationToken: cancellationToken);
 

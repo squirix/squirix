@@ -6,10 +6,10 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -227,7 +227,7 @@ public sealed class ProcessChaosTests
                 history.RecordRead(new RegisterRead(key, start, Stopwatch.GetTimestamp(), value.Found ? value.Value : 0));
                 return;
             }
-            catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded)
+            catch (SquirixTransportException exception) when (exception.StatusCode is CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded)
             {
                 history.RecordReadFailure(key, start, Stopwatch.GetTimestamp());
             }

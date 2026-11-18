@@ -15,7 +15,7 @@ When persistence is enabled, readiness stays unhealthy until journal recovery co
 failures also affect readiness. Ephemeral nodes skip journal recovery and report readiness without `journal_recovery`.
 Critical memory pressure and journal disk at the configured hard quota do **not** flip readiness by themselves — use
 `/health/ready/details` (`memoryPressure`, `journalDisk`) and metrics for capacity incidents. Durable oversize journal
-appends fail with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`).
+appends fail with `JOURNAL_DISK_QUOTA` (`ResourceExhausted`).
 
 When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age,
 retention-cleanup status, and journal on-disk pressure. All nodes report client pool peers, stubbed coordination
@@ -44,7 +44,7 @@ Client-side pool disposal failures emit `squirix_client_pool_dispose_failures_to
   see [diagnostics.md](diagnostics.md#logical-operation-tracing))
 - Client bootstrap warm-up skips emit `client.bootstrap.warmup.peer_skipped` activities
 
-Use logical spans (`cache.operation`, `cache.result`) for operation triage and gRPC interceptor spans for transport
+Use logical spans (`cache.operation`, `cache.result`) for operation triage and transport spans for transport
 failures.
 
 ## Operational response

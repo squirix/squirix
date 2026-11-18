@@ -48,7 +48,7 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
         var rejectedStatus = byte.MaxValue;
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri, token, status => rejectedStatus = status);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri, token, status => rejectedStatus = status);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
         var exception = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -59,7 +59,7 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         _ = await Assert.That(exception.StatusCode).IsEqualTo(StatusCode.Unavailable).Because(key);
         _ = await Assert.That(rejectedStatus).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials).Because(key);
 
-        using var accepted = CreateGrpcChannel(cluster[NodeId].Uri, authority.CreateBearerToken(Audience));
+        using var accepted = CreateBinaryChannel(cluster[NodeId].Uri, authority.CreateBearerToken(Audience));
         var acceptedClient = new SquirixCacheService.SquirixCacheServiceClient(accepted);
         var response = await acceptedClient.GetValueAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(response.Found).IsFalse().Because(key);

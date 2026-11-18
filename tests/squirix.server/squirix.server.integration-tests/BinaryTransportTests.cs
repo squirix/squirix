@@ -41,7 +41,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster["node-a"];
         var key = owner.FindKeyOwnedBy(CacheName, "node-a");
-        using var channel = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var channel = CreateBinaryChannel(cluster["node-b"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var log = WipedCluster.Log(owner, "node-a");
         var value = new byte[4190208];
@@ -75,7 +75,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
         var node = cluster[NodeId];
-        using var channel = CreateGrpcChannel(node.Uri);
+        using var channel = CreateBinaryChannel(node.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var access = node.GetRequiredService<IDistributedCacheAccess>();
         var fingerprints = 0;
@@ -122,7 +122,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     public async Task ConcurrentNamespacesStayIsolated(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var writes = new Task[32];
         for (var i = 0; i < writes.Length; i++)
@@ -173,7 +173,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var node = cluster[NodeId];
         await node.GetRequiredService<SnapshotTriggerService>().StopAsync(cancellationToken);
         byte[] expected = [0, 255, 128, 34, 0];
-        using (var channel = CreateGrpcChannel(node.Uri))
+        using (var channel = CreateBinaryChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             _ = await client.SetEntryAsync(Request("snapshot", expected), cancellationToken: cancellationToken);
@@ -199,7 +199,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
         var restarted = await cluster.RestartNodeAsync(NodeId, null, cancellationToken);
-        using var recoveredChannel = CreateGrpcChannel(restarted.Uri);
+        using var recoveredChannel = CreateBinaryChannel(restarted.Uri);
         var recovered = new SquirixCacheService.SquirixCacheServiceClient(recoveredChannel);
         await AssertValueAsync(recovered, "snapshot", expected, cancellationToken);
         await AssertValueAsync(recovered, "tail", expected, cancellationToken);
@@ -212,7 +212,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     public async Task BinarySizeBoundaryIsAtomic(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         // Two flags, Int64 version, UInt16 tag count, byte kind and Int32 byte length.
@@ -234,7 +234,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var key = cluster["node-a"].FindKeyOwnedBy(CacheName, "node-a");
         byte[] expected = [0, 255, 128, 0, 34];
-        using var channel = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var channel = CreateBinaryChannel(cluster["node-b"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         _ = await client.SetEntryAsync(Request(key, expected), cancellationToken: cancellationToken);
         foreach (var id in WipedCluster.Nodes)
@@ -272,7 +272,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             await node.GetRequiredService<SnapshotTriggerService>().StopAsync(cancellationToken);
 
         var key = new CacheKey(CacheName, "policy");
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new SetDistributedAsyncRequest
         {
@@ -302,7 +302,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             _ = await cluster.RestartNodeAsync(NodeId, null, cancellationToken);
         }
 
-        using var replayChannel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var replayChannel = CreateBinaryChannel(cluster[NodeId].Uri);
         var replay = new SquirixCacheService.SquirixCacheServiceClient(replayChannel);
         _ = await replay.SetDistributedAsync(request, cancellationToken: cancellationToken);
         await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, expectedPolicy, initial, cancellationToken);
@@ -326,7 +326,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", WipedCluster.Options("distributed-set", true), cancellationToken);
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var key = cluster["node-a"].FindKeyOwnedBy(CacheName, "node-a");
-        using var channel = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var channel = CreateBinaryChannel(cluster["node-b"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new SetDistributedAsyncRequest
         {
@@ -373,7 +373,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster["node-a"];
         var key = owner.FindKeyOwnedBy(CacheName, "node-a");
-        using var channel = CreateGrpcChannel(owner.Uri);
+        using var channel = CreateBinaryChannel(owner.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var cap = TimeProvider.System.GetUtcNow().AddMinutes(2).ToUnixTimeMilliseconds();
         var policy = new DistributedCachePolicy(cap, TimeSpan.FromMinutes(5).Ticks);
@@ -384,7 +384,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
 
         var operationId = Guid.NewGuid().ToString("N");
         loss.Lose(key, static () => Task.CompletedTask);
-        using var entryChannel = CreateGrpcChannel(cluster["node-b"].Uri);
+        using var entryChannel = CreateBinaryChannel(cluster["node-b"].Uri);
         var entryClient = new SquirixCacheService.SquirixCacheServiceClient(entryChannel);
         var first = AccessRpcAsync(entryClient, operationId, key, refresh, cancellationToken);
         var lost = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -402,7 +402,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("node-a");
         var (leaderId, _) = await ledger.LeaderAsync(["node-b", "node-c"], 0UL, "a new leader can replay the access", cancellationToken);
         var newOwner = cluster[leaderId];
-        using var replacementChannel = CreateGrpcChannel(newOwner.Uri);
+        using var replacementChannel = CreateBinaryChannel(newOwner.Uri);
         var replacementClient = new SquirixCacheService.SquirixCacheServiceClient(replacementChannel);
         var replay = await AccessRpcAsync(replacementClient, operationId, key, refresh, cancellationToken);
         _ = await Assert.That(replay != null).IsEqualTo(!refresh);
@@ -426,7 +426,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var owner = cluster["node-a"];
         var peer = cluster["node-b"];
         var key = owner.FindKeyOwnedBy(CacheName, "node-a");
-        using var channel = CreateGrpcChannel(peer.Uri);
+        using var channel = CreateBinaryChannel(peer.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var log = WipedCluster.Log(owner, "node-a");
         var cap = TimeProvider.System.GetUtcNow().AddMinutes(2).ToUnixTimeMilliseconds();
@@ -473,7 +473,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster["node-a"];
         var key = owner.FindKeyOwnedBy(CacheName, "node-a");
-        using var channel = CreateGrpcChannel(owner.Uri);
+        using var channel = CreateBinaryChannel(owner.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var set = new SetDistributedAsyncRequest
         {
@@ -499,7 +499,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     public async Task AbsentAccessRemainsMissing(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var read = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), "policy", false, cancellationToken);
         _ = await Assert.That(read).IsNull();
@@ -516,7 +516,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
         var node = cluster[NodeId];
-        using var channel = CreateGrpcChannel(node.Uri);
+        using var channel = CreateBinaryChannel(node.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var set = new SetDistributedAsyncRequest
         {
@@ -547,7 +547,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
         var node = cluster[NodeId];
-        using var channel = CreateGrpcChannel(node.Uri);
+        using var channel = CreateBinaryChannel(node.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var set = new SetDistributedAsyncRequest
         {
@@ -587,7 +587,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster["node-a"];
         var key = owner.FindKeyOwnedBy(CacheName, "node-a");
-        using var channel = CreateGrpcChannel(owner.Uri);
+        using var channel = CreateBinaryChannel(owner.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var cap = TimeProvider.System.GetUtcNow().AddMinutes(5).ToUnixTimeMilliseconds();
         var policy = new DistributedCachePolicy(cap, TimeSpan.FromMinutes(10).Ticks);
@@ -622,7 +622,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         if (persistent)
             await node.GetRequiredService<SnapshotTriggerService>().StopAsync(cancellationToken);
 
-        using var channel = CreateGrpcChannel(node.Uri);
+        using var channel = CreateBinaryChannel(node.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new SetDistributedAsyncRequest
         {
@@ -655,7 +655,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<object?>>(), new CacheKey(CacheName, request.Key), request, renewedDeadline, cancellationToken);
         }
 
-        using var replayChannel = CreateGrpcChannel(node.Uri);
+        using var replayChannel = CreateBinaryChannel(node.Uri);
         var replayClient = new SquirixCacheService.SquirixCacheServiceClient(replayChannel);
         byte[] replacement = [1];
         _ = await replayClient.SetEntryAsync(Request(request.Key, new DistributedCachePolicy(null, null).Encode(replacement)), cancellationToken: cancellationToken);

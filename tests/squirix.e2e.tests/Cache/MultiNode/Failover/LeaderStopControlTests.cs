@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -148,11 +148,11 @@ public sealed class LeaderStopControlTests
     /// <param name="limit">The source canceled at the bound.</param>
     /// <returns><see langword="true" /> when the failure counts as a refused attempt.</returns>
     private static bool IsRefusal(Exception exception, CancellationTokenSource limit) =>
-        exception is RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } or CommitOutcomeUnknownException
+        exception is SquirixTransportException { StatusCode: CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded } or CommitOutcomeUnknownException
         || (exception is OperationCanceledException && limit.IsCancellationRequested);
 
     /// <summary>Names a failed call by its status code, or by its exception type when it is not a gRPC failure.</summary>
     /// <param name="exception">The failure.</param>
     /// <returns>The name.</returns>
-    private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode}" : exception.GetType().Name;
+    private static string Describe(Exception exception) => exception is SquirixTransportException rpc ? $"{nameof(SquirixTransportException)} {rpc.StatusCode}" : exception.GetType().Name;
 }

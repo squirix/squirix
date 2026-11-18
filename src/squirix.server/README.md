@@ -3,14 +3,14 @@
 `squirix.server` is the server-runtime library on NuGet (`Squirix.Server` assembly). The standalone CLI is published as
 **`squirix.server.tool`**; the command is **`squirix-server`** (`Squirix.Server.Host` project).
 
-| Package               | Purpose                                                                                |
-|-----------------------|----------------------------------------------------------------------------------------|
-| `squirix`             | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer)  |
-| `squirix.server`      | Server runtime, hosting, durability, cluster owner routing, gRPC + health/metrics host |
-| `squirix.server.tool` | Standalone `squirix-server` global tool (process host)                                 |
+| Package | Purpose |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `squirix` | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer) |
+| `squirix.server` | Server runtime, hosting, durability, cluster owner routing, binary TLS and health/metrics host |
+| `squirix.server.tool` | Standalone `squirix-server` global tool (process host) |
 
 `Squirix.Server` does not reference the `Squirix` client SDK assembly. Server-owned cache model types live under
-`Squirix.Server.*`; wire compatibility with clients is through the shared gRPC proto contract only.
+`Squirix.Server.*`; wire compatibility with clients is through the shared protobuf schema.
 
 Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 
@@ -114,4 +114,4 @@ squirix-server run --persist --data-dir data
 squirix-server doctor
 ```
 
-Cache consumers use the `Squirix` client SDK over gRPC, not types from this package.
+Cache consumers use the `Squirix` client SDK over the binary TLS transport.

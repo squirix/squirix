@@ -8,10 +8,10 @@ namespace Squirix.Server.TestKit.Networking;
 /// <summary>Configures HTTP clients used by in-process and loopback integration tests so they do not route through a system proxy.</summary>
 public static class LoopbackHttp
 {
-    /// <summary>The keepalive ping delay of the loopback handler; it mirrors the client package's own channel handler so tests exercise the production values.</summary>
+    /// <summary>The keepalive ping delay of the loopback handler.</summary>
     public static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(10);
 
-    /// <summary>The keepalive ping timeout of the loopback handler; it mirrors the client package's own channel handler so tests exercise the production values.</summary>
+    /// <summary>The keepalive ping timeout of the loopback handler.</summary>
     public static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(20);
 
     private static bool AllowUntrustedDevHttps => string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS"), "1", StringComparison.Ordinal);
@@ -37,17 +37,6 @@ public static class LoopbackHttp
         if (AllowUntrustedDevHttps)
             handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreDevCertificate(certificate, errors, false);
 
-        return handler;
-    }
-
-    /// <summary>Creates a loopback handler that authenticates each physical TLS connection.</summary>
-    /// <param name="bearerToken">The JWT presented before HTTP/2 starts.</param>
-    /// <param name="acknowledgement">Optional observer of the server acknowledgement status.</param>
-    /// <returns>An authenticated handler suitable for a raw gRPC test channel.</returns>
-    public static SocketsHttpHandler CreateAuthenticatedHandler(string bearerToken, Action<byte>? acknowledgement = null)
-    {
-        var handler = CreateHandler();
-        ConnectionAuthenticationTransport.Configure(handler, bearerToken, acknowledgement);
         return handler;
     }
 

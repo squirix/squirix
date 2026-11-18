@@ -5,7 +5,7 @@ A separate nightly workflow compares execution time with the pinned accepted dev
 
 ## Managed allocation limits
 
-The allocation job checks eight public gRPC Get/Set cases and five server read cases.
+The allocation job checks eight public SDK Get/Set cases and five server read cases.
 The eight wire limits were refreshed from three independent successful Ubuntu CI runs from accepted develop sources:
 [41298680753](https://github.com/squirix/squirix/actions/runs/41298680753),
 [41274847911](https://github.com/squirix/squirix/actions/runs/41274847911) and

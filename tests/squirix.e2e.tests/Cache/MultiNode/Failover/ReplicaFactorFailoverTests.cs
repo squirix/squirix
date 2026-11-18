@@ -2,10 +2,10 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -124,7 +124,7 @@ public sealed class ReplicaFactorFailoverTests
     /// <summary>Tells whether a failure is a product refusal: an RPC status or an unknown commit outcome, not a client-side cancellation.</summary>
     /// <param name="failure">The failure of the call.</param>
     /// <returns><see langword="true" /> when the product refused the call.</returns>
-    private static bool IsRefusal(Exception failure) => failure is RpcException { StatusCode: not StatusCode.Cancelled } or CommitOutcomeUnknownException;
+    private static bool IsRefusal(Exception failure) => failure is SquirixTransportException { StatusCode: not CacheTransportStatusCode.Cancelled } or CommitOutcomeUnknownException;
 
     private static MultiNodeStartOptions Options(int replicaCount, ElectionRoundCounter rounds) => new() { ReplicaCount = replicaCount, ServicesConfigure = (_, services) => rounds.Register(services) };
 
@@ -154,7 +154,7 @@ public sealed class ReplicaFactorFailoverTests
         using var guard = new CancellationTokenSource(HangGuard);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, guard.Token);
         var started = Stopwatch.GetTimestamp();
-        var failure = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(call(state, linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(call(state, linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         return (failure, Stopwatch.GetElapsedTime(started));
     }
 }

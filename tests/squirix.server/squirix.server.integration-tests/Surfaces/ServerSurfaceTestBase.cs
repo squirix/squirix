@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Net.Client;
 using JetBrains.Annotations;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -73,18 +72,12 @@ public abstract class ServerSurfaceTestBase : IDisposable
         Func<string, BlackBoxStartOptions>? factory = null,
         CancellationToken cancellationToken = default) => StartClusterAsync([node], factory, cancellationToken);
 
-    /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
+    /// <summary>Creates a public binary TLS channel against a test node URL.</summary>
     /// <param name="uri">The node listen URL.</param>
     /// <param name="bearerToken">Optional JWT used to authenticate the physical connection.</param>
     /// <param name="acknowledgement">Optional observer of the server acknowledgement status.</param>
     /// <returns>A disposable gRPC channel.</returns>
-    protected static GrpcChannel CreateGrpcChannel(Uri uri, string? bearerToken = null, Action<byte>? acknowledgement = null) => GrpcChannel.ForAddress(
-        uri,
-        new GrpcChannelOptions
-        {
-            HttpHandler = bearerToken == null ? LoopbackHttp.CreateHandler() : LoopbackHttp.CreateAuthenticatedHandler(bearerToken, acknowledgement),
-            DisposeHttpClient = true,
-        });
+    protected static PublicBinaryChannel CreateBinaryChannel(Uri uri, string? bearerToken = null, Action<byte>? acknowledgement = null) => new(uri, bearerToken, acknowledgement);
 
     /// <summary>Disposes managed resources owned by the test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>

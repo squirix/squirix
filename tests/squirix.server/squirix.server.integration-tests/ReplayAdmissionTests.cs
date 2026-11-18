@@ -29,7 +29,7 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
             BackpressureOptions = new AdmissionOptions { NodeRateLimitPerSecond = 1, NodeRateLimitBurst = 1 },
         };
         await using var cluster = await StartClusterAsync("replay-rate", options, cancellationToken);
-        using var channel = CreateGrpcChannel(cluster["replay-rate"].Uri);
+        using var channel = CreateBinaryChannel(cluster["replay-rate"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new TryAddEntryAsyncRequest
         {
@@ -68,7 +68,7 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("replay-admission", options, cancellationToken);
         var host = cluster["replay-admission"];
-        using var channel = CreateGrpcChannel(host.Uri);
+        using var channel = CreateBinaryChannel(host.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new TryAddEntryAsyncRequest
         {

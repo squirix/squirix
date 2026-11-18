@@ -108,11 +108,11 @@ docker run --rm \
 ```
 
 The primary listener on port **5000** inside the container is HTTPS (HTTP/1.1 and HTTP/2). Map `-p 5000:5000` for host
-access to gRPC, health, and metrics routes.
+access to binary cache calls, health, and metrics.
 
 Endpoints (three-node RF=3 `docker compose` example):
 
-- Node A HTTPS (gRPC/health/metrics): `https://localhost:5001` (host port maps to container **5000**)
+- Node A HTTPS (binary cache/health/metrics): `https://localhost:5001` (host port maps to container **5000**)
 - Node B HTTPS: `https://localhost:5002`
 - Node C HTTPS: `https://localhost:5003`
 - Inside each container, the listen URL is port **5000** from the mounted `Squirix.settings.json`.

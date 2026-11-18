@@ -1,10 +1,11 @@
 using System;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Google.Protobuf;
-using Grpc.Net.Client;
 using Squirix.Benchmarks.Support;
+using Squirix.Internal.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -14,13 +15,13 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Benchmarks.Server;
 
-/// <summary>Compares read-only access and renewal over loopback gRPC on journaled nodes.</summary>
+/// <summary>Compares read-only access and renewal over the loopback binary transport on journaled nodes.</summary>
 [BenchmarkCategory("e2e", "distributed-cache")]
 public class DistributedRenewalBenchmarks
 {
     private const string CacheName = "distributed-renewal";
-    private GrpcChannel? _channel;
-    private SquirixCacheService.SquirixCacheServiceClient? _client;
+    private BinaryCacheClient? _client;
+    private SocketsHttpHandler? _handler;
     private TestCluster<ClusterStartOptions>? _cluster;
     private TempDirectory? _directory;
     private string _key = string.Empty;
@@ -33,7 +34,7 @@ public class DistributedRenewalBenchmarks
     [Params(1, 3)]
     public int Replicas { get; set; }
 
-    private SquirixCacheService.SquirixCacheServiceClient Client => BenchmarkThrowHelper.Required(_client, "Benchmark setup must run first.");
+    private BinaryCacheClient Client => BenchmarkThrowHelper.Required(_client, "Benchmark setup must run first.");
 
     /// <summary>Reads a value with absolute expiration.</summary>
     [Benchmark(Baseline = true)]
@@ -43,7 +44,9 @@ public class DistributedRenewalBenchmarks
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
-        _channel?.Dispose();
+        if (_client != null)
+            await _client.DisposeAsync().ConfigureAwait(false);
+        _handler?.Dispose();
         if (_cluster != null)
             await _cluster.DisposeAsync().ConfigureAwait(false);
         _directory?.Dispose();
@@ -59,7 +62,7 @@ public class DistributedRenewalBenchmarks
             Key = _key,
             OperationId = Guid.NewGuid().ToString("N"),
         };
-        _ = await Client.RefreshDistributedAsync(request, cancellationToken: CancellationToken.None).ResponseAsync.ConfigureAwait(false);
+        _ = await Client.RefreshDistributedAsync(request, new BinaryCallOptions(DateTime.MaxValue, CancellationToken.None, CancellationToken.None)).ConfigureAwait(false);
     }
 
     /// <summary>Starts the cluster and seeds an entry with absolute expiration.</summary>
@@ -82,7 +85,7 @@ public class DistributedRenewalBenchmarks
             Key = _key,
             OperationId = Guid.NewGuid().ToString("N"),
         };
-        var response = await Client.GetDistributedAsync(request, cancellationToken: CancellationToken.None).ResponseAsync.ConfigureAwait(false);
+        var response = await Client.GetDistributedAsync(request, new BinaryCallOptions(DateTime.MaxValue, CancellationToken.None, CancellationToken.None)).ConfigureAwait(false);
         return response.Found ? response.Value.Length : throw new InvalidOperationException("The seeded entry must be present.");
     }
 
@@ -104,12 +107,8 @@ public class DistributedRenewalBenchmarks
             }
 
             _ = await _cluster.StartAllAsync(StartOptions, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            _channel = GrpcChannel.ForAddress(first.HttpUri, new GrpcChannelOptions
-            {
-                HttpHandler = LoopbackHttp.CreateHandler(),
-                DisposeHttpClient = true,
-            });
-            _client = new SquirixCacheService.SquirixCacheServiceClient(_channel);
+            _handler = LoopbackHttp.CreateHandler();
+            _client = new BinaryCacheClient(first.HttpUri, null, _handler);
             var payload = ByteString.CopyFrom(new byte[PayloadBytes]);
             _key = _cluster["nodeA"].FindKeyOwnedBy(CacheName, "nodeA");
             var request = new SetDistributedAsyncRequest
@@ -124,7 +123,7 @@ public class DistributedRenewalBenchmarks
             else
                 request.ExpiresAtUnixMs = TimeProvider.System.GetUtcNow().AddHours(1).ToUnixTimeMilliseconds();
 
-            _ = await Client.SetDistributedAsync(request, cancellationToken: CancellationToken.None).ResponseAsync.ConfigureAwait(false);
+            _ = await Client.SetDistributedAsync(request, new BinaryCallOptions(DateTime.MaxValue, CancellationToken.None, CancellationToken.None)).ConfigureAwait(false);
         }
         catch
         {

@@ -25,10 +25,10 @@ public sealed class SquirixClientOptions
     ///     <para>
     ///     Connect succeeds when at least one endpoint is reachable (in list order).
     ///     After connect, single-RPC operations fail over to the next bootstrap endpoint on transport-level errors
-    ///     (for example gRPC <c language="csharp">Unavailable</c>).
+    ///     (for example <c language="csharp">Unavailable</c>).
     ///     </para>
     ///     <para>Authenticated cache transports require direct server access or TLS pass-through at layer 4.
-    ///     HTTP/2-terminating proxies are unsupported. Update the SDK and server together.</para>
+    ///     Update the SDK and server together when the wire protocol changes.</para>
     ///     <para>This is bootstrap/high-availability routing, not full cluster partition routing or consensus membership.</para>
     /// </remarks>
     public IList<Uri> Endpoints { get; } = [];

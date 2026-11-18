@@ -56,7 +56,7 @@ Trace ownership during triage:
 
 - Logical cache operation spans are emitted by `TracingCacheDecorator<T>` through the `Squirix` `ActivitySource`.
 - Use logical spans for operation/result triage (`cache.operation`, `cache.result`, `squirix.node_id`).
-- Use gRPC interceptor spans and correlation for transport-level failures.
+- Use transport spans and correlation for transport-level failures.
 - Use journal and snapshot spans for storage failures.
 - Do not expect logical operation spans to include raw keys, values, payloads, cache names, or exception messages.
 
@@ -71,7 +71,7 @@ Security checks during triage:
   OIDC in production. See [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
 - Treat a leaked internode mTLS node certificate and key as usable until the certificate expires or the cluster CA is
   replaced: Squirix does not check revocation. See [security/internode-mtls.md](security/internode-mtls.md#compromised-node-certificate).
-- Verify that gRPC cache, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
+- Verify that binary cache connections, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
   consistently for missing/invalid credentials (`/health`, `/health/live`, and `/health/ready` remain anonymous).
 - On shared or multi-tenant hosts, remember that loopback `/metrics` scrapes stay anonymous even when JWT is enabled;
   see [diagnostics — Loopback trust](diagnostics.md#metrics-loopback-trust).
@@ -171,7 +171,7 @@ Behavior:
   snapshot did not cover, and it pauses an incoming [state transfer](#state-transfer) until the journal has room again.
 - Durable writes are rejected when `usedBytes + appendBytes > maxBytes`, including while `state` remains `high`.
 - Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
-  fail with stable `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). Quota pressure alone does not change `/health/ready`. Check
+  fail with stable `JOURNAL_DISK_QUOTA` (`ResourceExhausted`). Quota pressure alone does not change `/health/ready`. Check
   `journalDisk` on `/health/ready/details` before reclaiming space.
 - This quota covers **journal segments only**, not snapshots or the `man-current` manifest under the data directory.
 
@@ -191,9 +191,9 @@ concurrency limits, bounded queues, slowdown, and optional rate limits. A backpr
 cache operations enter memory admission or clustered/local paths, so rejected writes do not append journal records,
 mutate local memory, update memory accounting, or record idempotency outcomes.
 
-Runtime placement: gRPC adapters keep transport-level protections such as auth, request size limits, serialization
+Runtime placement: Cache transport adapters keep transport-level protections such as auth, request size limits, serialization
 limits, deadlines, cancellation, and server/connection protection. Logical cache-operation backpressure applies after
-validation and before memory admission. Reads and writes share this policy across gRPC and in-process calls.
+validation and before memory admission. Reads and writes share this policy across binary and in-process calls.
 Treat runtime backpressure as overload protection; memory pressure remains capacity admission based on estimated cache
 working-set size.
 
@@ -434,7 +434,7 @@ Before upgrade:
    check in step 6; do not start copied node identities against the live cluster.
 4. Run `tools/internal/sqr-release-validate.cs` locally for the target commit before tagging.
 5. Validate security posture after startup:
-    - Non-loopback cache gRPC rejects missing/invalid JWT when auth is enabled.
+    - Non-loopback binary cache transport rejects missing/invalid JWT when auth is enabled.
     - Remote `/metrics` and `/health/ready/details` require the same JWT bearer credentials.
     - Operational routes are HTTPS-only on the primary listener.
 6. For RF>1 data directories, run `squirix-server doctor` from the target version against a backup copy of the data directory. A
@@ -445,7 +445,7 @@ Compatible rolling upgrade:
 
 1. Upgrade one non-critical node.
 2. Confirm readiness, journal backlog, snapshot age, and client pool state.
-3. Watch logs for serializer, journal, gRPC, and backpressure errors.
+3. Watch logs for serializer, journal, transport, and backpressure errors.
 4. Continue one node at a time.
 5. Keep old binaries and backups until all nodes are validated.
 

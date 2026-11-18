@@ -1,11 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Google.Protobuf;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
+using Squirix.Transport;
+using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -21,7 +24,7 @@ public sealed class RemoteRpcErrorMappingTests
     [Test]
     public async Task ReuseMismatchPreservesTransportCause(CancellationToken cancellationToken)
     {
-        var failure = new RpcException(new Status(StatusCode.FailedPrecondition, OperationIdReuseMismatchException.StableDetail));
+        var failure = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, OperationIdReuseMismatchException.StableDetail));
 
         var error = await ExecuteFailureAsync<OperationIdReuseMismatchException>(failure, cancellationToken);
 
@@ -34,7 +37,7 @@ public sealed class RemoteRpcErrorMappingTests
     [Test]
     public async Task RequiredIdPreservesTransportCause(CancellationToken cancellationToken)
     {
-        var failure = new RpcException(new Status(StatusCode.InvalidArgument, OperationIdRequiredException.StableDetail));
+        var failure = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.InvalidArgument, OperationIdRequiredException.StableDetail));
 
         var error = await ExecuteFailureAsync<OperationIdRequiredException>(failure, cancellationToken);
 
@@ -47,20 +50,20 @@ public sealed class RemoteRpcErrorMappingTests
     /// <param name="detail">The transport detail.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(StatusCode.FailedPrecondition, "")]
-    [Arguments(StatusCode.FailedPrecondition, "unrelated failure")]
-    [Arguments(StatusCode.FailedPrecondition, "Type mismatch: expected counter")]
-    [Arguments(StatusCode.FailedPrecondition, "Version must be greater than current (current=2, provided=1)")]
-    [Arguments(StatusCode.FailedPrecondition, "Operation_id was reused with a different mutation fingerprint.")]
-    [Arguments(StatusCode.FailedPrecondition, OperationIdReuseMismatchException.StableDetail + " ")]
-    [Arguments(StatusCode.FailedPrecondition, OperationIdReuseMismatchException.StableDetail + " Type mismatch: expected counter")]
-    [Arguments(StatusCode.InvalidArgument, OperationIdReuseMismatchException.StableDetail)]
-    [Arguments(StatusCode.FailedPrecondition, OperationIdRequiredException.StableDetail)]
-    public async Task UnmappedFailurePreservesIdentityAndStack(StatusCode statusCode, string detail, CancellationToken cancellationToken)
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, "")]
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, "unrelated failure")]
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, "Type mismatch: expected counter")]
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, "Version must be greater than current (current=2, provided=1)")]
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, "Operation_id was reused with a different mutation fingerprint.")]
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, OperationIdReuseMismatchException.StableDetail + " ")]
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, OperationIdReuseMismatchException.StableDetail + " Type mismatch: expected counter")]
+    [Arguments(CacheTransportStatusCode.InvalidArgument, OperationIdReuseMismatchException.StableDetail)]
+    [Arguments(CacheTransportStatusCode.FailedPrecondition, OperationIdRequiredException.StableDetail)]
+    public async Task UnmappedFailurePreservesIdentityAndStack(CacheTransportStatusCode statusCode, string detail, CancellationToken cancellationToken)
     {
-        var failure = new RpcException(new Status(statusCode, detail));
+        var failure = new SquirixTransportException(new CallStatus(statusCode, detail));
 
-        var error = await ExecuteFailureAsync<RpcException>(failure, cancellationToken);
+        var error = await ExecuteFailureAsync<SquirixTransportException>(failure, cancellationToken);
 
         _ = await Assert.That(error).IsSameReferenceAs(failure);
         _ = await Assert.That(error.StatusCode).IsEqualTo(statusCode);
@@ -68,11 +71,11 @@ public sealed class RemoteRpcErrorMappingTests
         _ = await Assert.That(error.StackTrace).Contains(nameof(CallPolicy));
     }
 
-    private static async Task<TException> ExecuteFailureAsync<TException>(RpcException failure, CancellationToken cancellationToken)
+    private static async Task<TException> ExecuteFailureAsync<TException>(SquirixTransportException failure, CancellationToken cancellationToken)
         where TException : Exception
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(30), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "error-mapping");
-        await using var pool = SingleNodeClientPool.Create(new FailureTransport(failure), policy);
+        await using var pool = SingleNodeClientPool.Create(new FailureTransport(failure).InvokeAsync, policy);
         var cache = new RemoteCache<string>(
             "demo",
             new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System),
@@ -82,31 +85,19 @@ public sealed class RemoteRpcErrorMappingTests
         return await AsyncAssert.ThrowsAsync<TException, bool>(operation, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
     }
 
-    private sealed class FailureTransport : CallInvoker
+    private sealed class FailureTransport
     {
-        private readonly RpcException _failure;
+        private readonly SquirixTransportException _failure;
 
-        internal FailureTransport(RpcException failure)
+        internal FailureTransport(SquirixTransportException failure)
         {
             _failure = failure;
         }
 
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => new(
-            ThrowFailureAsync<TResponse>(),
-            Task.FromResult(new Metadata()),
-            static () => new Status(StatusCode.OK, string.Empty),
-            static () => [],
-            static () => { });
+        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+            (_, _, _, _) => ThrowFailureAsync();
 
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
-
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
-
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
-
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) => throw new NotSupportedException();
-
-        internal async Task<TResponse> ThrowFailureAsync<TResponse>()
+        private async Task<IMessage> ThrowFailureAsync()
         {
             await Task.Yield();
             throw _failure;

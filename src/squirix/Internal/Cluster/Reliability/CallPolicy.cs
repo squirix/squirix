@@ -5,10 +5,9 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
-using Squirix.Internal.Cluster.Transport;
+using Squirix.Transport;
 using Squirix.Transport.Grpc;
 
 namespace Squirix.Internal.Cluster.Reliability;
@@ -129,7 +128,7 @@ internal sealed class CallPolicy : ICallPolicy
             return;
 
         CallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
-        throw new RpcException(new Status(StatusCode.Unavailable, "Peer client pool is draining."));
+        throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "Peer client pool is draining."));
     }
 
     private sealed class ActiveOperationCounter
@@ -194,10 +193,10 @@ internal sealed class CallPolicy : ICallPolicy
             catch (OperationCanceledException) when (budget != null && !cancellationToken.IsCancellationRequested)
             {
                 // The operation deadline can expire while queued on the per-peer semaphore. Surface it as
-                // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
+                // the same deadline-budget SquirixTransportException the retry loop produces instead of leaking a raw
                 // OperationCanceledException.
                 RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-                throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+                throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
             CallPolicyMetrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
@@ -305,10 +304,10 @@ internal sealed class CallPolicy : ICallPolicy
             };
         }
 
-        private RpcException CreateBudgetExceeded()
+        private SquirixTransportException CreateBudgetExceeded()
         {
             RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-            return new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+            return new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken)
@@ -343,7 +342,7 @@ internal sealed class CallPolicy : ICallPolicy
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
         }
 
-        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken, CancellationToken cancellationToken)
+        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(SquirixTransportException rx, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken, CancellationToken cancellationToken)
         {
             if (ConnectionRejectedException.Map(rx) is { } rejected)
                 return AttemptOutcome<T>.Stop(rejected);
@@ -354,28 +353,28 @@ internal sealed class CallPolicy : ICallPolicy
             if (CommitOutcomeUnknownDetail.Matches(rx.Status.Detail))
                 return AttemptOutcome<T>.Stop(rx);
 
-            // The gRPC deadline timer and the budget timer expire at the same instant: when gRPC reports the
+            // The transport deadline timer and the budget timer expire at the same instant: when the server reports the
             // expiry first, it is the exhausted operation budget, not a per-attempt timeout to retry.
-            if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && !cancellationToken.IsCancellationRequested &&
+            if (rx.StatusCode is CacheTransportStatusCode.Cancelled or CacheTransportStatusCode.DeadlineExceeded && !cancellationToken.IsCancellationRequested &&
                 budget?.Remaining is { } remainingBudget && remainingBudget <= TimeSpan.Zero)
             {
                 RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-                throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+                throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
             var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
 
-            if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
+            if (rx.StatusCode == CacheTransportStatusCode.Cancelled || rx.StatusCode == CacheTransportStatusCode.DeadlineExceeded)
             {
-                var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? CallPolicyRetryClassifier.DeadlineExceeded : CallPolicyRetryClassifier.Canceled;
+                var reason = rx.StatusCode == CacheTransportStatusCode.DeadlineExceeded ? CallPolicyRetryClassifier.DeadlineExceeded : CallPolicyRetryClassifier.Canceled;
                 RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "attempt", reason);
                 CallPolicyMetrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
             }
 
-            if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal or StatusCode.ResourceExhausted))
+            if (rx.StatusCode is not (CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.Internal or CacheTransportStatusCode.ResourceExhausted))
                 return AttemptOutcome<T>.Stop(rx);
             CallPolicyMetrics.IncrementRetriesTotal(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(rx));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
@@ -384,21 +383,21 @@ internal sealed class CallPolicy : ICallPolicy
         private void ThrowAfterFailedAttempts(Exception? last, DeadlineBudget? budget, CancellationToken effectiveToken)
         {
             // An ambiguous durable outcome must retain its no-retry contract even at the deadline boundary.
-            if (last is RpcException rpc && CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail))
+            if (last is SquirixTransportException rpc && CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail))
                 throw rpc;
 
             if (budget == null || (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget)))
             {
                 throw last switch
                 {
-                    TaskCanceledException or OperationCanceledException => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts timed out.")),
-                    RpcException { StatusCode: StatusCode.Cancelled } => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
+                    TaskCanceledException or OperationCanceledException => new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "All attempts timed out.")),
+                    SquirixTransportException { StatusCode: CacheTransportStatusCode.Cancelled } => new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
                     _ => last!,
                 };
             }
 
             RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-            throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+            throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
         private void ThrowIfDraining()
@@ -407,7 +406,7 @@ internal sealed class CallPolicy : ICallPolicy
                 return;
 
             CallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
-            throw new RpcException(new Status(StatusCode.Unavailable, "Peer client pool is draining."));
+            throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "Peer client pool is draining."));
         }
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
@@ -432,7 +431,7 @@ internal sealed class CallPolicy : ICallPolicy
             {
                 return AttemptOutcome<T>.Success(await action(state, attemptToken).ConfigureAwait(false));
             }
-            catch (Exception ex) when (ex is OperationCanceledException or RpcException or HttpRequestException)
+            catch (Exception ex) when (ex is OperationCanceledException or SquirixTransportException or HttpRequestException)
             {
                 failure = ex;
             }
@@ -445,10 +444,10 @@ internal sealed class CallPolicy : ICallPolicy
             // The timer records which limit won even if its callback precedes the next timestamp observation.
             return failure switch
             {
-                RpcException rpc when CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptOutcome<T>.Stop(rpc),
+                SquirixTransportException rpc when CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptOutcome<T>.Stop(rpc),
                 _ when attemptBoundsBudget && attemptToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested => throw CreateBudgetExceeded(),
                 OperationCanceledException oce => await MapOperationCanceledFailureAsync<T>(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
-                RpcException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),
+                SquirixTransportException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),
                 HttpRequestException http => await MapHttpFailureAsync<T>(http, attempt, deadlineBudget, effectiveToken).ConfigureAwait(false),
                 _ => throw new InvalidOperationException("Unreachable attempt failure classification."),
             };
@@ -479,16 +478,16 @@ internal sealed class CallPolicy : ICallPolicy
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {
-                RpcException rx => ClassifyRetryReason(rx.StatusCode),
+                SquirixTransportException rx => ClassifyRetryReason(rx.StatusCode),
                 HttpRequestException => "http_request",
                 _ => "transient",
             };
 
-            private static string ClassifyRetryReason(StatusCode statusCode) => statusCode switch
+            private static string ClassifyRetryReason(CacheTransportStatusCode statusCode) => statusCode switch
             {
-                StatusCode.Unavailable => "unavailable",
-                StatusCode.Internal => "internal",
-                StatusCode.ResourceExhausted => "resource_exhausted",
+                CacheTransportStatusCode.Unavailable => "unavailable",
+                CacheTransportStatusCode.Internal => "internal",
+                CacheTransportStatusCode.ResourceExhausted => "resource_exhausted",
                 _ => "transient",
             };
         }

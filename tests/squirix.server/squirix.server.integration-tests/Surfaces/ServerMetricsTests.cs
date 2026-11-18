@@ -20,7 +20,7 @@ public sealed class ServerMetricsTests : ServerSurfaceTestBase
     {
         await using var cluster = await StartClusterAsync("node_A", cancellationToken: cancellationToken);
         var node = cluster["node_A"];
-        using var channel = CreateGrpcChannel(node.Uri);
+        using var channel = CreateBinaryChannel(node.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         _ = await client.SetEntryAsync(

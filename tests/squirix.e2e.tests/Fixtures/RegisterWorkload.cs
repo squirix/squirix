@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Squirix.Transport;
 
 namespace Squirix.E2ETests.Fixtures;
 
@@ -132,7 +132,7 @@ internal sealed class RegisterWorkload
                 History.RecordRead(new RegisterRead(key, start, Stopwatch.GetTimestamp(), read.Found ? read.Value : 0L));
                 succeeded = true;
             }
-            catch (RpcException)
+            catch (SquirixTransportException)
             {
                 // A failed read has no effect on the register model.
             }
@@ -162,7 +162,7 @@ internal sealed class RegisterWorkload
                 await _writer.SetAsync(key, value, cancellationToken: cancellationToken);
                 acked = true;
             }
-            catch (Exception exception) when (exception is RpcException or CommitOutcomeUnknownException)
+            catch (Exception exception) when (exception is SquirixTransportException or CommitOutcomeUnknownException)
             {
                 // The write may or may not have taken effect: the history keeps it as ambiguous.
             }

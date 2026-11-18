@@ -128,7 +128,7 @@ An added or found value is classified as `ok`; a concurrent miss is classified a
 Ownership boundaries:
 
 - `TracingCacheDecorator<T>` owns logical cache operation spans.
-- RPC interceptors own transport-level gRPC spans and correlation.
+- RPC interceptors own transport-level spans and correlation.
 - journal and snapshot components own storage-specific spans. Journal spans tag the cache namespace and
   payload sizes, never the raw key.
 - Memory-pressure components own memory-pressure diagnostics.
@@ -198,7 +198,7 @@ writes were grouped, not how many committed.
 The counter `squirix_replication_unknown_commit_total` (labels `operation`, `scope="replication"`) counts the commits that
 ended with an unknown outcome (`COMMIT_OUTCOME_UNKNOWN`) after the local append, by the kind of record: `user_mutation` or
 `expiration`. An expiry run counts once; of a batch of writes, each write whose outcome is unknown counts once. The affected operation may
-still commit. A raw gRPC client can retry the identical request under the same operation identifier within the
+still commit. A raw binary client can retry the identical request under the same operation identifier within the
 [documented replay window](api.md). The public SDK does not expose an operation-id parameter: repeating an `ICache<T>`
 mutation creates a new identifier, and `COMMIT_OUTCOME_UNKNOWN` is not automatically retried or failed over.
 Reconcile the outcome with application state before deciding whether to issue another mutation; do not blindly repeat it.
@@ -241,7 +241,7 @@ manifest, and storage health metrics remain owned by the storage layer (`Journal
 Backpressure metrics are owned by `Gate` and exposed through the `Squirix` meter as runtime cache-operation
 admission diagnostics. `BackpressureCacheDecorator<T>` applies this policy before logical reads and writes enter memory
 admission, clustered routing, journal append, memory mutation, memory accounting, or idempotency outcome updates.
-gRPC adapters keep transport-specific protection and map runtime backpressure failures to gRPC
+Cache transport adapters keep transport-specific protection and map runtime backpressure failures to
 `ResourceExhausted`; they do not own duplicate logical cache-operation backpressure. Keep these signals separate from
 memory-pressure metrics: backpressure describes request concurrency, queueing, slowdown, and rate-limit pressure, while
 memory pressure describes estimated cache working-set capacity.

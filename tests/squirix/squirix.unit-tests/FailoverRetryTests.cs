@@ -4,10 +4,10 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -32,7 +32,7 @@ public sealed class FailoverRetryTests
             static (nodeId, state, _, _) =>
             {
                 state.Observed.Add((nodeId, state.OperationId));
-                return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new RpcException(new Status(StatusCode.Unavailable, "down")) : new ValueTask<int>(42);
+                return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal) ? throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "down")) : new ValueTask<int>(42);
             },
             observer,
             cancellationToken);
@@ -56,7 +56,7 @@ public sealed class FailoverRetryTests
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromMilliseconds(500), new SteppingTimeProvider(TimeSpan.FromSeconds(1)));
         var observer = new OperationObserver("operation-expired-1");
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
             failover.ExecuteAsync(
                 static (nodeId, state, _, _) =>
                 {
@@ -69,7 +69,7 @@ public sealed class FailoverRetryTests
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
         _ = await Assert.That(observer.Observed).IsEmpty();
     }
 
@@ -106,12 +106,12 @@ public sealed class FailoverRetryTests
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var observer = new OperationObserver("operation-stale-2");
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
             failover.ExecuteAsync<OperationObserver, int>(
                 static (nodeId, state, _, _) =>
                 {
                     state.Observed.Add((nodeId, state.OperationId));
-                    throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"));
+                    throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, "stale-term"));
                 },
                 observer,
                 cancellationToken),
@@ -119,7 +119,7 @@ public sealed class FailoverRetryTests
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.FailedPrecondition);
         _ = await Assert.That(observer.Observed.Count).IsEqualTo(2);
     }
 
@@ -136,7 +136,7 @@ public sealed class FailoverRetryTests
             {
                 state.Observed.Add((nodeId, state.OperationId));
                 return string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal)
-                    ? throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"))
+                    ? throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, "stale-term"))
                     : new ValueTask<int>(42);
             },
             observer,

@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport;
 
 namespace Squirix.E2ETests.Fixtures;
 
@@ -136,7 +137,7 @@ internal static class FailoverSteps
         {
             return (await state.Reader.GetValueAsync(state.Key, cancellationToken)).Value >= state.Value;
         }
-        catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded)
+        catch (SquirixTransportException exception) when (exception.StatusCode is CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded)
         {
             return false;
         }
@@ -172,7 +173,7 @@ internal static class FailoverSteps
                 }
                 catch (CommitOutcomeUnknownException exception)
                 {
-                    throw new RpcException(new Status(StatusCode.Unavailable, "The commit outcome of the probe write is unknown; writing it again is idempotent.", exception));
+                    throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "The commit outcome of the probe write is unknown; writing it again is idempotent.", exception));
                 }
 
                 return await s.Cache.GetValueAsync(s.Key, token);
@@ -183,11 +184,18 @@ internal static class FailoverSteps
         return (read, Stopwatch.GetElapsedTime(faultStarted));
     }
 
-    internal static string DescribeRefusal(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
+    internal static string DescribeRefusal(Exception exception) => exception switch
+    {
+        SquirixTransportException transport => $"{nameof(SquirixTransportException)} {transport.StatusCode} '{transport.Message}'",
+        RpcException rpc => $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'",
+        _ => exception.GetType().Name,
+    };
 
     /// <summary>Tells whether a failure is a refusal the client can act on: an unavailable, timed out or shed call, or a commit with an unknown outcome.</summary>
     /// <param name="exception">The failure.</param>
     /// <returns><see langword="true" /> for a refusal; otherwise <see langword="false" />.</returns>
     internal static bool IsPartitionRefusal(Exception exception) =>
-        exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.ResourceExhausted };
+        exception is CommitOutcomeUnknownException
+            or SquirixTransportException { StatusCode: CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded or CacheTransportStatusCode.ResourceExhausted }
+            or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.ResourceExhausted };
 }

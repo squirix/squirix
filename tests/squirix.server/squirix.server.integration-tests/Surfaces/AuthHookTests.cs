@@ -6,11 +6,11 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Grpc.Core.Interceptors;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -37,7 +37,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         await using var cluster = await StartClusterAsync(new ClusterNode("hooks", origin), _ => CreateOptions(credentials, probe), cancellationToken);
         var rejectedStatus = byte.MaxValue;
         var loopback = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port.Port));
-        using var channel = CreateGrpcChannel(loopback, TestJwtHelper.CreateBearerToken(credentials), status => rejectedStatus = status);
+        using var channel = CreateBinaryChannel(loopback, TestJwtHelper.CreateBearerToken(credentials), status => rejectedStatus = status);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var denied = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "denied" }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(denied.StatusCode).IsEqualTo(StatusCode.Unavailable);
@@ -67,7 +67,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var probe = new HookProbe(false);
         await using var cluster = await StartClusterAsync("hooks", _ => CreateOptions(credentials, probe), cancellationToken);
-        using var channel = CreateGrpcChannel(cluster["hooks"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        using var channel = CreateBinaryChannel(cluster["hooks"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         for (var i = 0; i < 2; i++)
         {
@@ -83,10 +83,35 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         _ = await Assert.That(probe.ClaimErrors).IsEqualTo(0);
     }
 
+    /// <summary>An exception from one call maps to Unknown and preserves the authenticated connection.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedHookKeepsConnectionUsable(CancellationToken cancellationToken)
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        var probe = new HookProbe(false);
+        await using var cluster = await StartClusterAsync("hooks", _ => CreateOptions(credentials, probe), cancellationToken);
+        using var channel = CreateBinaryChannel(cluster["hooks"].Uri, TestJwtHelper.CreateBearerToken(credentials));
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var request = new GetValueAsyncRequest { CacheName = "default", Key = "hook-failure" };
+
+        probe.FailNextTransform();
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unknown);
+
+        var result = await client.GetValueAsync(request, cancellationToken: cancellationToken);
+        _ = await Assert.That(result.Found).IsFalse();
+        _ = await Assert.That(probe.Events).IsEqualTo(1);
+        _ = await Assert.That(probe.RpcEntries).IsEqualTo(1);
+    }
+
     private static BlackBoxStartOptions CreateOptions(TestJwtCredentials credentials, HookProbe probe) => new()
     {
         Security = TestNodeSecurityOptions.FromJwtCredentials(credentials),
-        ConfigureGrpc = static options => options.Interceptors.Add<ClaimProbeInterceptor>(),
         ServicesConfigure = services =>
         {
             _ = services.AddSingleton(probe);
@@ -94,7 +119,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
             _ = services.AddScoped(static provider => new EventScope(provider.GetRequiredService<HookProbe>()));
             _ = services.AddScoped(static provider => new ScopedEvents(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<EventScope>(), provider.GetRequiredService<IHttpContextAccessor>()));
             _ = services.AddTransient<IClaimsTransformation>(static provider => new RequestClaims(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<IHttpContextAccessor>()));
-            _ = services.AddSingleton(static provider => new ClaimProbeInterceptor(provider.GetRequiredService<HookProbe>()));
+            _ = services.AddSingleton(static provider => new BinaryCallObserver(new ClaimProbeInterceptor(provider.GetRequiredService<HookProbe>()).Observe));
             _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, static options => options.EventsType = typeof(ScopedEvents));
         },
     };
@@ -108,6 +133,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         private int _transforms;
         private int _contextErrors;
         private int _claimErrors;
+        private int _failNextTransform;
 
         internal HookProbe(bool reject)
         {
@@ -129,6 +155,10 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         internal int ContextErrors => Volatile.Read(ref _contextErrors);
 
         internal int ClaimErrors => Volatile.Read(ref _claimErrors);
+
+        internal void FailNextTransform() => Volatile.Write(ref _failNextTransform, 1);
+
+        internal bool TakeTransformFailure() => Interlocked.Exchange(ref _failNextTransform, 0) != 0;
 
         internal void RecordEvents() => _ = Interlocked.Increment(ref _events);
 
@@ -215,7 +245,13 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
         {
             _probe.RecordTransforms();
-            if (!string.Equals(_accessor.HttpContext?.Request.Method, "POST", StringComparison.Ordinal))
+            if (_probe.TakeTransformFailure())
+                return Task.FromException<ClaimsPrincipal>(new InvalidOperationException("Scripted claims transformation failure."));
+
+            var http = _accessor.HttpContext;
+            if (http == null || !string.Equals(http.Request.Method, "POST", StringComparison.Ordinal) ||
+                http.Connection.RemoteIpAddress is not { } remote || !IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote) ||
+                http.Connection.RemotePort <= 0 || http.Connection.LocalIpAddress == null || http.Connection.LocalPort <= 0)
                 _probe.RecordContextErrors();
             if (principal.HasClaim(static claim => string.Equals(claim.Type, "request-transform", StringComparison.Ordinal)) || !principal.HasClaim("token-event", "retained"))
                 _probe.RecordClaimErrors();
@@ -235,7 +271,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         }
     }
 
-    private sealed class ClaimProbeInterceptor : Interceptor
+    private sealed class ClaimProbeInterceptor
     {
         private readonly HookProbe _probe;
 
@@ -244,8 +280,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
             _probe = probe;
         }
 
-        /// <inheritdoc />
-        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
+        internal void Observe(ServerCallContext context)
         {
             _probe.RecordRpcEntries();
             var principal = context.GetHttpContext().User;
@@ -258,7 +293,6 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
             if (count != 1 || !principal.HasClaim("token-event", "retained"))
                 _probe.RecordClaimErrors();
-            return continuation(request, context);
         }
     }
 }

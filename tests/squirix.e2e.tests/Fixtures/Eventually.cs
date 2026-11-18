@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Transport;
 
 namespace Squirix.E2ETests.Fixtures;
 
@@ -58,7 +59,7 @@ internal static class Eventually
                 if (limit.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                     throw BoundSpent(bound, attempts, exception);
 
-                if (exception is not RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded })
+                if (!IsTransient(exception))
                     throw;
             }
 
@@ -120,6 +121,10 @@ internal static class Eventually
 
     private static TimeoutException BoundSpent(TimeSpan bound, List<EventualAttempt> attempts, Exception last) =>
         new(string.Create(CultureInfo.InvariantCulture, $"No attempt succeeded within {bound.TotalSeconds:F1} s:{Environment.NewLine}{Dump(attempts)}"), last);
+
+    private static bool IsTransient(Exception exception) => exception is
+        RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } or
+        SquirixTransportException { StatusCode: CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded };
 
     private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode}" : exception.GetType().Name;
 }

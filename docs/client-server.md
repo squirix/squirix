@@ -10,7 +10,7 @@ application -> Squirix client SDK -> squirix server node(s)
 
 - **.NET backend engineers** exploring a typed, client/server cache SDK for .NET 10
 - **Distributed systems engineers** evaluating ownership routing, journal-backed durability, and operational surfaces
-- **OSS contributors** interested in cache engines, gRPC services, and durability tooling
+- **OSS contributors** interested in cache engines, binary protocols, and durability tooling
 - Teams comparing early-stage alternatives — without claims of parity with mature products such as Redis, NCache, or
   Hazelcast
 
@@ -34,7 +34,7 @@ All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profi
 | NuGet package | Role |
 | --- | --- |
 | [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, cache host (library) |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool |
 | `squirix.extensions.caching` (preview.11) | Microsoft `IDistributedCache` provider and HybridCache L2 |
 
@@ -57,27 +57,26 @@ Only a custom ASP.NET Core server host needs the server library:
 dotnet add package squirix.server --version 0.1.0-preview.10
 ```
 
-Run package commands in the corresponding existing project directory. These commands use the published preview.10;
-see [Getting started](getting-started.md) for complete project creation and server startup steps.
-
-During early preview evaluation you may reference `Squirix.Server.csproj` from a clone instead of the NuGet package.
+Run package commands in the corresponding existing project directory. These commands install the published preview.10 packages,
+which use gRPC over HTTPS for cache calls. To try the preview.11 binary transport from a checkout, build both the client
+and server from that checkout. See [Getting started](getting-started.md) for both setup paths.
 
 ## Responsibilities
 
 | Layer | Owns |
 | --- | --- |
 | **`Squirix` (client)** | `SquirixClient`, `ICache<T>`, serializers, bootstrap connectivity and transport failover |
-| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, gRPC hosting, health/metrics |
+| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, binary cache hosting, health/metrics |
 | **`squirix-server` (host)** | Standalone process lifecycle and CLI |
 
-`Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through gRPC
+`Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through protobuf
 contracts and shared proto source.
 
 ## Features in 0.1
 
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
-- HTTPS gRPC transport (shared `SquirixCache.proto` contract)
+- Binary TLS transport in preview.11 (shared `SquirixCache.proto` contract)
 - Health, readiness, and metrics routes on the same primary TLS listener (HTTP/1.1 and HTTP/2)
 - Opt-in journal-based durability with recovery on startup (`UsePersistence()` / `--persist`)
 - Snapshots and journal retention

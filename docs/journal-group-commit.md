@@ -46,7 +46,7 @@ Group commit never lets a caller or a reader see a value before its journal byte
   shutdown marker covers their frames, including the outcome frame of a write with an operation id that is parked in the
   durability wait, so that write is applied and answered. A write whose outcome frame was not yet appended when the stop
   began is made durable and applied, but its outcome can no longer be appended, so it ends with `COMMIT_OUTCOME_UNKNOWN`
-  (gRPC `Unavailable`); retry with the same operation id after restart. Any write also ends with
+  (`Unavailable`); retry with the same operation id after restart. Any write also ends with
   `COMMIT_OUTCOME_UNKNOWN` when the stop times out, the final flush fails, or a failure was latched before the marker; the
   write may or may not be durable.
 

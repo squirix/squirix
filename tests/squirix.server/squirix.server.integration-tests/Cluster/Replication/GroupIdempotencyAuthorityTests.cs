@@ -46,7 +46,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-retry"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = AddRequest(RpcOperationIdentity.New(), cluster[Owner].FindKeyOwnedBy(CacheName, Owner), "first");
 
@@ -67,7 +67,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-concurrent"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = AddRequest(RpcOperationIdentity.New(), cluster[Owner].FindKeyOwnedBy(CacheName, Owner), "first");
         var before = await LastLogIndexAsync(cluster[Owner], cancellationToken);
@@ -92,7 +92,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-mismatch"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var operationId = RpcOperationIdentity.New();
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
@@ -114,7 +114,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-get-or-add"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetOrAddAsyncRequest
         {
@@ -148,7 +148,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-touch"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
         _ = await client.TryAddEntryAsync(AddRequest(RpcOperationIdentity.New(), key, "value"), cancellationToken: cancellationToken);
@@ -171,7 +171,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-scope"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var operationId = RpcOperationIdentity.New();
         var before = await LastLogIndexAsync(cluster[Owner], cancellationToken);

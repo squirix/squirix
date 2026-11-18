@@ -30,8 +30,9 @@ Use paths without `.` or `..` segments, for example `config/node.json` and `data
 CLI listen, persistence, data-directory, and replication overrides are applied after loading cluster settings. In custom
 hosts, the configuration callback runs after the discovered cluster settings baseline.
 
-Custom ASP.NET Core hosts configure cluster topology and optional persistence through
-`SquirixServerOptions` (`UsePersistence()`); `await app.MapSquirixServerAsync()` opens node storage and maps gRPC, health, and metrics endpoints.
+In a custom ASP.NET Core host, `AddSquirixServerAsync` configures the public TLS listener for binary cache connections.
+Configure cluster topology and optional persistence in its `SquirixServerOptions` callback. After building the app,
+call `await app.MapSquirixServerAsync()` to open node storage and map health, metrics, and any configured internode endpoints.
 
 ## Remote client (`SquirixClientOptions`)
 
@@ -88,7 +89,7 @@ for credential refresh, transport compatibility and migration from per-RPC authe
 The optional `Squirix:MemoryPressure` section is merged when present (same file discovery as `Squirix:Cluster`).
 Environment variables listed below override merged file values. Memory pressure is **always active** at runtime.
 The node may reject **growing** writes under critical estimated memory usage. Those rejections occur before durable
-journal append. gRPC returns **`ResourceExhausted`** with stable pressure details (bounded payloads; field semantics are
+journal append. Cache calls return **`ResourceExhausted`** with stable pressure details (bounded payloads; field semantics are
 in the table below).
 
 | Field                              | Type  | Default                        | Validation                                                                                          |
@@ -182,12 +183,12 @@ Example:
 }
 ```
 
-For local standalone hosts, `https://localhost:5001` is the default gRPC listen URL. In Docker Compose and other container
+For local standalone hosts, `https://localhost:5001` is the default public TLS listen URL. In Docker Compose and other container
 networks, set `Uri` and the local peer entry to the **service hostname** reachable by other nodes (for example
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Uri` must exactly match `Cluster.Uri`.
 
 When exposing a container to host client apps: map the primary HTTPS listener (for example host **5001** → container **5000**)
-so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS port. See [containerization.md](containerization.md).
+so binary cache clients and operational routes (`/health`, `/metrics`) share one TLS port. See [containerization.md](containerization.md).
 
 ## Hosting options (`SquirixServerOptions`)
 
@@ -433,7 +434,7 @@ Additional host defaults (also not merged from `Squirix.settings.json`):
   `journal_maintenance` reports readiness **Degraded**
 
 `JournalMaxTotalBytesMb` soft high-water for `/health/ready/details` is fixed at 80% of this limit. Durable writes
-that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). Quota pressure alone does
+that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (`ResourceExhausted`). Quota pressure alone does
 not change readiness. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
 
 At the same high-water mark (80% of `JournalMaxTotalBytesMb`, or of `JournalMaxSegmentCount`) the node takes a snapshot, whatever
@@ -510,7 +511,7 @@ Unknown keys in the `Journal` object fail loading, and `Journal` must not be `nu
 
 Backpressure is configured through `SquirixServerOptions.Backpressure` (`SquirixServerBackpressureOptions`) or the
 `Squirix:Cluster:Backpressure` settings object; every key is optional and keeps the default listed below. Limits apply
-before logical reads and writes under load. gRPC transport adapters still enforce transport-level limits (auth, payload
+before logical reads and writes under load. Cache transport adapters still enforce transport-level limits (auth, payload
 size, deadlines, cancellation). Memory pressure is a separate policy. Node-wide admission control is always on and
 cannot be switched off from public options.
 
@@ -559,7 +560,7 @@ The entry node also limits forwarded calls per owner to half of `MaxInFlight` (a
 that finds all of them taken is refused at once with `peer_busy` and does not wait while holding its admission slot, so a
 slow or hung owner cannot pin more than that many slots. The entry node sends each forwarded call once and does not
 retry it against the owner; the Squirix client retries transient failures (`Unavailable`, `Internal`, `ResourceExhausted`
-and deadline expiry) with the same operation id. A raw gRPC caller that does not use the Squirix client must retry them
+and deadline expiry) with the same operation id. A raw binary caller that does not use the Squirix client must retry them
 itself.
 
 | Field                         | Type            | Default        | Validation                                       |
@@ -715,7 +716,7 @@ RF=1 deployment. See [activated topology stamps](#activated-topology-stamp-topol
 ### Loopback trust model
 
 The **listen address** determines whether the node can start without external authentication. A loopback bind
-(`localhost` or an IP loopback address) permits startup without JWT. With JWT configured, gRPC cache calls require
+(`localhost` or an IP loopback address) permits startup without JWT. With JWT configured, binary cache calls require
 a valid token even on loopback. A non-loopback bind requires JWT configuration at startup.
 
 The **client connection address** determines access to `/metrics` and `/health/ready/details`. Loopback clients

@@ -527,7 +527,7 @@ internal static class ServerHostingComposition
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
-        _ = app.MapSquirixEndpoints(authEnabled);
+        _ = app.MapSquirixEndpoints();
         var extensions = app.Services.GetService<ExtensionOptions>();
         extensions?.MapEndpoints?.Invoke(app);
         extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
@@ -756,7 +756,7 @@ internal static class ServerHostingComposition
             {
                 var services = listenOptions.ApplicationServices;
                 var middleware = new ConnectionAuthenticationMiddleware(next, services.GetService<ConnectionAuthenticationValidator>(), TimeProvider.System);
-                return middleware.OnConnectionAsync;
+                return BinaryEndpoint.Create(middleware.OnConnectionAsync, services);
             });
         }
     }

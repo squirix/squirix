@@ -10,7 +10,7 @@ from testing, contributor feedback, and application requirements.
 
 ## Existing foundation
 
-- Typed single-key cache operations over HTTPS gRPC, with pluggable serialization and explicit expiration semantics.
+- Typed single-key cache operations over the binary TLS transport, with pluggable serialization and explicit expiration semantics.
 - Standalone server tooling and hosting in an ASP.NET Core application.
 - Static key routing and replicated groups, with opt-in automatic failover and quorum reads for replica counts of at least three.
 - Persistence through journals and snapshots, plus health endpoints and metrics.

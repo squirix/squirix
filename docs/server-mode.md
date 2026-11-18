@@ -62,7 +62,7 @@ If port 5001 is unavailable, change `options.Uri` and use the same address in th
 
 `AddSquirixServerAsync(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
 HTTP/2 on one port). `MapSquirixServerAsync()` opens node storage (activated-topology check, journal startup repair, replica group logs) after
-`Build()` and maps gRPC, health, and metrics endpoints; call it once before `StartAsync` or `RunAsync`.
+`Build()` and maps health and metrics endpoints; call it once before `StartAsync` or `RunAsync`.
 
 ## Loopback development default (not production posture)
 

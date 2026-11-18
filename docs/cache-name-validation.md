@@ -44,11 +44,11 @@ In-process APIs throw `ArgumentException` with one of these canonical messages:
 
 Transport mapping:
 
-- gRPC: `InvalidArgument`
+- Binary cache transport: `InvalidArgument`
 
 Current transport note:
 
-- gRPC requests carry the validated logical cache name; the service is not limited to the `default` namespace.
+- Binary cache requests carry the validated logical cache name; the service is not limited to the `default` namespace.
 - `SquirixClient.GetCacheAsync<T>("users", cancellationToken)` selects a named cache against a remote server.
   Use `"default"` explicitly when that is the desired name; null, empty, or whitespace-only public names are rejected
   rather than silently selecting a default. See [Client API](api.md) and [server mode](server-mode.md).

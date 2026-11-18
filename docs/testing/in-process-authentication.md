@@ -4,7 +4,7 @@ Use a per-node `TestNodeSecurityOptions` override for authentication tests. This
 process-wide environment settings.
 
 - For symmetric JWT, use `TestJwtHelper.CreateRandomCredentials()` and
-  `TestNodeSecurityOptions.FromJwtCredentials(...)`. See [the gRPC JWT test](../../tests/squirix.server/squirix.server.integration-tests/Surfaces/AuthTests.cs).
+  `TestNodeSecurityOptions.FromJwtCredentials(...)`. See [the binary TLS JWT test](../../tests/squirix.server/squirix.server.integration-tests/Surfaces/AuthTests.cs).
 - For OIDC, start `MockOidcAuthority` and pass `authority.ToSecurityOptions(audience)`. The mock authority serves
   discovery and JWKS on loopback. See [the OIDC integration test](../../tests/squirix.server/squirix.server.integration-tests/Security/OidcJwtAuthIntegrationTests.cs).
 
