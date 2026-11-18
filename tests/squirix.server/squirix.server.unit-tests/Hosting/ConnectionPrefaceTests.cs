@@ -7,10 +7,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -18,7 +20,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>Exercises bounded server preface reads against real in-memory pipes.</summary>
+/// <summary>Exercises bounded server transport reads against real in-memory pipes.</summary>
 [Immutable]
 public sealed class ConnectionPrefaceTests
 {
@@ -43,6 +45,50 @@ public sealed class ConnectionPrefaceTests
         await processing;
         _ = await Assert.That(connection.Aborted).IsTrue();
         _ = await Assert.That(admitted).IsFalse();
+    }
+
+    /// <summary>An incomplete binary request body closes the connection at the read deadline without dispatching the request.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IncompleteBinaryRequestBodyTimesOut(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var frame = connection.Incoming.Writer.GetMemory(Frames.HeaderBytes + 1);
+        Frames.Write(frame.Span, 1, 2, 1);
+        frame.Span[Frames.HeaderBytes] = 0;
+        connection.Incoming.Writer.Advance(Frames.HeaderBytes + 1);
+        _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
+        var dispatched = false;
+        var pump = new BinaryConnectionPump(
+            connection,
+            (_, _) =>
+            {
+                dispatched = true;
+                return ValueTask.FromResult(default(BinaryResponse));
+            },
+            NullLogger.Instance,
+            clock);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            var tick = TimeSpan.FromMilliseconds(1);
+            clock.Advance(RpcAttemptTimeout.OperationDeadline - tick);
+            var pendingBeforeDeadline = !processing.IsCompleted && !connection.Aborted;
+
+            clock.Advance(tick);
+            await processing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+            _ = await Assert.That(pendingBeforeDeadline).IsTrue();
+            _ = await Assert.That(connection.Aborted).IsTrue();
+            _ = await Assert.That(dispatched).IsFalse();
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing;
+        }
     }
 
     /// <summary>Invalid size and unsupported version produce a strict negative acknowledgement.</summary>

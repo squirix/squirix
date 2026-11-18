@@ -21,16 +21,22 @@ internal sealed partial class BinaryConnectionPump
 
     private readonly ConnectionContext _connection;
     private readonly ILogger _log;
+    private readonly TimeProvider _timeProvider;
     private readonly Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, ValueTask<BinaryResponse>> _process;
     private readonly Task[] _jobs = new Task[MaxPending];
     private readonly Channel<int> _slots = Channel.CreateBounded<int>(MaxPending);
     private readonly Channel<PendingResponse> _outgoing = Channel.CreateBounded<PendingResponse>(
         new BoundedChannelOptions(MaxPending) { SingleReader = true });
 
-    internal BinaryConnectionPump(ConnectionContext connection, Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, ValueTask<BinaryResponse>> process, ILogger log)
+    internal BinaryConnectionPump(
+        ConnectionContext connection,
+        Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, ValueTask<BinaryResponse>> process,
+        ILogger log,
+        TimeProvider timeProvider)
     {
         _connection = connection;
         _log = log;
+        _timeProvider = timeProvider;
         _process = process;
         for (var i = 0; i < _jobs.Length; i++)
         {
@@ -61,6 +67,7 @@ internal sealed partial class BinaryConnectionPump
         try
         {
             await input.ReadExactlyAsync(body.AsMemory(0, size), cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             return body;
         }
         catch
@@ -104,7 +111,21 @@ internal sealed partial class BinaryConnectionPump
                 var slot = await _slots.Reader.ReadAsync(stop).ConfigureAwait(false);
                 await input.ReadExactlyAsync(header.AsMemory(0, Frames.HeaderBytes), stop).ConfigureAwait(false);
                 var frame = Frames.Read(header, Frames.MaxRequestBytes);
-                var body = await ReadBodyAsync(input, frame.Size, stop).ConfigureAwait(false);
+                byte[] body;
+                using (var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop))
+                {
+                    try
+                    {
+                        body = await ReadBodyAsync(input, frame.Size, deadline.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (deadline.IsCancellationRequested && !stop.IsCancellationRequested)
+                    {
+                        // A timed-out body leaves the connection between frame boundaries.
+                        _connection.Abort();
+                        return;
+                    }
+                }
+
                 _jobs[slot] = RunCallAsync(slot, frame, body);
             }
         }
@@ -137,7 +158,7 @@ internal sealed partial class BinaryConnectionPump
                     _ = _slots.Writer.TryWrite(frame.Slot);
                 }
 
-                using var boundedFlush = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, TimeProvider.System, stop);
+                using var boundedFlush = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop);
                 var flush = await writer.FlushAsync(boundedFlush.Token).ConfigureAwait(false);
                 if (flush is { IsCanceled: false, IsCompleted: false })
                     continue;
