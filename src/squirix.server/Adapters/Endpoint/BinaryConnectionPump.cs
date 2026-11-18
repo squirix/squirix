@@ -162,7 +162,7 @@ internal sealed partial class BinaryConnectionPump
             {
                 examined = buffer.End;
                 stop.ThrowIfCancellationRequested();
-                throw new IOException("The binary input pipe canceled a read.");
+                throw new OperationCanceledException("The binary input pipe canceled a read.");
             }
 
             while (buffer.Length >= Frames.HeaderBytes && !stop.IsCancellationRequested)
@@ -192,7 +192,9 @@ internal sealed partial class BinaryConnectionPump
 
             examined = buffer.End;
             stop.ThrowIfCancellationRequested();
-            return result.IsCompleted ? throw new EndOfStreamException() : null;
+
+            // Detect EOF after yielding to the same slot gate as the next request.
+            return result.IsCompleted && buffer.Length == result.Buffer.Length ? throw new EndOfStreamException() : null;
         }
         finally
         {

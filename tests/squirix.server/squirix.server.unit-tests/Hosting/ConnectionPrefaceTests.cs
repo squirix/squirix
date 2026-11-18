@@ -230,6 +230,48 @@ public sealed class ConnectionPrefaceTests
         }
     }
 
+    /// <summary>A full batch may complete work before the pump handles input EOF.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BinaryInputEofWaitsForAnOccupiedSlot(CancellationToken cancellationToken)
+    {
+        const int pendingCalls = 16;
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(5));
+        var input = connection.Incoming.Writer;
+        for (var id = 1; id <= pendingCalls; id++)
+        {
+            Frames.Write(input.GetSpan(Frames.HeaderBytes), id, 0, 1);
+            input.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await input.FlushAsync(stop.Token);
+        await input.CompleteAsync();
+        var reply = new TaskCompletionSource<BinaryResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatched = 0;
+        var pump = new BinaryConnectionPump(
+            connection,
+            (_, _) =>
+            {
+                dispatched++;
+                return new ValueTask<BinaryResponse>(reply.Task);
+            },
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            _ = await Assert.That(dispatched).IsEqualTo(pendingCalls);
+            _ = await Assert.That(connection.Aborted).IsFalse();
+        }
+        finally
+        {
+            reply.SetResult(default);
+            await processing.WaitAsync(stop.Token);
+        }
+    }
+
     /// <summary>A split header resumes when exactly its remaining bytes arrive.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
