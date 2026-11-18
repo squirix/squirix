@@ -5,10 +5,12 @@ using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Connections;
@@ -241,13 +243,30 @@ internal static class BinaryEndpoint
             return StatusCode.OK;
 
         var evaluator = services.GetRequiredService<IPolicyEvaluator>();
-        var authentication = await evaluator.AuthenticateAsync(state.Policy, http).ConfigureAwait(false);
+        var schemes = state.Policy.AuthenticationSchemes;
+        var authentication = evaluator.GetType() == typeof(PolicyEvaluator) && schemes.Count == 1
+            ? await AuthenticateSingleSchemeAsync(http, schemes[0]).ConfigureAwait(false)
+            : await evaluator.AuthenticateAsync(state.Policy, http).ConfigureAwait(false);
         var decision = await evaluator.AuthorizeAsync(state.Policy, authentication, http, http).ConfigureAwait(false);
         if (decision.Succeeded)
             return StatusCode.OK;
 
         var denied = decision.Forbidden ? StatusCode.PermissionDenied : StatusCode.Unauthenticated;
         return state.CloseRequested.IsCancellationRequested ? StatusCode.Unavailable : denied;
+    }
+
+    private static async ValueTask<AuthenticateResult> AuthenticateSingleSchemeAsync(HttpContext http, string scheme)
+    {
+        // The default evaluator only merges principals when more than one scheme can authenticate.
+        var authentication = await http.AuthenticateAsync(scheme).ConfigureAwait(false);
+        if (authentication is { Succeeded: true })
+        {
+            http.User = authentication.Principal ?? new ClaimsPrincipal();
+            return authentication;
+        }
+
+        http.User = new ClaimsPrincipal(new ClaimsIdentity());
+        return AuthenticateResult.NoResult();
     }
 
     private static AuthorizationPolicy ThrowMissingPolicy() => throw new InvalidOperationException("Missing JWT policy for binary transport.");
