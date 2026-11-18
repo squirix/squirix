@@ -160,7 +160,7 @@ internal static class BinaryEndpoint
             return new BinaryResponse(StatusCode.DeadlineExceeded);
 
         var timeout = TimeSpan.FromMilliseconds(Math.Min(budget, RpcAttemptTimeout.OperationDeadline.TotalMilliseconds));
-        var operationId = (frame.Control & ~Frames.TracedRequest) >>> 16;
+        var operationId = Frames.ReadOperationId(frame.Control);
         var operation = Unsafe.BitCast<int, BinaryOperation>(operationId);
         var deadlineUtc = (TimeProvider.System.GetUtcNow() + timeout).UtcDateTime;
         using var deadline = new TimedCancellation(timeout, TimeProvider.System, state.Connection.ConnectionClosed);

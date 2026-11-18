@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.Logging;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
+using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -19,6 +21,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 internal sealed partial class BinaryConnectionPump
 {
     private const int MaxPending = 16;
+    private const int DispatchBatchLimit = 4;
 
     /// <summary>The maximum number of ready replies staged before publishing a group.</summary>
     /// <remarks>Ready replies can wait for synchronous work on later buffered calls. The reader publishes before waiting for input or a slot.</remarks>
@@ -156,6 +159,8 @@ internal sealed partial class BinaryConnectionPump
         var buffer = result.Buffer;
         var consumed = buffer.Start;
         var examined = consumed;
+        QueuedCall[]? queued = null;
+        var queuedCount = 0;
         try
         {
             if (result.IsCanceled || stop.IsCancellationRequested)
@@ -187,7 +192,7 @@ internal sealed partial class BinaryConnectionPump
                     break;
                 }
 
-                await DispatchAsync(slot, frame, body).ConfigureAwait(false);
+                await DispatchBufferedAsync(new QueuedCall(slot, frame, body), ref queued, ref queuedCount).ConfigureAwait(false);
             }
 
             examined = buffer.End;
@@ -199,6 +204,81 @@ internal sealed partial class BinaryConnectionPump
         finally
         {
             input.AdvanceTo(consumed, examined);
+            QueueExecution(ref queued, ref queuedCount);
+        }
+    }
+
+    private ValueTask DispatchBufferedAsync(in QueuedCall call, ref QueuedCall[]? queued, ref int queuedCount)
+    {
+        var operation = Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(call.Frame.Control));
+        if (operation is not (BinaryOperation.GetDistributed or BinaryOperation.GetValue))
+        {
+            QueueExecution(ref queued, ref queuedCount);
+            return DispatchAsync(call.Slot, call.Frame, call.Body);
+        }
+
+        queued ??= ArrayPool<QueuedCall>.Shared.Rent(DispatchBatchLimit);
+        queued[queuedCount++] = call;
+        if (queuedCount == DispatchBatchLimit)
+            QueueExecution(ref queued, ref queuedCount);
+
+        return ValueTask.CompletedTask;
+    }
+
+    private void QueueExecution(ref QueuedCall[]? queued, ref int queuedCount)
+    {
+        if (queued is not { } batch)
+            return;
+
+        var count = queuedCount;
+        queued = null;
+        queuedCount = 0;
+        Span<int> slots = stackalloc int[DispatchBatchLimit];
+        for (var i = 0; i < count; i++)
+            slots[i] = batch[i].Slot;
+
+        var job = Task.Factory.StartNew(
+            static state => state is QueuedDispatch work
+                ? work.Pump.ExecuteQueuedAsync(work.Batch, work.Count)
+                : throw new InvalidOperationException("Missing queued binary dispatch."),
+            new QueuedDispatch(this, batch, count),
+            CancellationToken.None,
+            TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default).Unwrap();
+        for (var i = 0; i < count; i++)
+            _jobs[slots[i]] = job;
+    }
+
+    private async Task ExecuteQueuedAsync(QueuedCall[] batch, int count)
+    {
+        var ready = default(ResponseBatch);
+        List<Task>? incomplete = null;
+        try
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var call = batch[i];
+                if (_connection.ConnectionClosed.IsCancellationRequested)
+                {
+                    ArrayPool<byte>.Shared.Return(call.Body);
+                    continue;
+                }
+
+                var pending = ExecuteCallAsync(call.Slot, call.Frame, call.Body);
+                if (!pending.IsCompletedSuccessfully)
+                    (incomplete ??= []).Add(PublishOnCompletionAsync(pending));
+                else if (await pending.ConfigureAwait(false) is { } response)
+                    Stage(in response, ref ready);
+            }
+
+            Publish(ref ready);
+            if (incomplete != null)
+                await Task.WhenAll(incomplete).ConfigureAwait(false);
+        }
+        finally
+        {
+            ready.Release();
+            ArrayPool<QueuedCall>.Shared.Return(batch, true);
         }
     }
 
@@ -378,6 +458,8 @@ internal sealed partial class BinaryConnectionPump
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct PartialFrame(int Slot, (int Id, int Size, int Control) Frame);
 
+    private readonly record struct QueuedCall(int Slot, (int Id, int Size, int Control) Frame, byte[] Body);
+
     private readonly record struct PendingResponse(int Slot, int Id, BinaryResponse Response);
 
     private struct ResponseBatch
@@ -419,4 +501,6 @@ internal sealed partial class BinaryConnectionPump
             this = default;
         }
     }
+
+    private sealed record QueuedDispatch(BinaryConnectionPump Pump, QueuedCall[] Batch, int Count);
 }

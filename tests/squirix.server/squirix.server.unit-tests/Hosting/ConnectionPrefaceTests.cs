@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
@@ -123,7 +124,7 @@ public sealed class ConnectionPrefaceTests
         try
         {
             var result = await connection.Outgoing.Reader.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
-            var id = ReadReplyId(result.Buffer, 0);
+            var id = ReadReply(result.Buffer, 0).Id;
             connection.Outgoing.Reader.AdvanceTo(result.Buffer.GetPosition(Frames.HeaderBytes));
             _ = await Assert.That(id).IsEqualTo(1);
             _ = await Assert.That(dispatched).IsEqualTo(1);
@@ -168,14 +169,14 @@ public sealed class ConnectionPrefaceTests
         try
         {
             var ready = await connection.Outgoing.Reader.ReadAtLeastAsync(2 * Frames.HeaderBytes, stop.Token);
-            var ids = (ReadReplyId(ready.Buffer, 0), ReadReplyId(ready.Buffer, Frames.HeaderBytes));
+            var ids = (ReadReply(ready.Buffer, 0).Id, ReadReply(ready.Buffer, Frames.HeaderBytes).Id);
             connection.Outgoing.Reader.AdvanceTo(ready.Buffer.GetPosition(2 * Frames.HeaderBytes));
             _ = await Assert.That(ids).IsEqualTo((1, 3));
             _ = await Assert.That(output.Count).IsEqualTo(1);
 
             _ = delayed.TrySetResult(default);
             var later = await connection.Outgoing.Reader.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
-            var id = ReadReplyId(later.Buffer, 0);
+            var id = ReadReply(later.Buffer, 0).Id;
             connection.Outgoing.Reader.AdvanceTo(later.Buffer.GetPosition(Frames.HeaderBytes));
             _ = await Assert.That(id).IsEqualTo(2);
             _ = await Assert.That(output.Count).IsEqualTo(2);
@@ -217,7 +218,7 @@ public sealed class ConnectionPrefaceTests
             var firstLength = Frames.HeaderBytes + large.CalculateSize();
             var totalLength = firstLength + Frames.HeaderBytes;
             var replies = await connection.Outgoing.Reader.ReadAtLeastAsync(totalLength, stop.Token);
-            var ids = (ReadReplyId(replies.Buffer, 0), ReadReplyId(replies.Buffer, firstLength));
+            var ids = (ReadReply(replies.Buffer, 0).Id, ReadReply(replies.Buffer, firstLength).Id);
             connection.Outgoing.Reader.AdvanceTo(replies.Buffer.GetPosition(totalLength));
 
             _ = await Assert.That(ids).IsEqualTo((1, 2));
@@ -272,6 +273,65 @@ public sealed class ConnectionPrefaceTests
         }
     }
 
+    /// <summary>Already queued Get calls drain after the endpoint stops accepting new requests.</summary>
+    /// <param name="requests">The number of queued Get requests.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(3)]
+    [Arguments(4)]
+    public async Task QueuedBinaryGetsDrainOnGracefulShutdown(int requests, CancellationToken cancellationToken)
+    {
+        var control = (System.Runtime.CompilerServices.Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.GetDistributed) << 16) | 1;
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var guard = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        guard.CancelAfter(TimeSpan.FromSeconds(5));
+        var input = connection.Incoming.Writer;
+        for (var id = 1; id <= requests; id++)
+        {
+            Frames.Write(input.GetSpan(Frames.HeaderBytes), id, 0, control);
+            input.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await input.FlushAsync(guard.Token);
+        var pump = new BinaryConnectionPump(
+            connection,
+            async (frame, _) =>
+            {
+                if (frame.Id == 1)
+                    await stop.CancelAsync().ConfigureAwait(false);
+
+                return new BinaryResponse(StatusCode.OK);
+            },
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            var output = connection.Outgoing.Reader;
+            var totalSize = requests * Frames.HeaderBytes;
+            var result = await output.ReadAtLeastAsync(totalSize, guard.Token);
+            var ok = System.Runtime.CompilerServices.Unsafe.BitCast<StatusCode, int>(StatusCode.OK);
+            var successfulIds = new HashSet<int>();
+            for (var i = 0; i < requests; i++)
+            {
+                var (id, size, status) = ReadReply(result.Buffer, i * Frames.HeaderBytes);
+                if (size == 0 && status == ok && id > 0 && id <= requests)
+                    _ = successfulIds.Add(id);
+            }
+
+            output.AdvanceTo(result.Buffer.GetPosition(totalSize));
+            await processing.WaitAsync(guard.Token);
+            _ = await Assert.That(successfulIds.Count).IsEqualTo(requests);
+            _ = await Assert.That(connection.Aborted).IsFalse();
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
+        }
+    }
+
     /// <summary>A split header resumes when exactly its remaining bytes arrive.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -296,13 +356,13 @@ public sealed class ConnectionPrefaceTests
             var output = connection.Outgoing.Reader;
             _ = await input.WriteAsync(requests.AsMemory(0, Frames.HeaderBytes + split), stop.Token);
             var first = await output.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
-            var firstId = ReadReplyId(first.Buffer, 0);
+            var firstId = ReadReply(first.Buffer, 0).Id;
             output.AdvanceTo(first.Buffer.GetPosition(Frames.HeaderBytes));
             _ = await Assert.That(firstId).IsEqualTo(1);
 
             _ = await input.WriteAsync(requests.AsMemory(Frames.HeaderBytes + split), stop.Token);
             var second = await output.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
-            var secondId = ReadReplyId(second.Buffer, 0);
+            var secondId = ReadReply(second.Buffer, 0).Id;
             output.AdvanceTo(second.Buffer.GetPosition(Frames.HeaderBytes));
             _ = await Assert.That(secondId).IsEqualTo(2);
         }
@@ -354,7 +414,7 @@ public sealed class ConnectionPrefaceTests
             _ = await input.FlushAsync(stop.Token);
 
             var first = await connection.Outgoing.Reader.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
-            var firstId = ReadReplyId(first.Buffer, 0);
+            var firstId = ReadReply(first.Buffer, 0).Id;
             connection.Outgoing.Reader.AdvanceTo(first.Buffer.GetPosition(Frames.HeaderBytes));
             _ = await Assert.That(firstId).IsEqualTo(1);
 
@@ -363,7 +423,7 @@ public sealed class ConnectionPrefaceTests
                 _ = await input.WriteAsync(data.AsMemory(offset, Math.Min(chunkSize, data.Length - offset)), stop.Token);
 
             var replies = await connection.Outgoing.Reader.ReadAtLeastAsync(2 * Frames.HeaderBytes, stop.Token);
-            var ids = (ReadReplyId(replies.Buffer, 0), ReadReplyId(replies.Buffer, Frames.HeaderBytes));
+            var ids = (ReadReply(replies.Buffer, 0).Id, ReadReply(replies.Buffer, Frames.HeaderBytes).Id);
             connection.Outgoing.Reader.AdvanceTo(replies.Buffer.GetPosition(2 * Frames.HeaderBytes));
             _ = await Assert.That(ids).IsEqualTo((2, 3));
             _ = await Assert.That(bodyIntact).IsTrue();
@@ -589,11 +649,11 @@ public sealed class ConnectionPrefaceTests
         return ConnectionAuthenticationProtocol.TryReadAcknowledgement(header, out var status) ? status : byte.MaxValue;
     }
 
-    private static int ReadReplyId(in ReadOnlySequence<byte> buffer, int offset)
+    private static (int Id, int Size, int Status) ReadReply(in ReadOnlySequence<byte> buffer, int offset)
     {
         Span<byte> header = stackalloc byte[Frames.HeaderBytes];
         buffer.Slice(offset, header.Length).CopyTo(header);
-        return Frames.Read(header, Frames.MaxResponseBytes).Id;
+        return Frames.Read(header, Frames.MaxResponseBytes);
     }
 
     private sealed class FlushProbe : PipeWriter
