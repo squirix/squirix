@@ -752,6 +752,12 @@ internal static class ServerHostingComposition
         {
             listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
             _ = listenOptions.UseHttps();
+            _ = listenOptions.Use(next =>
+            {
+                var services = listenOptions.ApplicationServices;
+                var middleware = new ConnectionAuthenticationMiddleware(next, services.GetService<ConnectionAuthenticationValidator>(), TimeProvider.System);
+                return middleware.OnConnectionAsync;
+            });
         }
     }
 

@@ -77,8 +77,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "forged-host-read");
 
-        using var seedChannel = CreateGrpcChannel(cluster["node-a"].Uri);
-        var seedHeaders = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
+        using var seedChannel = CreateGrpcChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var seeded = await new SquirixCacheService.SquirixCacheServiceClient(seedChannel).SetEntryAsync(
             new SetEntryAsyncRequest
             {
@@ -87,7 +86,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
                 Key = key,
                 Entry = new NodeCacheEntry<object?> { Value = "seeded-secret", Version = 1 }.MapToProto(),
             },
-            new CallOptions(seedHeaders, cancellationToken: cancellationToken));
+            new CallOptions(cancellationToken: cancellationToken));
         _ = await Assert.That(seeded).IsNotNull();
 
         using var inner = LoopbackHttp.CreateHandler();
@@ -150,13 +149,12 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "forged-host-token");
 
-        using var inner = LoopbackHttp.CreateHandler();
+        using var inner = LoopbackHttp.CreateAuthenticatedHandler(TestJwtHelper.CreateBearerToken(credentials));
         using var handler = new ForgedHostHandler(ForgedHost(cluster["node-a"]), inner);
         using var channel = CreateChannel(cluster["node-a"], handler);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
 
-        var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(headers, cancellationToken: cancellationToken));
+        var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(cancellationToken: cancellationToken));
 
         _ = await Assert.That(response.Found).IsFalse();
     }

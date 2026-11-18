@@ -224,7 +224,8 @@ The approved RPC list is locked by a golden snapshot test:
 
 Transport requires HTTPS endpoints. Cleartext `http://` URLs are rejected at configuration time.
 
-When JWT authentication is enabled on the server, set `SquirixClientOptions.BearerTokenProvider` to supply client tokens.
+When JWT authentication is enabled on the server, set `SquirixClientOptions.BearerTokenProvider` to supply a token for each new physical connection.
+Subsequent RPCs use the bound identity without bearer metadata; see [cache connection authentication](security/connection-authentication.md).
 Setting the client provider does not enable authentication on the server. See [Configuration](configuration.md).
 
 ## Cache keys

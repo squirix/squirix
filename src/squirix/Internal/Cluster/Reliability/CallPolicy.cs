@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
+using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport.Grpc;
 
 namespace Squirix.Internal.Cluster.Reliability;
@@ -312,6 +313,9 @@ internal sealed class CallPolicy : ICallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken)
         {
+            if (ConnectionRejectedException.Map(ex) is { } rejected)
+                return AttemptOutcome<T>.Stop(rejected);
+
             if (attempt >= _maxAttempts || !OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) || IsSharedBudgetSpent(budget))
                 return AttemptOutcome<T>.Stop(ex);
 
@@ -341,6 +345,9 @@ internal sealed class CallPolicy : ICallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken, CancellationToken cancellationToken)
         {
+            if (ConnectionRejectedException.Map(rx) is { } rejected)
+                return AttemptOutcome<T>.Stop(rejected);
+
             // A mutation may have committed durably even though its outcome is unknown (server write-ahead
             // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
             // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.

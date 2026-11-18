@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Internal.Cluster.Transport;
 
 namespace Squirix.Internal;
 
@@ -103,11 +104,11 @@ internal sealed class EndpointFailover
             {
                 lastFailure = ex;
             }
-            catch (HttpRequestException ex) when (hasMoreEndpoints)
+            catch (HttpRequestException ex) when (CanFailOver(ex, hasMoreEndpoints))
             {
                 lastFailure = ex;
             }
-            catch (IOException ex) when (hasMoreEndpoints)
+            catch (IOException ex) when (CanFailOver(ex, hasMoreEndpoints))
             {
                 lastFailure = ex;
             }
@@ -135,8 +136,10 @@ internal sealed class EndpointFailover
     /// <summary>Determines whether <paramref name="ex" /> is a retryable transport failure.</summary>
     /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
     /// <returns><see langword="true" /> for retryable transport status codes; otherwise <see langword="false" />.</returns>
-    private static bool IsRetryableTransport(RpcException ex) => ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.DeadlineExceeded ||
-                                                                 ex.StatusCode == StatusCode.Internal || ex.StatusCode == StatusCode.ResourceExhausted;
+    private static bool IsRetryableTransport(RpcException ex) => ConnectionRejectedException.Map(ex) == null &&
+        ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted;
+
+    private static bool CanFailOver(Exception exception, bool hasMoreEndpoints) => hasMoreEndpoints && ConnectionRejectedException.Map(exception) == null;
 
     /// <summary>
     /// Determines whether <paramref name="ex" /> reports a stale term from a deposed endpoint.

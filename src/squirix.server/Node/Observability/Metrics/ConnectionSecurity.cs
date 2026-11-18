@@ -2,9 +2,9 @@ using System;
 using System.Net;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
@@ -24,10 +24,10 @@ internal static class ConnectionSecurity
             return true;
 
         var schemes = httpContext.RequestServices.GetService<IAuthenticationSchemeProvider>();
-        if (schemes == null || await schemes.GetSchemeAsync(JwtBearerDefaults.AuthenticationScheme).ConfigureAwait(false) == null)
+        if (schemes == null || await schemes.GetSchemeAsync(SquirixAuthenticationSchemes.OperationalBearer).ConfigureAwait(false) == null)
             return false;
 
-        var result = await httpContext.AuthenticateAsync(JwtBearerDefaults.AuthenticationScheme).ConfigureAwait(false);
+        var result = await httpContext.AuthenticateAsync(SquirixAuthenticationSchemes.OperationalBearer).ConfigureAwait(false);
         return result.Succeeded;
     }
 

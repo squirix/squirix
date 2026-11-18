@@ -95,6 +95,8 @@ squirix-server run --urls https://localhost:5501 --persist --data-dir data
 ```
 
 For Docker, JWT authentication, and ASP.NET Core embedding, see [Getting started](docs/getting-started.md).
+JWT-protected cache connections authenticate once per physical TLS transport; update SDK and server together.
+See [cache connection authentication](docs/security/connection-authentication.md) for the breaking transport change and proxy requirements.
 
 ## How it works
 

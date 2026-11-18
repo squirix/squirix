@@ -1,9 +1,11 @@
 using System;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
@@ -75,16 +77,18 @@ internal static class SecurityServiceRegistration
 
     private static void RegisterJwtAuthentication(IServiceCollection services, ResolvedSecurityConfiguration configuration)
     {
-        _ = services.AddAuthentication().AddJwtBearer(
-            JwtBearerDefaults.AuthenticationScheme,
-            o =>
-            {
-                var hasAuthority = !string.IsNullOrWhiteSpace(configuration.JwtAuthority);
-                o.Authority = hasAuthority ? configuration.JwtAuthority : null;
-                o.RequireHttpsMetadata = hasAuthority && !configuration.JwtAllowHttpMetadata;
-                o.Audience = configuration.JwtAudience;
-                o.TokenValidationParameters = CreateTokenValidationParameters(in configuration);
-            });
+        _ = services.AddAuthentication()
+            .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options => ConfigureJwt(options, in configuration))
+            .AddScheme<JwtBearerOptions, OperationalTokenHandler>(SquirixAuthenticationSchemes.OperationalBearer, static _ => { });
+
+        _ = services.AddSingleton(static provider => new ConnectionAuthenticationValidator(provider.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>()));
+        _ = services.AddTransient<ConnectionAuthenticationHandler>();
+        _ = services.AddTransient<ConnectionTokenHandler>();
+        _ = services.Configure<AuthenticationOptions>(static options =>
+        {
+            options.DefaultScheme ??= JwtBearerDefaults.AuthenticationScheme;
+            options.SchemeMap[JwtBearerDefaults.AuthenticationScheme].HandlerType = typeof(ConnectionAuthenticationHandler);
+        });
 
         _ = services.AddAuthorizationBuilder().AddPolicy(
             SquirixAuthorizationPolicies.JwtBearer,
@@ -93,6 +97,15 @@ internal static class SecurityServiceRegistration
                 _ = p.RequireAuthenticatedUser();
                 p.AuthenticationSchemes.Add(JwtBearerDefaults.AuthenticationScheme);
             });
+    }
+
+    private static void ConfigureJwt(JwtBearerOptions options, in ResolvedSecurityConfiguration configuration)
+    {
+        var hasAuthority = !string.IsNullOrWhiteSpace(configuration.JwtAuthority);
+        options.Authority = hasAuthority ? configuration.JwtAuthority : null;
+        options.RequireHttpsMetadata = hasAuthority && !configuration.JwtAllowHttpMetadata;
+        options.Audience = configuration.JwtAudience;
+        options.TokenValidationParameters = CreateTokenValidationParameters(in configuration);
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()
