@@ -32,6 +32,68 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
     private const string SegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
 
+    /// <summary>A queued append cannot keep the journal thread runnable before a deferred roll completes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DeferredRollParksWithQueuedAppend(CancellationToken cancellationToken)
+    {
+        var path = JournalReadPath.BuildSegmentPath(Dir, 1);
+        WriteHeaderOnlySegment(path);
+        const long initialLength = (1024 * 1024) - 16;
+        using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write))
+            RandomAccess.SetLength(handle, initialLength);
+
+        var guard = TimeSpan.FromSeconds(10);
+        var firstCheck = new TaskCompletionSource<Thread>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var completeRoll = new ManualResetEventSlim();
+        var repeated = 0;
+        var host = RocksDoubles.CreateEventLoopHost(checkFailure: ObserveCheck);
+        using var ring = new BoundedJournalRing(4, false);
+        using var writer = JournalSegmentWriterFactory.Create();
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
+        var startup = new JournalEventLoopStartup(1, initialLength, 1, JournalSegmentProbe.Probe(Dir, 1), new JournalCapacityResyncSignal());
+        var loop = new JournalEventLoop(host.Host, ring, writer, options, startup, NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        var deferred = await EnqueueRollTestAppendAsync(ring, host.State.PendingAppends, cancellationToken);
+        var queued = await EnqueueRollTestAppendAsync(ring, host.State.PendingAppends, cancellationToken);
+
+        var worker = Task.Factory.StartNew(loop.Run, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        int checksBeforeCompletion;
+        try
+        {
+            var thread = await firstCheck.Task.WaitAsync(guard, TimeProvider.System, cancellationToken);
+
+            // The worker parks either in the journal wait or in the test's trap for a second iteration.
+            await thread.WaitUntilAsync(
+                static t => (t.ThreadState & ThreadState.WaitSleepJoin) == ThreadState.WaitSleepJoin, guard, TimeProvider.System, cancellationToken);
+            checksBeforeCompletion = Volatile.Read(ref repeated);
+            _ = await Assert.That(loop.CurrentSegmentIndex).IsEqualTo(1);
+            _ = await Assert.That(queued.IsCompleted).IsFalse();
+        }
+        finally
+        {
+            loop.MarkSegmentRollCompletionPending();
+            ring.NotifyWorkAvailable();
+            completeRoll.Set();
+            await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+            await worker.WaitAsync(guard, TimeProvider.System, CancellationToken.None);
+        }
+
+        _ = await Assert.That(loop.CurrentSegmentIndex).IsEqualTo(2);
+        _ = await Assert.That(deferred.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(queued.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(checksBeforeCompletion).IsEqualTo(0)
+                        .Because("the journal thread must wait for roll completion instead of repeating the deferred iteration");
+
+        void ObserveCheck()
+        {
+            if (firstCheck.TrySetResult(Thread.CurrentThread))
+                return;
+
+            Volatile.Write(ref repeated, 1);
+            completeRoll.Wait(cancellationToken);
+        }
+    }
+
     /// <summary>An abandoned append fails idempotently without releasing resources twice.</summary>
     [Test]
     public async Task AbandonedAppendFailsWithoutWriting()
@@ -613,6 +675,18 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(run.SegmentFiles).IsEqualTo(1);
         _ = await Assert.That(run.QueuedAppends).IsEqualTo(0);
         _ = await Assert.That(run.PendingCount).IsEqualTo(0);
+    }
+
+    private static async ValueTask<Task> EnqueueRollTestAppendAsync(
+        BoundedJournalRing ring, PendingAppendRegistry registry, CancellationToken cancellationToken)
+    {
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var frame = ArrayPool<byte>.Shared.Rent(64);
+        frame.AsSpan(0, 64).Clear();
+        var item = JournalWorkItem.Append(frame, 64, ack);
+        registry.Track(item, frame, 64, ack);
+        await ring.EnqueueAsync(item, cancellationToken);
+        return ack.Task;
     }
 
     private static WriterSetup CreateSetup(
