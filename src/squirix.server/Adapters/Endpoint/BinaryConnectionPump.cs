@@ -3,6 +3,7 @@ using System.Buffers;
 using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -31,6 +32,8 @@ internal sealed partial class BinaryConnectionPump
     private readonly Channel<int> _slots = Channel.CreateBounded<int>(MaxPending);
     private readonly Channel<ResponseBatch> _outgoing = Channel.CreateBounded<ResponseBatch>(
         new BoundedChannelOptions(MaxPending) { SingleReader = true });
+
+    private ResponseBatch _ready;
 
     internal BinaryConnectionPump(
         ConnectionContext connection,
@@ -103,50 +106,35 @@ internal sealed partial class BinaryConnectionPump
         return length;
     }
 
+    private static (int Id, int Size, int Control) ReadHeader(in ReadOnlySequence<byte> buffer)
+    {
+        var first = buffer.FirstSpan;
+        if (first.Length >= Frames.HeaderBytes)
+            return Frames.Read(first, Frames.MaxRequestBytes);
+
+        Span<byte> header = stackalloc byte[Frames.HeaderBytes];
+        buffer.Slice(0, Frames.HeaderBytes).CopyTo(header);
+        return Frames.Read(header, Frames.MaxRequestBytes);
+    }
+
     private async Task ReadAsync(CancellationToken stop)
     {
-        var input = _connection.Transport.Input.AsStream(true);
-        await using var inputLifetime = input.ConfigureAwait(false);
-        var header = ArrayPool<byte>.Shared.Rent(Frames.HeaderBytes);
-        var ready = default(ResponseBatch);
+        var input = _connection.Transport.Input;
         try
         {
             while (!stop.IsCancellationRequested)
             {
-                var nextSlot = _slots.Reader.ReadAsync(stop);
-                PublishBeforeWait(nextSlot.IsCompletedSuccessfully, ref ready);
-                var slot = await nextSlot.ConfigureAwait(false);
-                var headerRead = input.ReadExactlyAsync(header.AsMemory(0, Frames.HeaderBytes), stop);
-                PublishBeforeWait(headerRead.IsCompletedSuccessfully, ref ready);
-                await headerRead.ConfigureAwait(false);
-                var frame = Frames.Read(header, Frames.MaxRequestBytes);
-                byte[] body;
-                using (var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop))
-                {
-                    try
-                    {
-                        var bodyRead = ReadBodyAsync(input, frame.Size, deadline.Token);
-                        PublishBeforeWait(bodyRead.IsCompletedSuccessfully, ref ready);
-                        body = await bodyRead.ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (deadline.IsCancellationRequested && !stop.IsCancellationRequested)
-                    {
-                        // A timed-out body leaves the connection between frame boundaries.
-                        _connection.Abort();
-                        return;
-                    }
-                }
+                var slots = _slots.Reader.WaitToReadAsync(stop);
+                PublishBeforeWait(slots.IsCompletedSuccessfully, ref _ready);
+                if (!await slots.ConfigureAwait(false))
+                    return;
 
-                var pending = ExecuteCallAsync(slot, frame, body);
-                if (!pending.IsCompletedSuccessfully)
-                {
-                    _jobs[slot] = PublishOnCompletionAsync(pending);
-                    continue;
-                }
-
-                _jobs[slot] = Task.CompletedTask;
-                if (await pending.ConfigureAwait(false) is { } response)
-                    Stage(in response, ref ready);
+                var read = input.ReadAsync(stop);
+                PublishBeforeWait(read.IsCompletedSuccessfully, ref _ready);
+                var result = await read.ConfigureAwait(false);
+                var partial = await ConsumeBufferedAsync(input, result, stop).ConfigureAwait(false);
+                if (partial is { } frame && !await ReadPartialAsync(input, frame, stop).ConfigureAwait(false))
+                    return;
             }
         }
         catch (IOException)
@@ -159,9 +147,98 @@ internal sealed partial class BinaryConnectionPump
         }
         finally
         {
-            Publish(ref ready);
-            ArrayPool<byte>.Shared.Return(header);
+            Publish(ref _ready);
         }
+    }
+
+    private async ValueTask<PartialFrame?> ConsumeBufferedAsync(PipeReader input, ReadResult result, CancellationToken stop)
+    {
+        var buffer = result.Buffer;
+        var consumed = buffer.Start;
+        var examined = consumed;
+        try
+        {
+            if (result.IsCanceled || stop.IsCancellationRequested)
+            {
+                examined = buffer.End;
+                stop.ThrowIfCancellationRequested();
+                throw new OperationCanceledException("The binary input pipe canceled a read.");
+            }
+
+            while (buffer.Length >= Frames.HeaderBytes && !stop.IsCancellationRequested)
+            {
+                if (!_slots.Reader.TryRead(out var slot))
+                    return null;
+
+                var header = buffer;
+                buffer = buffer.Slice(Frames.HeaderBytes);
+                consumed = examined = buffer.Start;
+                var frame = ReadHeader(in header);
+                if (buffer.Length < frame.Size)
+                    return new PartialFrame(slot, frame);
+
+                var body = ArrayPool<byte>.Shared.Rent(frame.Size);
+                buffer.Slice(0, frame.Size).CopyTo(body);
+                buffer = buffer.Slice(frame.Size);
+                consumed = examined = buffer.Start;
+                if (stop.IsCancellationRequested)
+                {
+                    ArrayPool<byte>.Shared.Return(body);
+                    break;
+                }
+
+                await DispatchAsync(slot, frame, body).ConfigureAwait(false);
+            }
+
+            examined = buffer.End;
+            stop.ThrowIfCancellationRequested();
+
+            // Detect EOF after yielding to the same slot gate as the next request.
+            return result.IsCompleted && buffer.Length == result.Buffer.Length ? throw new EndOfStreamException() : null;
+        }
+        finally
+        {
+            input.AdvanceTo(consumed, examined);
+        }
+    }
+
+    private async ValueTask<bool> ReadPartialAsync(PipeReader input, PartialFrame partial, CancellationToken stop)
+    {
+        var stream = input.AsStream(true);
+        await using var streamLifetime = stream.ConfigureAwait(false);
+        byte[] body;
+        using (var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop))
+        {
+            try
+            {
+                var bodyRead = ReadBodyAsync(stream, partial.Frame.Size, deadline.Token);
+                PublishBeforeWait(bodyRead.IsCompletedSuccessfully, ref _ready);
+                body = await bodyRead.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested && !stop.IsCancellationRequested)
+            {
+                // A timed-out body leaves the connection between frame boundaries.
+                _connection.Abort();
+                return false;
+            }
+        }
+
+        await DispatchAsync(partial.Slot, partial.Frame, body).ConfigureAwait(false);
+        return true;
+    }
+
+    private async ValueTask DispatchAsync(int slot, (int Id, int Size, int Control) frame, byte[] body)
+    {
+        var pending = ExecuteCallAsync(slot, frame, body);
+        if (!pending.IsCompletedSuccessfully)
+        {
+            _jobs[slot] = PublishOnCompletionAsync(pending);
+            return;
+        }
+
+        _jobs[slot] = Task.CompletedTask;
+        if (await pending.ConfigureAwait(false) is { } response)
+            Stage(in response, ref _ready);
     }
 
     private bool TryReadResponse(ref ResponseBatch current, ref int index, out PendingResponse response)
@@ -297,6 +374,9 @@ internal sealed partial class BinaryConnectionPump
             ArrayPool<byte>.Shared.Return(body);
         }
     }
+
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct PartialFrame(int Slot, (int Id, int Size, int Control) Frame);
 
     private readonly record struct PendingResponse(int Slot, int Id, BinaryResponse Response);
 

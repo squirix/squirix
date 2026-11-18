@@ -230,6 +230,151 @@ public sealed class ConnectionPrefaceTests
         }
     }
 
+    /// <summary>A full batch may complete work before the pump handles input EOF.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BinaryInputEofWaitsForAnOccupiedSlot(CancellationToken cancellationToken)
+    {
+        const int pendingCalls = 16;
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(5));
+        var input = connection.Incoming.Writer;
+        for (var id = 1; id <= pendingCalls; id++)
+        {
+            Frames.Write(input.GetSpan(Frames.HeaderBytes), id, 0, 1);
+            input.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await input.FlushAsync(stop.Token);
+        await input.CompleteAsync();
+        var reply = new TaskCompletionSource<BinaryResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatched = 0;
+        var pump = new BinaryConnectionPump(
+            connection,
+            (_, _) =>
+            {
+                dispatched++;
+                return new ValueTask<BinaryResponse>(reply.Task);
+            },
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            _ = await Assert.That(dispatched).IsEqualTo(pendingCalls);
+            _ = await Assert.That(connection.Aborted).IsFalse();
+        }
+        finally
+        {
+            reply.SetResult(default);
+            await processing.WaitAsync(stop.Token);
+        }
+    }
+
+    /// <summary>A split header resumes when exactly its remaining bytes arrive.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SplitBinaryHeaderResumesAfterFirstReply(CancellationToken cancellationToken)
+    {
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(5));
+        var pump = new BinaryConnectionPump(
+            connection,
+            static (_, _) => ValueTask.FromResult(default(BinaryResponse)),
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            const int split = Frames.HeaderBytes / 2;
+            var requests = GC.AllocateUninitializedArray<byte>(2 * Frames.HeaderBytes);
+            Frames.Write(requests, 1, 0, 1);
+            Frames.Write(requests.AsSpan(Frames.HeaderBytes), 2, 0, 1);
+            var input = connection.Incoming.Writer;
+            var output = connection.Outgoing.Reader;
+            _ = await input.WriteAsync(requests.AsMemory(0, Frames.HeaderBytes + split), stop.Token);
+            var first = await output.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var firstId = ReadReplyId(first.Buffer, 0);
+            output.AdvanceTo(first.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(firstId).IsEqualTo(1);
+
+            _ = await input.WriteAsync(requests.AsMemory(Frames.HeaderBytes + split), stop.Token);
+            var second = await output.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var secondId = ReadReplyId(second.Buffer, 0);
+            output.AdvanceTo(second.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(secondId).IsEqualTo(2);
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
+    /// <summary>A body larger than the pipe window is consumed incrementally, preserving the next frame.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LargeBinaryBodyPreservesNextFrame(CancellationToken cancellationToken)
+    {
+        const int bodySize = 96 * 1024;
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(10));
+        var input = connection.Incoming.Writer;
+        const int remainderLength = bodySize - 1;
+        var expectedBody = new byte[bodySize];
+        for (var offset = 0; offset < expectedBody.Length; offset++)
+            expectedBody[offset] = byte.CreateChecked(offset % 251);
+        var data = new byte[remainderLength + Frames.HeaderBytes];
+        expectedBody.AsSpan(1).CopyTo(data);
+        Frames.Write(data.AsSpan(remainderLength), 3, 0, 1);
+        var bodyIntact = false;
+        var pump = new BinaryConnectionPump(
+            connection,
+            (frame, body) =>
+            {
+                if (frame.Id == 2)
+                    bodyIntact = body.Span.SequenceEqual(expectedBody);
+
+                return ValueTask.FromResult(default(BinaryResponse));
+            },
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            const int prefixSize = (2 * Frames.HeaderBytes) + 1;
+            var prefix = input.GetMemory(prefixSize);
+            Frames.Write(prefix.Span, 1, 0, 1);
+            Frames.Write(prefix.Span[Frames.HeaderBytes..], 2, bodySize, 1);
+            prefix.Span[prefixSize - 1] = expectedBody[0];
+            input.Advance(prefixSize);
+            _ = await input.FlushAsync(stop.Token);
+
+            var first = await connection.Outgoing.Reader.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var firstId = ReadReplyId(first.Buffer, 0);
+            connection.Outgoing.Reader.AdvanceTo(first.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(firstId).IsEqualTo(1);
+
+            const int chunkSize = 8 * 1024;
+            for (var offset = 0; offset < data.Length; offset += chunkSize)
+                _ = await input.WriteAsync(data.AsMemory(offset, Math.Min(chunkSize, data.Length - offset)), stop.Token);
+
+            var replies = await connection.Outgoing.Reader.ReadAtLeastAsync(2 * Frames.HeaderBytes, stop.Token);
+            var ids = (ReadReplyId(replies.Buffer, 0), ReadReplyId(replies.Buffer, Frames.HeaderBytes));
+            connection.Outgoing.Reader.AdvanceTo(replies.Buffer.GetPosition(2 * Frames.HeaderBytes));
+            _ = await Assert.That(ids).IsEqualTo((2, 3));
+            _ = await Assert.That(bodyIntact).IsTrue();
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
     /// <summary>Invalid size and unsupported version produce a strict negative acknowledgement.</summary>
     /// <param name="unsupportedVersion">Whether the peer uses an unsupported version instead of an oversized payload.</param>
     [Test]
