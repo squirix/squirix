@@ -230,6 +230,65 @@ public sealed class ConnectionPrefaceTests
         }
     }
 
+    /// <summary>A body larger than the pipe window is consumed incrementally, preserving the next frame.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LargeBinaryBodyPreservesNextFrame(CancellationToken cancellationToken)
+    {
+        const int bodySize = 96 * 1024;
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(10));
+        var input = connection.Incoming.Writer;
+        const int remainderLength = bodySize - 1;
+        var data = new byte[remainderLength + Frames.HeaderBytes];
+        data[remainderLength - 1] = 91;
+        Frames.Write(data.AsSpan(remainderLength), 3, 0, 1);
+        var bodyIntact = false;
+        var pump = new BinaryConnectionPump(
+            connection,
+            (frame, body) =>
+            {
+                if (frame.Id == 2)
+                    bodyIntact = body.Length == bodySize && body.Span[0] == 17 && body.Span[^1] == 91;
+
+                return ValueTask.FromResult(default(BinaryResponse));
+            },
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            const int prefixSize = (2 * Frames.HeaderBytes) + 1;
+            var prefix = input.GetMemory(prefixSize);
+            Frames.Write(prefix.Span, 1, 0, 1);
+            Frames.Write(prefix.Span[Frames.HeaderBytes..], 2, bodySize, 1);
+            prefix.Span[prefixSize - 1] = 17;
+            input.Advance(prefixSize);
+            _ = await input.FlushAsync(stop.Token);
+
+            var first = await connection.Outgoing.Reader.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var firstId = ReadReplyId(first.Buffer, 0);
+            connection.Outgoing.Reader.AdvanceTo(first.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(firstId).IsEqualTo(1);
+
+            const int chunkSize = 8 * 1024;
+            for (var offset = 0; offset < data.Length; offset += chunkSize)
+                _ = await input.WriteAsync(data.AsMemory(offset, Math.Min(chunkSize, data.Length - offset)), stop.Token);
+
+            var replies = await connection.Outgoing.Reader.ReadAtLeastAsync(2 * Frames.HeaderBytes, stop.Token);
+            var ids = (ReadReplyId(replies.Buffer, 0), ReadReplyId(replies.Buffer, Frames.HeaderBytes));
+            connection.Outgoing.Reader.AdvanceTo(replies.Buffer.GetPosition(2 * Frames.HeaderBytes));
+            _ = await Assert.That(ids).IsEqualTo((2, 3));
+            _ = await Assert.That(bodyIntact).IsTrue();
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
     /// <summary>Invalid size and unsupported version produce a strict negative acknowledgement.</summary>
     /// <param name="unsupportedVersion">Whether the peer uses an unsupported version instead of an oversized payload.</param>
     [Test]
