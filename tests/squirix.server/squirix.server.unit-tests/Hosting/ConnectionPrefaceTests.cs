@@ -230,6 +230,47 @@ public sealed class ConnectionPrefaceTests
         }
     }
 
+    /// <summary>A split header resumes when exactly its remaining bytes arrive.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SplitBinaryHeaderResumesAfterFirstReply(CancellationToken cancellationToken)
+    {
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(5));
+        var pump = new BinaryConnectionPump(
+            connection,
+            static (_, _) => ValueTask.FromResult(default(BinaryResponse)),
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            const int split = Frames.HeaderBytes / 2;
+            var requests = GC.AllocateUninitializedArray<byte>(2 * Frames.HeaderBytes);
+            Frames.Write(requests, 1, 0, 1);
+            Frames.Write(requests.AsSpan(Frames.HeaderBytes), 2, 0, 1);
+            var input = connection.Incoming.Writer;
+            var output = connection.Outgoing.Reader;
+            _ = await input.WriteAsync(requests.AsMemory(0, Frames.HeaderBytes + split), stop.Token);
+            var first = await output.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var firstId = ReadReplyId(first.Buffer, 0);
+            output.AdvanceTo(first.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(firstId).IsEqualTo(1);
+
+            _ = await input.WriteAsync(requests.AsMemory(Frames.HeaderBytes + split), stop.Token);
+            var second = await output.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var secondId = ReadReplyId(second.Buffer, 0);
+            output.AdvanceTo(second.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(secondId).IsEqualTo(2);
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
     /// <summary>A body larger than the pipe window is consumed incrementally, preserving the next frame.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -241,8 +282,11 @@ public sealed class ConnectionPrefaceTests
         stop.CancelAfter(TimeSpan.FromSeconds(10));
         var input = connection.Incoming.Writer;
         const int remainderLength = bodySize - 1;
+        var expectedBody = new byte[bodySize];
+        for (var offset = 0; offset < expectedBody.Length; offset++)
+            expectedBody[offset] = byte.CreateChecked(offset % 251);
         var data = new byte[remainderLength + Frames.HeaderBytes];
-        data[remainderLength - 1] = 91;
+        expectedBody.AsSpan(1).CopyTo(data);
         Frames.Write(data.AsSpan(remainderLength), 3, 0, 1);
         var bodyIntact = false;
         var pump = new BinaryConnectionPump(
@@ -250,7 +294,7 @@ public sealed class ConnectionPrefaceTests
             (frame, body) =>
             {
                 if (frame.Id == 2)
-                    bodyIntact = body.Length == bodySize && body.Span[0] == 17 && body.Span[^1] == 91;
+                    bodyIntact = body.Span.SequenceEqual(expectedBody);
 
                 return ValueTask.FromResult(default(BinaryResponse));
             },
@@ -263,7 +307,7 @@ public sealed class ConnectionPrefaceTests
             var prefix = input.GetMemory(prefixSize);
             Frames.Write(prefix.Span, 1, 0, 1);
             Frames.Write(prefix.Span[Frames.HeaderBytes..], 2, bodySize, 1);
-            prefix.Span[prefixSize - 1] = 17;
+            prefix.Span[prefixSize - 1] = expectedBody[0];
             input.Advance(prefixSize);
             _ = await input.FlushAsync(stop.Token);
 

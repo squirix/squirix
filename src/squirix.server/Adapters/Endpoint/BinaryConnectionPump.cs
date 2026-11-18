@@ -129,7 +129,7 @@ internal sealed partial class BinaryConnectionPump
                 if (!await slots.ConfigureAwait(false))
                     return;
 
-                var read = input.ReadAtLeastAsync(Frames.HeaderBytes, stop);
+                var read = input.ReadAsync(stop);
                 PublishBeforeWait(read.IsCompletedSuccessfully, ref _ready);
                 var result = await read.ConfigureAwait(false);
                 var partial = await ConsumeBufferedAsync(input, result, stop).ConfigureAwait(false);
@@ -181,6 +181,12 @@ internal sealed partial class BinaryConnectionPump
                 buffer.Slice(0, frame.Size).CopyTo(body);
                 buffer = buffer.Slice(frame.Size);
                 consumed = examined = buffer.Start;
+                if (stop.IsCancellationRequested)
+                {
+                    ArrayPool<byte>.Shared.Return(body);
+                    break;
+                }
+
                 await DispatchAsync(slot, frame, body).ConfigureAwait(false);
             }
 
