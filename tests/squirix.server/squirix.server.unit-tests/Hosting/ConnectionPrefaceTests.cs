@@ -309,18 +309,18 @@ public sealed class ConnectionPrefaceTests
         try
         {
             var output = connection.Outgoing.Reader;
-            var size = requests * Frames.HeaderBytes;
-            var result = await output.ReadAtLeastAsync(size, guard.Token);
+            var totalSize = requests * Frames.HeaderBytes;
+            var result = await output.ReadAtLeastAsync(totalSize, guard.Token);
             var ok = System.Runtime.CompilerServices.Unsafe.BitCast<StatusCode, int>(StatusCode.OK);
             var successfulIds = new HashSet<int>();
             for (var i = 0; i < requests; i++)
             {
-                var (id, _, status) = ReadReply(result.Buffer, i * Frames.HeaderBytes);
-                if (status == ok && id > 0 && id <= requests)
+                var (id, size, status) = ReadReply(result.Buffer, i * Frames.HeaderBytes);
+                if (size == 0 && status == ok && id > 0 && id <= requests)
                     _ = successfulIds.Add(id);
             }
 
-            output.AdvanceTo(result.Buffer.GetPosition(size));
+            output.AdvanceTo(result.Buffer.GetPosition(totalSize));
             await processing.WaitAsync(guard.Token);
             _ = await Assert.That(successfulIds.Count).IsEqualTo(requests);
             _ = await Assert.That(connection.Aborted).IsFalse();
