@@ -3,6 +3,8 @@ using System.Buffers;
 using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
+using Grpc.Core;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Connections.Features;
@@ -14,6 +16,7 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
+using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -83,6 +86,142 @@ public sealed class ConnectionPrefaceTests
             _ = await Assert.That(pendingBeforeDeadline).IsTrue();
             _ = await Assert.That(connection.Aborted).IsTrue();
             _ = await Assert.That(dispatched).IsFalse();
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
+    /// <summary>A ready reply is published before waiting for an incomplete following body.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyReplyPrecedesIncompleteBody(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(10));
+        var bytes = connection.Incoming.Writer.GetMemory((2 * Frames.HeaderBytes) + 1);
+        Frames.Write(bytes.Span, 1, 0, 1);
+        Frames.Write(bytes.Span[Frames.HeaderBytes..], 2, 2, 1);
+        bytes.Span[2 * Frames.HeaderBytes] = 0;
+        connection.Incoming.Writer.Advance((2 * Frames.HeaderBytes) + 1);
+        _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
+        var dispatched = 0;
+        var pump = new BinaryConnectionPump(
+            connection,
+            (_, _) =>
+            {
+                dispatched++;
+                return ValueTask.FromResult(default(BinaryResponse));
+            },
+            NullLogger.Instance,
+            clock);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            var result = await connection.Outgoing.Reader.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var id = ReadReplyId(result.Buffer, 0);
+            connection.Outgoing.Reader.AdvanceTo(result.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(id).IsEqualTo(1);
+            _ = await Assert.That(dispatched).IsEqualTo(1);
+            _ = await Assert.That(processing.IsCompleted).IsFalse();
+
+            clock.Advance(RpcAttemptTimeout.OperationDeadline);
+            await processing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(connection.Aborted).IsTrue();
+            _ = await Assert.That(dispatched).IsEqualTo(1);
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
+    /// <summary>Ready replies share a flush while another request from the same input waits.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyRepliesBatchAroundSlowCall(CancellationToken cancellationToken)
+    {
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(10));
+        var output = new FlushProbe(connection.Outgoing.Writer);
+        connection.Transport = new TransportPipe(connection.Incoming.Reader, output);
+        var delayed = new TaskCompletionSource<BinaryResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        for (var id = 1; id <= 3; id++)
+        {
+            Frames.Write(connection.Incoming.Writer.GetSpan(Frames.HeaderBytes), id, 0, 1);
+            connection.Incoming.Writer.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
+        var pump = new BinaryConnectionPump(
+            connection,
+            (frame, _) => frame.Id == 2 ? new ValueTask<BinaryResponse>(delayed.Task) : ValueTask.FromResult(default(BinaryResponse)),
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            var ready = await connection.Outgoing.Reader.ReadAtLeastAsync(2 * Frames.HeaderBytes, stop.Token);
+            var ids = (ReadReplyId(ready.Buffer, 0), ReadReplyId(ready.Buffer, Frames.HeaderBytes));
+            connection.Outgoing.Reader.AdvanceTo(ready.Buffer.GetPosition(2 * Frames.HeaderBytes));
+            _ = await Assert.That(ids).IsEqualTo((1, 3));
+            _ = await Assert.That(output.Count).IsEqualTo(1);
+
+            _ = delayed.TrySetResult(default);
+            var later = await connection.Outgoing.Reader.ReadAtLeastAsync(Frames.HeaderBytes, stop.Token);
+            var id = ReadReplyId(later.Buffer, 0);
+            connection.Outgoing.Reader.AdvanceTo(later.Buffer.GetPosition(Frames.HeaderBytes));
+            _ = await Assert.That(id).IsEqualTo(2);
+            _ = await Assert.That(output.Count).IsEqualTo(2);
+        }
+        finally
+        {
+            _ = delayed.TrySetResult(default);
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
+    /// <summary>The writer finishes a retained batch even while the input is idle.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyBatchSpansTwoFlushes(CancellationToken cancellationToken)
+    {
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(10));
+        var output = new FlushProbe(connection.Outgoing.Writer);
+        connection.Transport = new TransportPipe(connection.Incoming.Reader, output);
+        for (var id = 1; id <= 2; id++)
+        {
+            Frames.Write(connection.Incoming.Writer.GetSpan(Frames.HeaderBytes), id, 0, 1);
+            connection.Incoming.Writer.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
+        var large = new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFrom(new byte[Frames.MaxBatchBytes]) };
+        var pump = new BinaryConnectionPump(
+            connection,
+            (frame, _) => ValueTask.FromResult(frame.Id == 1 ? new BinaryResponse(StatusCode.OK, large) : default),
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            var firstLength = Frames.HeaderBytes + large.CalculateSize();
+            var totalLength = firstLength + Frames.HeaderBytes;
+            var replies = await connection.Outgoing.Reader.ReadAtLeastAsync(totalLength, stop.Token);
+            var ids = (ReadReplyId(replies.Buffer, 0), ReadReplyId(replies.Buffer, firstLength));
+            connection.Outgoing.Reader.AdvanceTo(replies.Buffer.GetPosition(totalLength));
+
+            _ = await Assert.That(ids).IsEqualTo((1, 2));
+            _ = await Assert.That(output.Count).IsEqualTo(2);
         }
         finally
         {
@@ -303,6 +442,42 @@ public sealed class ConnectionPrefaceTests
         Span<byte> header = stackalloc byte[8];
         buffer.Slice(0, 8).CopyTo(header);
         return ConnectionAuthenticationProtocol.TryReadAcknowledgement(header, out var status) ? status : byte.MaxValue;
+    }
+
+    private static int ReadReplyId(in ReadOnlySequence<byte> buffer, int offset)
+    {
+        Span<byte> header = stackalloc byte[Frames.HeaderBytes];
+        buffer.Slice(offset, header.Length).CopyTo(header);
+        return Frames.Read(header, Frames.MaxResponseBytes).Id;
+    }
+
+    private sealed class FlushProbe : PipeWriter
+    {
+        private readonly PipeWriter _inner;
+        private int _count;
+
+        internal FlushProbe(PipeWriter inner)
+        {
+            _inner = inner;
+        }
+
+        internal int Count => Volatile.Read(ref _count);
+
+        public override void Advance(int bytes) => _inner.Advance(bytes);
+
+        public override Memory<byte> GetMemory(int sizeHint = 0) => _inner.GetMemory(sizeHint);
+
+        public override Span<byte> GetSpan(int sizeHint = 0) => _inner.GetSpan(sizeHint);
+
+        public override void CancelPendingFlush() => _inner.CancelPendingFlush();
+
+        public override void Complete(Exception? exception = null) => _inner.Complete(exception);
+
+        public override ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
+        {
+            _ = Interlocked.Increment(ref _count);
+            return _inner.FlushAsync(cancellationToken);
+        }
     }
 
     private sealed class ProbeConnection : DefaultConnectionContext
