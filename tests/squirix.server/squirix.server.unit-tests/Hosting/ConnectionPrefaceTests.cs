@@ -3,6 +3,8 @@ using System.Buffers;
 using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
+using Grpc.Core;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Connections.Features;
@@ -14,6 +16,7 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
+using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -180,6 +183,48 @@ public sealed class ConnectionPrefaceTests
         finally
         {
             _ = delayed.TrySetResult(default);
+            await stop.CancelAsync();
+            await processing;
+        }
+    }
+
+    /// <summary>The writer finishes a retained batch even while the input is idle.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyBatchSpansTwoFlushes(CancellationToken cancellationToken)
+    {
+        await using var connection = new ProbeConnection();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(10));
+        var output = new FlushProbe(connection.Outgoing.Writer);
+        connection.Transport = new TransportPipe(connection.Incoming.Reader, output);
+        for (var id = 1; id <= 2; id++)
+        {
+            Frames.Write(connection.Incoming.Writer.GetSpan(Frames.HeaderBytes), id, 0, 1);
+            connection.Incoming.Writer.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
+        var large = new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFrom(new byte[Frames.MaxBatchBytes]) };
+        var pump = new BinaryConnectionPump(
+            connection,
+            (frame, _) => ValueTask.FromResult(frame.Id == 1 ? new BinaryResponse(StatusCode.OK, large) : default),
+            NullLogger.Instance,
+            TimeProvider.System);
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            var firstLength = Frames.HeaderBytes + large.CalculateSize();
+            var totalLength = firstLength + Frames.HeaderBytes;
+            var replies = await connection.Outgoing.Reader.ReadAtLeastAsync(totalLength, stop.Token);
+            var ids = (ReadReplyId(replies.Buffer, 0), ReadReplyId(replies.Buffer, firstLength));
+            connection.Outgoing.Reader.AdvanceTo(replies.Buffer.GetPosition(totalLength));
+
+            _ = await Assert.That(ids).IsEqualTo((1, 2));
+            _ = await Assert.That(output.Count).IsEqualTo(2);
+        }
+        finally
+        {
             await stop.CancelAsync();
             await processing;
         }

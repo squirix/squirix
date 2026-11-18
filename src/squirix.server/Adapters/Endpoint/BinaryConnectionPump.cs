@@ -18,6 +18,9 @@ namespace Squirix.Server.Adapters.Endpoint;
 internal sealed partial class BinaryConnectionPump
 {
     private const int MaxPending = 16;
+
+    /// <summary>The maximum number of ready replies staged before publishing a group.</summary>
+    /// <remarks>Ready replies can wait for synchronous work on later buffered calls. The reader publishes before waiting for input or a slot.</remarks>
     private const int ReadyBatchLimit = 8;
 
     private readonly ConnectionContext _connection;
@@ -169,7 +172,7 @@ internal sealed partial class BinaryConnectionPump
             return false;
         }
 
-        response = current[index++];
+        response = current.Take(index++);
         if (index == current.Count)
         {
             current.Release();
@@ -219,6 +222,7 @@ internal sealed partial class BinaryConnectionPump
         {
             while (index < current.Count || await _outgoing.Reader.WaitToReadAsync(stop).ConfigureAwait(false))
             {
+                stop.ThrowIfCancellationRequested();
                 var bytes = 0;
                 var count = 0;
                 for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && TryReadResponse(ref current, ref index, out var frame); count++)
@@ -309,7 +313,13 @@ internal sealed partial class BinaryConnectionPump
 
         internal int Count { get; private set; }
 
-        internal readonly PendingResponse this[int index] => index == 0 ? _first : _remaining![index - 1];
+        internal PendingResponse Take(int index)
+        {
+            ref var entry = ref (index == 0 ? ref _first : ref _remaining![index - 1]);
+            var response = entry;
+            entry = default;
+            return response;
+        }
 
         internal void Add(in PendingResponse response)
         {
