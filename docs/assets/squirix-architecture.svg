@@ -54,7 +54,7 @@ text { font-family: Arial; fill: #1a1a1a; text-anchor: middle; }
 <polygon points="480.000,128.000 474.500,116.000 485.500,116.000" fill="#374151" />
 <path d="M480 216 V254 Q480 264 470 264 H310 Q300 264 300 274 V384 Q300 394 310 394 H340" class="edge" />
 <polygon points="340.000,354.000 328.000,359.500 328.000,348.500" fill="#374151" transform="translate(0 40)" />
-<text x="385" y="250" class="edge-label">gRPC over HTTPS</text>
+<text x="385" y="250" class="edge-label">Binary protocol</text>
 <path d="M480 398 V422" class="edge" transform="translate(0 40)" />
 <polygon points="480.000,422.000 474.500,410.000 485.500,410.000" fill="#374151" transform="translate(0 40)" />
 <path d="M340 466 H230 Q220 466 220 476 V654 Q220 664 230 664 H265" class="edge" transform="translate(0 40)" />
