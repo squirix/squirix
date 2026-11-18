@@ -210,7 +210,7 @@ internal sealed partial class BinaryConnectionPump
 
     private ValueTask DispatchBufferedAsync(in QueuedCall call, ref QueuedCall[]? queued, ref int queuedCount)
     {
-        var operation = Unsafe.BitCast<int, BinaryOperation>((call.Frame.Control & ~Frames.TracedRequest) >>> 16);
+        var operation = Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(call.Frame.Control));
         if (operation is not (BinaryOperation.GetDistributed or BinaryOperation.GetValue))
         {
             QueueExecution(ref queued, ref queuedCount);

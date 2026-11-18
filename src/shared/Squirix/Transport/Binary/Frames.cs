@@ -24,6 +24,8 @@ internal static class Frames
     internal const int MaxBatchBytes = 16 * 1024;
     internal const int MaxBatch = 16;
 
+    internal static int ReadOperationId(int control) => (control & ~TracedRequest) >>> 16;
+
     internal static (int Id, int Size, int Control) Read(ReadOnlySpan<byte> bytes, int maxSize)
     {
         var id = BinaryPrimitives.ReadInt32BigEndian(bytes);
