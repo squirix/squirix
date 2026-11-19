@@ -181,8 +181,9 @@ different mutation in the same cache and group.
 On a node without replica groups, each request is executed against the current state. If an attempted mutation may
 have run and the reply cannot be confirmed, the SDK throws `CommitOutcomeUnknownException`.
 
-The adapter's `GetDistributed` reads the current value on every execution. It atomically renews the observed entry when necessary. A retry may return newer bytes or a miss. The renewal has a separate
-server identity on replicated deployments. The replica group retains only the boolean result of a committed removal.
+The adapter's `GetDistributed` reads the current value on every execution and atomically renews the observed entry
+when necessary. A retry may return newer bytes or a miss. Replicated renewals carry a separate server identity. The
+replica group retains only the boolean result of a committed removal.
 
 ### Entry limits (v0.1)
 

@@ -21,8 +21,9 @@ Both are public hosting settings under `SquirixServerOptions.Journal` or `Squiri
 
 Group commit never lets a caller or a reader see a value before its journal bytes are fsynced:
 
-- **Apply after fsync.** A mutation appends, waits for the shared flush, and applies to memory only afterwards. A reader never sees a value that a crash right now would lose, and a failed fsync never leaves
-  the value in memory.
+- **Apply after fsync.** A mutation appends, waits for the shared flush, and applies to memory afterwards. Readers see
+  the value only after it is durable. If fsync fails, the mutation leaves the value out of memory.
+
 ## Scope and failure behaviour
 
 - **RF>1.** Group commit affects the node cache journal only; replicated writes use the replica group log for durability

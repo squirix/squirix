@@ -58,9 +58,9 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
 
 - The client sends the deadline to the server as a timeout in the binary request. The entry node and any owner-routing hop work
   within the same remaining budget.
-- When the deadline passes before a request could have reached the server (or while waiting for a read), the operation fails with `SquirixTransportException` and status `DeadlineExceeded`; no further attempt or
-  endpoint is tried. When the deadline passes after an endpoint failed with a transport error, that endpoint's error is
-  surfaced and the remaining endpoints are not tried.
+- When the deadline passes before a request could have reached the server (or while waiting for a read), the operation fails
+  with `SquirixTransportException` and status `DeadlineExceeded`. No further attempt or endpoint is tried.
+  If an endpoint already failed with a transport error, the SDK surfaces that error when the deadline passes.
 - For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by
   cancellation. Concurrent callers using the same client-side cache instance and key share one in-flight factory run, and its token is canceled once every caller waiting
   on it has canceled; a canceled caller stops waiting without canceling the others.

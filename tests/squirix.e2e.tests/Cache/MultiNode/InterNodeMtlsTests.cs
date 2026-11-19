@@ -55,9 +55,9 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        await AssertForwardRejectedAsync(ex);
+        await AssertForwardRejectedOrUnknownAsync(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), cancellationToken);
+        var owner = await cluster.GetCacheAsync<object?>("orders", "nodeB", cancellationToken);
+        _ = await Assert.That((await owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies node A rejects internode forwarding to node C with an untrusted server certificate while node B traffic still flows.</summary>

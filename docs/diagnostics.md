@@ -171,7 +171,6 @@ idempotency outcomes and the writes in flight are charged against their 48 MiB b
 The counter `squirix_replication_idempotency_refusals_total` (labels `node`, `group`) counts the new operations a led group refused
 retryably (`TOO_MANY_REQUESTS`, `replica_idempotency_capacity`) because its idempotency state was full of outcomes younger than the 30-second retry window.
 
-
 The leader of a group also reports its view of the other copies, refreshed by the readiness probe; a node that does not lead
 a group reports no peer series for it:
 
