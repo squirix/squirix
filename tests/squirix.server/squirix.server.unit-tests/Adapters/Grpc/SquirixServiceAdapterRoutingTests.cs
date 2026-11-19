@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Rocks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
@@ -163,12 +164,12 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
             : new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, OwnerRouters.LeaderWait, TimeProvider.System, OwnerRouters.Locator(Self, Remote, "node-c"));
 
         // The cache operations and the coordinator have no setups: any call to them fails the test.
-        return new SquirixServiceAdapter<object?>(
+        return new SquirixServiceAdapter<object?>(new RoutedCacheOperations<object?>(
             new IInboundEndpointCacheOperationsCreateExpectations<object?>().Instance(),
             router,
             new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
             new IRpcMutationIdempotencyCoordinatorCreateExpectations().Instance(),
-            TimeProvider.System);
+            TimeProvider.System));
     }
 
     private ServerCallPolicy CreatePolicy() => new(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)), TimeProvider.System);

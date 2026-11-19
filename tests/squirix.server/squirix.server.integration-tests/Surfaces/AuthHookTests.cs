@@ -280,10 +280,10 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
             _probe = probe;
         }
 
-        internal void Observe(ServerCallContext context)
+        internal void Observe(HttpContext context)
         {
             _probe.RecordRpcEntries();
-            var principal = context.GetHttpContext().User;
+            var principal = context.User;
             var count = 0;
             foreach (var claim in principal.Claims)
             {

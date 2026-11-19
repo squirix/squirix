@@ -209,7 +209,7 @@ public sealed class ConnectionPrefaceTests
         var large = new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFrom(new byte[Frames.MaxBatchBytes]) };
         var pump = new BinaryConnectionPump(
             connection,
-            (frame, _) => ValueTask.FromResult(frame.Id == 1 ? new BinaryResponse(StatusCode.OK, large) : default),
+            (frame, _) => ValueTask.FromResult(frame.Id == 1 ? new BinaryResponse(FrameStatus.Ok, large) : default),
             NullLogger.Instance,
             TimeProvider.System);
         var processing = pump.RunAsync(stop.Token);
@@ -301,7 +301,7 @@ public sealed class ConnectionPrefaceTests
                 if (frame.Id == 1)
                     await stop.CancelAsync().ConfigureAwait(false);
 
-                return new BinaryResponse(StatusCode.OK);
+                return new BinaryResponse(FrameStatus.Ok);
             },
             NullLogger.Instance,
             TimeProvider.System);

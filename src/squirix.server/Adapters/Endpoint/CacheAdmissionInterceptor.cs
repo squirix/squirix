@@ -1,11 +1,8 @@
-using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Backpressure;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -13,15 +10,11 @@ namespace Squirix.Server.Adapters.Endpoint;
 [Immutable]
 internal sealed class CacheAdmissionInterceptor : Interceptor
 {
-    private readonly IBackpressureClientIdResolver _clients;
-    private readonly IBackpressureGate _gate;
+    private readonly CacheRequestAdmission _admission;
 
-    internal CacheAdmissionInterceptor(IBackpressureGate gate, IBackpressureClientIdResolver clients)
+    public CacheAdmissionInterceptor(CacheRequestAdmission admission)
     {
-        ArgumentNullException.ThrowIfNull(gate);
-        ArgumentNullException.ThrowIfNull(clients);
-        _gate = gate;
-        _clients = clients;
+        _admission = admission;
     }
 
     /// <inheritdoc />
@@ -30,27 +23,12 @@ internal sealed class CacheAdmissionInterceptor : Interceptor
         ServerCallContext context,
         UnaryServerMethod<TRequest, TResponse> continuation)
     {
-        var (decision, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, Operation(context.Method), _clients.Resolve(), context.CancellationToken)
-                                         .ConfigureAwait(false);
+        var (decision, lease) = await _admission.AcquireAsync(context.Method, context.CancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown").ToRpcException();
 
         using (lease)
-        using (InboundAdmissionScope.Enter(_gate))
+        using (_admission.Enter())
             return await continuation(request, context).ConfigureAwait(false);
     }
-
-    private static string Operation(string method) => method.AsSpan(method.AsSpan().LastIndexOf('/') + 1) switch
-    {
-        "GetEntry" or "GetExpiration" => CacheOperationNames.GetEntry,
-        "GetValue" or "GetDistributed" => CacheOperationNames.Get,
-        "SetEntry" or "SetDistributed" => CacheOperationNames.Set,
-        "TryAddEntry" => CacheOperationNames.TryAdd,
-        "GetOrAdd" => CacheOperationNames.GetOrAdd,
-        "Remove" => CacheOperationNames.Remove,
-        "RemoveExpiration" => CacheOperationNames.RemoveExpiration,
-        "Touch" or "RefreshDistributed" => CacheOperationNames.Touch,
-        "Update" => CacheOperationNames.Update,
-        _ => throw new InvalidOperationException("Unsupported cache RPC admission operation."),
-    };
 }

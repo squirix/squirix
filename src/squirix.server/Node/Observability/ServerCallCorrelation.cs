@@ -31,11 +31,16 @@ internal sealed class ServerCallCorrelation
         var traceParent = headers.GetValue(Correlation.TraceParentHeader);
         var traceState = headers.GetValue(Correlation.TraceStateHeader);
 
+        return StartActivity(context.Method, traceParent, traceState);
+    }
+
+    internal static Activity? StartActivity(string method, string? traceParent, string? traceState)
+    {
         ActivityContext parent = default;
         if (!string.IsNullOrEmpty(traceParent))
             _ = ActivityContext.TryParse(traceParent, traceState, out parent);
 
-        return ActivitySourceHolder.StartServer(context.Method, in parent);
+        return ActivitySourceHolder.StartServer(method, in parent);
     }
 
     /// <summary>Pushes the caller's deadline as the ambient budget of the call.</summary>
@@ -55,6 +60,8 @@ internal sealed class ServerCallCorrelation
     internal IDisposable? BeginLogScope(ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return _log.BeginScope(Correlation.CreateScopeState(_nodeId, context.Method));
+        return BeginLogScope(context.Method);
     }
+
+    internal IDisposable? BeginLogScope(string method) => _log.BeginScope(Correlation.CreateScopeState(_nodeId, method));
 }

@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.Logging;
 using Squirix.Transport.Binary;
@@ -95,15 +94,15 @@ internal sealed partial class BinaryConnectionPump
         if (size > Frames.MaxResponseBytes)
         {
             size = 0;
-            status = StatusCode.ResourceExhausted;
+            status = FrameStatus.ResourceExhausted;
         }
 
         var length = Frames.HeaderBytes + size;
         var target = writer.GetSpan(length);
         if (size == 0 || payload == null)
-            Frames.Write(target, frame.Id, 0, Unsafe.BitCast<StatusCode, int>(status));
+            Frames.Write(target, frame.Id, 0, Unsafe.BitCast<FrameStatus, int>(status));
         else
-            Frames.WriteMessage(target, frame.Id, size, Unsafe.BitCast<StatusCode, int>(status), payload);
+            Frames.WriteMessage(target, frame.Id, size, Unsafe.BitCast<FrameStatus, int>(status), payload);
 
         writer.Advance(length);
         return length;
@@ -447,7 +446,7 @@ internal sealed partial class BinaryConnectionPump
 #pragma warning restore CA1031
         {
             LogCallFailure(_log, frame.Id, error);
-            return new PendingResponse(slot, frame.Id, new BinaryResponse(StatusCode.Unknown));
+            return new PendingResponse(slot, frame.Id, new BinaryResponse(FrameStatus.Unknown));
         }
         finally
         {

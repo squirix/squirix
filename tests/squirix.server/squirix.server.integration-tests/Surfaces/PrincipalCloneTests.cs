@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
@@ -176,10 +177,10 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
             _probe = probe;
         }
 
-        internal void Observe(ServerCallContext context)
+        internal void Observe(HttpContext context)
         {
             _probe.RecordEntry();
-            var principal = context.GetHttpContext().User;
+            var principal = context.User;
             if (_probe.CheckPolicy && (principal.IsInRole("admin") || principal.HasClaim("permission", "grant") || !string.Equals(principal.FindFirst("permission")?.Value, "grant", StringComparison.Ordinal)))
                 _probe.RecordError();
         }

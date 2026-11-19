@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Net;
 using System.Runtime.CompilerServices;
@@ -18,8 +17,6 @@ using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Adapters.Grpc;
-using Squirix.Server.Node.Observability;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -145,10 +142,7 @@ internal static class BinaryEndpoint
             ? await services.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync(SquirixAuthorizationPolicies.JwtBearer).ConfigureAwait(false) ?? ThrowMissingPolicy()
             : null;
         var accessor = services.GetRequiredService<IHttpContextAccessor>();
-        var adapter = services.GetRequiredService<SquirixServiceAdapter<object?>>();
-        var admission = services.GetRequiredService<CacheAdmissionInterceptor>();
-        var inbound = services.GetRequiredService<InboundCallInterceptor>();
-        var operations = new BinaryDispatch(adapter, admission, inbound, services.GetService<BinaryCallObserver>());
+        var operations = services.GetRequiredService<BinaryDispatch>();
         var state = new CallState(connection, services, identity, policy, accessor, operations, graceful);
         var log = services.GetRequiredService<ILogger<BinaryConnectionPump>>();
         var pump = new BinaryConnectionPump(connection, (frame, bytes) => ProcessAsync(state, frame, bytes), log, TimeProvider.System);
@@ -159,7 +153,7 @@ internal static class BinaryEndpoint
     {
         var budget = frame.Control & 0xffff;
         if (budget == 0)
-            return new BinaryResponse(StatusCode.DeadlineExceeded);
+            return new BinaryResponse(FrameStatus.DeadlineExceeded);
 
         var timeout = TimeSpan.FromMilliseconds(Math.Min(budget, RpcAttemptTimeout.OperationDeadline.TotalMilliseconds));
         var operationId = Frames.ReadOperationId(frame.Control);
@@ -174,25 +168,24 @@ internal static class BinaryEndpoint
         {
             var failure = await AuthorizeAsync(state, http, scope.ServiceProvider).ConfigureAwait(false);
             deadline.Token.ThrowIfCancellationRequested();
-            if (failure != StatusCode.OK)
+            if (failure != FrameStatus.Ok)
                 return new BinaryResponse(failure);
 
-            var callContext = new BinaryCallContext(http, deadlineUtc);
+            string? traceParent = null;
+            string? traceState = null;
             if ((frame.Control & Frames.TracedRequest) != 0)
             {
                 var traced = BinaryTracedRequest.Parser.ParseFrom(body.Span);
                 if (traced.TraceParent.Length > Frames.MaxTraceParentLength || traced.TraceState.Length > Frames.MaxTraceStateLength)
-                    return new BinaryResponse(StatusCode.InvalidArgument);
+                    return new BinaryResponse(FrameStatus.InvalidArgument);
 
-                callContext.RequestHeaders.Add(Correlation.TraceParentHeader, traced.TraceParent);
-                if (traced.TraceState.Length != 0)
-                    callContext.RequestHeaders.Add(Correlation.TraceStateHeader, traced.TraceState);
-
+                traceParent = traced.TraceParent;
+                traceState = traced.TraceState.Length == 0 ? null : traced.TraceState;
                 body = traced.Payload.Memory;
             }
 
-            var reply = await state.Operations.ExecuteAsync(operation, body, callContext).ConfigureAwait(false);
-            return new BinaryResponse(StatusCode.OK, reply);
+            var callContext = new BinaryDispatch.Request(http, deadlineUtc, traceParent, traceState);
+            return await state.Operations.ExecuteAsync(operation, body, in callContext).ConfigureAwait(false);
         }
         catch (RpcException error)
         {
@@ -200,11 +193,11 @@ internal static class BinaryEndpoint
         }
         catch (InvalidProtocolBufferException)
         {
-            return new BinaryResponse(StatusCode.InvalidArgument);
+            return new BinaryResponse(FrameStatus.InvalidArgument);
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !state.Connection.ConnectionClosed.IsCancellationRequested)
         {
-            return new BinaryResponse(StatusCode.DeadlineExceeded);
+            return new BinaryResponse(FrameStatus.DeadlineExceeded);
         }
         finally
         {
@@ -237,10 +230,10 @@ internal static class BinaryEndpoint
         return http;
     }
 
-    private static async ValueTask<StatusCode> AuthorizeAsync(CallState state, HttpContext http, IServiceProvider services)
+    private static async ValueTask<FrameStatus> AuthorizeAsync(CallState state, HttpContext http, IServiceProvider services)
     {
         if (state.Policy == null)
-            return StatusCode.OK;
+            return FrameStatus.Ok;
 
         var evaluator = services.GetRequiredService<IPolicyEvaluator>();
         var schemes = state.Policy.AuthenticationSchemes;
@@ -249,10 +242,10 @@ internal static class BinaryEndpoint
             : await evaluator.AuthenticateAsync(state.Policy, http).ConfigureAwait(false);
         var decision = await evaluator.AuthorizeAsync(state.Policy, authentication, http, http).ConfigureAwait(false);
         if (decision.Succeeded)
-            return StatusCode.OK;
+            return FrameStatus.Ok;
 
-        var denied = decision.Forbidden ? StatusCode.PermissionDenied : StatusCode.Unauthenticated;
-        return state.CloseRequested.IsCancellationRequested ? StatusCode.Unavailable : denied;
+        var denied = decision.Forbidden ? FrameStatus.PermissionDenied : FrameStatus.Unauthenticated;
+        return state.CloseRequested.IsCancellationRequested ? FrameStatus.Unavailable : denied;
     }
 
     private static async ValueTask<AuthenticateResult> AuthenticateSingleSchemeAsync(HttpContext http, string scheme)
@@ -284,7 +277,7 @@ internal static class BinaryEndpoint
             payload.Trailers.Add(wire);
         }
 
-        return new BinaryResponse(error.StatusCode, payload);
+        return new BinaryResponse(Unsafe.BitCast<StatusCode, FrameStatus>(error.StatusCode), payload);
     }
 
     private sealed record CallState(
@@ -295,32 +288,4 @@ internal static class BinaryEndpoint
         IHttpContextAccessor Accessor,
         BinaryDispatch Operations,
         CancellationToken CloseRequested);
-
-    private sealed class BinaryCallContext : ServerCallContext
-    {
-        private readonly HttpContext _http;
-
-        internal BinaryCallContext(HttpContext http, DateTime deadline)
-        {
-            _http = http;
-            DeadlineCore = deadline;
-            UserStateCore = new Dictionary<object, object> { ["__HttpContext"] = http };
-        }
-
-        protected override string MethodCore => _http.Request.Path.Value ?? string.Empty;
-        protected override string HostCore => _http.Request.Host.Value ?? string.Empty;
-        protected override string PeerCore => _http.Connection.Id;
-        protected override DateTime DeadlineCore { get; }
-        protected override CancellationToken CancellationTokenCore => _http.RequestAborted;
-        protected override Metadata RequestHeadersCore { get; } = [];
-        protected override Metadata ResponseTrailersCore => field ??= [];
-        protected override IDictionary<object, object> UserStateCore { get; }
-        protected override Status StatusCore { get; set; }
-        protected override WriteOptions? WriteOptionsCore { get; set; }
-        protected override AuthContext AuthContextCore => throw new NotSupportedException();
-
-        protected override ContextPropagationToken CreatePropagationTokenCore(ContextPropagationOptions? options) => throw new NotSupportedException();
-
-        protected override Task WriteResponseHeadersAsyncCore(Metadata responseHeaders) => throw new NotSupportedException();
-    }
 }
