@@ -1789,11 +1789,14 @@ select new { assembly, @using }]]></Query>
 
 
 <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport types from JustMyCode</Name>
-// Share-sourced wire types and protobuf-generated service contracts are not product-layer code.
+// The shared wire protocol is compiled into both packages so neither depends on the other.
 // Removes Squirix.Transport.Wire* from JustMyCode for all rules (including ND2016 Try* methods).
 notmycode
 from t in Types
-where t.FullNameLike("Squirix.Transport.Wire*")
+where t.FullNameLike("Squirix.Transport.Wire*") ||
+      ((t.FullName == "Squirix.Transport.Binary.Frames" || t.FullName == "Squirix.Transport.Binary.FrameStatus") &&
+       t.SourceFileDeclAvailable &&
+       t.SourceDecls.Any(s => s.SourceFile.FilePath.ToString().Replace('/', '\\').Contains("\\shared\\Squirix\\Transport\\Binary\\")))
 select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport methods from JustMyCode</Name>
 // Explicit method discard so rules that enumerate Methods (for example ND2016) never see
 // protobuf client stubs such as SquirixCacheService+SquirixCacheServiceClient.TryAddEntry.
