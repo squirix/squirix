@@ -127,6 +127,10 @@ runs:
             results="${{ github.workspace }}/coverage/$name"
             mkdir -p "$results"
             coverage_args=(--coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml)
+            if [ "$name" = "smoke" ]; then
+              # Collect client coverage from the E2E test output and server coverage from the server host output.
+              coverage_args+=(--coverage-settings tools/ci/smoke-coverage.xml)
+            fi
           fi
 
           # Server unit tests must observe failures of every task they start, including work released during teardown.
