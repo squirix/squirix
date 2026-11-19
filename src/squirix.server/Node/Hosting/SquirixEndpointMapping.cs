@@ -37,6 +37,8 @@ internal static class SquirixEndpointMapping
         // The Host header is client-controlled, so the anonymous internal mappings are selected by the accepted connection
         // (listener port plus peer certificate) through InternalListenerMatcherPolicy, never by host filters.
         var internalListener = new InternalListenerEndpointMetadata(mtlsOptions.InternalListenPort, true);
+        _ = app.MapPost(PeerProtocol.Prefix + "ping", PeerEndpoint.PingAsync)
+            .WithMetadata(internalListener).AllowAnonymous();
         _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().WithMetadata(internalListener).AllowAnonymous();
 
         // Closed replication service: internal listener only, for foundation transport tests
