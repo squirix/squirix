@@ -78,15 +78,12 @@ internal sealed partial class BinaryConnectionPump
         {
             while (!stop.IsCancellationRequested)
             {
-                var slots = _slots.Reader.WaitToReadAsync(stop);
-                PublishBeforeWait(slots.IsCompletedSuccessfully);
-                if (!await slots.ConfigureAwait(false))
-                    return;
-
                 var read = input.ReadAsync(stop);
                 PublishBeforeWait(read.IsCompletedSuccessfully);
                 var result = await read.ConfigureAwait(false);
-                var partial = ConsumeBuffered(input, result, stop);
+                var partial = ConsumeBuffered(input, result, stop, out var waitingForSlot);
+                if (waitingForSlot && !await WaitForSlotAsync(stop).ConfigureAwait(false))
+                    return;
                 if (partial is { } frame && !await ReadPartialAsync(input, frame, stop).ConfigureAwait(false))
                     return;
             }
@@ -105,8 +102,16 @@ internal sealed partial class BinaryConnectionPump
         }
     }
 
-    private PartialFrame? ConsumeBuffered(PipeReader input, ReadResult result, CancellationToken stop)
+    private ValueTask<bool> WaitForSlotAsync(CancellationToken stop)
     {
+        var slots = _slots.Reader.WaitToReadAsync(stop);
+        PublishBeforeWait(slots.IsCompletedSuccessfully);
+        return slots;
+    }
+
+    private PartialFrame? ConsumeBuffered(PipeReader input, ReadResult result, CancellationToken stop, out bool waitingForSlot)
+    {
+        waitingForSlot = false;
         var buffer = result.Buffer;
         var consumed = buffer.Start;
         var examined = consumed;
@@ -124,7 +129,10 @@ internal sealed partial class BinaryConnectionPump
             while (buffer.Length >= Frames.HeaderBytes && !stop.IsCancellationRequested)
             {
                 if (!_slots.Reader.TryRead(out var slot))
+                {
+                    waitingForSlot = true;
                     return null;
+                }
 
                 var header = buffer;
                 buffer = buffer.Slice(Frames.HeaderBytes);
@@ -149,8 +157,12 @@ internal sealed partial class BinaryConnectionPump
             examined = buffer.End;
             stop.ThrowIfCancellationRequested();
 
-            // Detect EOF after yielding to the same slot gate as the next request.
-            return result.IsCompleted && buffer.Length == result.Buffer.Length ? throw new EndOfStreamException() : null;
+            if (!result.IsCompleted || buffer.Length != result.Buffer.Length)
+                return null;
+
+            // Drain an already accepted call before closing a full connection at EOF.
+            waitingForSlot = !_slots.Reader.TryPeek(out _);
+            return waitingForSlot ? null : throw new EndOfStreamException();
         }
         finally
         {
