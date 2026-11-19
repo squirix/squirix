@@ -464,7 +464,7 @@ places, recorded here as known deviations.
 | Model concept | Implementation |
 | --- | --- |
 | Elections and durable term/vote state | [ReplicaGroupElection](../../src/squirix.server/Cluster/Replication/ReplicaGroupElection.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
-| Append, vote, and state transfer RPCs | [Server-only replication protobuf](../../src/squirix.server/Adapters/Grpc/Replication/SquirixReplication.proto) |
+| Append, vote, and state transfer RPCs | Server-only protobuf messages from `SquirixReplication.proto` over [the internal peer protocol](../security/internode-mtls.md) |
 | Log matching, catch-up, and majority commit | [ReplicaGroupCommitter](../../src/squirix.server/Node/Services/ReplicaGroupCommitter.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
 | ReadIndex confirmation and wait for apply | [ReplicaGroupCommitPipeline](../../src/squirix.server/Node/Services/ReplicaGroupCommitPipeline.cs), [ReplicaGroupCommitterReads](../../src/squirix.server/Node/Services/ReplicaGroupCommitterReads.cs) |
 | Topology fingerprint and generation | [TopologyFingerprint](../../src/squirix.server/Cluster/Replication/TopologyFingerprint.cs), replication RPC headers |

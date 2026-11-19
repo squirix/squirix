@@ -57,9 +57,9 @@ Only a custom ASP.NET Core server host needs the server library:
 dotnet add package squirix.server --version 0.1.0-preview.10
 ```
 
-Run package commands in the corresponding existing project directory. These commands install the published preview.10 packages,
-which use gRPC over HTTPS for cache calls. To try the preview.11 binary transport from a checkout, build both the client
-and server from that checkout. See [Getting started](getting-started.md) for both setup paths.
+Run package commands in the corresponding existing project directory. Use matching client and server versions.
+To try the preview.11 binary transport, build both from the same checkout.
+See [Getting started](getting-started.md) for both setup paths.
 
 ## Responsibilities
 

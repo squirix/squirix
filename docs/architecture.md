@@ -31,8 +31,8 @@ Squirix.Server does not reference the Squirix client assembly.
 Wire compatibility is through the shared protobuf schema (and HTTP health/metrics JSON), not a project reference from
 server to client.
 
-The cache message schema lives in `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto`.
-The SDK and server compile the same checked-in cache messages. Replication messages are private to the server.
+The SDK and server compile the same checked-in cache messages from the shared schema.
+The replication schema is private to the server and defines the messages used by the internal HTTP/2 endpoints.
 After editing either schema, regenerate the C# messages with the standalone protobuf compiler 35.1 and its standard includes.
 
 ```powershell
@@ -42,10 +42,8 @@ After editing either schema, regenerate the C# messages with the standalone prot
 Peers use versioned HTTP/2 POST requests under `/squirix/peer/v1/` on the internal mTLS listener.
 Owner forwarding, log replication, elections and state transfer use this protocol. Upgrade all cluster members together when moving from the previous peer protocol.
 
-Share-sourced transport under `src/shared/Squirix/Transport/Grpc/Mappers/` is limited to
-cluster routing signals such as stale-owner markers (`GrpcStaleOwnerMarkers.cs`). Extended-operation wire mappers are
-outside this repository. Generated transport CLR types use internal transport namespaces, remain assembly-local
-implementation details, and must not become exported product API.
+The shared transport code defines routing signals such as stale-owner markers.
+Generated protobuf message types are internal to their assemblies.
 
 `Squirix.Server` owns data placement, partition ownership, static cluster topology, owner routing, server-side
 KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycle, backpressure, memory pressure,

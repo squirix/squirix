@@ -115,7 +115,7 @@ server package to handle these failures. See [retry and failover behavior](boots
 
 ## Wire contract
 
-Protobuf schema: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
+The SDK and server share the `SquirixCache.proto` schema. See [Architecture](architecture.md) for details on regenerating the C# messages.
 
 The binary protocol exposes **13** cache operations:
 
