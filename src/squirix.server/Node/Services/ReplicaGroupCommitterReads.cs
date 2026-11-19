@@ -6,7 +6,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Node.Services;
 

@@ -6,7 +6,7 @@ using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Server.TestKit.Networking;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Benchmarks.Support.Binary;
 

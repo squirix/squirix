@@ -1,8 +1,8 @@
 using System;
 using System.Globalization;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Cache;
-using Squirix.Transport.Grpc.Mappers;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Mappers;
 
 namespace Squirix.Server.Errors;
 
@@ -13,23 +13,23 @@ internal static class StaleOwnerFailure
     /// <param name="owner">The node that owns the key.</param>
     /// <param name="self">This node.</param>
     /// <returns><see cref="FrameStatus.FailedPrecondition" /> with the stale-owner trailer.</returns>
-    internal static ServerCallException Create(string owner, string self) => CreateRefusal(Detail(owner, self), GrpcStaleOwnerMarkers.StaleOwnerErrorCodeValue, null, 0);
+    internal static ServerCallException Create(string owner, string self) => CreateRefusal(Detail(owner, self), StaleOwnerMarkers.StaleOwnerErrorCodeValue, null, 0);
 
     /// <summary>Creates the stale-owner failure that names the elected leader of the key's group as a hint.</summary>
     /// <param name="leader">The node this node knows as the leader of the group.</param>
     /// <param name="self">This node.</param>
     /// <param name="leaderTerm">The term of that leader.</param>
     /// <returns><see cref="FrameStatus.FailedPrecondition" /> with the stale-owner trailer and the leader hint trailers.</returns>
-    internal static ServerCallException Create(string leader, string self, ulong leaderTerm) => CreateRefusal(Detail(leader, self), GrpcStaleOwnerMarkers.StaleOwnerErrorCodeValue, leader, leaderTerm);
+    internal static ServerCallException Create(string leader, string self, ulong leaderTerm) => CreateRefusal(Detail(leader, self), StaleOwnerMarkers.StaleOwnerErrorCodeValue, leader, leaderTerm);
 
     internal static ServerCallException CreateRefusal(string detail, string code, string? leader, ulong term)
     {
         var error = new BinaryCallError { Detail = detail };
-        error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, Text = code });
+        error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.ErrorCodeMetadataKey, Text = code });
         if (!string.IsNullOrEmpty(leader) && !leader.AsSpan().ContainsAnyExceptInRange(' ', '~'))
         {
-            error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Text = leader });
-            error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.LeaderTermMetadataKey, Text = term.ToString(CultureInfo.InvariantCulture) });
+            error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.LeaderNodeIdMetadataKey, Text = leader });
+            error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.LeaderTermMetadataKey, Text = term.ToString(CultureInfo.InvariantCulture) });
         }
 
         return new ServerCallException(FrameStatus.FailedPrecondition, error);

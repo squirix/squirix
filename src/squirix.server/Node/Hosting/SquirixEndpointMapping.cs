@@ -9,8 +9,8 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
@@ -18,7 +18,7 @@ using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Node.Hosting;
 

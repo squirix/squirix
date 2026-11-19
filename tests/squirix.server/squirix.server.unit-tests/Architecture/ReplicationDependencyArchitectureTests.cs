@@ -38,9 +38,9 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication.Child", "Squirix.Server.Storage.Replication.Child", false);
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Storage.Replication", false);
         await AssertEdgeAsync(policy, "Squirix.Server.Storage.Replication", "Squirix.Server.Node.Services", true);
-        await AssertEdgeAsync(policy, "Squirix.Server.Storage.Replication.Child", "Squirix.Server.Adapters.Grpc", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Storage.Replication.Child", "Squirix.Server.Adapters.Wire", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Storage.Replication", "Squirix.Server.Cluster.Replication", true);
-        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Adapters.Grpc", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Adapters.Wire", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Node.Hosting", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Node.App", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Cluster.Transport", true);

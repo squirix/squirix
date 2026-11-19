@@ -10,7 +10,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

@@ -3,9 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit.Networking;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
 

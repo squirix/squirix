@@ -13,8 +13,8 @@ if (-not $IncludePath) {
 }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $schemas = @(
-    @{ Source = 'src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto'; Output = 'src/shared/Squirix/Transport/Generated' },
-    @{ Source = 'src/squirix.server/Adapters/Grpc/Replication/SquirixReplication.proto'; Output = 'src/squirix.server/Adapters/Grpc/Replication/Generated' }
+    @{ Source = 'src/shared/Squirix/Transport/Wire/Protos/SquirixCache.proto'; Output = 'src/shared/Squirix/Transport/Generated' },
+    @{ Source = 'src/squirix.server/Adapters/Wire/Replication/SquirixReplication.proto'; Output = 'src/squirix.server/Adapters/Wire/Replication/Generated' }
 )
 foreach ($schema in $schemas) {
     $source = Join-Path $repo $schema.Source

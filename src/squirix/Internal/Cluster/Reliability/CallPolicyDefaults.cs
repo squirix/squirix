@@ -1,5 +1,5 @@
 using System;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Internal.Cluster.Reliability;
 

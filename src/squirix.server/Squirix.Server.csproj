@@ -41,17 +41,17 @@
         <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\FrameStatus.cs" Link="Transport\Binary\FrameStatus.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\ServerCallException.cs" Link="Transport\Binary\ServerCallException.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\ConnectionAuthenticationProtocol.cs" Link="Adapters\Grpc\ConnectionAuthenticationProtocol.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ConnectionAuthenticationProtocol.cs" Link="Adapters\Wire\ConnectionAuthenticationProtocol.cs"/>
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcAttemptTimeout.cs" Link="Adapters\Grpc\RpcAttemptTimeout.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\TimedCancellation.cs" Link="Adapters\Grpc\TimedCancellation.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\CacheValueWire.cs" Link="Adapters\Grpc\CacheValueWire.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireDuration.cs" Link="Adapters\Grpc\WireDuration.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireTimestamp.cs" Link="Adapters\Grpc\WireTimestamp.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Mappers\StaleOwnerMarkers.cs" Link="Adapters\Wire\Mappers\StaleOwnerMarkers.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcAttemptTimeout.cs" Link="Adapters\Wire\RpcAttemptTimeout.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcOperationIdentity.cs" Link="Adapters\Wire\RpcOperationIdentity.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\TimedCancellation.cs" Link="Adapters\Wire\TimedCancellation.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheValueWire.cs" Link="Adapters\Wire\CacheValueWire.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ProtoDuration.cs" Link="Adapters\Wire\ProtoDuration.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ProtoTimestamp.cs" Link="Adapters\Wire\ProtoTimestamp.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>

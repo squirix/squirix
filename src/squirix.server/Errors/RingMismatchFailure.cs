@@ -1,7 +1,7 @@
 using System;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Cache;
-using Squirix.Transport.Grpc.Mappers;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Mappers;
 
 namespace Squirix.Server.Errors;
 
@@ -33,13 +33,13 @@ internal static class RingMismatchFailure
     private static ServerCallException Create(string detail, string errorCode)
     {
         var failure = new ServerCallException(FrameStatus.Unavailable, detail);
-        failure.Error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, Text = errorCode });
+        failure.Error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.ErrorCodeMetadataKey, Text = errorCode });
         return failure;
     }
 
     private static bool HasErrorCode(ServerCallException exception, string errorCode)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        return exception.StatusCode == FrameStatus.Unavailable && string.Equals(exception.FindTrailer(GrpcStaleOwnerMarkers.ErrorCodeMetadataKey), errorCode, StringComparison.Ordinal);
+        return exception.StatusCode == FrameStatus.Unavailable && string.Equals(exception.FindTrailer(StaleOwnerMarkers.ErrorCodeMetadataKey), errorCode, StringComparison.Ordinal);
     }
 }

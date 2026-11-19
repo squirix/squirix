@@ -1,5 +1,5 @@
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Mappers;
+using Squirix.Transport.Wire.Mappers;
 
 namespace Squirix.Server.Errors;
 
@@ -14,5 +14,5 @@ internal static class StaleTermFailure
     /// nothing was written, so the operation may run once more on the current leader.
     /// </returns>
     internal static ServerCallException Create(string? leaderNodeId, ulong leaderTerm) =>
-        StaleOwnerFailure.CreateRefusal(GrpcStaleOwnerMarkers.StaleTermErrorCodeValue, GrpcStaleOwnerMarkers.StaleTermErrorCodeValue, leaderNodeId, leaderTerm);
+        StaleOwnerFailure.CreateRefusal(StaleOwnerMarkers.StaleTermErrorCodeValue, StaleOwnerMarkers.StaleTermErrorCodeValue, leaderNodeId, leaderTerm);
 }

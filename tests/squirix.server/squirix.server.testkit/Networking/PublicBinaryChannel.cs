@@ -9,8 +9,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.TestKit.Networking;
 

@@ -1,7 +1,7 @@
 using System;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Cluster.Transport;
 

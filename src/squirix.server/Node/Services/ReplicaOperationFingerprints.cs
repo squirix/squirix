@@ -6,9 +6,9 @@ using System.Security.Cryptography;
 using System.Text;
 using Google.Protobuf;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Node.Services;
 
@@ -66,7 +66,7 @@ internal static class ReplicaOperationFingerprints
         Compute(operationId, cacheName, key, ReplicaMutationKinds.TryAdd, entry.MapToProto());
 
     internal static byte[] Update(string operationId, string cacheName, string key, object? value) =>
-        Compute(operationId, cacheName, key, ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToGrpcValue(value));
+        Compute(operationId, cacheName, key, ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToProto(value));
 
     /// <summary>Computes the canonical operation fingerprint of a client mutation, scoped to its cache.</summary>
     /// <param name="operationId">Client operation identifier.</param>

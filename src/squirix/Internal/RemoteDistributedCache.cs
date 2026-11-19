@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Attributes;
 using Squirix.Core;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Internal;
 

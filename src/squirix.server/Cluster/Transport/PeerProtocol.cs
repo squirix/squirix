@@ -13,7 +13,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Cluster.Transport;
 

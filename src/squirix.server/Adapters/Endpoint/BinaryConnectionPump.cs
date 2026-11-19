@@ -11,8 +11,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.Logging;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Adapters.Endpoint;
 

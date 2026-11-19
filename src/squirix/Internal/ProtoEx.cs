@@ -4,8 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Transport;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Internal;
 
@@ -32,7 +32,7 @@ internal static class ProtoEx
         {
             Value = ToCacheValue(entry.Value, serializer),
             ExpiresUtc = entry.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
-            Expiration = entry.Expiration == null ? null : WireDuration.FromTimeSpan(entry.Expiration.Value),
+            Expiration = entry.Expiration == null ? null : ProtoDuration.FromTimeSpan(entry.Expiration.Value),
         };
     }
 
@@ -51,15 +51,15 @@ internal static class ProtoEx
     /// <param name="duration">The wire duration.</param>
     /// <returns>The converted time span.</returns>
     /// <exception cref="SquirixTransportException">Thrown with <see cref="CacheTransportStatusCode.Internal" /> when the server sent a malformed or missing duration.</exception>
-    internal static TimeSpan ReadDuration(Duration? duration) => duration != null && WireDuration.IsNormalized(duration)
-        ? WireDuration.ToTimeSpan(duration)
+    internal static TimeSpan ReadDuration(Duration? duration) => duration != null && ProtoDuration.IsNormalized(duration)
+        ? ProtoDuration.ToTimeSpan(duration)
         : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MalformedDurationDetail));
 
     /// <summary>Converts a server-reported timestamp to a UTC <see cref="DateTime" />, rejecting a non-normalized value.</summary>
     /// <param name="timestamp">The wire timestamp.</param>
     /// <returns>The converted UTC date and time.</returns>
     /// <exception cref="SquirixTransportException">Thrown with <see cref="CacheTransportStatusCode.Internal" /> when the server sent a malformed timestamp.</exception>
-    internal static DateTime ReadTimestamp(Timestamp timestamp) => WireTimestamp.IsNormalized(timestamp)
+    internal static DateTime ReadTimestamp(Timestamp timestamp) => ProtoTimestamp.IsNormalized(timestamp)
         ? timestamp.ToDateTime().ToUniversalTime()
         : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MalformedTimestampDetail));
 

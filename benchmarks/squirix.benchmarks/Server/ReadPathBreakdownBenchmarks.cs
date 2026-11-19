@@ -11,7 +11,7 @@ using Squirix.Internal.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Benchmarks.Server;
 

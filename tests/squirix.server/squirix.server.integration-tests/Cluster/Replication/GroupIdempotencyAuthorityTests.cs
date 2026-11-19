@@ -8,13 +8,13 @@ using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -137,7 +137,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         _ = await Assert.That(retried).IsEqualTo(first);
         _ = await Assert.That(existing.Added).IsFalse();
         _ = await Assert.That(existing.Found).IsTrue();
-        _ = await Assert.That(existing.Value).IsEqualTo(ServerProtoEx.CacheValueToGrpcValue("first"));
+        _ = await Assert.That(existing.Value).IsEqualTo(ServerProtoEx.CacheValueToProto("first"));
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(committed);
         _ = await Assert.That(cluster[Owner].GetRequiredService<RpcMutationIdempotencyStore>().RecordCount).IsEqualTo(0);
     }

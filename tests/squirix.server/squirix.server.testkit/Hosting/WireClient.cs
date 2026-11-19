@@ -5,7 +5,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
 

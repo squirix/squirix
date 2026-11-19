@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -21,7 +21,7 @@ public sealed class ReplicationContractArchitectureTests : ServerUnitTestBase
     public async Task ReplicationWireIsServerOnly(CancellationToken cancellationToken)
     {
         var root = RepositoryPaths.FindRepositoryRoot();
-        var sharedProto = await File.ReadAllTextAsync(Path.Join(root, "src", "shared", "Squirix", "Transport", "Grpc", "Protos", "SquirixCache.proto"), cancellationToken);
+        var sharedProto = await File.ReadAllTextAsync(Path.Join(root, "src", "shared", "Squirix", "Transport", "Wire", "Protos", "SquirixCache.proto"), cancellationToken);
         _ = await Assert.That(sharedProto).DoesNotContain("SquirixReplicationService", StringComparison.Ordinal);
         _ = await Assert.That(sharedProto).DoesNotContain("squirix.replication", StringComparison.Ordinal);
         var clientProjectPath = Path.Join(root, "src", "squirix", "Squirix.csproj");

@@ -32,16 +32,16 @@
         <Compile Include="..\shared\Squirix\Transport\Generated\SquirixCache.cs" Link="Transport\Generated\SquirixCache.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\FrameStatus.cs" Link="Transport\Binary\FrameStatus.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\ConnectionAuthenticationProtocol.cs" Link="Internal\Cluster\Transport\Grpc\ConnectionAuthenticationProtocol.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ConnectionAuthenticationProtocol.cs" Link="Internal\Cluster\Transport\Wire\ConnectionAuthenticationProtocol.cs"/>
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcAttemptTimeout.cs" Link="Internal\Cluster\Transport\Grpc\RpcAttemptTimeout.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Grpc\RpcOperationIdentity.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\TimedCancellation.cs" Link="Internal\Cluster\Transport\Grpc\TimedCancellation.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\CacheValueWire.cs" Link="Internal\Cluster\Transport\Grpc\CacheValueWire.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireDuration.cs" Link="Internal\Cluster\Transport\Grpc\WireDuration.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireTimestamp.cs" Link="Internal\Cluster\Transport\Grpc\WireTimestamp.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcAttemptTimeout.cs" Link="Internal\Cluster\Transport\Wire\RpcAttemptTimeout.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Wire\RpcOperationIdentity.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\TimedCancellation.cs" Link="Internal\Cluster\Transport\Wire\TimedCancellation.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheValueWire.cs" Link="Internal\Cluster\Transport\Wire\CacheValueWire.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ProtoDuration.cs" Link="Internal\Cluster\Transport\Wire\ProtoDuration.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ProtoTimestamp.cs" Link="Internal\Cluster\Transport\Wire\ProtoTimestamp.cs"/>
         <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>

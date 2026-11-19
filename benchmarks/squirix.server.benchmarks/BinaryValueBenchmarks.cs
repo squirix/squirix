@@ -3,9 +3,9 @@ using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using Google.Protobuf;
-using Squirix.Server.Serialization.Grpc;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.Serialization.Protobuf;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Benchmarks;
 

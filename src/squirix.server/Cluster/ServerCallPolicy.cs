@@ -8,7 +8,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Cluster;
 

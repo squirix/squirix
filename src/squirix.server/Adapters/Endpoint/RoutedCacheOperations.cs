@@ -2,16 +2,16 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -244,7 +244,7 @@ internal sealed class RoutedCacheOperations<T>
         var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
         var response = new GetValueAsyncResponse { Found = result.Found };
         if (result.Found)
-            response.Value = ServerProtoEx.CacheValueToGrpcValue(result.Value);
+            response.Value = ServerProtoEx.CacheValueToProto(result.Value);
 
         return response;
     }
@@ -302,7 +302,7 @@ internal sealed class RoutedCacheOperations<T>
                 : existing.Found switch
                 {
                     false => new GetOrAddAsyncResponse { Added = false, Found = false },
-                    _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value) },
+                    _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerProtoEx.CacheValueToProto(existing.Value) },
                 };
         }
 

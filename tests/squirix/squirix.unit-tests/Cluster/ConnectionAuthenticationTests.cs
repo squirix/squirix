@@ -13,7 +13,7 @@ using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
 using Squirix.Transport;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

@@ -9,7 +9,7 @@ using pb = global::Google.Protobuf;
 using pbc = global::Google.Protobuf.Collections;
 using pbr = global::Google.Protobuf.Reflection;
 using scg = global::System.Collections.Generic;
-namespace Squirix.Transport.Grpc.Cache {
+namespace Squirix.Transport.Wire.Cache {
 
   /// <summary>Holder for reflection information generated from SquirixCache.proto</summary>
   internal static partial class SquirixCacheReflection {
@@ -100,39 +100,39 @@ namespace Squirix.Transport.Grpc.Cache {
             "SU5BUllfT1BFUkFUSU9OX1NFVF9ESVNUUklCVVRFRBALEiQKIEJJTkFSWV9P",
             "UEVSQVRJT05fR0VUX0RJU1RSSUJVVEVEEAwSKAokQklOQVJZX09QRVJBVElP",
             "Tl9SRUZSRVNIX0RJU1RSSUJVVEVEEA1CH6oCHFNxdWlyaXguVHJhbnNwb3J0",
-            "LkdycGMuQ2FjaGViBnByb3RvMw=="));
+            "LldpcmUuQ2FjaGViBnByb3RvMw=="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { global::Google.Protobuf.WellKnownTypes.DurationReflection.Descriptor, global::Google.Protobuf.WellKnownTypes.StructReflection.Descriptor, global::Google.Protobuf.WellKnownTypes.TimestampReflection.Descriptor, },
-          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Squirix.Transport.Grpc.Cache.BinaryOperation), }, null, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.CacheEntryWire), global::Squirix.Transport.Grpc.Cache.CacheEntryWire.Parser, new[]{ "Value", "ExpiresUtc", "Expiration" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.CacheValue), global::Squirix.Transport.Grpc.Cache.CacheValue.Parser, new[]{ "NullValue", "StringValue", "Int64Value", "DoubleValue", "BoolValue", "JsonUtf8", "BinaryValue" }, new[]{ "Kind" }, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.SetEntryAsyncRequest), global::Squirix.Transport.Grpc.Cache.SetEntryAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.SetAsyncResponse), global::Squirix.Transport.Grpc.Cache.SetAsyncResponse.Parser, null, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetEntryAsyncRequest), global::Squirix.Transport.Grpc.Cache.GetEntryAsyncRequest.Parser, new[]{ "CacheName", "Key" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetEntryAsyncResponse), global::Squirix.Transport.Grpc.Cache.GetEntryAsyncResponse.Parser, new[]{ "Found", "Entry", "Remaining" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetValueAsyncRequest), global::Squirix.Transport.Grpc.Cache.GetValueAsyncRequest.Parser, new[]{ "CacheName", "Key" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetValueAsyncResponse), global::Squirix.Transport.Grpc.Cache.GetValueAsyncResponse.Parser, new[]{ "Found", "Value" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.RemoveAsyncRequest), global::Squirix.Transport.Grpc.Cache.RemoveAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.RemoveAsyncResponse), global::Squirix.Transport.Grpc.Cache.RemoveAsyncResponse.Parser, new[]{ "Removed" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.TryAddEntryAsyncRequest), global::Squirix.Transport.Grpc.Cache.TryAddEntryAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.TryAddAsyncResponse), global::Squirix.Transport.Grpc.Cache.TryAddAsyncResponse.Parser, new[]{ "Added" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.TouchAsyncRequest), global::Squirix.Transport.Grpc.Cache.TouchAsyncRequest.Parser, new[]{ "CacheName", "Key", "Expiration", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.TouchAsyncResponse), global::Squirix.Transport.Grpc.Cache.TouchAsyncResponse.Parser, new[]{ "Found" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.RemoveExpirationAsyncRequest), global::Squirix.Transport.Grpc.Cache.RemoveExpirationAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.RemoveExpirationAsyncResponse), global::Squirix.Transport.Grpc.Cache.RemoveExpirationAsyncResponse.Parser, new[]{ "Found" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.UpdateAsyncRequest), global::Squirix.Transport.Grpc.Cache.UpdateAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.UpdateAsyncResponse), global::Squirix.Transport.Grpc.Cache.UpdateAsyncResponse.Parser, new[]{ "Updated" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetExpirationAsyncRequest), global::Squirix.Transport.Grpc.Cache.GetExpirationAsyncRequest.Parser, new[]{ "CacheName", "Key" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetExpirationAsyncResponse), global::Squirix.Transport.Grpc.Cache.GetExpirationAsyncResponse.Parser, new[]{ "Found", "HasExpiration", "Remaining" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetOrAddAsyncRequest), global::Squirix.Transport.Grpc.Cache.GetOrAddAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetOrAddAsyncResponse), global::Squirix.Transport.Grpc.Cache.GetOrAddAsyncResponse.Parser, new[]{ "Added", "Value", "Found" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.SetDistributedAsyncRequest), global::Squirix.Transport.Grpc.Cache.SetDistributedAsyncRequest.Parser, new[]{ "CacheName", "Key", "Value", "ExpiresAtUnixMs", "SlidingTicks", "OperationId", "TtlTicks" }, new[]{ "ExpiresAtUnixMs", "SlidingTicks", "TtlTicks" }, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetDistributedAsyncRequest), global::Squirix.Transport.Grpc.Cache.GetDistributedAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.GetDistributedAsyncResponse), global::Squirix.Transport.Grpc.Cache.GetDistributedAsyncResponse.Parser, new[]{ "Found", "Value" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.BinaryTracedRequest), global::Squirix.Transport.Grpc.Cache.BinaryTracedRequest.Parser, new[]{ "TraceParent", "TraceState", "Payload" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.BinaryCallError), global::Squirix.Transport.Grpc.Cache.BinaryCallError.Parser, new[]{ "Detail", "Trailers" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.BinaryCallError.Types.Trailer), global::Squirix.Transport.Grpc.Cache.BinaryCallError.Types.Trailer.Parser, new[]{ "Key", "Text", "Binary" }, new[]{ "Value" }, null, null, null)}),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.RefreshDistributedAsyncRequest), global::Squirix.Transport.Grpc.Cache.RefreshDistributedAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Grpc.Cache.RefreshDistributedAsyncResponse), global::Squirix.Transport.Grpc.Cache.RefreshDistributedAsyncResponse.Parser, null, null, null, null, null)
+          new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Squirix.Transport.Wire.Cache.BinaryOperation), }, null, new pbr::GeneratedClrTypeInfo[] {
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.CacheEntryWire), global::Squirix.Transport.Wire.Cache.CacheEntryWire.Parser, new[]{ "Value", "ExpiresUtc", "Expiration" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.CacheValue), global::Squirix.Transport.Wire.Cache.CacheValue.Parser, new[]{ "NullValue", "StringValue", "Int64Value", "DoubleValue", "BoolValue", "JsonUtf8", "BinaryValue" }, new[]{ "Kind" }, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.SetEntryAsyncRequest), global::Squirix.Transport.Wire.Cache.SetEntryAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.SetAsyncResponse), global::Squirix.Transport.Wire.Cache.SetAsyncResponse.Parser, null, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetEntryAsyncRequest), global::Squirix.Transport.Wire.Cache.GetEntryAsyncRequest.Parser, new[]{ "CacheName", "Key" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetEntryAsyncResponse), global::Squirix.Transport.Wire.Cache.GetEntryAsyncResponse.Parser, new[]{ "Found", "Entry", "Remaining" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetValueAsyncRequest), global::Squirix.Transport.Wire.Cache.GetValueAsyncRequest.Parser, new[]{ "CacheName", "Key" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetValueAsyncResponse), global::Squirix.Transport.Wire.Cache.GetValueAsyncResponse.Parser, new[]{ "Found", "Value" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.RemoveAsyncRequest), global::Squirix.Transport.Wire.Cache.RemoveAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.RemoveAsyncResponse), global::Squirix.Transport.Wire.Cache.RemoveAsyncResponse.Parser, new[]{ "Removed" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.TryAddEntryAsyncRequest), global::Squirix.Transport.Wire.Cache.TryAddEntryAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.TryAddAsyncResponse), global::Squirix.Transport.Wire.Cache.TryAddAsyncResponse.Parser, new[]{ "Added" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.TouchAsyncRequest), global::Squirix.Transport.Wire.Cache.TouchAsyncRequest.Parser, new[]{ "CacheName", "Key", "Expiration", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.TouchAsyncResponse), global::Squirix.Transport.Wire.Cache.TouchAsyncResponse.Parser, new[]{ "Found" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.RemoveExpirationAsyncRequest), global::Squirix.Transport.Wire.Cache.RemoveExpirationAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.RemoveExpirationAsyncResponse), global::Squirix.Transport.Wire.Cache.RemoveExpirationAsyncResponse.Parser, new[]{ "Found" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.UpdateAsyncRequest), global::Squirix.Transport.Wire.Cache.UpdateAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.UpdateAsyncResponse), global::Squirix.Transport.Wire.Cache.UpdateAsyncResponse.Parser, new[]{ "Updated" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetExpirationAsyncRequest), global::Squirix.Transport.Wire.Cache.GetExpirationAsyncRequest.Parser, new[]{ "CacheName", "Key" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetExpirationAsyncResponse), global::Squirix.Transport.Wire.Cache.GetExpirationAsyncResponse.Parser, new[]{ "Found", "HasExpiration", "Remaining" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetOrAddAsyncRequest), global::Squirix.Transport.Wire.Cache.GetOrAddAsyncRequest.Parser, new[]{ "CacheName", "Key", "Entry", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetOrAddAsyncResponse), global::Squirix.Transport.Wire.Cache.GetOrAddAsyncResponse.Parser, new[]{ "Added", "Value", "Found" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.SetDistributedAsyncRequest), global::Squirix.Transport.Wire.Cache.SetDistributedAsyncRequest.Parser, new[]{ "CacheName", "Key", "Value", "ExpiresAtUnixMs", "SlidingTicks", "OperationId", "TtlTicks" }, new[]{ "ExpiresAtUnixMs", "SlidingTicks", "TtlTicks" }, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetDistributedAsyncRequest), global::Squirix.Transport.Wire.Cache.GetDistributedAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.GetDistributedAsyncResponse), global::Squirix.Transport.Wire.Cache.GetDistributedAsyncResponse.Parser, new[]{ "Found", "Value" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.BinaryTracedRequest), global::Squirix.Transport.Wire.Cache.BinaryTracedRequest.Parser, new[]{ "TraceParent", "TraceState", "Payload" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.BinaryCallError), global::Squirix.Transport.Wire.Cache.BinaryCallError.Parser, new[]{ "Detail", "Trailers" }, null, null, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.BinaryCallError.Types.Trailer), global::Squirix.Transport.Wire.Cache.BinaryCallError.Types.Trailer.Parser, new[]{ "Key", "Text", "Binary" }, new[]{ "Value" }, null, null, null)}),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.RefreshDistributedAsyncRequest), global::Squirix.Transport.Wire.Cache.RefreshDistributedAsyncRequest.Parser, new[]{ "CacheName", "Key", "OperationId" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Squirix.Transport.Wire.Cache.RefreshDistributedAsyncResponse), global::Squirix.Transport.Wire.Cache.RefreshDistributedAsyncResponse.Parser, null, null, null, null, null)
           }));
     }
     #endregion
@@ -174,7 +174,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[0]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[0]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -208,10 +208,10 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "value" field.</summary>
     public const int ValueFieldNumber = 1;
-    private global::Squirix.Transport.Grpc.Cache.CacheValue value_;
+    private global::Squirix.Transport.Wire.Cache.CacheValue value_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheValue Value {
+    public global::Squirix.Transport.Wire.Cache.CacheValue Value {
       get { return value_; }
       set {
         value_ = value;
@@ -355,7 +355,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.value_ != null) {
         if (value_ == null) {
-          Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+          Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
         }
         Value.MergeFrom(other.Value);
       }
@@ -392,7 +392,7 @@ namespace Squirix.Transport.Grpc.Cache {
             break;
           case 10: {
             if (value_ == null) {
-              Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+              Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
             }
             input.ReadMessage(Value);
             break;
@@ -432,7 +432,7 @@ namespace Squirix.Transport.Grpc.Cache {
             break;
           case 10: {
             if (value_ == null) {
-              Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+              Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
             }
             input.ReadMessage(Value);
             break;
@@ -473,7 +473,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[1]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[1]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1047,7 +1047,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[2]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[2]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1106,10 +1106,10 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "entry" field.</summary>
     public const int EntryFieldNumber = 3;
-    private global::Squirix.Transport.Grpc.Cache.CacheEntryWire entry_;
+    private global::Squirix.Transport.Wire.Cache.CacheEntryWire entry_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheEntryWire Entry {
+    public global::Squirix.Transport.Wire.Cache.CacheEntryWire Entry {
       get { return entry_; }
       set {
         entry_ = value;
@@ -1260,7 +1260,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.entry_ != null) {
         if (entry_ == null) {
-          Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+          Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
         }
         Entry.MergeFrom(other.Entry);
       }
@@ -1296,7 +1296,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -1334,7 +1334,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -1365,7 +1365,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[3]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[3]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1526,7 +1526,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[4]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[4]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1761,7 +1761,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[5]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[5]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -1807,10 +1807,10 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "entry" field.</summary>
     public const int EntryFieldNumber = 2;
-    private global::Squirix.Transport.Grpc.Cache.CacheEntryWire entry_;
+    private global::Squirix.Transport.Wire.Cache.CacheEntryWire entry_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheEntryWire Entry {
+    public global::Squirix.Transport.Wire.Cache.CacheEntryWire Entry {
       get { return entry_; }
       set {
         entry_ = value;
@@ -1948,7 +1948,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.entry_ != null) {
         if (entry_ == null) {
-          Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+          Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
         }
         Entry.MergeFrom(other.Entry);
       }
@@ -1983,7 +1983,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 18: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -2020,7 +2020,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 18: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -2054,7 +2054,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[6]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[6]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -2289,7 +2289,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[7]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[7]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -2334,10 +2334,10 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "value" field.</summary>
     public const int ValueFieldNumber = 2;
-    private global::Squirix.Transport.Grpc.Cache.CacheValue value_;
+    private global::Squirix.Transport.Wire.Cache.CacheValue value_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheValue Value {
+    public global::Squirix.Transport.Wire.Cache.CacheValue Value {
       get { return value_; }
       set {
         value_ = value;
@@ -2447,7 +2447,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.value_ != null) {
         if (value_ == null) {
-          Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+          Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
         }
         Value.MergeFrom(other.Value);
       }
@@ -2476,7 +2476,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 18: {
             if (value_ == null) {
-              Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+              Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
             }
             input.ReadMessage(Value);
             break;
@@ -2506,7 +2506,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 18: {
             if (value_ == null) {
-              Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+              Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
             }
             input.ReadMessage(Value);
             break;
@@ -2533,7 +2533,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[8]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[8]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -2805,7 +2805,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[9]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[9]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3003,7 +3003,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[10]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[10]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3062,10 +3062,10 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "entry" field.</summary>
     public const int EntryFieldNumber = 3;
-    private global::Squirix.Transport.Grpc.Cache.CacheEntryWire entry_;
+    private global::Squirix.Transport.Wire.Cache.CacheEntryWire entry_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheEntryWire Entry {
+    public global::Squirix.Transport.Wire.Cache.CacheEntryWire Entry {
       get { return entry_; }
       set {
         entry_ = value;
@@ -3216,7 +3216,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.entry_ != null) {
         if (entry_ == null) {
-          Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+          Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
         }
         Entry.MergeFrom(other.Entry);
       }
@@ -3252,7 +3252,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -3290,7 +3290,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -3321,7 +3321,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[11]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[11]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3519,7 +3519,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[12]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[12]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -3837,7 +3837,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[13]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[13]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -4035,7 +4035,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[14]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[14]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -4307,7 +4307,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[15]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[15]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -4505,7 +4505,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[16]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[16]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -4564,10 +4564,10 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "entry" field.</summary>
     public const int EntryFieldNumber = 3;
-    private global::Squirix.Transport.Grpc.Cache.CacheEntryWire entry_;
+    private global::Squirix.Transport.Wire.Cache.CacheEntryWire entry_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheEntryWire Entry {
+    public global::Squirix.Transport.Wire.Cache.CacheEntryWire Entry {
       get { return entry_; }
       set {
         entry_ = value;
@@ -4718,7 +4718,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.entry_ != null) {
         if (entry_ == null) {
-          Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+          Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
         }
         Entry.MergeFrom(other.Entry);
       }
@@ -4754,7 +4754,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -4792,7 +4792,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -4823,7 +4823,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[17]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[17]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -5021,7 +5021,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[18]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[18]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -5256,7 +5256,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[19]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[19]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -5537,7 +5537,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[20]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[20]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -5596,10 +5596,10 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "entry" field.</summary>
     public const int EntryFieldNumber = 3;
-    private global::Squirix.Transport.Grpc.Cache.CacheEntryWire entry_;
+    private global::Squirix.Transport.Wire.Cache.CacheEntryWire entry_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheEntryWire Entry {
+    public global::Squirix.Transport.Wire.Cache.CacheEntryWire Entry {
       get { return entry_; }
       set {
         entry_ = value;
@@ -5750,7 +5750,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.entry_ != null) {
         if (entry_ == null) {
-          Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+          Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
         }
         Entry.MergeFrom(other.Entry);
       }
@@ -5786,7 +5786,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -5824,7 +5824,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 26: {
             if (entry_ == null) {
-              Entry = new global::Squirix.Transport.Grpc.Cache.CacheEntryWire();
+              Entry = new global::Squirix.Transport.Wire.Cache.CacheEntryWire();
             }
             input.ReadMessage(Entry);
             break;
@@ -5855,7 +5855,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[21]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[21]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -5904,13 +5904,13 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "value" field.</summary>
     public const int ValueFieldNumber = 2;
-    private global::Squirix.Transport.Grpc.Cache.CacheValue value_;
+    private global::Squirix.Transport.Wire.Cache.CacheValue value_;
     /// <summary>
     /// The value that was already stored; set only when added is false and found is true.
     /// </summary>
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public global::Squirix.Transport.Grpc.Cache.CacheValue Value {
+    public global::Squirix.Transport.Wire.Cache.CacheValue Value {
       get { return value_; }
       set {
         value_ = value;
@@ -6048,7 +6048,7 @@ namespace Squirix.Transport.Grpc.Cache {
       }
       if (other.value_ != null) {
         if (value_ == null) {
-          Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+          Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
         }
         Value.MergeFrom(other.Value);
       }
@@ -6080,7 +6080,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 18: {
             if (value_ == null) {
-              Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+              Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
             }
             input.ReadMessage(Value);
             break;
@@ -6114,7 +6114,7 @@ namespace Squirix.Transport.Grpc.Cache {
           }
           case 18: {
             if (value_ == null) {
-              Value = new global::Squirix.Transport.Grpc.Cache.CacheValue();
+              Value = new global::Squirix.Transport.Wire.Cache.CacheValue();
             }
             input.ReadMessage(Value);
             break;
@@ -6149,7 +6149,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[22]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[22]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -6615,7 +6615,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[23]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[23]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -6890,7 +6890,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[24]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[24]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -7128,7 +7128,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[25]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[25]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -7403,7 +7403,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[26]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[26]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -7448,12 +7448,12 @@ namespace Squirix.Transport.Grpc.Cache {
 
     /// <summary>Field number for the "trailers" field.</summary>
     public const int TrailersFieldNumber = 2;
-    private static readonly pb::FieldCodec<global::Squirix.Transport.Grpc.Cache.BinaryCallError.Types.Trailer> _repeated_trailers_codec
-        = pb::FieldCodec.ForMessage(18, global::Squirix.Transport.Grpc.Cache.BinaryCallError.Types.Trailer.Parser);
-    private readonly pbc::RepeatedField<global::Squirix.Transport.Grpc.Cache.BinaryCallError.Types.Trailer> trailers_ = new pbc::RepeatedField<global::Squirix.Transport.Grpc.Cache.BinaryCallError.Types.Trailer>();
+    private static readonly pb::FieldCodec<global::Squirix.Transport.Wire.Cache.BinaryCallError.Types.Trailer> _repeated_trailers_codec
+        = pb::FieldCodec.ForMessage(18, global::Squirix.Transport.Wire.Cache.BinaryCallError.Types.Trailer.Parser);
+    private readonly pbc::RepeatedField<global::Squirix.Transport.Wire.Cache.BinaryCallError.Types.Trailer> trailers_ = new pbc::RepeatedField<global::Squirix.Transport.Wire.Cache.BinaryCallError.Types.Trailer>();
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public pbc::RepeatedField<global::Squirix.Transport.Grpc.Cache.BinaryCallError.Types.Trailer> Trailers {
+    public pbc::RepeatedField<global::Squirix.Transport.Wire.Cache.BinaryCallError.Types.Trailer> Trailers {
       get { return trailers_; }
     }
 
@@ -7630,7 +7630,7 @@ namespace Squirix.Transport.Grpc.Cache {
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
         [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
         public static pbr::MessageDescriptor Descriptor {
-          get { return global::Squirix.Transport.Grpc.Cache.BinaryCallError.Descriptor.NestedTypes[0]; }
+          get { return global::Squirix.Transport.Wire.Cache.BinaryCallError.Descriptor.NestedTypes[0]; }
         }
 
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -7968,7 +7968,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[27]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[27]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
@@ -8240,7 +8240,7 @@ namespace Squirix.Transport.Grpc.Cache {
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public static pbr::MessageDescriptor Descriptor {
-      get { return global::Squirix.Transport.Grpc.Cache.SquirixCacheReflection.Descriptor.MessageTypes[28]; }
+      get { return global::Squirix.Transport.Wire.Cache.SquirixCacheReflection.Descriptor.MessageTypes[28]; }
     }
 
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]

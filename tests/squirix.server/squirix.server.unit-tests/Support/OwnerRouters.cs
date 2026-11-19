@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Runtime.Invocation;

@@ -2,7 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

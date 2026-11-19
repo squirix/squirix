@@ -1,6 +1,6 @@
 using System;
 using BenchmarkDotNet.Attributes;
-using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 

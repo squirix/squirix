@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;

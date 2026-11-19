@@ -14,7 +14,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Mappers;
+using Squirix.Transport.Wire.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -357,8 +357,8 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     private static bool IsDefinitePreAppendRefusal(ServerCallException refused) => (refused.StatusCode, refused.Message) switch
     {
         (FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail) => true,
-        (FrameStatus.FailedPrecondition, GrpcStaleOwnerMarkers.StaleTermErrorCodeValue) => true,
-        (FrameStatus.FailedPrecondition, _) => string.Equals(refused.FindTrailer(GrpcStaleOwnerMarkers.ErrorCodeMetadataKey), "stale-owner", StringComparison.Ordinal),
+        (FrameStatus.FailedPrecondition, StaleOwnerMarkers.StaleTermErrorCodeValue) => true,
+        (FrameStatus.FailedPrecondition, _) => string.Equals(refused.FindTrailer(StaleOwnerMarkers.ErrorCodeMetadataKey), "stale-owner", StringComparison.Ordinal),
         _ => false,
     };
 

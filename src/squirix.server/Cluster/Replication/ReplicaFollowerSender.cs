@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Cluster.Replication;
 

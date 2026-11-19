@@ -1,6 +1,6 @@
 using System;
 using Squirix.Server.Storage.Replication;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Cluster.Replication;
 

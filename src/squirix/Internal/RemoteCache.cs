@@ -8,8 +8,8 @@ using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Internal;
 
@@ -186,7 +186,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                 var responseAsync = client.TouchAsync(touchAsyncRequest, in options);
                 return new ValueTask<TouchAsyncResponse>(responseAsync);
             },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: WireDuration.FromTimeSpan(expiration)),
+            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: ProtoDuration.FromTimeSpan(expiration)),
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -301,7 +301,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         internal void ApplyExpiration(CacheEntryWire entry, CacheEntryOptions? options)
         {
             if (ResolveExpiration(options) is { } expiration)
-                entry.Expiration = WireDuration.FromTimeSpan(expiration);
+                entry.Expiration = ProtoDuration.FromTimeSpan(expiration);
         }
 
         /// <summary>Returns the relative expiration to send for <paramref name="options" />, measured now on the client clock.</summary>
