@@ -2,12 +2,12 @@ using System;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -34,7 +34,7 @@ internal sealed class ReplicaReadIndexRound
     private readonly Lock _sync = new();
     private readonly ulong _term;
     private Round? _current;
-    private Func<RpcException>? _failure;
+    private Func<ServerCallException>? _failure;
     private TaskCompletionSource? _idle;
     private long _started;
 
@@ -61,7 +61,7 @@ internal sealed class ReplicaReadIndexRound
     /// <param name="heartbeat">Sends a heartbeat to every idle follower, and to a busy one once its sender ran out of entries; called unlocked.</param>
     /// <param name="cancellationToken">Cancellation token; it ends this wait only.</param>
     /// <returns>The read index: the commit index taken after this call started, confirmed by a majority in the leader term.</returns>
-    /// <exception cref="Grpc.Core.RpcException">
+    /// <exception cref="ServerCallException">
     /// A follower answered in a higher term (stale-term, FailedPrecondition), or the pipeline closed (the read quorum is unconfirmed,
     /// Unavailable).
     /// </exception>
@@ -158,7 +158,7 @@ internal sealed class ReplicaReadIndexRound
 
     /// <summary>Creates the refusal of one reader of a failed round.</summary>
     /// <returns>The refusal.</returns>
-    private RpcException Refusal()
+    private ServerCallException Refusal()
     {
         lock (_sync)
             return ThrowHelper.Required(_failure, "Only a failed round refuses its readers.")();
@@ -206,7 +206,7 @@ internal sealed class ReplicaReadIndexRound
 
     /// <summary>Fails the round in flight and every later one.</summary>
     /// <param name="failure">Creates the refusal of each reader, so no two readers share one exception.</param>
-    private void Fail(Func<RpcException> failure)
+    private void Fail(Func<ServerCallException> failure)
     {
         Round? current;
         TaskCompletionSource? idle;

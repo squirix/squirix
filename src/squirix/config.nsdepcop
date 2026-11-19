@@ -8,7 +8,7 @@
       → Squirix.Core (public helpers)
       → Squirix.Internal (remote cache, session factory)
         → Squirix.Internal.Cluster (gRPC client pool, call policy, bootstrap failover)
-      → Squirix.Transport.Grpc.* (shared generated transport CLR)
+      → Squirix.Transport.Wire.* (shared generated transport CLR)
 
   Public sub-namespace Core must remain usable without importing Internal.*.
   SquirixClient in root namespace Squirix is the deliberate façade that may
@@ -31,7 +31,7 @@
 
   <!-- ═══ Package boundary ═══ -->
 
-  <!-- Client code must not depend on server runtime namespaces (shared transport is Squirix.Transport.Grpc only). -->
+  <!-- Client code must not depend on server runtime namespaces (shared transport is Squirix.Transport.Wire only). -->
   <!-- The .NET 11 reference pack includes the caching abstractions, so enforce this boundary at the namespace level. -->
   <Disallowed From="Squirix.*" To="/^Microsoft\.Extensions\.Caching(?:\.|$)/" />
   <Disallowed From="Squirix.*" To="Squirix.Server.*" />

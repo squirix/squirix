@@ -28,8 +28,7 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
         ServerOpContract.JournalDiskQuota(),
         SquirixErrorCode.JournalDiskQuota,
         "JOURNAL_DISK_QUOTA",
-        JournalCapacityExceededException.StableDetail,
-        static () => new JournalCapacityExceededException().ToRpcException());
+        JournalCapacityExceededException.StableDetail);
 
     /// <summary>Verifies REST JSON matches canonical error shape for journal disk quota.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

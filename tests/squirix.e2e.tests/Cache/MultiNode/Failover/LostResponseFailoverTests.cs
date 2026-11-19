@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
@@ -77,7 +76,7 @@ public sealed class LostResponseFailoverTests
         entryProbes[entry].Lose(key, static () => Task.CompletedTask);
 
         await using var viaEntry = WireClient.Connect(cluster.GetUri(entry));
-        var lost = await NodeAsyncAssert.ThrowsAsync<RpcException>(viaEntry.SendAsync(mutation, CallDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var lost = await NodeAsyncAssert.ThrowsAsync<WireCallException>(viaEntry.SendAsync(mutation, CallDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var executions = (Owner: entryProbes[entry].OwnerExecutions(key), Forwards: entryProbes[entry].ForwardAttempts(key));
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
@@ -92,7 +91,7 @@ public sealed class LostResponseFailoverTests
         var report = await GroupLogAudit.RunAsync(cluster.Cluster, Group, survivors, FailoverSteps.Bound, cancellationToken);
 
         var dump = Eventually.Dump(attempts);
-        _ = await Assert.That(lost.StatusCode).IsEqualTo(StatusCode.Unavailable).Because($"the entry node must lose the response, got {lost.GetType().Name}: {lost.Message}");
+        _ = await Assert.That(lost.StatusCode).IsEqualTo(WireStatus.Unavailable).Because($"the entry node must lose the response, got {lost.GetType().Name}: {lost.Message}");
         _ = await Assert.That(executions).IsEqualTo((1, 1));
         _ = await Assert.That(retried).IsEqualTo(replayed).Because(dump);
         _ = await Assert.That(read).IsEqualTo(new CacheValueResult<string>(true, Second)).Because(dump);

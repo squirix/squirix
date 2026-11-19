@@ -10,7 +10,6 @@ internal static class TestHostLogging
 {
     private const string AspNetCoreCategory = "Microsoft.AspNetCore";
     private const string ExtensionsHostingCategory = "Microsoft.Extensions.Hosting";
-    private const string GrpcCategory = "Grpc";
     private const string HostingCategory = "Microsoft.Hosting";
     private const LogLevel FrameworkLevel = LogLevel.Warning;
     private const string KestrelBadRequestsCategory = "Microsoft.AspNetCore.Server.Kestrel.BadRequests";
@@ -36,7 +35,6 @@ internal static class TestHostLogging
         _ = builder.AddFilter(KestrelHttp2Category, FrameworkLevel);
         _ = builder.AddFilter(KestrelHttp3Category, FrameworkLevel);
         _ = builder.AddFilter(ExtensionsHostingCategory, FrameworkLevel);
-        _ = builder.AddFilter(GrpcCategory, FrameworkLevel);
         _ = builder.AddFilter(HostingCategory, FrameworkLevel);
         _ = builder.AddFilter(SquirixCategory, SquirixLevel);
         _ = builder.AddConsole();

@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -16,8 +15,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -40,8 +39,6 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class ServerHostingComposition
 {
-    private const string GrpcContentTypePrefix = "application/grpc";
-
     /// <summary>Configures the node web host builder from cluster topology and optional composition overrides.</summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -74,9 +71,7 @@ internal static class ServerHostingComposition
 
         await OpenStorageAsync(app.Services, cancellationToken).ConfigureAwait(false);
 
-        _ = app.UseWhen(
-            static context => !IsGrpcRequest(context),
-            static branch => branch.Use(static async (context, next) =>
+        _ = app.Use(static async (context, next) =>
             {
                 try
                 {
@@ -94,14 +89,14 @@ internal static class ServerHostingComposition
                 {
                     await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
                 }
-            }));
+            });
 
         if (!options.AuthEnabled)
-            return MapEndpoints(app, options.AuthEnabled);
+            return SquirixEndpointMapping.MapEndpoints(app, options.AuthEnabled);
         _ = app.UseAuthentication();
         _ = app.UseAuthorization();
 
-        return MapEndpoints(app, options.AuthEnabled);
+        return SquirixEndpointMapping.MapEndpoints(app, options.AuthEnabled);
     }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
@@ -313,7 +308,7 @@ internal static class ServerHostingComposition
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
         var authEnabled = builder.Services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
-        _ = builder.Services.AddSquirixFrameworkServices(builder.Environment.IsDevelopment(), args.ConfigureGrpc);
+        _ = builder.Services.AddSquirixFrameworkServices();
         args.ServicesConfigure?.Invoke(builder.Services);
         args.Extensions?.ConfigureServices?.Invoke(builder.Services);
         if (args.Extensions != null)
@@ -518,21 +513,10 @@ internal static class ServerHostingComposition
         return directoryLock;
     }
 
-    private static bool IsGrpcRequest(HttpContext context) => context.Request.ContentType?.StartsWith(GrpcContentTypePrefix, StringComparison.OrdinalIgnoreCase) == true;
-
     /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <returns><see langword="true" /> when an election driver leads every group; otherwise the owner leads its group statically.</returns>
     private static bool LeadsByElection(TopologyOptions cluster) => cluster is { AutomaticFailoverEnabled: true, ReplicaCount: >= 3 };
-
-    private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
-    {
-        _ = app.MapSquirixEndpoints();
-        var extensions = app.Services.GetService<ExtensionOptions>();
-        extensions?.MapEndpoints?.Invoke(app);
-        extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
-        return app;
-    }
 
     /// <summary>Locks the data directory, checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
     /// <param name="services">The built service provider.</param>

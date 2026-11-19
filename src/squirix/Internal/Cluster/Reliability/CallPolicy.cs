@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Transport;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Internal.Cluster.Reliability;
 

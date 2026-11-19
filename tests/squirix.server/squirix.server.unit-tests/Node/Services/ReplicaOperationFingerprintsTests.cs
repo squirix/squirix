@@ -7,7 +7,7 @@ using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -53,7 +53,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
             Oracle(ReplicaMutationKinds.TryAdd, entry.MapToProto().ToByteArray(), operationId, cacheName, key),
             ReplicaOperationFingerprints.AddIfAbsent(operationId, cacheName, key, entry));
         await SequenceAssert.EqualAsync(
-            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToGrpcValue<object?>(null).ToByteArray(), operationId, cacheName, key),
+            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToProto<object?>(null).ToByteArray(), operationId, cacheName, key),
             ReplicaOperationFingerprints.Update(operationId, cacheName, key, null));
         await SequenceAssert.EqualAsync(
             Oracle(ReplicaMutationKinds.Remove, [], operationId, cacheName, key),
@@ -90,7 +90,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.Set, bytes), set);
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.TryAdd, bytes), add);
         await SequenceAssert.EqualAsync(
-            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToGrpcValue(entry.Value).ToByteArray()),
+            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToProto(entry.Value).ToByteArray()),
             ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, entry.Value));
     }
 
@@ -115,7 +115,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     public async Task UpdateFingerprintMatchesSerializedBytes(int jsonLength)
     {
         object value = jsonLength == 0 ? 42L : JsonValueKit.Create(ArrayOfOnes(jsonLength));
-        var bytes = ServerProtoEx.CacheValueToGrpcValue(value).ToByteArray();
+        var bytes = ServerProtoEx.CacheValueToProto(value).ToByteArray();
 
         var fingerprint = ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, value);
 

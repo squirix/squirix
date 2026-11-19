@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -41,7 +42,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     }
 
     /// <inheritdoc />
-    /// <exception cref="Grpc.Core.RpcException">
+    /// <exception cref="ServerCallException">
     /// The entry expired and its tombstone could not commit: Unavailable, retryable. Under quorum reads, also the refusal of a read this
     /// node may not serve as the leader of the group, or whose read index no majority confirmed in time; nothing was read. Without them, a read
     /// of the group this node leads statically is refused (Unavailable) while its copy is not complete.
@@ -68,7 +69,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     }
 
     /// <inheritdoc />
-    /// <exception cref="Grpc.Core.RpcException">
+    /// <exception cref="ServerCallException">
     /// The entry expired and its tombstone could not commit: Unavailable, retryable. Also every refusal <see cref="GetEntryAsync" /> makes
     /// before it reads.
     /// </exception>
@@ -162,7 +163,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <param name="key">Target key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The live entry, or none with whether the stored entry is past its deadline on the leader clock.</returns>
-    /// <exception cref="Grpc.Core.RpcException">Every refusal <see cref="GetEntryAsync" /> makes before it reads: nothing was read.</exception>
+    /// <exception cref="ServerCallException">Every refusal <see cref="GetEntryAsync" /> makes before it reads: nothing was read.</exception>
     /// <remarks>
     /// Never commits a tombstone, as <see cref="PeekEntryAsync" />. One read and one clock reading decide all three states, so memory
     /// admission hands the write of an expired key to the committer, which folds the expiry into its record, instead of answering absent.
@@ -199,7 +200,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <param name="key">Target key.</param>
     /// <param name="cancellationToken">Cancellation token for this read.</param>
     /// <returns><see langword="null" /> once the tombstone is committed; the entry when the leader finds it live and its deadline has not passed since.</returns>
-    /// <exception cref="Grpc.Core.RpcException">The tombstone could not commit: Unavailable with the expiration-pending detail.</exception>
+    /// <exception cref="ServerCallException">The tombstone could not commit: Unavailable with the expiration-pending detail.</exception>
     private async Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         NodeCacheEntry<object?>? entry;

@@ -5,14 +5,14 @@ using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport;
 
 namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>
-/// Retries an SDK call while the cluster is recovering: a call that fails with <see cref="StatusCode.Unavailable" /> or
-/// <see cref="StatusCode.DeadlineExceeded" /> is tried again until it succeeds or the bound is spent; every attempt is recorded.
+/// Retries an SDK call while the cluster is recovering: a call that fails with <see cref="CacheTransportStatusCode.Unavailable" /> or
+/// <see cref="CacheTransportStatusCode.DeadlineExceeded" /> is tried again until it succeeds or the bound is spent; every attempt is recorded.
 /// </summary>
 /// <remarks>Any other failure ends the retry at once and is rethrown, so a wrong answer is never retried away.</remarks>
 internal static class Eventually
@@ -123,8 +123,8 @@ internal static class Eventually
         new(string.Create(CultureInfo.InvariantCulture, $"No attempt succeeded within {bound.TotalSeconds:F1} s:{Environment.NewLine}{Dump(attempts)}"), last);
 
     private static bool IsTransient(Exception exception) => exception is
-        RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } or
+        WireCallException { StatusCode: WireStatus.Unavailable or WireStatus.DeadlineExceeded } or
         SquirixTransportException { StatusCode: CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded };
 
-    private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode}" : exception.GetType().Name;
+    private static string Describe(Exception exception) => exception is WireCallException rpc ? $"{nameof(WireCallException)} {rpc.StatusCode}" : exception.GetType().Name;
 }

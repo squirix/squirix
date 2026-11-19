@@ -6,7 +6,7 @@ using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
 using Squirix.Transport;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

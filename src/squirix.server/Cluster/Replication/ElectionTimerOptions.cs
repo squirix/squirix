@@ -2,7 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Squirix.Server.Attributes;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Cluster.Replication;
 

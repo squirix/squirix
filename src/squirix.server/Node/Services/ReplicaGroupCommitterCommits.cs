@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -37,7 +37,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns>The decoded outcome of the committed write.</returns>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
-        /// <exception cref="Grpc.Core.RpcException">
+        /// <exception cref="ServerCallException">
         /// The write was refused before anything of it was scheduled: no leader (shutdown, or a retired leadership), no verified majority, or a stale term; nothing was written.
         /// </exception>
         /// <remarks>
@@ -74,7 +74,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <see cref="ReplicaExpiryStatus.Failed" /> with the client failure; the other keys keep their decided result.
         /// </returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="keys" /> holds more than <see cref="MaxExpiriesPerCommit" /> keys.</exception>
-        /// <exception cref="Grpc.Core.RpcException">The batch was refused before any key was decided: no leader or a stale term.</exception>
+        /// <exception cref="ServerCallException">The batch was refused before any key was decided: no leader or a stale term.</exception>
         /// <remarks>
         /// Each key is read again under the gate, so a key rewritten or touched after the scan of the caller is returned live and gets no tombstone,
         /// and the tombstones take consecutive log indexes. They are committed with one append and one majority; a failure of that run is the same
@@ -108,7 +108,7 @@ internal static class ReplicaGroupCommitterCommits
                     var run = batch.Run;
                     _ = await committer.CommitWithPreAppendResyncAsync(coordinator, run[0], run.Count > 1 ? [.. run] : null).ConfigureAwait(false);
                 }
-                catch (Exception error) when (error is SquirixException or RpcException or ServerOpIdMismatchException)
+                catch (Exception error) when (error is SquirixException or ServerCallException or ServerOpIdMismatchException)
                 {
                     batch.FailRun(error);
                 }
@@ -139,7 +139,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns>The committed outcome payload; of the last entry of a run.</returns>
         /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
-        /// <exception cref="Grpc.Core.RpcException">The log refused the local append with a stale term: stale-term, nothing was written.</exception>
+        /// <exception cref="ServerCallException">The log refused the local append with a stale term: stale-term, nothing was written.</exception>
         /// <remarks>
         /// Runs under the commit gate. A top-level <see cref="ReplicaShutdownRefusedException" /> that finds no entry of the write in the log was raised before
         /// any entry of it was scheduled, so it is answered as no leader; an inner exception or a plain disposal is never mapped. A failure of a run

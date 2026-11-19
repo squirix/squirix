@@ -1,6 +1,6 @@
 using System;
-using Grpc.Core;
 using Squirix.Server.Errors;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster;
 
@@ -33,7 +33,7 @@ internal static class LeaderRefusal
     /// the authority of <paramref name="view" /> unusable (another leadership holds the commit gate) passes <see cref="LeaderRefusalKind.None" />.
     /// </returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="kind" /> is not a named value.</exception>
-    internal static RpcException Create(LeaderRefusalKind kind, in GroupLeaderView view, string self, bool leaderHint) => kind switch
+    internal static ServerCallException Create(LeaderRefusalKind kind, in GroupLeaderView view, string self, bool leaderHint) => kind switch
     {
         LeaderRefusalKind.StaleTerm => StaleTermFailure.Create(leaderHint ? view.Known.NodeId : null, view.Known.Term),
         LeaderRefusalKind.StaleOwner => leaderHint ? StaleOwnerFailure.Create(view.Known.NodeId, self, view.Known.Term) : StaleOwnerFailure.Create(view.Known.NodeId, self),

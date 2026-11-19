@@ -4,9 +4,9 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -148,9 +148,9 @@ internal sealed class ReplicaGroupBootstrap
         {
             return new ReplicaBootstrapOutcome(ReplicaBootstrapResult.WaitingForMember, nodeId);
         }
-        catch (Exception exception) when (exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
+        catch (Exception exception) when (exception is ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
         {
-            // A call the stopping token canceled can surface as an RpcException: it ends the iteration like any other cancellation.
+            // A call the stopping token canceled can surface as an ServerCallException: it ends the iteration like any other cancellation.
             cancellationToken.ThrowIfCancellationRequested();
 
             // A member that is down or slow is not a fault of the owner: the start waits for it.
@@ -185,9 +185,9 @@ internal sealed class ReplicaGroupBootstrap
         {
             return new ReplicaBootstrapOutcome(ReplicaBootstrapResult.OfferRefused, nodeId, null, NoAnswer);
         }
-        catch (Exception exception) when (exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
+        catch (Exception exception) when (exception is ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
         {
-            // A call the stopping token canceled can surface as an RpcException: it ends the iteration like any other cancellation.
+            // A call the stopping token canceled can surface as an ServerCallException: it ends the iteration like any other cancellation.
             cancellationToken.ThrowIfCancellationRequested();
 
             // An offer that did not arrive is not accepted; one that did is harmless and repeated by the next iteration.

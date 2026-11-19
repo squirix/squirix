@@ -1,9 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Threading;
-using Grpc.Net.Client;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -56,17 +54,20 @@ internal sealed class PeerChannels
     /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
-    private PeerChannels(GrpcChannel forward, GrpcChannel lease)
+    private PeerChannels(HttpClient forward, HttpClient replication)
     {
         Forward = forward;
-        Lease = lease;
+        Replication = new PeerClient(replication, null);
+        Lease = replication;
     }
 
     /// <summary>Gets the channel of client calls forwarded to the peer.</summary>
-    internal GrpcChannel Forward { get; }
+    internal HttpClient Forward { get; }
+
+    internal IPeerClient Replication { get; }
 
     /// <summary>Gets the channel of every other internode call: replication, elections and probes.</summary>
-    internal GrpcChannel Lease { get; }
+    private HttpClient Lease { get; }
 
     /// <summary>Creates both channels of a peer; when the second fails, the first is disposed before the failure propagates.</summary>
     /// <param name="nodeId">The peer node identifier.</param>
@@ -84,17 +85,21 @@ internal sealed class PeerChannels
         TrackedConnections connections,
         TimeSpan forwardConnectTimeout)
     {
-        GrpcChannel? forward = null;
+        HttpClient? forward = null;
+        HttpClient? replication = null;
         try
         {
-            forward = GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, verifier, connections, forwardConnectTimeout));
-            var created = new PeerChannels(forward, GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, verifier, connections, null)));
+            forward = CreateClient(address, nodeId, args, verifier, connections, forwardConnectTimeout);
+            replication = CreateClient(address, nodeId, args, verifier, connections, null);
+            var created = new PeerChannels(forward, replication);
             forward = null;
+            replication = null;
             return created;
         }
         finally
         {
             forward?.Dispose();
+            replication?.Dispose();
         }
     }
 
@@ -138,7 +143,8 @@ internal sealed class PeerChannels
         socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
     }
 
-    private static GrpcChannelOptions CreateChannelOptions(
+    private static HttpClient CreateClient(
+        Uri address,
         string nodeId,
         ServerClientPoolArgs args,
         PeerHandshakeVerifier? verifier,
@@ -146,7 +152,7 @@ internal sealed class PeerChannels
         TimeSpan? dialTimeout)
     {
         var factory = args.OwnedHandlerFactory ?? ((certificate, expectedPeerNodeId, tracked) =>
-            ServerClientPool.ServerGrpcEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
+            ServerClientPool.PeerEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
         HttpMessageHandler? ownedHandler = null;
         try
         {
@@ -175,18 +181,9 @@ internal sealed class PeerChannels
             }
 
             BoundConnect(peerHandler, ownedHandler != null, dialTimeout, args.TimeProvider);
-            var options = new GrpcChannelOptions
-            {
-                HttpHandler = peerHandler,
-
-                // The channel disposes the handler the pool created; a peerHandlerFactory handler stays owned by the factory's
-                // caller. The certificates an owned handler presents stay loaded through the pool's material hold until its connections are gone.
-                DisposeHttpClient = ownedHandler != null,
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            };
+            var client = new HttpClient(peerHandler, ownedHandler != null) { BaseAddress = address, Timeout = Timeout.InfiniteTimeSpan };
             ownedHandler = null;
-            return options;
+            return client;
         }
         finally
         {

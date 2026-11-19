@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
@@ -14,6 +13,7 @@ using Squirix.Server.Node.App;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -115,8 +115,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         var replayed = journal.Recover(string.Empty, 0, cancellationToken);
 
         _ = await Assert.That(putError).IsTypeOf<SquirixException>().Because(putError.ToString());
-        _ = await Assert.That(transport?.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(transport?.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(transport?.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(transport?.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(log.Cause(CommitUnknownEventId)).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(memory.Snapshot).IsEmpty();
@@ -155,7 +155,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         var cause = log.Cause(CommitUnknownEventId);
 
         _ = await Assert.That(error).IsTypeOf<SquirixException>().Because(error.ToString());
-        _ = await Assert.That(ToTransport(error)?.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(ToTransport(error)?.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(ReferenceEquals(cause, reason) || ReferenceEquals(cause?.InnerException, reason)).IsTrue().Because(cause?.ToString() ?? "no cause logged");
         _ = await Assert.That(memory.Snapshot).IsEmpty();
@@ -459,7 +459,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     /// <summary>Maps a caller-visible failure to the gRPC status the transport boundary sends, or <see langword="null" /> when it is no stable contract.</summary>
     /// <param name="error">Failure the caller observed.</param>
     /// <returns>The mapped RPC failure.</returns>
-    private static RpcException? ToTransport(Exception error) => error is SquirixException contract ? contract.ToRpcException() : null;
+    private static ServerCallException? ToTransport(Exception error) => error is SquirixException contract ? contract.ToServerCallException() : null;
 
     /// <summary>Logger double recording the level and the faulted in-flight waiter count of each journal shutdown event.</summary>
     [ThreadSafe]

@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Internal;
 

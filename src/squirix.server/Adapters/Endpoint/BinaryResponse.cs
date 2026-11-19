@@ -1,7 +1,7 @@
 using Google.Protobuf;
 using Squirix.Server.Errors;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Adapters.Endpoint;
 

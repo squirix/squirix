@@ -4,9 +4,9 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -130,7 +130,7 @@ internal sealed class ReplicaVoteRound
         {
             return null;
         }
-        catch (Exception exception) when (exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
+        catch (Exception exception) when (exception is ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
         {
             return null;
         }

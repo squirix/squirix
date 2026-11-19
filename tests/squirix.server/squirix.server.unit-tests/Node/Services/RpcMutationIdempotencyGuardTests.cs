@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -18,7 +17,8 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -80,7 +80,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             TimeProvider.System,
             cancellationToken);
         _ = await Assert.That(attempts.Value).IsEqualTo(1);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
                 static _ => "fingerprint",
@@ -94,8 +94,8 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
         _ = await Assert.That(attempts.Value).IsEqualTo(1);
     }
 

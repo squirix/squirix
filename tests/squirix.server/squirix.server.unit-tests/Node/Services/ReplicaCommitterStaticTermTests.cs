@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
@@ -11,6 +10,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -63,8 +63,8 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+            var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         }
 
         var status = await StatusAsync(registry, cancellationToken);
@@ -146,11 +146,11 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
         await RaiseTermAsync(registry, 2, cancellationToken);
         var sent = gateway.Appends.Count;
 
-        var stale = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var restarted = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var stale = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var restarted = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((stale.StatusCode, stale.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
-        _ = await Assert.That((restarted.StatusCode, restarted.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((stale.StatusCode, stale.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "stale-term"));
+        _ = await Assert.That((restarted.StatusCode, restarted.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         var status = await StatusAsync(registry, cancellationToken);
         _ = await Assert.That((status.CurrentTerm, status.LastLogIndex, status.CommitIndex)).IsEqualTo((2UL, 1UL, 1UL));
         _ = await Assert.That(gateway.Appends.Count).IsEqualTo(sent);

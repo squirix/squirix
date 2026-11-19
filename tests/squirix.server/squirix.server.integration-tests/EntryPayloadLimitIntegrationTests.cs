@@ -1,13 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -30,9 +31,9 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
         var value = EntryLimitKit.CreateStringOverEntryLimit();
 
         using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            clientA.TryAddEntryAsync(
+        var clientA = new CacheWireClient(channelA);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            clientA.AddEntryIfAbsentAsync(
                 new TryAddEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
@@ -40,15 +41,15 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync,
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
 
         using var channelB = CreateBinaryChannel(cluster["node-b"].Uri);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var clientB = new CacheWireClient(channelB);
         var getResponse = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsFalse();
     }
@@ -63,7 +64,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit-update");
 
         using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var clientA = new CacheWireClient(channelA);
 
         _ = await clientA.SetEntryAsync(
             new SetEntryAsyncRequest
@@ -76,7 +77,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
             cancellationToken: cancellationToken);
 
         var value = EntryLimitKit.CreateStringOverEntryLimit();
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             clientA.UpdateAsync(
                 new UpdateAsyncRequest
                 {
@@ -85,12 +86,12 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync,
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
 
         var getResponse = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsTrue();
@@ -105,10 +106,10 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
         using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var value = EntryLimitKit.CreateStringOverEntryLimit();
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
@@ -117,13 +118,13 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = "grpc-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync,
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(ex.Status.Detail).Contains("4194304", StringComparison.Ordinal);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(ex.Message).Contains("4194304", StringComparison.Ordinal);
 
         var getResponse = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsFalse();
@@ -137,7 +138,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
         using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
 
         _ = await client.SetEntryAsync(
             new SetEntryAsyncRequest
@@ -150,7 +151,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
             cancellationToken: cancellationToken);
 
         var value = EntryLimitKit.CreateStringOverEntryLimit();
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             client.UpdateAsync(
                 new UpdateAsyncRequest
                 {
@@ -159,13 +160,13 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = "grpc-update-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync,
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(ex.Status.Detail).Contains("4194304", StringComparison.Ordinal);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(ex.Message).Contains("4194304", StringComparison.Ordinal);
 
         var getResponse = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-update-over-limit" }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsTrue();

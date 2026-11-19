@@ -2,13 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -75,7 +75,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             // Started with no execution to join (rebuilt from the journal, or stamped and then failed), or an unknown value: the
             // outcome is unknown to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
             if (reservation != IdempotencyReserveResult.AlreadyStarted || inFlight == null)
-                throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
+                throw ServerOpContract.CommitOutcomeUnknown().ToServerCallException();
 
             // Execution is in flight in this process: wait for it under this caller's own deadline. The completion never
             // faults; it only signals that the record is settled.
@@ -147,7 +147,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             // The outcome frame is on the ring after the mutation frame, so the Started record and its held outcome survive and the first caller
             // gets the same unknown outcome a retry gets; a retry replays the outcome once it is recorded, never re-executes.
             ServerLog.DurableMutationOutcomeUnknown(_logger, ex);
-            throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
+            throw ServerOpContract.CommitOutcomeUnknown().ToServerCallException();
         }
         catch
         {
@@ -196,7 +196,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     /// <param name="execution">The completion the reservation was acquired with.</param>
     /// <param name="cancellationToken">Caller cancellation token; honored only before stamping.</param>
     /// <returns>The recorded response bytes.</returns>
-    /// <exception cref="RpcException">A stamped mutation whose outcome could not be recorded: COMMIT_OUTCOME_UNKNOWN.</exception>
+    /// <exception cref="ServerCallException">A stamped mutation whose outcome could not be recorded: COMMIT_OUTCOME_UNKNOWN.</exception>
     private async Task<byte[]> RecordOutcomeDurablyAsync<TResponse>(
         IJournalCoordinator journal,
         RpcMutationIdempotencyExecutionScope scope,
@@ -218,7 +218,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             // The stamped mutation frame may be durable while its outcome is not (shutdown, the failure latch, a rejected outcome
             // frame), so the first caller gets the same unknown outcome a retry gets, never a definite failure.
             ServerLog.DurableMutationOutcomeUnknown(_logger, ex);
-            throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
+            throw ServerOpContract.CommitOutcomeUnknown().ToServerCallException();
         }
     }
 

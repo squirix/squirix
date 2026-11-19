@@ -4,17 +4,18 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -77,11 +78,11 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         };
 
         using var channelA = CreateBinaryChannel(UriA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var clientA = new CacheWireClient(channelA);
         _ = await clientA.SetEntryAsync(request, cancellationToken: cancellationToken);
 
         using var channelB = CreateBinaryChannel(UriB);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var clientB = new CacheWireClient(channelB);
         _ = await clientB.SetEntryAsync(request, cancellationToken: cancellationToken);
 
         var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
@@ -104,13 +105,13 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         };
 
         using var channelA = CreateBinaryChannel(UriA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        var first = await clientA.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var clientA = new CacheWireClient(channelA);
+        var first = await clientA.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(first.Added).IsTrue();
 
         using var channelB = CreateBinaryChannel(UriB);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
-        var second = await clientB.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var clientB = new CacheWireClient(channelB);
+        var second = await clientB.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
 
         _ = await Assert.That(second.Added).IsTrue();
 
@@ -128,7 +129,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         var keyB = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-b");
 
         using var channelA = CreateBinaryChannel(UriA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var clientA = new CacheWireClient(channelA);
 
         var r1 = new TryAddEntryAsyncRequest
         {
@@ -137,7 +138,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
             Key = keyA,
             Entry = new NodeCacheEntry<object?> { Value = "a", Version = 1 }.MapToProto(),
         };
-        _ = await clientA.TryAddEntryAsync(r1, cancellationToken: cancellationToken);
+        _ = await clientA.AddEntryIfAbsentAsync(r1, cancellationToken: cancellationToken);
 
         var r2 = new TryAddEntryAsyncRequest
         {
@@ -146,10 +147,10 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
             Key = keyB,
             Entry = new NodeCacheEntry<object?> { Value = "b", Version = 1 }.MapToProto(),
         };
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(clientA.TryAddEntryAsync(r2, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(clientA.AddEntryIfAbsentAsync(r2, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(ex.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
     }
 
     /// <summary>Every mutation sent to the key owner first and replayed through the other node answers identically and takes effect once.</summary>
@@ -185,9 +186,9 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
     {
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-reads");
         using var channelA = CreateBinaryChannel(UriA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var clientA = new CacheWireClient(channelA);
         using var channelB = CreateBinaryChannel(UriB);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var clientB = new CacheWireClient(channelB);
         _ = await clientB.SetEntryAsync(CreateSet(key, "owner-value", TimeSpan.FromHours(1)), cancellationToken: cancellationToken);
 
         var value = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
@@ -221,7 +222,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         return false;
     }
 
-    private static async Task<ByteString> SendAsync(ForwardedMutation mutation, SquirixCacheService.SquirixCacheServiceClient client, string key, string operationId, CancellationToken cancellationToken)
+    private static async Task<ByteString> SendAsync(ForwardedMutation mutation, CacheWireClient client, string key, string operationId, CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<object?> { Value = "mutated", Version = 1 }.MapToProto();
         return mutation switch
@@ -237,7 +238,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
             ForwardedMutation.Touch => (await client.TouchAsync(
                 new TouchAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Expiration = Google.Protobuf.WellKnownTypes.Duration.FromTimeSpan(TimeSpan.FromHours(2)) },
                 cancellationToken: cancellationToken)).ToByteString(),
-            ForwardedMutation.TryAddEntry => (await client.TryAddEntryAsync(
+            ForwardedMutation.TryAddEntry => (await client.AddEntryIfAbsentAsync(
                 new TryAddEntryAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Entry = entry },
                 cancellationToken: cancellationToken)).ToByteString(),
             ForwardedMutation.Update => (await client.UpdateAsync(new UpdateAsyncRequest { OperationId = operationId, CacheName = "default", Key = key, Entry = entry }, cancellationToken: cancellationToken))
@@ -250,9 +251,9 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
     {
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", $"replay-once-{mutation}-{nonOwnerFirst}");
         using var channelA = CreateBinaryChannel(UriA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var clientA = new CacheWireClient(channelA);
         using var channelB = CreateBinaryChannel(UriB);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var clientB = new CacheWireClient(channelB);
         var first = nonOwnerFirst ? clientA : clientB;
         var second = nonOwnerFirst ? clientB : clientA;
         var addsTheKey = mutation is ForwardedMutation.GetOrAdd or ForwardedMutation.TryAddEntry;

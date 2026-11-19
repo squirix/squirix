@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -29,7 +29,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -68,7 +68,7 @@ internal sealed class FusedWriteHarness
     }
 
     /// <summary>Gets the adapter whose handlers run under the coordinator.</summary>
-    internal SquirixServiceAdapter<object?> Adapter { get; }
+    internal RoutedCacheOperations<object?> Adapter { get; }
 
     /// <summary>Gets the journal decorator the handlers write through.</summary>
     internal JournalLoggingCacheDecorator<object?> Cache { get; }
@@ -211,7 +211,7 @@ internal sealed class FusedWriteHarness
         Expiration = ttl is { } span ? Duration.FromTimeSpan(span) : null,
     };
 
-    private SquirixServiceAdapter<object?> CreateAdapter(ILogicalNamespacedCache<object?> api)
+    private RoutedCacheOperations<object?> CreateAdapter(ILogicalNamespacedCache<object?> api)
     {
         var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
         _ = operations.Setups.ForCache(CacheName).ReturnValue(new RoutedCacheApi<object?>(api, CacheName));
@@ -222,7 +222,7 @@ internal sealed class FusedWriteHarness
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
-        return new SquirixServiceAdapter<object?>(new RoutedCacheOperations<object?>(
+        return new RoutedCacheOperations<object?>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(
@@ -231,7 +231,7 @@ internal sealed class FusedWriteHarness
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
             Coordinator,
-            Clock));
+            Clock);
     }
 
     /// <summary>A journal frame as the segments hold it.</summary>

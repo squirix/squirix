@@ -1,6 +1,6 @@
 using System;
-using Grpc.Core;
 using Squirix.Server.Attributes;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Core;
 
@@ -38,7 +38,7 @@ internal sealed class DistributedCacheWrite
     /// <typeparam name="T">The server cache value type.</typeparam>
     /// <param name="now">The owner clock at preparation.</param>
     /// <returns>The entry ready for storage.</returns>
-    /// <exception cref="RpcException">The requested deadline cannot be represented.</exception>
+    /// <exception cref="ServerCallException">The requested deadline cannot be represented.</exception>
     internal NodeCacheEntry<T> Materialize<T>(DateTime now)
     {
         var policy = _policy;
@@ -67,11 +67,11 @@ internal sealed class DistributedCacheWrite
             return new NodeCacheEntry<T>(value, expiresUtc: deadline);
         var earliest = DateTime.MinValue.AddMilliseconds(1);
         if (now < earliest)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "The distributed cache deadline cannot be represented."));
+            throw new ServerCallException(FrameStatus.InvalidArgument, "The distributed cache deadline cannot be represented.");
 
         deadline = DateTime.SpecifyKind(earliest, DateTimeKind.Utc);
         return new NodeCacheEntry<T>(value, expiresUtc: deadline);
     }
 
-    private static RpcException InvalidPolicy() => new(new Status(StatusCode.InvalidArgument, "The distributed cache policy cannot be materialized."));
+    private static ServerCallException InvalidPolicy() => new(FrameStatus.InvalidArgument, "The distributed cache policy cannot be materialized.");
 }

@@ -4,7 +4,6 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
@@ -16,7 +15,8 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -174,14 +174,14 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 
         var original = target.PutAsync(Fingerprint, cancellationToken);
         string crashImage;
-        RpcException retryError;
+        ServerCallException retryError;
         try
         {
             await journal.Writer.AfterWrite.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original, StallTimeout, TimeProvider.System, cancellationToken);
             crashImage = journal.ReadStampedPuts(cancellationToken);
-            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+            retryError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -189,8 +189,8 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(crashImage).IsEqualTo(StallableJournal.Describe([$"{KeyA}#{OperationId}", KeyW]));
-        _ = await Assert.That(retryError.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(retryError.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Message)).IsTrue();
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 
@@ -214,20 +214,20 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         journal.Writer.Flush.ArmAfter(1);
 
         var original = target.PutAsync(Fingerprint, cancellationToken);
-        RpcException retryError;
+        ServerCallException retryError;
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(original, StallTimeout, TimeProvider.System, cancellationToken);
-            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(original, StallTimeout, TimeProvider.System, cancellationToken);
+            retryError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
             await journal.ReclaimLeakedAsync(StallTimeout);
         }
 
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Message)).IsTrue();
         _ = await Assert.That(target.Memory.Snapshot).IsEqualTo(KeyA);
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
@@ -251,13 +251,13 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 
         var original = target.PutAsync(Fingerprint, cancellationToken);
         SquirixException originalError;
-        RpcException retryError;
+        ServerCallException retryError;
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
             originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original, StallTimeout, TimeProvider.System, cancellationToken);
-            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+            retryError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -271,7 +271,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         _ = await Assert.That(target.Memory.Snapshot).IsEmpty();
         _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(logged?.Cause).IsTypeOf<ObjectDisposedException>();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Message)).IsTrue();
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 
@@ -314,10 +314,10 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         store.RestoreStarted(OperationId, withFingerprint ? Fingerprint : null, DateTime.UtcNow);
         var target = new PutTarget(journal.Journal, store);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
         _ = await Assert.That(target.Executions).IsEqualTo(0);
     }
 

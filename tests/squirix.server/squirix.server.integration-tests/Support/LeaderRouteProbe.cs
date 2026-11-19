@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -189,7 +189,7 @@ internal sealed class LeaderRouteProbe
 
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
-        public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => new RecordingClient(_inner.ForNode(nodeId), nodeId, this);
+        public IPeerClient ForNode(string nodeId) => new RecordingClient(_inner.ForNode(nodeId), nodeId, this);
 
         public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken) => _inner.LeaseChannel(nodeId, cancellationToken);
 
@@ -200,25 +200,25 @@ internal sealed class LeaderRouteProbe
 
     /// <summary>A peer client that records the forwarded writes and passes reads through unrecorded.</summary>
     [Immutable]
-    private sealed class RecordingClient : SquirixCacheService.SquirixCacheServiceClient
+    private sealed class RecordingClient : IPeerClient
     {
-        private readonly SquirixCacheService.SquirixCacheServiceClient _inner;
+        private readonly IPeerClient _inner;
         private readonly RecordingPool _pool;
         private readonly string _target;
 
-        internal RecordingClient(SquirixCacheService.SquirixCacheServiceClient inner, string target, RecordingPool pool)
+        internal RecordingClient(IPeerClient inner, string target, RecordingPool pool)
         {
             _inner = inner;
             _target = target;
             _pool = pool;
         }
 
-        public override AsyncUnaryCall<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CallOptions options) => _inner.GetValueAsync(request, options);
-
-        public override AsyncUnaryCall<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CallOptions options)
+        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+            where T : IMessage<T>
         {
-            _pool.Record(_target, request.OperationId);
-            return _inner.SetEntryAsync(request, options);
+            if (request is SetEntryAsyncRequest set)
+                _pool.Record(_target, set.OperationId);
+            return _inner.SendAsync(path, request, parser, cancellationToken);
         }
     }
 }

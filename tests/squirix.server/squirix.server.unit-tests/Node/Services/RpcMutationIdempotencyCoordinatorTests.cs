@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -14,7 +13,8 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -213,20 +213,20 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     [Test]
     public async Task RequireOperationIdRejectsEmptyValue()
     {
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(string.Empty, static value => _ = RpcMutationContracts.RequireOperationId(value));
+        var ex = NodeExceptionAssert.For<ServerCallException>().Throws(string.Empty, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdRequiredDetail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(ex.Message).IsEqualTo(RpcMutationContracts.OperationIdRequiredDetail);
     }
 
     /// <summary>Ensures malformed operation ids are rejected with the stable format contract.</summary>
     [Test]
     public async Task RequireOperationIdRejectsInvalidFormat()
     {
-        var ex = NodeExceptionAssert.For<RpcException>().Throws("not-a-valid-operation-id", static value => _ = RpcMutationContracts.RequireOperationId(value));
+        var ex = NodeExceptionAssert.For<ServerCallException>().Throws("not-a-valid-operation-id", static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(ex.Message).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
     }
 
     /// <summary>Ensures over-length operation ids are rejected before format validation.</summary>
@@ -234,10 +234,10 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public async Task RequireOperationIdRejectsTooLongValue()
     {
         var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(tooLong, static value => _ = RpcMutationContracts.RequireOperationId(value));
+        var ex = NodeExceptionAssert.For<ServerCallException>().Throws(tooLong, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdTooLongDetail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(ex.Message).IsEqualTo(RpcMutationContracts.OperationIdTooLongDetail);
     }
 
     /// <summary>Ensures uppercase hex operation ids are rejected.</summary>
@@ -245,10 +245,10 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public async Task RequireOperationIdRejectsUppercaseHex()
     {
         var uppercase = ValidOperationId.ToUpperInvariant();
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(uppercase, static value => _ = RpcMutationContracts.RequireOperationId(value));
+        var ex = NodeExceptionAssert.For<ServerCallException>().Throws(uppercase, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(ex.Message).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
     }
 
     /// <summary>Ensures RestoreRecord honors CreatedUtc for retention sweeps after recovery replay.</summary>

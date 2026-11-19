@@ -1,6 +1,5 @@
 using System;
 using System.Net.Http;
-using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -17,11 +16,9 @@ internal sealed class CompositionArgs
 
     internal MtlsCertificate? Certificate { get; set; }
 
-    internal Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
-
     internal ExtensionOptions? Extensions { get; set; }
 
-    /// <summary>Gets or sets a value indicating whether the closed replication gRPC service is mapped for foundation tests.</summary>
+    /// <summary>Gets or sets a value indicating whether the closed replication peer service is mapped for foundation tests.</summary>
     internal bool FoundationOnly { get; set; }
 
     internal PressureOptions? MemoryPressureOptions { get; set; }

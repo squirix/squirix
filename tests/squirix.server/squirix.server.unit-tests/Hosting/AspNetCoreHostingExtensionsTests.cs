@@ -15,7 +15,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -73,7 +73,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             await app.StartAsync(cancellationToken);
 
             using var channel = new PublicBinaryChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var client = new CacheWireClient(channel);
             var request = new GetValueAsyncRequest { CacheName = "default", Key = "hosting-probe" };
             var reply = await client.GetValueAsync(request, cancellationToken: cancellationToken);
             _ = await Assert.That(reply.Found).IsFalse();

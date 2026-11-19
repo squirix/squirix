@@ -7,13 +7,11 @@ using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -41,7 +39,7 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>The longest finite timeout <see cref="Task.WaitAsync(TimeSpan, TimeProvider)" /> accepts.</summary>
     private static readonly TimeSpan MaxShutdownBudget = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
-    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, IPeerClient> _cacheClients = new(StringComparer.Ordinal);
 
     /// <summary>In-flight calls that lease a channel outside the peer policies; drained before the channels are disposed.</summary>
     private readonly QuiescenceGate _calls = new();
@@ -111,21 +109,21 @@ internal sealed class ServerClientPool : IServerClientPool
             _closing.Dispose();
     }
 
-    public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
+    public IPeerClient ForNode(string nodeId) => _cacheClients[nodeId];
 
     public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken)
     {
-        var channel = _channels[nodeId].Lease;
+        var channels = _channels[nodeId];
         if (!_calls.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and leases no channel.");
 
         try
         {
             if (!cancellationToken.CanBeCanceled)
-                return new ServerChannelLease(channel, null, _calls, _closing.Token);
+                return new ServerChannelLease(channels.Replication, null, _calls, _closing.Token);
 
             var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _closing.Token);
-            return new ServerChannelLease(channel, linked, _calls, linked.Token);
+            return new ServerChannelLease(channels.Replication, linked, _calls, linked.Token);
         }
         catch
         {
@@ -297,14 +295,8 @@ internal sealed class ServerClientPool : IServerClientPool
         var mtlsOptions = args.MtlsOptions ?? new MtlsOptions();
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
         var channels = PeerChannels.Create(peer.NodeId, address, args, _peerVerifier, _connections, _forwardConnectTimeout);
-        var invoker = channels.Forward.CreateCallInvoker();
-        if (args.InternalOwnerInterceptor != null)
-            invoker = invoker.Intercept(args.InternalOwnerInterceptor);
-        if (args.Interceptor != null)
-            invoker = invoker.Intercept(args.Interceptor);
-
         _channels[peer.NodeId] = channels;
-        _cacheClients[peer.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
+        _cacheClients[peer.NodeId] = new PeerClient(channels.Forward, args.RingFingerprint);
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);
     }
 
@@ -357,7 +349,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
     /// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
     /// <remarks>The pool sets the connect timeout of every handler created here, so a peer that accepts but never answers cannot hold a connection open.</remarks>
-    internal static class ServerGrpcEndpoints
+    internal static class PeerEndpoints
     {
         private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 
@@ -388,6 +380,7 @@ internal sealed class ServerClientPool : IServerClientPool
             var clientCertificateContext = OperatingSystem.IsWindows() ? null : SslStreamCertificateContext.Create(clientCertificate, null, true);
             return new SocketsHttpHandler
             {
+                AllowAutoRedirect = false,
                 UseProxy = false,
                 EnableMultipleHttp2Connections = true,
                 ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),

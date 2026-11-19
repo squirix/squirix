@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -88,7 +87,7 @@ public sealed class PartitionFailoverTests
             _ = await Assert.That(cut.HeldAuthority).IsTrue().Because("the cut-off node must still believe it leads when the read is issued, or the read does not cover that window");
             _ = await Assert.That(FailoverSteps.IsPartitionRefusal(cut.Read)).IsTrue().Because($"the cut-off node must refuse the read, got {FailoverSteps.DescribeRefusal(cut.Read)}");
             _ = await Assert.That(FailoverSteps.IsPartitionRefusal(cut.DeposedRead)).IsTrue().Because($"the deposed node must refuse the read, got {FailoverSteps.DescribeRefusal(cut.DeposedRead)}");
-            _ = await Assert.That(cut.DeposedRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed node must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(cut.DeposedRead)}");
+            _ = await Assert.That(cut.DeposedRead is WireCallException { StatusCode: not WireStatus.DeadlineExceeded }).IsTrue().Because($"the deposed node must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(cut.DeposedRead)}");
             _ = await Assert.That(cut.ProbeRead).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
             _ = await Assert.That(cut.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
             _ = await Assert.That(majority).Contains(cut.Leader.NodeId);
@@ -148,7 +147,7 @@ public sealed class PartitionFailoverTests
             FailoverSteps.Bound,
             attempts,
             cancellationToken);
-        var deposedRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(isolatedWire.ReadAsync(CacheName, scene.Singles.Stale, DeposedReadDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var deposedRead = await NodeAsyncAssert.ThrowsAsync<WireCallException>(isolatedWire.ReadAsync(CacheName, scene.Singles.Stale, DeposedReadDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         recovered.SetResult();
         return new Cut(write, read, heldAuthority, deposedRead, probeRead, elapsed, leader, attempts);
     }

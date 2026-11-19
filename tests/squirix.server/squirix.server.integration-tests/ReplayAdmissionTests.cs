@@ -1,13 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -30,7 +31,7 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("replay-rate", options, cancellationToken);
         using var channel = CreateBinaryChannel(cluster["replay-rate"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new TryAddEntryAsyncRequest
         {
             OperationId = "0123456789abcdef0123456789abcdef",
@@ -38,18 +39,18 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
             Key = "replay-rate",
             Entry = new CacheEntryWire { Value = new CacheValue { StringValue = "value" } },
         };
-        var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var first = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(first.Added).IsTrue();
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.TryAddEntryAsync(request, cancellationToken: cancellationToken).ResponseAsync,
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(10),
             TimeProvider.System,
             cancellationToken);
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(error.Status.Detail).Contains("node_rate_limit");
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(error.Message).Contains("node_rate_limit");
 
         clock.Advance(TimeSpan.FromSeconds(1));
-        var replay = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var replay = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(replay.Added).IsTrue();
     }
 
@@ -69,7 +70,7 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("replay-admission", options, cancellationToken);
         var host = cluster["replay-admission"];
         using var channel = CreateBinaryChannel(host.Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new TryAddEntryAsyncRequest
         {
             OperationId = "0123456789abcdef0123456789abcdef",
@@ -77,7 +78,7 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
             Key = "replay-admission",
             Entry = new CacheEntryWire { Value = new CacheValue { StringValue = "value" } },
         };
-        var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var first = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(first.Added).IsTrue();
 
         var gate = host.GetRequiredService<IBackpressureGate>();
@@ -85,15 +86,15 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
         using (lease)
         {
             _ = await Assert.That(admitted.IsAccepted).IsTrue();
-            var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-                client.TryAddEntryAsync(request, cancellationToken: cancellationToken).ResponseAsync,
+            var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+                client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken),
                 TimeSpan.FromSeconds(10),
                 TimeProvider.System,
                 cancellationToken);
-            _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+            _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
         }
 
-        var replay = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var replay = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(replay.Added).IsTrue();
     }
 }

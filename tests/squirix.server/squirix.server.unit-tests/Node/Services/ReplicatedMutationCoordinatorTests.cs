@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Services;
@@ -9,7 +8,8 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -72,7 +72,7 @@ public sealed class ReplicatedMutationCoordinatorTests : DisposableServerUnitTes
         var coordinator = new ReplicatedMutationCoordinator(null);
         var runs = new int[1];
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             coordinator.ExecuteAsync(
                 string.Empty,
                 static _ => "unused",
@@ -87,7 +87,7 @@ public sealed class ReplicatedMutationCoordinatorTests : DisposableServerUnitTes
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         _ = await Assert.That(runs[0]).IsEqualTo(0);
     }
 

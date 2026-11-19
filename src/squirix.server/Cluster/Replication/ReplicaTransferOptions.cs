@@ -13,7 +13,7 @@ internal sealed class ReplicaTransferOptions
     /// The payload bytes one transfer message may carry: 7 MiB, which leaves one MiB of the 8 MiB gRPC message limit for the envelope and the framing.
     /// A snapshot chunk counts its bytes; an entry batch counts, per entry, the UTF-8 bytes of the cache name, the key and the payload plus <see cref="EntryFramingBytes" />.
     /// </summary>
-    internal const int MessageBudgetBytes = EntryLimits.GrpcMaxSendMessageSizeBytes - (1024 * 1024);
+    internal const int MessageBudgetBytes = EntryLimits.MaxSendMessageSizeBytes - (1024 * 1024);
 
     /// <summary>The bytes the wire adds to one entry of a batch beyond its cache name, key and payload: field tags, lengths and the deadline.</summary>
     internal const int EntryFramingBytes = 32;

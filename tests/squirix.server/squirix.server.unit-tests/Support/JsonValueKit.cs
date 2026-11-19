@@ -4,7 +4,7 @@ using System.Text;
 using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.UnitTests.Support;
 

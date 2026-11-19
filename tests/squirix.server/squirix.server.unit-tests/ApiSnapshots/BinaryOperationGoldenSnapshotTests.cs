@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;

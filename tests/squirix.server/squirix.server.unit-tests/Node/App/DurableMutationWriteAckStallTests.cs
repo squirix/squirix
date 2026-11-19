@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -117,12 +117,12 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
             await journal.ReclaimLeakedAsync(StallTimeout);
         }
 
-        var transport = error.ToRpcException();
+        var transport = error.ToServerCallException();
         var logged = log.Find(CommitUnknownEventId);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-        _ = await Assert.That(transport.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(transport.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(transport.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(transport.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(logged?.Cause).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();

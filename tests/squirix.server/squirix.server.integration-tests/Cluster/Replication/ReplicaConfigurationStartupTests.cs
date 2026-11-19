@@ -3,13 +3,12 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
@@ -226,8 +225,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     {
         foreach (var endpoint in host.GetRequiredService<EndpointDataSource>().Endpoints)
         {
-            var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
-            if (grpc != null && string.Equals(grpc.Method.ServiceName, SquirixReplicationService.Descriptor.FullName, StringComparison.Ordinal))
+            if (endpoint is RouteEndpoint route && string.Equals(route.RoutePattern.RawText, PeerProtocol.Prefix + "replication/{operation}", StringComparison.Ordinal))
                 return true;
         }
 

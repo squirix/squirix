@@ -24,7 +24,8 @@ dotnet test --solution squirix.slnx --configuration Release --framework net11.0 
 ## Release packages
 
 The release workflow packs the client, server, caching adapter, and CLI with `net10.0` and `net11.0` in each NuGet package.
-Framework-specific Microsoft packages use the release line for the selected target. Protobuf uses the same version on both. The server uses the same internode gRPC dependency on both.
+Framework-specific Microsoft packages use the release line for the selected target. Protobuf uses the same version on both.
+The server uses HTTP/2 with protobuf messages for peer communication on both.
 It tests consumption from a local feed and installs and runs the CLI for each framework before publication.
 Use a new package version for the first release that includes both targets.
 Install both sets of runtimes to run the same validation locally:

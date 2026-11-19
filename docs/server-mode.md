@@ -70,7 +70,7 @@ The standalone host defaults to `https://localhost:5001` for local development. 
 listener or using a shared host, check the [loopback and JWT rules](configuration.md#loopback-trust-model).
 
 Multi-node clusters with remote peers also open a **second HTTPS listener** on
-`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for internode gRPC with mutual TLS. External clients continue to use the primary
+`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for internode HTTP/2 with mutual TLS. External clients continue to use the primary
 port with JWT/OIDC connection authentication; cluster forwarding uses the internal port and per-node certificates (`CN` = `NodeId`). See
 [security/internode-mtls.md](security/internode-mtls.md).
 

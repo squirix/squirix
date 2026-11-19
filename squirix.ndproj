@@ -476,7 +476,7 @@ select new { t, culpritFields, Debt = (10 + 10 * culpritFields.Count()).ToMinute
 // (intentionally small public API) and is also excluded.
 warnif count > 0
 from n in Application.Namespaces
-where n.Name != "Squirix.Client" && !n.Name.Contains(".Grpc.")
+where n.Name != "Squirix.Client" && !n.Name.Contains(".Wire.")
 let realTypeCount = JustMyCode.Types.Count(t => t.ParentNamespace != null && t.ParentNamespace.FullName == n.FullName)
 where realTypeCount > 0 && realTypeCount <= 3
 select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.Low }]]></Query>
@@ -1790,22 +1790,22 @@ select new { assembly, @using }]]></Query>
 
 <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport types from JustMyCode</Name>
 // Share-sourced wire types and protobuf-generated service contracts are not product-layer code.
-// Removes Squirix.Transport.Grpc* from JustMyCode for all rules (including ND2016 Try* methods).
+// Removes Squirix.Transport.Wire* from JustMyCode for all rules (including ND2016 Try* methods).
 notmycode
 from t in Types
-where t.FullNameLike("Squirix.Transport.Grpc*")
+where t.FullNameLike("Squirix.Transport.Wire*")
 select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport methods from JustMyCode</Name>
 // Explicit method discard so rules that enumerate Methods (for example ND2016) never see
 // protobuf client stubs such as SquirixCacheService+SquirixCacheServiceClient.TryAddEntry.
 notmycode
 from m in Methods
 where m.ParentType != null &&
-      m.ParentType.FullNameLike("Squirix.Transport.Grpc*")
+      m.ParentType.FullNameLike("Squirix.Transport.Wire*")
 select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport fields from JustMyCode</Name>
 notmycode
 from f in Fields
 where f.ParentType != null &&
-      f.ParentType.FullNameLike("Squirix.Transport.Grpc*")
+      f.ParentType.FullNameLike("Squirix.Transport.Wire*")
 select f]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
 // Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
 // Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**,

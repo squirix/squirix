@@ -19,8 +19,7 @@ public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
         ServerOpContract.MemoryPressure(),
         SquirixErrorCode.MemoryPressure,
         "MEMORY_PRESSURE",
-        ResourceExhaustedException.StableDetail,
-        static () => new ResourceExhaustedException().ToRpcException());
+        ResourceExhaustedException.StableDetail);
 
     /// <summary>Verifies REST JSON matches canonical error shape for memory pressure.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

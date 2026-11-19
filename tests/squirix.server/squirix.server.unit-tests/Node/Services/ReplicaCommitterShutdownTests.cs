@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -143,9 +143,9 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
             await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(queued, StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
-            _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+            var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(queued, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+            _ = await Assert.That(refused.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         }
         finally
         {

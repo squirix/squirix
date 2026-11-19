@@ -3,8 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -16,9 +17,9 @@ namespace Squirix.Server.TestKit.Hosting;
 [Immutable]
 internal sealed class WireMutation
 {
-    private readonly Func<SquirixCacheService.SquirixCacheServiceClient, DateTime, CancellationToken, Task<WireOutcome>> _send;
+    private readonly Func<CacheWireClient, DateTime, CancellationToken, Task<WireOutcome>> _send;
 
-    private WireMutation(string operationId, Func<SquirixCacheService.SquirixCacheServiceClient, DateTime, CancellationToken, Task<WireOutcome>> send)
+    private WireMutation(string operationId, Func<CacheWireClient, DateTime, CancellationToken, Task<WireOutcome>> send)
     {
         OperationId = operationId;
         _send = send;
@@ -72,28 +73,28 @@ internal sealed class WireMutation
     /// <param name="deadline">The point in time, in UTC, by which the call must end.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task whose result is the answer of the node; it fails with the status of the call.</returns>
-    internal Task<WireOutcome> SendAsync(SquirixCacheService.SquirixCacheServiceClient client, DateTime deadline, CancellationToken cancellationToken) =>
+    internal Task<WireOutcome> SendAsync(CacheWireClient client, DateTime deadline, CancellationToken cancellationToken) =>
         _send(client, deadline, cancellationToken);
 
-    private static async Task<WireOutcome> AddIfAbsentAsync(SquirixCacheService.SquirixCacheServiceClient client, TryAddEntryAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
+    private static async Task<WireOutcome> AddIfAbsentAsync(CacheWireClient client, TryAddEntryAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
     {
-        var response = await client.TryAddEntryAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await client.AddEntryIfAbsentAsync(request, deadline, cancellationToken).ConfigureAwait(false);
         return new WireOutcome(response.Added, null);
     }
 
     private static CacheEntryWire Entry(string value) => new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto();
 
-    private static async Task<WireOutcome> GetOrAddAsync(SquirixCacheService.SquirixCacheServiceClient client, GetOrAddAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
+    private static async Task<WireOutcome> GetOrAddAsync(CacheWireClient client, GetOrAddAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
     {
-        var response = await client.GetOrAddAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await client.GetOrAddAsync(request, deadline, cancellationToken).ConfigureAwait(false);
         return new WireOutcome(response.Added, response is { Found: true, Added: false } ? ServerProtoEx.MapCacheValue<string>(response.Value) : null);
     }
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 
-    private static async Task<WireOutcome> SetAsync(SquirixCacheService.SquirixCacheServiceClient client, SetEntryAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
+    private static async Task<WireOutcome> SetAsync(CacheWireClient client, SetEntryAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
     {
-        _ = await client.SetEntryAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
+        _ = await client.SetEntryAsync(request, deadline, cancellationToken).ConfigureAwait(false);
         return new WireOutcome(true, null);
     }
 }

@@ -102,7 +102,7 @@ Cluster mTLS is configured only through environment variables (also used by cont
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` | Optional PFX password |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PATH` | PEM node certificate (requires key path) |
 | `SQUIRIX_CLUSTER_MTLS_KEY_PATH` | PEM node private key |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated internal HTTPS listener for internode gRPC mTLS |
+| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated internal HTTPS listener for internode HTTP/2 mTLS |
 
 Provide **either** a PFX **or** PEM cert + key, not both. Startup validation fails fast when files are missing, when
 the internal port equals the primary port, or when the loaded node certificate CN does not match `Cluster.NodeId`.
@@ -121,7 +121,7 @@ Internode JWT propagation is **not** part of the product model. Cluster forwardi
 listener** instead:
 
 - Forwarding nodes present a **trusted client certificate** on the internal transport.
-- The internal gRPC surface allows anonymous authorization policy because **TLS client authentication** is the gate.
+- The internal HTTP/2 surface allows anonymous authorization policy because **TLS client authentication** is the gate.
 - External JWTs are **not** required for peer-to-peer forwarding when internode mTLS is enforced.
 - External callers still need JWT (when auth is enabled) on the **primary** listener; they cannot satisfy internal
   forwarding checks with JWT alone.

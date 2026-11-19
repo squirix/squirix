@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -14,7 +13,8 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -91,14 +91,14 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         var target = new Target(journal, CreateStore());
         journal.Writer.Flush.Arm();
         SquirixException originalError;
-        RpcException retryError;
+        ServerCallException retryError;
         try
         {
             var put = target.PutAsync(OperationId, "a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             journal.Writer.Flush.ReleaseWithFailure(new IOException("device lost"));
             originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
-            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+            retryError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(target.PutAsync(OperationId, "a", cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -106,7 +106,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(originalError.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Message)).IsTrue();
         _ = await Assert.That(target.Memory.Snapshot).IsEmpty();
         _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNotNull();
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
@@ -277,11 +277,11 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         await journal.Journal.WaitUntilAsync(static j => j.GroupCommit!.GetJournalThreadWaitTimeoutMs() != Timeout.Infinite, StallTimeout, TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
 
-        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(put, StallTimeout, TimeProvider.System, cancellationToken);
-        var retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+        var originalError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(put, StallTimeout, TimeProvider.System, cancellationToken);
+        var retryError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(target.PutAsync(OperationId, "a", cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Message)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Message)).IsTrue();
         _ = await Assert.That(target.Memory.Snapshot).IsEqualTo(KeyA);
         _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo($"{KeyA}#{OperationId}");
     }

@@ -431,8 +431,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             {
                 _ = b.ClearProviders();
                 _ = b.SetMinimumLevel(LogLevel.Warning);
-                _ = b.AddFilter("Grpc", LogLevel.Warning);
-                _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Warning);
                 _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
             PersistenceOptions = persistenceOptions,

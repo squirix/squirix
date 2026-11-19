@@ -8,7 +8,6 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
@@ -18,8 +17,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -186,9 +185,9 @@ internal static class BinaryEndpoint
             var callContext = new BinaryDispatch.Request(http, deadlineUtc, traceParent, traceState, predecessor);
             return await state.Operations.ExecuteAsync(operation, body, in callContext).ConfigureAwait(false);
         }
-        catch (RpcException error)
+        catch (ServerCallException error)
         {
-            return CreateFailure(error);
+            return new BinaryResponse(error.StatusCode, error.Error);
         }
         catch (InvalidProtocolBufferException)
         {
@@ -262,22 +261,6 @@ internal static class BinaryEndpoint
     }
 
     private static AuthorizationPolicy ThrowMissingPolicy() => throw new InvalidOperationException("Missing JWT policy for binary transport.");
-
-    private static BinaryResponse CreateFailure(RpcException error)
-    {
-        var payload = new BinaryCallError { Detail = error.Status.Detail };
-        foreach (var trailer in error.Trailers)
-        {
-            var wire = new BinaryCallError.Types.Trailer { Key = trailer.Key };
-            if (trailer.IsBinary)
-                wire.Binary = ByteString.CopyFrom(trailer.ValueBytes);
-            else
-                wire.Text = trailer.Value;
-            payload.Trailers.Add(wire);
-        }
-
-        return new BinaryResponse(Unsafe.BitCast<StatusCode, FrameStatus>(error.StatusCode), payload);
-    }
 
     private sealed record CallState(
         ConnectionContext Connection,

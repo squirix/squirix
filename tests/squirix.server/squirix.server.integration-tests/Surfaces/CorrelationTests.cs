@@ -2,18 +2,13 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Grpc.Core.Interceptors;
-using Grpc.Net.Client;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.Mtls;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -27,7 +22,6 @@ namespace Squirix.Server.IntegrationTests.Surfaces;
 public sealed class CorrelationTests : ServerSurfaceTestBase
 {
     private const string TraceParentHeader = "traceparent";
-    private const string TraceStateHeader = "tracestate";
 
     /// <summary>
     /// Starts two nodes (A,B). Sends a gRPC insert to A for a key owned by B with a custom traceparent header.
@@ -37,35 +31,34 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
     [Test]
     public async Task TraceContextFlowsAcrossGrpcNodes(CancellationToken cancellationToken)
     {
-        var capture = new CapturingHeadersInterceptor();
-        var servicesConfigure = new CaptureServicesConfigure(capture);
+        string? received = null;
+        string? origin = null;
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => string.Equals(source.Name, "Squirix", StringComparison.Ordinal),
+            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+        };
+        ActivitySource.AddActivityListener(listener);
+        var entry = new BinaryCallObserver(_ => Volatile.Write(ref origin, Activity.Current?.Id));
 
+        var observer = new BinaryCallObserver(http =>
+        {
+            if (http.Request.Path.Value?.EndsWith("/TryAddEntry", StringComparison.Ordinal) == true)
+                Volatile.Write(ref received, http.Request.Headers[TraceParentHeader].ToString());
+        });
         await using var cluster = await StartClusterAsync(
             "A",
             "B",
             node => string.Equals(node, "B", StringComparison.Ordinal)
-                ? new BlackBoxStartOptions { ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(), ServicesConfigure = servicesConfigure.Apply }
-                : new BlackBoxStartOptions(),
+                ? new BlackBoxStartOptions { ServicesConfigure = services => services.AddSingleton(observer) }
+                : new BlackBoxStartOptions { ServicesConfigure = services => services.AddSingleton(entry) },
             cancellationToken);
 
         var key = TestKeyOwnerHelper.SmokeTwoNode.FindKeyOwnedBy("default", "B", "correlation");
 
-        using var activity = new Activity("test");
-        _ = activity.SetIdFormat(ActivityIdFormat.W3C);
-        _ = activity.Start();
-        var traceparent = activity.Id;
-        var tracestate = activity.TraceStateString;
-
-        var endpoint = FindInternalEndpoint(cluster.Peers);
-        var identity = cluster["B"].GetRequiredService<MtlsCertificate>();
-        using var handler = TestCertificates.CreateMtlsHandler(identity.NodeCertificate!, identity.TrustAnchor!, "A");
-        using var channel = GrpcChannel.ForAddress(endpoint, new GrpcChannelOptions { HttpHandler = handler });
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var headers = new Metadata { { TraceParentHeader, traceparent! } };
-        if (!string.IsNullOrEmpty(tracestate))
-            headers.Add(TraceStateHeader, tracestate);
-
-        _ = await client.TryAddEntryAsync(
+        using var channel = CreateBinaryChannel(cluster["A"].Uri);
+        var client = new CacheWireClient(channel);
+        _ = await client.AddEntryIfAbsentAsync(
             new TryAddEntryAsyncRequest
             {
                 OperationId = RpcOperationIdentity.New(),
@@ -73,15 +66,13 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
                 Key = key,
                 Entry = CreateStringEntry("value"),
             },
-            new CallOptions(headers, cancellationToken: cancellationToken));
+            cancellationToken: cancellationToken);
 
         // The forwarded call reached node B before node A answered, so its headers are already captured.
-        var last = capture.LastRequestHeaders;
-        _ = await Assert.That(last).IsNotNull();
-        var gotTp = last.GetValue(TraceParentHeader);
+        var gotTp = Volatile.Read(ref received);
         _ = await Assert.That(string.IsNullOrEmpty(gotTp)).IsFalse();
 
-        var expectedTraceId = TraceIdFromTraceparent(traceparent!);
+        var expectedTraceId = TraceIdFromTraceparent(Volatile.Read(ref origin)!);
         var gotTraceId = TraceIdFromTraceparent(gotTp!);
         _ = await Assert.That(gotTraceId).IsEqualTo(expectedTraceId);
     }
@@ -90,17 +81,6 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
     /// <param name="value">String payload.</param>
     /// <returns>The wire entry.</returns>
     private static CacheEntryWire CreateStringEntry(string value) => new() { Value = new CacheValue { StringValue = value } };
-
-    private static Uri FindInternalEndpoint(System.Collections.Generic.IReadOnlyList<ServerPeer> peers)
-    {
-        foreach (var peer in peers)
-        {
-            if (string.Equals(peer.NodeId, "A", StringComparison.Ordinal) && peer.InterNodeUri is { } uri)
-                return uri;
-        }
-
-        throw new InvalidOperationException("Node A has no internal endpoint.");
-    }
 
     private static string TraceIdFromTraceparent(string traceparent)
     {
@@ -115,43 +95,5 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
 
         secondDash += firstDash + 1;
         return traceparent[(firstDash + 1)..secondDash];
-    }
-
-    [Immutable]
-    private sealed class CaptureServicesConfigure
-    {
-        private readonly CapturingHeadersInterceptor _capture;
-
-        internal CaptureServicesConfigure(CapturingHeadersInterceptor capture)
-        {
-            _capture = capture;
-            Apply = ApplyCore;
-        }
-
-        internal Action<IServiceCollection> Apply { get; }
-
-        private void ApplyCore(IServiceCollection services) => services.AddSingleton(_capture);
-    }
-
-    /// <summary>
-    /// Test-only server-side gRPC interceptor that captures the latest request metadata headers of the add call under test,
-    /// so a background call of the node cannot overwrite them.
-    /// Useful for asserting trace-context propagation in endpoint integration tests.
-    /// </summary>
-    private sealed class CapturingHeadersInterceptor : Interceptor
-    {
-        private volatile Metadata? _last;
-
-        /// <summary>Gets the request metadata headers of the last add call.</summary>
-        internal Metadata? LastRequestHeaders => _last;
-
-        /// <inheritdoc />
-        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
-        {
-            if (context.Method.EndsWith("/TryAddEntry", StringComparison.Ordinal))
-                _last = context.RequestHeaders;
-
-            return base.UnaryServerHandler(request, context, continuation);
-        }
     }
 }

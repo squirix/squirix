@@ -7,7 +7,6 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -15,13 +14,14 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -96,7 +96,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         var key = KeyOwnedByOwner(cluster[entry]);
         using var channel = CreateBinaryChannel(cluster[entry].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[entry], 1), cancellationToken);
         var request = new SetEntryAsyncRequest
         {
@@ -108,11 +108,11 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         var refusal = await Calls.SetAsync(client, request, cancellationToken);
 
-        _ = await Assert.That(refusal).IsNull().Because($"the write must reach the elected leader {second}, not fail with '{refusal?.Status.Detail}'");
+        _ = await Assert.That(refusal).IsNull().Because($"the write must reach the elected leader {second}, not fail with '{refusal?.Message}'");
         var read = await client.GetValueAsync(
             new GetValueAsyncRequest { CacheName = CacheName, Key = key },
-            deadline: DateTime.UtcNow.Add(Bound),
-            cancellationToken: cancellationToken);
+            DateTime.UtcNow.Add(Bound),
+            cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
     }
 
@@ -133,7 +133,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out term) && Follows(nodes[entry], leader, out _), Bound, TimeProvider.System, cancellationToken);
         var key = KeyOwnedByOwner(cluster[entry]);
         using var channel = CreateBinaryChannel(cluster[entry].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[entry], 1), cancellationToken);
         await WarmUpStaleRouteAsync(probe, (entry, new LeaderRoute(follower, term)), client, KeyOwnedByOwner(cluster[entry], 2), cancellationToken);
         probe.Arm(entry, OwnerId, new LeaderRoute(follower, term));
@@ -148,7 +148,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         var refusal = await Calls.SetAsync(client, request, cancellationToken);
 
-        _ = await Assert.That(refusal).IsNull().Because($"the reroute must reach the leader {leader}, not fail with '{refusal?.Status.Detail}'");
+        _ = await Assert.That(refusal).IsNull().Because($"the reroute must reach the leader {leader}, not fail with '{refusal?.Message}'");
         _ = await Assert.That(probe.Refuted).IsTrue();
         var forwards = probe.Forwards();
         _ = await Assert.That(forwards.Length).IsEqualTo(2);
@@ -175,7 +175,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
         using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new SetEntryAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -192,24 +192,24 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await fabric.IsolateAsync(OwnerId);
         string[] survivors = [Nodes[1], Nodes[2]];
         var outcomes = new List<string>();
-        RpcException? refusal;
+        ServerCallException? refusal;
         do
         {
             var started = Stopwatch.GetTimestamp();
             refusal = await Calls.SetAsync(client, request, cancellationToken);
-            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
-            if (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded })
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Message)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
+            if (refusal is { StatusCode: FrameStatus.Unavailable or FrameStatus.DeadlineExceeded })
                 _ = await LeaderAsync(cluster, survivors, cancellationToken);
         }
-        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: FrameStatus.Unavailable or FrameStatus.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader; writes: {string.Join("; ", outcomes)}");
         var leader = await LeaderAsync(cluster, survivors, cancellationToken);
         _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
         var read = await client.GetValueAsync(
             new GetValueAsyncRequest { CacheName = CacheName, Key = key },
-            deadline: DateTime.UtcNow.Add(Bound),
-            cancellationToken: cancellationToken);
+            DateTime.UtcNow.Add(Bound),
+            cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
     }
 
@@ -232,7 +232,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
         using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = Calls.Write(key, "cut-off");
 
         string[] survivors = [Nodes[1], Nodes[2]];
@@ -243,14 +243,14 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         // The owner may still be stepping down when the first write reaches it; the write is sent again with the same operation id, as the
         // client library does.
         var outcomes = new List<string>();
-        RpcException? refusal;
+        ServerCallException? refusal;
         do
         {
             var started = Stopwatch.GetTimestamp();
             refusal = await Calls.SetAsync(client, request, cancellationToken);
-            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Message)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
         }
-        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: FrameStatus.Unavailable or FrameStatus.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader {leader}; writes: {string.Join("; ", outcomes)}");
         _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
@@ -278,7 +278,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
         using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new SetEntryAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -295,14 +295,14 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, TimeProvider.System, cancellationToken);
 
         var outcomes = new List<string>();
-        RpcException? refusal;
+        ServerCallException? refusal;
         do
         {
             var started = Stopwatch.GetTimestamp();
             refusal = await Calls.SetAsync(client, request, cancellationToken);
-            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Message)} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
         }
-        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: FrameStatus.Unavailable or FrameStatus.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         var writes = string.Join("; ", outcomes);
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader {leader}; writes: {writes}");
@@ -334,7 +334,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
         using var channel = CreateBinaryChannel(cluster[EntryOutsideGroup].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[EntryOutsideGroup], 1), cancellationToken);
 
         var entryPool = ThrowHelper.Required(await Assert.That(cluster[EntryOutsideGroup].GetRequiredService<IServerClientPool>()).IsTypeOf<ServerClientPool>(), "The entry node must use the transport pool.");
@@ -366,14 +366,14 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var write = Calls.Write(key, "silent");
         var outcomes = new List<string>();
         var started = Stopwatch.GetTimestamp();
-        RpcException? refusal;
+        ServerCallException? refusal;
         do
         {
             var attempt = Stopwatch.GetTimestamp();
             refusal = await Calls.SetAsync(client, write, cancellationToken);
-            outcomes.Add($"{(refusal == null ? "OK" : refusal.Status.Detail)} in {Stopwatch.GetElapsedTime(attempt).TotalMilliseconds:F0} ms");
+            outcomes.Add($"{(refusal == null ? "OK" : refusal.Message)} in {Stopwatch.GetElapsedTime(attempt).TotalMilliseconds:F0} ms");
         }
-        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: FrameStatus.Unavailable or FrameStatus.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         var elapsed = Stopwatch.GetElapsedTime(started);
         var writes = string.Join("; ", outcomes);
@@ -411,7 +411,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         await cluster.WaitUntilAsync(nodes => Follows(nodes[SilentEntry], leader, out _), Bound, TimeProvider.System, cancellationToken);
         var key = KeyOwnedByOwner(cluster[SilentEntry]);
         using var channel = CreateBinaryChannel(cluster[SilentEntry].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[SilentEntry], 1), cancellationToken);
         await AwaitCaughtUpAsync(cluster[leader], cluster[third], cancellationToken);
 
@@ -450,7 +450,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
         var key = KeyOwnedByOwner(entry);
         using var channel = CreateBinaryChannel(entry.Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(entry, 1), cancellationToken);
         var request = new SetEntryAsyncRequest
         {
@@ -463,11 +463,11 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         _ = await Assert.That(await Calls.SetAsync(client, request, cancellationToken)).IsNull();
 
         using var ownerChannel = CreateBinaryChannel(cluster[OwnerId].Uri);
-        var owner = new SquirixCacheService.SquirixCacheServiceClient(ownerChannel);
+        var owner = new CacheWireClient(ownerChannel);
         var read = await owner.GetValueAsync(
             new GetValueAsyncRequest { CacheName = CacheName, Key = key },
-            deadline: DateTime.UtcNow.Add(Bound),
-            cancellationToken: cancellationToken);
+            DateTime.UtcNow.Add(Bound),
+            cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
     }
 
@@ -483,7 +483,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <param name="key">A key of the owner group the write under test does not use.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    private static async Task WarmUpAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, CancellationToken cancellationToken)
+    private static async Task WarmUpAsync(CacheWireClient client, string key, CancellationToken cancellationToken)
     {
         var request = new SetEntryAsyncRequest
         {
@@ -494,13 +494,13 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         };
 
         var outcomes = new List<string>();
-        RpcException? refusal;
+        ServerCallException? refusal;
         do
         {
             refusal = await Calls.SetAsync(client, request, cancellationToken);
-            outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
+            outcomes.Add(refusal == null ? "OK" : refusal.Message);
         }
-        while (refusal is { StatusCode: StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: FrameStatus.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         _ = await Assert.That(refusal).IsNull().Because($"the warm-up write must commit; writes: {string.Join("; ", outcomes)}");
     }
@@ -520,7 +520,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     private static async Task WarmUpStaleRouteAsync(
         LeaderRouteProbe probe,
         (string Entry, LeaderRoute Route) stale,
-        SquirixCacheService.SquirixCacheServiceClient client,
+        CacheWireClient client,
         string key,
         CancellationToken cancellationToken)
     {
@@ -534,13 +534,13 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         };
 
         var outcomes = new List<string>();
-        RpcException? refusal;
+        ServerCallException? refusal;
         do
         {
             refusal = await Calls.SetAsync(client, request, cancellationToken);
-            outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
+            outcomes.Add(refusal == null ? "OK" : refusal.Message);
         }
-        while (refusal is { StatusCode: StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites);
+        while (refusal is { StatusCode: FrameStatus.DeadlineExceeded } && outcomes.Count < MaxWrites);
 
         _ = await Assert.That(refusal).IsNull().Because($"the warm-up write through the stale route must commit; writes: {string.Join("; ", outcomes)}");
     }
@@ -705,22 +705,22 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The last refusal, or <see langword="null" /> when the write succeeded, and the outcome of every send.</returns>
     /// <remarks>A forward that reached the new leader can outlast its timeout while the leader commits on a loaded host, so a timeout is sent again too.</remarks>
-    private static async Task<(RpcException? Refusal, List<string> Outcomes)> ResendAsync(
+    private static async Task<(ServerCallException? Refusal, List<string> Outcomes)> ResendAsync(
         TestCluster<IntegrationStartOptions> cluster,
-        SquirixCacheService.SquirixCacheServiceClient client,
+        CacheWireClient client,
         SetEntryAsyncRequest write,
-        RpcException? first,
+        ServerCallException? first,
         string[] survivors,
         CancellationToken cancellationToken)
     {
         var outcomes = new List<string>();
         var refusal = first;
-        outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
-        while (refusal is { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded } && outcomes.Count < MaxWrites)
+        outcomes.Add(refusal == null ? "OK" : refusal.Message);
+        while (refusal is { StatusCode: FrameStatus.Unavailable or FrameStatus.DeadlineExceeded } && outcomes.Count < MaxWrites)
         {
             _ = await LeaderAsync(cluster, survivors, cancellationToken);
             refusal = await Calls.SetAsync(client, write, cancellationToken);
-            outcomes.Add(refusal == null ? "OK" : refusal.Status.Detail);
+            outcomes.Add(refusal == null ? "OK" : refusal.Message);
         }
 
         return (refusal, outcomes);
@@ -785,14 +785,14 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         /// <param name="request">The write.</param>
         /// <param name="cancellationToken">The test cancellation token.</param>
         /// <returns>The refusal; <see langword="null" /> when the write succeeded.</returns>
-        internal static async Task<RpcException?> SetAsync(SquirixCacheService.SquirixCacheServiceClient client, SetEntryAsyncRequest request, CancellationToken cancellationToken)
+        internal static async Task<ServerCallException?> SetAsync(CacheWireClient client, SetEntryAsyncRequest request, CancellationToken cancellationToken)
         {
             try
             {
-                _ = await client.SetEntryAsync(request, deadline: DateTime.UtcNow.Add(Bound), cancellationToken: cancellationToken);
+                _ = await client.SetEntryAsync(request, DateTime.UtcNow.Add(Bound), cancellationToken);
                 return null;
             }
-            catch (RpcException ex)
+            catch (ServerCallException ex)
             {
                 return ex;
             }

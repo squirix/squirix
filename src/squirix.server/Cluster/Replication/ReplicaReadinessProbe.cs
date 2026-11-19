@@ -4,8 +4,8 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -325,7 +325,7 @@ internal static class ReplicaReadinessProbe
         {
             return new ReplicaProbeResult(ReplicaProbeKind.Unreachable, 0);
         }
-        catch (Exception exception) when (exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
+        catch (Exception exception) when (exception is ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
         {
             // A dead or slow follower is not a fault of the leader: the slot simply stays out of the quorum.
             return new ReplicaProbeResult(ReplicaProbeKind.Unreachable, 0);

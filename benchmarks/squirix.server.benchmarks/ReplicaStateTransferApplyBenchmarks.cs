@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Diagnostics.Metrics;
 using System.Text;
 using System.Threading;
@@ -7,7 +6,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -86,17 +85,16 @@ public class ReplicaStateTransferApplyBenchmarks
         return parsed;
     }
 
-    /// <summary>Parses and releases the same message using one pooled buffer, including the transport copy and clearing.</summary>
+    /// <summary>Parses and releases the same message using one pooled buffer, borrowing chunks from the received payload.</summary>
     /// <returns>The number of entries parsed.</returns>
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke * EntriesPerMessage)]
     public int ParsePooledMessage()
     {
         var parsed = 0;
-        var bytes = new ReadOnlySequence<byte>(_message);
         for (var i = 0; i < MessagesPerInvoke; i++)
         {
-            using var buffer = ReplicaTransferWire.Parse(in bytes, ArrayPool<byte>.Shared);
-            parsed += buffer.Request.Entries.Entries.Count;
+            var request = ReplicaTransferParser.Parse(_message, _message.Length);
+            parsed += request.Entries.Entries.Count;
         }
 
         return parsed;

@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Cluster.Replication;
@@ -14,7 +13,9 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -44,7 +45,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         var owner = cluster[OwnerId];
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
         using var channel = CreateBinaryChannel(owner.Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
         var log = WipedCluster.Log(owner, OwnerId);
         var before = (await log.GetStatusAsync(cancellationToken)).CommitIndex;
@@ -52,7 +53,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         Task mutation;
         var access = new GetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = Guid.NewGuid().ToString("N") };
         var competingId = Guid.NewGuid().ToString("N");
-        var pending = client.GetDistributedAsync(access, cancellationToken: cancellationToken).ResponseAsync;
+        var pending = client.GetDistributedAsync(access, cancellationToken: cancellationToken);
         try
         {
             await firstAppend.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
@@ -99,7 +100,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         var owner = cluster[OwnerId];
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
         using var channel = CreateBinaryChannel(owner.Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
         ILocalCacheReadOperations<object?> local = owner.GetRequiredService<PhysicalCache<object?>>();
         var cacheKey = new CacheKey(CacheName, key);
@@ -119,8 +120,8 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         }
 
         var attempt = AccessAsync(client, key, refresh, cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempt, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempt, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         var after = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That(after.CommitIndex).IsEqualTo(before.CommitIndex);
         if (!expired)
@@ -147,7 +148,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         var owner = cluster[OwnerId];
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
         using var channel = CreateBinaryChannel(owner.Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
         var log = WipedCluster.Log(owner, OwnerId);
         var before = await log.GetStatusAsync(cancellationToken);
@@ -156,9 +157,9 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         {
             var attempt = AccessAsync(client, key, refresh, cancellationToken);
             await parked.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempt, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
-            _ = await Assert.That(error.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+            var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempt, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+            _ = await Assert.That(error.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
             var after = await log.GetStatusAsync(cancellationToken);
             _ = await Assert.That(after.LastLogIndex).IsEqualTo(before.LastLogIndex + 1);
             _ = await Assert.That(after.CommitIndex).IsEqualTo(before.CommitIndex);
@@ -177,15 +178,15 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         }
     }
 
-    private static Task AccessAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, bool refresh, CancellationToken cancellationToken)
+    private static Task AccessAsync(CacheWireClient client, string key, bool refresh, CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
         return refresh
-            ? client.RefreshDistributedAsync(new RefreshDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken).ResponseAsync
-            : client.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken).ResponseAsync;
+            ? client.RefreshDistributedAsync(new RefreshDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken)
+            : client.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken);
     }
 
-    private static async Task AssertFinalStateAsync(SquirixCacheService.SquirixCacheServiceClient client, GetDistributedAsyncRequest access, GetDistributedAsyncResponse original, bool remove, CancellationToken cancellationToken)
+    private static async Task AssertFinalStateAsync(CacheWireClient client, GetDistributedAsyncRequest access, GetDistributedAsyncResponse original, bool remove, CancellationToken cancellationToken)
     {
         _ = await Assert.That(original.Found).IsTrue();
         _ = await Assert.That(original.Value).IsEqualTo(ByteString.CopyFrom(0, 255));
@@ -211,7 +212,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries[1].Payload)?.OperationId).IsEqualTo(mutationId);
     }
 
-    private static Task<SetAsyncResponse> SeedAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, CancellationToken cancellationToken)
+    private static Task<SetAsyncResponse> SeedAsync(CacheWireClient client, string key, CancellationToken cancellationToken)
     {
         var set = new SetDistributedAsyncRequest
         {
@@ -221,13 +222,13 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
             SlidingTicks = TimeSpan.FromMinutes(2).Ticks,
             OperationId = Guid.NewGuid().ToString("N"),
         };
-        return client.SetDistributedAsync(set, cancellationToken: cancellationToken).ResponseAsync;
+        return client.SetDistributedAsync(set, cancellationToken: cancellationToken);
     }
 
-    private static Task SubmitMutationAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, string operationId, bool remove, CancellationToken cancellationToken) =>
+    private static Task SubmitMutationAsync(CacheWireClient client, string key, string operationId, bool remove, CancellationToken cancellationToken) =>
         remove
-            ? client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken).ResponseAsync
-            : client.SetDistributedAsync(new SetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Value = ByteString.CopyFrom(7) }, cancellationToken: cancellationToken).ResponseAsync;
+            ? client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken)
+            : client.SetDistributedAsync(new SetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Value = ByteString.CopyFrom(7) }, cancellationToken: cancellationToken);
 
     private sealed class ShiftableClock : TimeProvider
     {

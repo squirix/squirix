@@ -1,13 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -50,10 +51,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     public async Task InvalidOperationIdReturnsInvalidArgument(string operationId, string key, string expectedDetail, CancellationToken cancellationToken)
     {
         using var channel = CreateBinaryChannel(Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.TryAddEntryAsync(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.AddEntryIfAbsentAsync(
                 new TryAddEntryAsyncRequest
                 {
                     OperationId = operationId,
@@ -61,13 +62,13 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync,
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(expectedDetail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(ex.Message).IsEqualTo(expectedDetail);
     }
 
     /// <summary>Verifies a duplicate mutating request replays the cached outcome instead of re-applying.</summary>
@@ -76,7 +77,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     public async Task RepeatedOperationIdReplaysResponse(CancellationToken cancellationToken)
     {
         using var channel = CreateBinaryChannel(Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new TryAddEntryAsyncRequest
         {
             OperationId = ReplayOperationId,
@@ -85,8 +86,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
-        var second = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var first = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
+        var second = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
 
         _ = await Assert.That(first.Added).IsTrue();
         _ = await Assert.That(second.Added).IsTrue();
@@ -98,9 +99,9 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     public async Task ReuseReturnsFailedPrecondition(CancellationToken cancellationToken)
     {
         using var channel = CreateBinaryChannel(Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
 
-        _ = await client.TryAddEntryAsync(
+        _ = await client.AddEntryIfAbsentAsync(
             new TryAddEntryAsyncRequest
             {
                 OperationId = MismatchOperationId,
@@ -110,8 +111,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
             },
             cancellationToken: cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.TryAddEntryAsync(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.AddEntryIfAbsentAsync(
                 new TryAddEntryAsyncRequest
                 {
                     OperationId = MismatchOperationId,
@@ -119,12 +120,12 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
                     Key = "mismatch-b",
                     Entry = new NodeCacheEntry<object?> { Value = "b", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync,
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(ex.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
     }
 }

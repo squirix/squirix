@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Attributes;
@@ -15,6 +14,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -271,12 +271,12 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
             CreateAccounting(),
             static (_, _, _) => false,
             10_000_000_000,
-            static (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(new RpcException(new Status(StatusCode.Unavailable, "unconfirmed"))));
+            static (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(new ServerCallException(FrameStatus.Unavailable, "unconfirmed")));
 
         // The inner double has no add set up: a call would throw a different exception.
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 
     /// <inheritdoc />

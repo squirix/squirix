@@ -5,10 +5,11 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -55,7 +56,7 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", options, cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
         using var channel = CreateBinaryChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
         _ = await client.SetEntryAsync(CreateSet(key, "initial", TimeSpan.FromHours(1)), cancellationToken: cancellationToken);
         var operationId = RpcOperationIdentity.New();
@@ -80,7 +81,7 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToProto(),
     };
 
-    private static async Task<ByteString> SendAsync(GroupMutation mutation, SquirixCacheService.SquirixCacheServiceClient client, string key, string operationId, CancellationToken cancellationToken)
+    private static async Task<ByteString> SendAsync(GroupMutation mutation, CacheWireClient client, string key, string operationId, CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<object?> { Value = "mutated", Version = 1 }.MapToProto();
         return mutation switch

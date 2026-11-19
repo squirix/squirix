@@ -276,7 +276,7 @@ public sealed class JournalSegmentRollCapacityTests
 
         // A put of the largest entry and a reply at the gRPC limit, each with the most overhead a frame carries.
         policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.MaxEntrySizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
-        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.GrpcMaxSendMessageSizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
+        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.MaxSendMessageSizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
         var whole = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
             policy,
             static value => value.EnsureFitsEmptySegmentOrThrow(JournalSegmentLimits.MinSegmentMb * OneMegabyte));

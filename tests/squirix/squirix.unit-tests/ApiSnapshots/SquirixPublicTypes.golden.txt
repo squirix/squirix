@@ -115,8 +115,8 @@ P:Squirix.Client.SquirixClientOptions::Endpoints:System.Collections.Generic.ILis
 P:Squirix.Client.SquirixClientOptions::JsonSerializerContexts:System.Collections.Generic.IList<System.Text.Json.Serialization.JsonSerializerContext>.get
 P:Squirix.Client.SquirixClientOptions::Serializer:Squirix.ISquirixSerializer.get
 P:Squirix.Client.SquirixClientOptions::Serializer:Squirix.ISquirixSerializer.set
-T:Squirix.Transport.Grpc.RpcOperationIdentity
-M:Squirix.Transport.Grpc.RpcOperationIdentity::New()
+T:Squirix.Transport.Wire.RpcOperationIdentity
+M:Squirix.Transport.Wire.RpcOperationIdentity::New()
 T:Squirix.Transport.CacheTransportStatusCode
 F:Squirix.Transport.CacheTransportStatusCode::Aborted
 F:Squirix.Transport.CacheTransportStatusCode::AlreadyExists

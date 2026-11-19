@@ -738,7 +738,7 @@ an issuer and audience; authority mode requires an audience. Token lifetime vali
 
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
-  internode mTLS is required at startup. Internode gRPC is served on the dedicated internal HTTPS listener
+  internode mTLS is required at startup. Internode HTTP/2 is served on the dedicated internal HTTPS listener
   (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Each node certificate CN must match
   its `Cluster.NodeId`; peer certificates are accepted only when they chain to the cluster CA and their CN matches the
   expected peer `NodeId`. Outbound `ClientPool` calls attach the local node certificate and apply the same trust and

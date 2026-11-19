@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Rocks;
 using Squirix.Server.Attributes;
@@ -13,6 +12,7 @@ using Squirix.Server.Node.Hosting;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -33,8 +33,8 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
     {
         var failure = await RefuseAsync(new StaticLeaderTable(Self), cancellationToken);
 
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.Error.Trailers.Count).IsEqualTo(1);
     }
 
     /// <summary>With an elected table the stale-owner refusal names the known leader in the hint trailers.</summary>
@@ -47,11 +47,11 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
 
         var failure = await RefuseAsync(leaders.Instance(), cancellationToken);
 
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That((failure.Trailers.GetValue("squirix-leader-node-id"), failure.Trailers.GetValue("squirix-leader-term"))).IsEqualTo((Remote, "6"));
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That((failure.FindTrailer("squirix-leader-node-id"), failure.FindTrailer("squirix-leader-term"))).IsEqualTo((Remote, "6"));
     }
 
-    private static async Task<RpcException> RefuseAsync(IGroupLeaderTable leaders, CancellationToken cancellationToken)
+    private static async Task<ServerCallException> RefuseAsync(IGroupLeaderTable leaders, CancellationToken cancellationToken)
     {
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Remote);
@@ -67,7 +67,7 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
         await using var provider = services.BuildServiceProvider();
         var guard = provider.GetRequiredService<OwnershipGuardCacheDecorator<object?>>();
 
-        return await NodeAsyncAssert.ThrowsAsync<RpcException>(SetAsync(guard, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        return await NodeAsyncAssert.ThrowsAsync<ServerCallException>(SetAsync(guard, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         static async Task SetAsync(OwnershipGuardCacheDecorator<object?> guard, CancellationToken cancellationToken)
         {

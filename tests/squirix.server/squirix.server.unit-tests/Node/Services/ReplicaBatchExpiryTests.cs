@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -10,6 +9,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -258,7 +258,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
 
         var results = await leader.Committer.CommitExpiriesAsync(keys);
         var written = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, ReplicaExpiryResult[]>(new ValueTask<ReplicaExpiryResult[]>(leader.Committer.CommitExpiriesAsync(keys)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, ReplicaExpiryResult[]>(new ValueTask<ReplicaExpiryResult[]>(leader.Committer.CommitExpiriesAsync(keys)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         foreach (var position in new[] { 0, 2, 4 })
         {
@@ -270,7 +270,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await Assert.That(results[1].Entry?.Value).IsEqualTo("v");
         _ = await Assert.That(results[3].Status).IsEqualTo(ReplicaExpiryStatus.Absent);
         _ = await Assert.That(written).IsEqualTo(before + 3);
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(written);
         _ = await Assert.That(leader.Raw("a", cancellationToken)?.Value).IsEqualTo("a");
     }

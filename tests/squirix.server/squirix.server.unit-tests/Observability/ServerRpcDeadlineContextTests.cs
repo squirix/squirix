@@ -99,19 +99,12 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
         var budget = ServerDeadlineBudget.Start(Now + CallerBudget, clock).CappedAt(CappedBudget);
         using var outer = ServerRpcDeadlineContext.Push(Now + CallerBudget, clock);
         clock.Advance(Elapsed);
-        var before = TimeProvider.System.GetUtcNow().UtcDateTime;
 
         TimeSpan? inside;
-        DateTime? deadline;
         using (ServerRpcDeadlineContext.Push(in budget))
-        {
             inside = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
-            deadline = ServerRpcDeadlineContext.EffectiveDeadline(null);
-        }
 
-        var after = TimeProvider.System.GetUtcNow().UtcDateTime;
         _ = await Assert.That(inside).IsEqualTo(CappedBudget - Elapsed);
-        _ = await Assert.That(deadline >= before + inside && deadline <= after + inside).IsTrue();
         _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(CallerBudget - Elapsed);
     }
 

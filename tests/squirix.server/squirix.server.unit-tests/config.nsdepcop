@@ -188,7 +188,7 @@
 
   <!-- Cluster.Replication: protocol automaton tests stay free of routing transport, owner cache, kernel helpers,
        and runtime (mirrors Squirix.Server.Cluster.Replication rules; adapter-level replication tests
-       belong to UnitTests.Adapters.Grpc.Replication). -->
+       belong to UnitTests.Adapters.Wire.Replication). -->
   <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.Cluster.Transport.*" />
   <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.LocalCache.*" />
   <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.Errors.*" />

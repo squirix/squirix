@@ -2,7 +2,8 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Exceptions;
 using TUnit.Assertions.Extensions;
@@ -21,7 +22,7 @@ public sealed class ServerMetricsTests : ServerSurfaceTestBase
         await using var cluster = await StartClusterAsync("node_A", cancellationToken: cancellationToken);
         var node = cluster["node_A"];
         using var channel = CreateBinaryChannel(node.Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
 
         _ = await client.SetEntryAsync(
             new SetEntryAsyncRequest

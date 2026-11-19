@@ -63,7 +63,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             "node-a");
 
         using var testKitHandler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
-        using var productHandler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(
+        using var productHandler = ServerClientPool.PeerEndpoints.CreateMtlsHandler(
             material.NodeCertificate!,
             new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, new EventRecordingLogger()),
             "node-b",
@@ -116,7 +116,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             "node-a");
         using var wrongPeer = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x");
         var log = new EventRecordingLogger();
-        using var handler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(
+        using var handler = ServerClientPool.PeerEndpoints.CreateMtlsHandler(
             material.NodeCertificate!,
             new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, log),
             "node-b",

@@ -1,6 +1,6 @@
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Node.Services;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Benchmarks;
 

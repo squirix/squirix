@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -48,7 +49,7 @@ internal static class ReplicaGroupCommitterLeadership
         /// </summary>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that completes once the coordinator is started.</returns>
-        /// <exception cref="Grpc.Core.RpcException">
+        /// <exception cref="ServerCallException">
         /// The log holds a term above the led one, as after a local append the log refused for a stale term: stale-term; or a static leader's
         /// log holds a term above one, or the copy of the group is not complete: Unavailable. Nothing was written.
         /// </exception>
@@ -70,7 +71,7 @@ internal static class ReplicaGroupCommitterLeadership
         }
 
         /// <summary>Refuses a write unless the election state grants this node authority in the very term of its leadership.</summary>
-        /// <exception cref="Grpc.Core.RpcException">
+        /// <exception cref="ServerCallException">
         /// The write is refused before anything is appended: stale-term when a higher term deposed this node, stale-owner naming a known
         /// leader, or the retryable Unavailable refusal while the leadership is not authorized or holds another term.
         /// </exception>

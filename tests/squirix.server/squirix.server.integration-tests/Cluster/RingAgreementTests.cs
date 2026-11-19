@@ -2,19 +2,19 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -41,23 +41,23 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var operationId = RpcOperationIdentity.New();
 
         using var channel = CreateBinaryChannel(cluster["n1"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var refused = await RefusalAsync(
             (Client: client, Request: CreateSetRequest(operationId, key)),
-            static (state, ct) => state.Client.SetEntryAsync(state.Request, cancellationToken: ct).ResponseAsync,
+            static (state, ct) => state.Client.SetEntryAsync(state.Request, cancellationToken: ct),
             cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingMismatchCode);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refused.FindTrailer("squirix-error-code")).IsEqualTo(RingMismatchCode);
 
         await AssertNothingExecutedAsync(cluster["n2"], key, cancellationToken);
         await AssertNotReadyAsync(cluster["n1"], cancellationToken);
         await AssertNotReadyAsync(cluster["n2"], cancellationToken);
 
-        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = FindKeyBothRingsAssign("n1") }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var later = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = FindKeyBothRingsAssign("n1") }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(later.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(later.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingFencedCode);
+        _ = await Assert.That(later.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(later.FindTrailer("squirix-error-code")).IsEqualTo(RingFencedCode);
     }
 
     /// <summary>The refusal also works in the other direction: a node with the longer peer list cannot forward into the node with the shorter one.</summary>
@@ -70,14 +70,14 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var operationId = RpcOperationIdentity.New();
 
         using var channel = CreateBinaryChannel(cluster["n2"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var refused = await RefusalAsync(
             (Client: client, Request: CreateSetRequest(operationId, key)),
-            static (state, ct) => state.Client.SetEntryAsync(state.Request, cancellationToken: ct).ResponseAsync,
+            static (state, ct) => state.Client.SetEntryAsync(state.Request, cancellationToken: ct),
             cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingMismatchCode);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refused.FindTrailer("squirix-error-code")).IsEqualTo(RingMismatchCode);
 
         await AssertNothingExecutedAsync(cluster["n1"], key, cancellationToken);
         await AssertNotReadyAsync(cluster["n1"], cancellationToken);
@@ -93,7 +93,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var key = FindKeyBothRingsAssign("n2");
 
         using var channel = CreateBinaryChannel(cluster["n1"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new GetOrAddAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -103,11 +103,11 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         };
         var refused = await RefusalAsync(
             (Client: client, Request: request),
-            static (state, ct) => state.Client.GetOrAddAsync(state.Request, cancellationToken: ct).ResponseAsync,
+            static (state, ct) => state.Client.GetOrAddAsync(state.Request, cancellationToken: ct),
             cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo(RingMismatchCode);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refused.FindTrailer("squirix-error-code")).IsEqualTo(RingMismatchCode);
         await AssertNothingExecutedAsync(cluster["n2"], key, cancellationToken);
     }
 
@@ -121,7 +121,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var key = FindKeyOwnedByInShortRing("n2");
 
         using var channel = CreateBinaryChannel(cluster["n1"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var response = await client.SetEntryAsync(CreateSetRequest(RpcOperationIdentity.New(), key), cancellationToken: cancellationToken);
 
         _ = await Assert.That(response).IsNotNull();
@@ -179,19 +179,19 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
     /// ambiguous timeout instead of the owner's refusal. The call is sent again with the same operation id, as the client library does; the
     /// owner refuses it before it executes, so a resend never runs it.
     /// </remarks>
-    private static async Task<RpcException> RefusalAsync<TState, TResponse>(
+    private static async Task<ServerCallException> RefusalAsync<TState, TResponse>(
         TState state,
         Func<TState, CancellationToken, Task<TResponse>> call,
         CancellationToken cancellationToken)
     {
-        RpcException refused;
+        ServerCallException refused;
         var sends = 0;
         do
         {
-            refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(call(state, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call(state, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             sends++;
         }
-        while (refused.StatusCode == StatusCode.DeadlineExceeded && sends < MaxSends);
+        while (refused.StatusCode == FrameStatus.DeadlineExceeded && sends < MaxSends);
 
         return refused;
     }

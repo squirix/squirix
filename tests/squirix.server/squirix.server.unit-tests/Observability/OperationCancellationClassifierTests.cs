@@ -1,9 +1,9 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -30,10 +30,10 @@ public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
     {
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
-        var ex = new RpcException(new Status(StatusCode.Cancelled, "x"));
-        _ = await Assert.That(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, cts.Token)).IsTrue();
-        _ = await Assert.That(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, CancellationToken.None)).IsFalse();
-        var other = new RpcException(new Status(StatusCode.DeadlineExceeded, "x"));
-        _ = await Assert.That(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(other, cts.Token)).IsFalse();
+        var ex = new ServerCallException(FrameStatus.Cancelled, "x");
+        _ = await Assert.That(ServerCancelClassifier.IsCallerCancellation(ex, cts.Token)).IsTrue();
+        _ = await Assert.That(ServerCancelClassifier.IsCallerCancellation(ex, CancellationToken.None)).IsFalse();
+        var other = new ServerCallException(FrameStatus.DeadlineExceeded, "x");
+        _ = await Assert.That(ServerCancelClassifier.IsCallerCancellation(other, cts.Token)).IsFalse();
     }
 }

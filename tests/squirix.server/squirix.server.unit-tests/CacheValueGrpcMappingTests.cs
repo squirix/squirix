@@ -4,9 +4,9 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -21,16 +21,16 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Test]
     public async Task ScalarsMapToNativeKinds()
     {
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue<string>(null).KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue("s").StringValue).IsEqualTo("s");
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue(true).BoolValue).IsTrue();
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue(1.25d).DoubleValue).IsEqualTo(1.25d);
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue(1.5f).DoubleValue).IsEqualTo(1.5d);
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue(42).Int64Value).IsEqualTo(42L);
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue(long.MaxValue).Int64Value).IsEqualTo(long.MaxValue);
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue<short>(-3).Int64Value).IsEqualTo(-3L);
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue(uint.MaxValue).Int64Value).IsEqualTo(uint.MaxValue);
-        _ = await Assert.That(ServerProtoEx.CacheValueToGrpcValue<byte>(7).Int64Value).IsEqualTo(7L);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto<string>(null).KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto("s").StringValue).IsEqualTo("s");
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto(true).BoolValue).IsTrue();
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto(1.25d).DoubleValue).IsEqualTo(1.25d);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto(1.5f).DoubleValue).IsEqualTo(1.5d);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto(42).Int64Value).IsEqualTo(42L);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto(long.MaxValue).Int64Value).IsEqualTo(long.MaxValue);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto<short>(-3).Int64Value).IsEqualTo(-3L);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto(uint.MaxValue).Int64Value).IsEqualTo(uint.MaxValue);
+        _ = await Assert.That(ServerProtoEx.CacheValueToProto<byte>(7).Int64Value).IsEqualTo(7L);
     }
 
     /// <summary>Default-valued value types are scalars, not null.</summary>
@@ -48,7 +48,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     {
         var stored = JsonValueKit.Create("""{"id":1}""");
 
-        var wire = ServerProtoEx.CacheValueToGrpcValue<object?>(stored);
+        var wire = ServerProtoEx.CacheValueToProto<object?>(stored);
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(wire.JsonUtf8.Memory.Span.Overlaps(stored.Bytes.Span, out var offset)).IsTrue();
@@ -70,7 +70,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Arguments("{\"n\":1}", "JsonUtf8")]
     public async Task ElementsMapByKind(string text, string kind)
     {
-        var wire = ServerProtoEx.CacheValueToGrpcValue(JsonElement.Parse(text));
+        var wire = ServerProtoEx.CacheValueToProto(JsonElement.Parse(text));
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(Enum.Parse<CacheValue.KindOneofCase>(kind));
         _ = await Assert.That(
@@ -82,7 +82,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Test]
     public async Task UndefinedElementMapsToNull()
     {
-        var wire = ServerProtoEx.CacheValueToGrpcValue(default(JsonElement));
+        var wire = ServerProtoEx.CacheValueToProto(default(JsonElement));
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
     }
@@ -91,7 +91,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Test]
     public async Task ObjectSerializesToJsonKind()
     {
-        var wire = ServerProtoEx.CacheValueToGrpcValue(new SamplePayload { Id = 1, Name = "n" });
+        var wire = ServerProtoEx.CacheValueToProto(new SamplePayload { Id = 1, Name = "n" });
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         using var document = JsonDocument.Parse(wire.JsonUtf8.Memory);
@@ -102,7 +102,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Test]
     public async Task DecimalKeepsAllDigits()
     {
-        var wire = ServerProtoEx.CacheValueToGrpcValue(12345678901234567.123456789m);
+        var wire = ServerProtoEx.CacheValueToProto(12345678901234567.123456789m);
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(Encoding.UTF8.GetString(wire.JsonUtf8.Span)).IsEqualTo("12345678901234567.123456789");
@@ -143,7 +143,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     {
         var element = JsonElement.Parse("[1, /* note */ 2,]", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
 
-        var wire = ServerProtoEx.CacheValueToGrpcValue(element);
+        var wire = ServerProtoEx.CacheValueToProto(element);
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(wire.JsonUtf8.ToStringUtf8()).IsEqualTo("[1,2]");

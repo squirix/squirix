@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -21,9 +21,9 @@ public sealed class RingMismatchFailureTests : ServerUnitTestBase
     {
         var failure = RingMismatchFailure.Mismatch();
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(failure.Trailers.GetValue(ErrorCodeKey)).IsEqualTo("ring-mismatch");
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(failure.FindTrailer(ErrorCodeKey)).IsEqualTo("ring-mismatch");
+        _ = await Assert.That(failure.Message).IsEqualTo(
             "Cluster ring mismatch: the forwarding node and the key owner disagree on the peer list, ring settings or server version; nothing was executed.");
     }
 
@@ -33,9 +33,9 @@ public sealed class RingMismatchFailureTests : ServerUnitTestBase
     {
         var failure = RingMismatchFailure.Fenced();
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(failure.Trailers.GetValue(ErrorCodeKey)).IsEqualTo("ring-fenced");
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(failure.FindTrailer(ErrorCodeKey)).IsEqualTo("ring-fenced");
+        _ = await Assert.That(failure.Message).IsEqualTo(
             "Cache operations are refused: the key owner or this node detected a cluster ring mismatch with a peer; make the peer lists agree and restart the affected nodes.");
     }
 
@@ -60,8 +60,8 @@ public sealed class RingMismatchFailureTests : ServerUnitTestBase
     public async Task ExcludesOtherFailures()
     {
         var staleOwner = StaleOwnerFailure.Create("n2", "n1");
-        var plain = new RpcException(new Status(StatusCode.Unavailable, "down"));
-        var wrongStatus = new RpcException(new Status(StatusCode.Internal, "x"), new Metadata { { ErrorCodeKey, "ring-mismatch" } });
+        var plain = new ServerCallException(FrameStatus.Unavailable, "down");
+        var wrongStatus = new ServerCallException(FrameStatus.Internal, RingMismatchFailure.Mismatch().Error);
 
         _ = await Assert.That(RingMismatchFailure.IsRefusal(staleOwner)).IsFalse();
         _ = await Assert.That(RingMismatchFailure.IsRefusal(plain)).IsFalse();

@@ -2,18 +2,18 @@ using System;
 using System.Buffers;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
-using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.Storage.Codecs;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -60,12 +60,12 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     public async Task IncompatibleAndUnknownKindsAreRejected()
     {
         var binary = new CacheValue { BinaryValue = ByteString.Empty };
-        var mismatch = NodeExceptionAssert.For<RpcException>().Throws(binary, static value => _ = ServerProtoEx.MapCacheValue<string>(value));
-        _ = await Assert.That(mismatch.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        var mismatch = NodeExceptionAssert.For<ServerCallException>().Throws(binary, static value => _ = ServerProtoEx.MapCacheValue<string>(value));
+        _ = await Assert.That(mismatch.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         byte[] futureKind = [0x42, 0];
         var unknown = CacheValue.Parser.ParseFrom(futureKind);
-        var invalid = NodeExceptionAssert.For<RpcException>().Throws(unknown, static value => _ = ServerProtoEx.MapCacheValue<object>(value));
-        _ = await Assert.That(invalid.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        var invalid = NodeExceptionAssert.For<ServerCallException>().Throws(unknown, static value => _ = ServerProtoEx.MapCacheValue<object>(value));
+        _ = await Assert.That(invalid.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
 
     /// <summary>The existing Bytes=3 disk fixture round-trips exactly and does not alias the encoded buffer.</summary>

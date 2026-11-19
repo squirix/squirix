@@ -13,7 +13,7 @@
             → Storage (journal, snapshot, manifest)
               → Kernel: Errors, Utils, Core, Contracts, Runtime.Contracts
 
-  Shared transport CLR: Squirix.Transport.Grpc.* (compiled from shared proto/mappers).
+  Shared transport CLR: Squirix.Transport.Wire.* (compiled from shared proto/mappers).
 
   Child → parent is allowed implicitly. Exact parent Squirix.Server.Cluster must not depend on
   Cluster.* children (Disallowed). Composition that wires Transport/Replication lives in Node.Hosting.
@@ -39,15 +39,15 @@
   <Allowed From="*" To="Microsoft.*" />
   <Allowed From="*" To="JetBrains.*" />
   <Allowed From="*" To="Squirix.Attributes" />
-  <Allowed From="*" To="Grpc.*" />
+  <Disallowed From="*" To="/^Grpc(?:\.|$)/" />
   <Allowed From="*" To="Google.*" />
   <Allowed From="*" To="Squirix.Transport.*" />
   <Allowed From="*" To="Squirix.Server.*" />
 
   <!-- ═══ Process / package boundary ═══ -->
-  <!-- Server product must not depend on any client SDK namespace (shared Squirix.Transport.Grpc is
+  <!-- Server product must not depend on any client SDK namespace (shared Squirix.Transport.Wire is
        the only allowed client-side namespace; root facade, Core/Internal/Serialization all banned). -->
-  <Disallowed From="Squirix.Server.*" To="/^Squirix(?:\.(?!(?:Transport\.(?:Grpc|Binary)|Server)(?:\.|$)).*)?$/" />
+  <Disallowed From="Squirix.Server.*" To="/^Squirix(?:\.(?!(?:Transport\.(?:Wire|Binary)|Server)(?:\.|$)).*)?$/" />
 
   <!-- ═══ Kernel purity (inner shared types must stay free of outer layers) ═══ -->
 
@@ -90,7 +90,7 @@
 
   <!-- Shared gRPC serialization serves adapters and durable outcome codecs without depending on orchestration. -->
   <Disallowed
-      From="/^Squirix\.Server\.Serialization\.Grpc(?:\.|$)/"
+      From="/^Squirix\.Server\.Serialization\.Protobuf(?:\.|$)/"
       To="/^Squirix\.Server(?:$|\.(?!(?:Core|Attributes|Serialization)(?:\.|$)).*)$/" />
 
   <!-- Threading is self-contained: only its own primitives and BCL namespaces are permitted.
@@ -240,14 +240,14 @@
         - Storage.Journaling → Abstractions / Read / Codec allowed (JournalCoordinator composes pipeline)
         - Runtime → Runtime.Contracts allowed (adapters implement own port interfaces)
         Cluster has its own exact-parent rule above (line ~167), not duplicated here.
-        Snapshot/Observability/Adapters.Grpc: parents must route through siblings, not own children. -->
+        Snapshot/Observability/Adapters.Wire: parents must route through siblings, not own children. -->
    <Disallowed From="/^Squirix\.Server\.Storage$/" To="/^Squirix\.Server\.Storage\.(?!Journaling\.Abstractions(?:\.|$))[A-Za-z_][A-Za-z0-9_.]*$/" />
   <Disallowed From="/^Squirix\.Server\.Storage\.Journaling$/" To="/^Squirix\.Server\.Storage\.Journaling\.(?!Abstractions(?:\.|$)|Read(?:\.|$)|Codec(?:\.|$))[A-Za-z_][A-Za-z0-9_.]*$/" />
   <Disallowed From="/^Squirix\.Server\.Storage\.Snapshot$/" To="/^Squirix\.Server\.Storage\.Snapshot\..+$/" />
   <Disallowed From="/^Squirix\.Server\.Runtime$/" To="/^Squirix\.Server\.Runtime\.(?!Contracts(?:\.|$))[A-Za-z_][A-Za-z0-9_.]*$/" />
   <Disallowed From="/^Squirix\.Server\.Node\.App$/" To="/^Squirix\.Server\.Node\.App\..+$/" />
   <Disallowed From="/^Squirix\.Server\.Node\.Observability$/" To="/^Squirix\.Server\.Node\.Observability\..+$/" />
-  <Disallowed From="/^Squirix\.Server\.Adapters\.Grpc$/" To="/^Squirix\.Server\.Adapters\.Grpc\..+$/" />
+  <Disallowed From="/^Squirix\.Server\.Adapters\.Wire$/" To="/^Squirix\.Server\.Adapters\.Wire\..+$/" />
 
   <!-- Replication may register services, but must not resolve them or create service scopes. -->
   <Allowed From="Squirix.Server.Cluster.Replication.*" To="Microsoft.Extensions.DependencyInjection">

@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -49,8 +49,8 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+            var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         }
 
         var status = await StatusAsync(registry, cancellationToken);
@@ -109,14 +109,14 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         await using var committers = LedGroupsTestKit.LeadOwn(committer);
         var replicated = new ReplicatedCache(cache, committers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(replicated.GetEntryAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var valueRefused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(replicated.GetValueAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(replicated.GetEntryAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var valueRefused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<object?>>(replicated.GetValueAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = registry.TryGetLog("n1", out var log);
         await log!.CompleteBootstrapAsync(cancellationToken);
         var served = await replicated.GetEntryAsync(CacheName, "k1", cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
-        _ = await Assert.That(valueRefused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That(valueRefused.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(served?.Value).IsEqualTo("k1");
     }
 
@@ -174,9 +174,9 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var admission = QuorumReadTestKit.CreateAdmission(new ReplicatedCache(cache, committers), meter);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(admission.TryAddEntryAsync(NewOperationId(), CacheName, "k1", Entry("k2"), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(admission.TryAddEntryAsync(NewOperationId(), CacheName, "k1", Entry("k2"), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     private static async Task<ReplicaGroupRegistry> OpenUnseededAsync(string dir, CancellationToken cancellationToken)

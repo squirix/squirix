@@ -1,13 +1,9 @@
-using System.Runtime.CompilerServices;
-using Grpc.Core;
 using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Errors;
 
 internal static class SquirixErrorMapper
 {
-    internal static StatusCode ToGrpcStatusCode(SquirixErrorCode code) => Unsafe.BitCast<FrameStatus, StatusCode>(ToFrameStatus(code));
-
     internal static FrameStatus ToFrameStatus(SquirixErrorCode code) => code switch
     {
         SquirixErrorCode.None => FrameStatus.Internal,

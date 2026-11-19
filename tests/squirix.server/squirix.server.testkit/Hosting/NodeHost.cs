@@ -87,7 +87,6 @@ internal static class NodeHost
         internal void Configure(CompositionArgs args)
         {
             args.WaitForRecovery = _options.WaitForRecovery;
-            args.ConfigureGrpc = _options.ConfigureGrpc;
             args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
             args.PeerHandlerFactory = _options.PeerHandlerFactory;

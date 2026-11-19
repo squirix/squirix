@@ -115,7 +115,7 @@ server package to handle these failures. See [retry and failover behavior](boots
 
 ## Wire contract
 
-Protobuf schema: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
+The SDK and server share the `SquirixCache.proto` schema. See [Architecture](architecture.md) for details on regenerating the C# messages.
 
 The binary protocol exposes **13** cache operations:
 
@@ -203,7 +203,7 @@ Violations return stable public codes: `INVALID_ENTRY_TAGS` as `InvalidArgument`
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
 `ArgumentException` → `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
-In a multi-node cluster, the entry node forwards the client request to the key owner (the replica group leader when automatic failover is on) over internode gRPC unchanged, with
+In a multi-node cluster, the entry node forwards the client request to the key owner (the replica group leader when automatic failover is on) over internode HTTP/2 unchanged, with
 the **client** `operation_id` and without running the cache pipeline itself. Only the owner records the outcome:
 idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
 the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport

@@ -2,7 +2,6 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -11,6 +10,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -50,11 +50,11 @@ public sealed class OwnershipGuardCacheDecoratorTests
 
         for (var operation = 0; operation < OperationCount; operation++)
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, operation), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, operation), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-            _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-            _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
-            _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+            _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+            _ = await Assert.That(failure.Message).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
+            _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         }
     }
 
@@ -65,9 +65,9 @@ public sealed class OwnershipGuardCacheDecoratorTests
     {
         var guard = CreateGuard(Remote, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 4), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 4), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That(failure.Error.Trailers.Count).IsEqualTo(1);
     }
 
     /// <summary>A leader a higher term deposed refuses every operation, reads included, with stale-term before the inner cache.</summary>
@@ -79,11 +79,11 @@ public sealed class OwnershipGuardCacheDecoratorTests
 
         for (var operation = 0; operation < OperationCount; operation++)
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, operation), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, operation), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-            _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
-            _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-term");
-            _ = await Assert.That(failure.Trailers.Get("squirix-leader-node-id")).IsNull();
+            _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "stale-term"));
+            _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-term");
+            _ = await Assert.That(failure.FindTrailer("squirix-leader-node-id")).IsNull();
         }
     }
 
@@ -94,12 +94,12 @@ public sealed class OwnershipGuardCacheDecoratorTests
     {
         var guard = CreateElectedGuard(new GroupLeaderView(true, false, false, 4, 4, new LeaderRoute(Remote, 4)), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "Key is owned by 'node-b', not current node 'node-a'."));
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-leader-node-id")).IsEqualTo(Remote);
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-leader-term")).IsEqualTo("4");
+        _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "Key is owned by 'node-b', not current node 'node-a'."));
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.FindTrailer("squirix-leader-node-id")).IsEqualTo(Remote);
+        _ = await Assert.That(failure.FindTrailer("squirix-leader-term")).IsEqualTo("4");
     }
 
     /// <summary>A leader whose leader-term entry is not committed yet refuses retryably: no other leader is known.</summary>
@@ -109,9 +109,9 @@ public sealed class OwnershipGuardCacheDecoratorTests
     {
         var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 2, default), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     /// <summary>A group this node does not serve is refused as a stale owner naming the ring owner, which serves it.</summary>
@@ -121,10 +121,10 @@ public sealed class OwnershipGuardCacheDecoratorTests
     {
         var guard = CreateElectedGuard(default, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
-        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That(failure.Message).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
+        _ = await Assert.That(failure.Error.Trailers.Count).IsEqualTo(1);
     }
 
     /// <summary>A key of a group this node leads with authority reaches the inner cache, whichever node owns it on the ring.</summary>

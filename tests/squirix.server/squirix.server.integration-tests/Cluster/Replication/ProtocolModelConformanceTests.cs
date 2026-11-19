@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -14,6 +13,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -194,7 +194,7 @@ public sealed class ProtocolModelConformanceTests
             pipeline.RecordRead(await read, probe.CountConfirmations());
 
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline);
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await SequenceAssert.EqualAsync(
             [
                 new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 0, 0, CommitLeaderSlot, CommitLastLogTerm),

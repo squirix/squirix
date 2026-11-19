@@ -6,7 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Replication;
-using Squirix.Transport.Grpc;
+using Squirix.Transport.Wire;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

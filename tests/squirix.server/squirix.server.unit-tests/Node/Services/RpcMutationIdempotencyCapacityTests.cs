@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -16,7 +15,8 @@ using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -92,14 +92,14 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
         var attempts = new int[1];
         var value = ValueFillingJournal(8);
 
-        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var first = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
 
         _ = await Assert.That(failed).IsFalse();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(first.Status.Detail)).IsTrue();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retry.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(first.Message)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retry.Message)).IsTrue();
         _ = await Assert.That(attempts[0]).IsEqualTo(1);
         _ = await Assert.That(memory.Snapshot).IsEqualTo(KeyBig);
         var operation = await Assert.That(ReadOperations(cancellationToken)).HasSingleItem();

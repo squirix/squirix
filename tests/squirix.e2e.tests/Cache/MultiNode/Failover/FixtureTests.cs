@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
@@ -73,18 +72,18 @@ public sealed class FixtureTests
     [Test]
     public async Task RetriesUnavailableUntilSuccess(CancellationToken cancellationToken)
     {
-        var calls = new Queue<StatusCode>([StatusCode.Unavailable, StatusCode.DeadlineExceeded]);
+        var calls = new Queue<WireStatus>([WireStatus.Unavailable, WireStatus.DeadlineExceeded]);
         var attempts = new List<EventualAttempt>();
 
         var result = await Eventually.SucceedsAsync(
             calls,
-            static (pending, _) => pending.TryDequeue(out var status) ? Task.FromException<int>(new RpcException(new Status(status, "fault"))) : Task.FromResult(7),
+            static (pending, _) => pending.TryDequeue(out var status) ? Task.FromException<int>(new WireCallException(status, "fault")) : Task.FromResult(7),
             TimeSpan.FromSeconds(30),
             attempts,
             cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(7);
-        _ = await Assert.That(string.Join(", ", attempts.ConvertAll(static a => a.Outcome))).IsEqualTo("RpcException Unavailable, RpcException DeadlineExceeded, ok");
+        _ = await Assert.That(string.Join(", ", attempts.ConvertAll(static a => a.Outcome))).IsEqualTo("WireCallException Unavailable, WireCallException DeadlineExceeded, ok");
     }
 
     /// <summary>Any other failure ends the retry at once and is rethrown after it is recorded.</summary>
@@ -94,10 +93,10 @@ public sealed class FixtureTests
     {
         var attempts = new List<EventualAttempt>();
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var failure = await NodeAsyncAssert.ThrowsAsync<WireCallException>(
             Eventually.SucceedsAsync(
                 0,
-                static (_, _) => Task.FromException(new RpcException(new Status(StatusCode.FailedPrecondition, "wrong"))),
+                static (_, _) => Task.FromException(new WireCallException(WireStatus.FailedPrecondition, "wrong")),
                 TimeSpan.FromSeconds(30),
                 attempts,
                 cancellationToken),
@@ -105,9 +104,9 @@ public sealed class FixtureTests
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(WireStatus.FailedPrecondition);
         _ = await Assert.That(attempts).HasSingleItem();
-        _ = await Assert.That(attempts[0].Outcome).IsEqualTo("RpcException FailedPrecondition");
+        _ = await Assert.That(attempts[0].Outcome).IsEqualTo("WireCallException FailedPrecondition");
     }
 
     /// <summary>A call that stays unavailable ends with a timeout that lists every attempt once the bound is spent.</summary>
@@ -120,7 +119,7 @@ public sealed class FixtureTests
         var failure = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(
             Eventually.SucceedsAsync(
                 0,
-                static (_, _) => Task.FromException(new RpcException(new Status(StatusCode.Unavailable, "down"))),
+                static (_, _) => Task.FromException(new WireCallException(WireStatus.Unavailable, "down")),
                 TimeSpan.FromSeconds(2),
                 attempts,
                 cancellationToken),
