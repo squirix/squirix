@@ -46,6 +46,7 @@ internal static class ServiceRegistration
                         TimeProvider = TimeProvider.System,
                         PeerHandlerFactory = peerHandlerFactory,
                         ForwardConnectTimeout = cluster.ForwardConnectTimeout,
+                        RingFingerprint = sp.GetRequiredService<RingFingerprint>().Value,
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),
                         MtlsOptions = mtlsOptions,
                         Certificate = certificate,

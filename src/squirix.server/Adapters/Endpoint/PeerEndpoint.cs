@@ -102,13 +102,24 @@ internal static class PeerEndpoint
 
     private static async Task WriteAsync(HttpContext http, BinaryResponse reply)
     {
-        if (reply.Payload?.CalculateSize() > EntryLimits.GrpcMaxSendMessageSizeBytes)
-            reply = new BinaryResponse(FrameStatus.ResourceExhausted, new BinaryCallError { Detail = "The response exceeds the peer message limit." });
+        var size = reply.Payload?.CalculateSize() ?? 0;
+        if (size > EntryLimits.GrpcMaxSendMessageSizeBytes)
+        {
+            var error = new BinaryCallError { Detail = "The response exceeds the peer message limit." };
+            reply = new BinaryResponse(FrameStatus.ResourceExhausted, error);
+            size = error.CalculateSize();
+        }
 
         http.Response.ContentType = PeerProtocol.MediaType;
-        http.Response.ContentLength = reply.Payload?.CalculateSize() ?? 0;
+        http.Response.ContentLength = size;
         http.Response.Headers[PeerProtocol.StatusHeader] = Unsafe.BitCast<FrameStatus, int>(reply.Status).ToString(CultureInfo.InvariantCulture);
-        reply.Payload?.WriteTo(http.Response.BodyWriter);
+        await http.Response.StartAsync(http.RequestAborted).ConfigureAwait(false);
+        if (size > 0)
+        {
+            reply.Payload!.WriteTo(http.Response.BodyWriter.GetSpan(size)[..size]);
+            http.Response.BodyWriter.Advance(size);
+        }
+
         _ = await http.Response.BodyWriter.FlushAsync(http.RequestAborted).ConfigureAwait(false);
     }
 }

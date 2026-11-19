@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -40,7 +40,7 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         var fromC = fabric["node-c", "node-a"];
         var client = nodeA.GetRequiredService<IServerClientPool>().ForNode("node-c");
         var request = new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-c") };
-        _ = await client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken));
+        _ = await client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken);
         _ = await Assert.That(toC.BytesForwarded(ProxyDirection.ClientToUpstream)).IsGreaterThan(0);
 
         await fabric.IsolateAsync("node-c");
@@ -81,18 +81,14 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
 
         var client = nodeA.GetRequiredService<IServerClientPool>().ForNode("node-c");
         var request = new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-c") };
-        _ = await client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken));
+        _ = await client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken);
         var toC = fabric["node-a", "node-c"];
         _ = await Assert.That(toC.ActiveConnections).IsGreaterThan(0);
 
         // The node's own outbound links open on its first call to each peer.
         var nodeC = cluster["node-c"];
         foreach (var peer in new[] { "node-a", "node-b" })
-        {
-            _ = await nodeC.GetRequiredService<IServerClientPool>().ForNode(peer).GetValueAsync(
-                new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, peer) },
-                new CallOptions(cancellationToken: cancellationToken));
-        }
+            _ = await nodeC.GetRequiredService<IServerClientPool>().ForNode(peer).SendAsync("owner/GetValue", new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, peer) }, GetValueAsyncResponse.Parser, cancellationToken);
 
         _ = await Assert.That(fabric["node-c", "node-a"].ActiveConnections).IsGreaterThan(0);
         _ = await Assert.That(fabric["node-c", "node-b"].ActiveConnections).IsGreaterThan(0);
@@ -111,32 +107,30 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         await GetValueWhenServedAsync(client, request, cancellationToken);
 
         var fromRestarted = restarted.GetRequiredService<IServerClientPool>().ForNode("node-a");
-        _ = await fromRestarted.GetValueAsync(
-            new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-a") },
-            new CallOptions(cancellationToken: cancellationToken));
+        _ = await fromRestarted.SendAsync("owner/GetValue", new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-a") }, GetValueAsyncResponse.Parser, cancellationToken);
         _ = await Assert.That(fromC.AcceptedConnections).IsGreaterThan(acceptedBefore);
     }
 
-    private static async Task GetValueWhenServedAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
+    private static async Task GetValueWhenServedAsync(IPeerClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
         // A request that still hit a reset connection fails once; every retry is a real dial, so the loop cannot spin hot and only the test token bounds it.
         while (true)
         {
             try
             {
-                _ = await client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken));
+                _ = await client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken);
                 return;
             }
-            catch (RpcException exception) when (exception.StatusCode == StatusCode.Unavailable)
+            catch (ServerCallException exception) when (exception.StatusCode == FrameStatus.Unavailable)
             {
                 // Retry: the link is healed, so a later dial is bridged.
             }
         }
     }
 
-    private static async Task ExpectUnavailableAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
+    private static async Task ExpectUnavailableAsync(IPeerClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, new CallOptions(cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 }

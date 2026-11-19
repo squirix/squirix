@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Grpc.Core;
+using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Cluster;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Unary-only <see cref="CallInvoker" /> that records every request instance it is given and answers with a configured response or failure.</summary>
-internal sealed class CapturingCallInvoker : CallInvoker
+internal sealed class CapturingCallInvoker : CallInvoker, IPeerClient
 {
     private readonly Func<Exception?>? _failure;
     private readonly Func<string, object?>? _respond;
@@ -25,6 +29,16 @@ internal sealed class CapturingCallInvoker : CallInvoker
 
     /// <summary>Gets the request instances, in call order.</summary>
     internal List<object> Requests { get; } = [];
+
+    public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+        where T : IMessage<T>
+    {
+        var name = path[(path.LastIndexOf('/') + 1)..];
+        Methods.Add(name);
+        Requests.Add(request);
+        var error = _failure?.Invoke();
+        return CompleteAsync<T>(error is RpcException rpc ? CallErrors.FromGrpc(rpc) : error, _respond?.Invoke(name));
+    }
 
     /// <inheritdoc />
     public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(

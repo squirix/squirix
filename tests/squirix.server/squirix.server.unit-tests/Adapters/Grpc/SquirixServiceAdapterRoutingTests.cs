@@ -157,7 +157,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         var clientIds = new IBackpressureClientIdResolverCreateExpectations();
         _ = clientIds.Setups.Resolve().ReturnValue("client");
         var pool = new IServerClientPoolCreateExpectations();
-        _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
+        _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
         _ = pool.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
 
         var router = table == null

@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
@@ -14,6 +16,9 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Diagnostics;
+using Squirix.Server.Runtime.Invocation;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Grpc.Cache;
 using ReplicationServiceAdapter = Squirix.Server.Adapters.Grpc.Replication.SquirixReplicationServiceAdapter;
 
 namespace Squirix.Server.Node.Hosting;
@@ -39,6 +44,7 @@ internal static class SquirixEndpointMapping
         var internalListener = new InternalListenerEndpointMetadata(mtlsOptions.InternalListenPort, true);
         _ = app.MapPost(PeerProtocol.Prefix + "ping", PeerEndpoint.PingAsync)
             .WithMetadata(internalListener).AllowAnonymous();
+        _ = app.MapPost(PeerProtocol.Prefix + "owner/{operation}", ForwardAsync).WithMetadata(internalListener).AllowAnonymous();
         _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().WithMetadata(internalListener).AllowAnonymous();
 
         // Closed replication service: internal listener only, for foundation transport tests
@@ -87,6 +93,17 @@ internal static class SquirixEndpointMapping
             snapshot.SnapshotInFlight,
             new HealthReadyDetailSections(clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, BuildReplicaGroupDetails(snapshot.ReplicaGroups)));
     }
+
+    private static Task ForwardAsync(HttpContext http) => PeerEndpoint.HandleAsync(http, static (context, body, peer) =>
+    {
+        if (context.Request.RouteValues["operation"] is not string name || !Enum.TryParse<BinaryOperation>(name, out var operation) || !string.Equals(Enum.GetName(operation), name, StringComparison.Ordinal) || operation == BinaryOperation.Unspecified)
+            return Task.FromResult(new BinaryResponse(FrameStatus.Unimplemented));
+
+        var fingerprint = context.Request.Headers[RemoteInvocationContract.RingFingerprintHeaderName];
+        context.RequestServices.GetRequiredService<RingAgreement>().EnsureInboundAgreement(fingerprint.Count == 1 ? fingerprint[0] : null, peer);
+        var request = new BinaryDispatch.Request(context, DateTime.MaxValue, context.Request.Headers["traceparent"], context.Request.Headers["tracestate"], Task.CompletedTask, true);
+        return context.RequestServices.GetRequiredService<BinaryDispatch>().ExecuteAsync(operation, body, in request).AsTask();
+    });
 
     private static HealthReplicaGroupDetails[] BuildReplicaGroupDetails(IReadOnlyList<HealthReplicaGroupSnapshot> groups)
     {

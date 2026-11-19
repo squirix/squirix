@@ -3,7 +3,6 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
@@ -45,91 +44,91 @@ internal sealed class OwnerRpcForwarder
         owner,
         CacheOperationNames.GetEntry,
         request,
-        static (client, r, ct) => client.GetEntryAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/GetEntry", r, GetEntryAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<GetExpirationAsyncResponse> GetExpirationAsync(string owner, GetExpirationAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.GetEntry,
         request,
-        static (client, r, ct) => client.GetExpirationAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/GetExpiration", r, GetExpirationAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<GetOrAddAsyncResponse> GetOrAddAsync(string owner, GetOrAddAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.TryAdd,
         request,
-        static (client, r, ct) => client.GetOrAddAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/GetOrAdd", r, GetOrAddAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<GetValueAsyncResponse> GetValueAsync(string owner, GetValueAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Get,
         request,
-        static (client, r, ct) => client.GetValueAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/GetValue", r, GetValueAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<RemoveAsyncResponse> RemoveAsync(string owner, RemoveAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Remove,
         request,
-        static (client, r, ct) => client.RemoveAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/Remove", r, RemoveAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<RemoveExpirationAsyncResponse> RemoveExpirationAsync(string owner, RemoveExpirationAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.RemoveExpiration,
         request,
-        static (client, r, ct) => client.RemoveExpirationAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/RemoveExpiration", r, RemoveExpirationAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<GetDistributedAsyncResponse> GetDistributedAsync(string owner, GetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Get,
         request,
-        static (client, r, ct) => client.GetDistributedAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/GetDistributed", r, GetDistributedAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(string owner, RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Touch,
         request,
-        static (client, r, ct) => client.RefreshDistributedAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/RefreshDistributed", r, RefreshDistributedAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<SetAsyncResponse> SetDistributedAsync(string owner, SetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Set,
         request,
-        static (client, r, ct) => client.SetDistributedAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/SetDistributed", r, SetAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<SetAsyncResponse> SetEntryAsync(string owner, SetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Set,
         request,
-        static (client, r, ct) => client.SetEntryAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/SetEntry", r, SetAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<TouchAsyncResponse> TouchAsync(string owner, TouchAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Touch,
         request,
-        static (client, r, ct) => client.TouchAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/Touch", r, TouchAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<TryAddAsyncResponse> AddEntryIfAbsentAsync(string owner, TryAddEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.TryAdd,
         request,
-        static (client, r, ct) => client.TryAddEntryAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/TryAddEntry", r, TryAddAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<UpdateAsyncResponse> UpdateAsync(string owner, UpdateAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Update,
         request,
-        static (client, r, ct) => client.UpdateAsync(r, cancellationToken: ct).ResponseAsync,
+        static (client, r, ct) => client.SendAsync("owner/Update", r, UpdateAsyncResponse.Parser, ct),
         cancellationToken);
 
     private static ServerCallException CreatePoolDisposedUnavailable() => new(FrameStatus.Unavailable, "ServerPeer client pool is disposed.");
@@ -138,7 +137,7 @@ internal sealed class OwnerRpcForwarder
         string owner,
         string operation,
         TRequest request,
-        Func<SquirixCacheService.SquirixCacheServiceClient, TRequest, CancellationToken, Task<TResponse>> call,
+        Func<IPeerClient, TRequest, CancellationToken, Task<TResponse>> call,
         CancellationToken cancellationToken)
     {
         var (decision, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
@@ -206,20 +205,14 @@ internal sealed class OwnerRpcForwarder
         /// <returns>The response.</returns>
         /// <exception cref="ServerCallException">The peer call failed.</exception>
         internal async Task<TResponse> RunAsync<TRequest, TResponse>(
-            Func<SquirixCacheService.SquirixCacheServiceClient, TRequest, CancellationToken, Task<TResponse>> call,
-            SquirixCacheService.SquirixCacheServiceClient client,
+            Func<IPeerClient, TRequest, CancellationToken, Task<TResponse>> call,
+            IPeerClient client,
             TRequest request,
             CancellationToken cancellationToken)
         {
             try
             {
                 return await call(client, request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (RpcException ex)
-            {
-                if (!OwnerUnreachableFailure.IsConnectFailure(ex.Status.DebugException))
-                    Volatile.Write(ref _connected, 1);
-                throw CallErrors.FromGrpc(ex);
             }
             catch (Exception ex) when (!OwnerUnreachableFailure.IsConnectFailure(ex is ServerCallException rpc ? rpc.InnerException : ex))
             {

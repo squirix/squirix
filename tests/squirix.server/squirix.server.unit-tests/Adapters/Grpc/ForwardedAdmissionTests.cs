@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Google.Protobuf;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
@@ -141,7 +141,7 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
     private OwnerRpcForwarder CreateForwarder(AdmissionGate entryGate, OwnerGateInvoker invoker, int maxConcurrentPerPeer = 64)
     {
         var poolExpectations = new IServerClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
+        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
         _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(CreatePolicy(maxConcurrentPerPeer));
         return new OwnerRpcForwarder(poolExpectations.Instance(), entryGate, CreateClientIdResolver(), RingAgreements.Create());
     }
@@ -158,7 +158,7 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
     /// Runs every call as the owner node does: after a barrier it admits the call on the owner gate as an internal owner invocation,
     /// reports the decision and returns only when released.
     /// </summary>
-    private sealed class OwnerGateInvoker : CallInvoker
+    private sealed class OwnerGateInvoker : IPeerClient
     {
         private readonly SemaphoreSlim _barrier;
         private readonly SemaphoreSlim _decided;
@@ -185,37 +185,8 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         /// <summary>Gets a task that completes once the first call reached this owner.</summary>
         private TaskCompletionSource EnteredSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        /// <inheritdoc />
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new NotSupportedException();
-
-        /// <inheritdoc />
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new NotSupportedException();
-
-        /// <inheritdoc />
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options,
-            TRequest request) => throw new NotSupportedException();
-
-        /// <inheritdoc />
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            new(
-                RunOwnerAsync<TResponse>(options.CancellationToken),
-                Task.FromResult(new Metadata()),
-                static () => new Status(StatusCode.OK, string.Empty),
-                static () => [],
-                static () => { });
-
-        /// <inheritdoc />
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new NotSupportedException();
+        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+            where T : IMessage<T> => RunOwnerAsync<T>(cancellationToken);
 
         private static TResponse CreateResponse<TResponse>() =>
             new GetValueAsyncResponse() is TResponse response ? response : throw new InvalidOperationException("Only GetValue responses are supported.");
@@ -235,7 +206,7 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
                 await _finish.WaitAsync(cancellationToken).ConfigureAwait(false);
                 return decision.IsAccepted
                     ? CreateResponse<TResponse>()
-                    : throw new RpcException(new Status(StatusCode.ResourceExhausted, decision.RejectReason ?? "unknown"));
+                    : throw new ServerCallException(FrameStatus.ResourceExhausted, decision.RejectReason ?? "unknown");
             }
         }
     }

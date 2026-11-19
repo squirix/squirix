@@ -382,7 +382,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     {
         var policy = CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System);
         var pool = new IServerClientPoolCreateExpectations();
-        _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
+        _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
         _ = pool.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
         return new OwnerRpcForwarder(pool.Instance(), CreateGate(), CreateClientIdResolver(), RingAgreements.Create());
     }

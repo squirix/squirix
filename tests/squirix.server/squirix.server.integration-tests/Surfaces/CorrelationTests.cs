@@ -3,10 +3,9 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Attributes;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
@@ -37,14 +36,18 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
     [Test]
     public async Task TraceContextFlowsAcrossGrpcNodes(CancellationToken cancellationToken)
     {
-        var capture = new CapturingHeadersInterceptor();
-        var servicesConfigure = new CaptureServicesConfigure(capture);
+        string? received = null;
 
+        var observer = new BinaryCallObserver(http =>
+        {
+            if (http.Request.Path.Value?.EndsWith("/TryAddEntry", StringComparison.Ordinal) == true)
+                Volatile.Write(ref received, http.Request.Headers[TraceParentHeader].ToString());
+        });
         await using var cluster = await StartClusterAsync(
             "A",
             "B",
             node => string.Equals(node, "B", StringComparison.Ordinal)
-                ? new BlackBoxStartOptions { ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(), ServicesConfigure = servicesConfigure.Apply }
+                ? new BlackBoxStartOptions { ServicesConfigure = services => services.AddSingleton(observer) }
                 : new BlackBoxStartOptions(),
             cancellationToken);
 
@@ -76,9 +79,7 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
             new CallOptions(headers, cancellationToken: cancellationToken));
 
         // The forwarded call reached node B before node A answered, so its headers are already captured.
-        var last = capture.LastRequestHeaders;
-        _ = await Assert.That(last).IsNotNull();
-        var gotTp = last.GetValue(TraceParentHeader);
+        var gotTp = Volatile.Read(ref received);
         _ = await Assert.That(string.IsNullOrEmpty(gotTp)).IsFalse();
 
         var expectedTraceId = TraceIdFromTraceparent(traceparent!);
@@ -115,43 +116,5 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
 
         secondDash += firstDash + 1;
         return traceparent[(firstDash + 1)..secondDash];
-    }
-
-    [Immutable]
-    private sealed class CaptureServicesConfigure
-    {
-        private readonly CapturingHeadersInterceptor _capture;
-
-        internal CaptureServicesConfigure(CapturingHeadersInterceptor capture)
-        {
-            _capture = capture;
-            Apply = ApplyCore;
-        }
-
-        internal Action<IServiceCollection> Apply { get; }
-
-        private void ApplyCore(IServiceCollection services) => services.AddSingleton(_capture);
-    }
-
-    /// <summary>
-    /// Test-only server-side gRPC interceptor that captures the latest request metadata headers of the add call under test,
-    /// so a background call of the node cannot overwrite them.
-    /// Useful for asserting trace-context propagation in endpoint integration tests.
-    /// </summary>
-    private sealed class CapturingHeadersInterceptor : Interceptor
-    {
-        private volatile Metadata? _last;
-
-        /// <summary>Gets the request metadata headers of the last add call.</summary>
-        internal Metadata? LastRequestHeaders => _last;
-
-        /// <inheritdoc />
-        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
-        {
-            if (context.Method.EndsWith("/TryAddEntry", StringComparison.Ordinal))
-                _last = context.RequestHeaders;
-
-            return base.UnaryServerHandler(request, context, continuation);
-        }
     }
 }

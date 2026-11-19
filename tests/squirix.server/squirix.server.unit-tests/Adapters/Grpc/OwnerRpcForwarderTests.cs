@@ -382,9 +382,8 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     private OwnerRpcForwarder CreateForwarder(CapturingCallInvoker invoker, IServerCallPolicy? policy = null, IBackpressureGate? gate = null, RingAgreement? agreement = null)
     {
         var poolExpectations = new IServerClientPoolCreateExpectations();
-        var client = new SquirixCacheService.SquirixCacheServiceClient(invoker);
         var callPolicy = policy ?? CreatePolicy();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(client);
+        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
         _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(callPolicy);
         return new OwnerRpcForwarder(poolExpectations.Instance(), gate ?? CreateGate([], Decision.Accepted()), CreateClientIdResolver(), agreement ?? RingAgreements.Create());
     }

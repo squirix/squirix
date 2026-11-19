@@ -2,10 +2,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
+using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -52,37 +53,6 @@ internal sealed class LostForwardResponseProbe
         _ = services.AddSingleton<IServerClientPool>(sp => new LossyPool(ThrowHelper.Required(factory(sp) as IServerClientPool, "The client pool factory returned another type."), this));
     }
 
-    private static AsyncUnaryCall<TResponse> Unreachable<TResponse>()
-    {
-        var status = new Status(StatusCode.Unavailable, "Injected: key owner connection is down.");
-        return new AsyncUnaryCall<TResponse>(
-            Task.FromException<TResponse>(new RpcException(status)),
-            Task.FromResult(new Metadata()),
-            () => status,
-            static () => [],
-            static () => { });
-    }
-
-    private static async Task<TResponse> LoseResponseAsync<TResponse>(KeyFault fault, AsyncUnaryCall<TResponse> call)
-    {
-        _ = await call.ResponseAsync.ConfigureAwait(false);
-        fault.MarkOwnerExecuted();
-        await fault.AfterOwnerExecuted().ConfigureAwait(false);
-        throw new RpcException(new Status(StatusCode.Unavailable, "Injected: the owner response was lost."));
-    }
-
-    private AsyncUnaryCall<TResponse> Forward<TResponse>(string key, Func<AsyncUnaryCall<TResponse>> send)
-    {
-        if (!_faults.TryGetValue(key, out var fault))
-            return send();
-
-        if (fault.NextAttempt() > 1)
-            return Unreachable<TResponse>();
-
-        var call = send();
-        return new AsyncUnaryCall<TResponse>(LoseResponseAsync(fault, call), call.ResponseHeadersAsync, call.GetStatus, call.GetTrailers, call.Dispose);
-    }
-
     private sealed class KeyFault
     {
         private int _attempts;
@@ -104,47 +74,41 @@ internal sealed class LostForwardResponseProbe
         internal int NextAttempt() => Interlocked.Increment(ref _attempts);
     }
 
-    private sealed class LossyClient : SquirixCacheService.SquirixCacheServiceClient
+    private sealed class LossyClient : IPeerClient
     {
-        private readonly SquirixCacheService.SquirixCacheServiceClient _inner;
+        private readonly IPeerClient _inner;
         private readonly LostForwardResponseProbe _probe;
 
-        internal LossyClient(SquirixCacheService.SquirixCacheServiceClient inner, LostForwardResponseProbe probe)
+        internal LossyClient(IPeerClient inner, LostForwardResponseProbe probe)
         {
             _inner = inner;
             _probe = probe;
         }
 
-        public override AsyncUnaryCall<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.RemoveAsync(request, options));
+        public async Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+            where T : IMessage<T>
+        {
+            var key = request switch
+            {
+                RemoveAsyncRequest r => r.Key,
+                GetDistributedAsyncRequest r => r.Key,
+                GetOrAddAsyncRequest r => r.Key,
+                RefreshDistributedAsyncRequest r => r.Key,
+                SetEntryAsyncRequest r => r.Key,
+                TryAddEntryAsyncRequest r => r.Key,
+                _ => null,
+            };
+            if (key == null || !_probe._faults.TryGetValue(key, out var fault))
+                return await _inner.SendAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
 
-        public override AsyncUnaryCall<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.GetDistributedAsync(request, options));
+            if (fault.NextAttempt() > 1)
+                throw new ServerCallException(FrameStatus.Unavailable, "Injected: key owner connection is down.");
 
-        public override AsyncUnaryCall<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CallOptions options) => _inner.GetEntryAsync(request, options);
-
-        public override AsyncUnaryCall<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, CallOptions options) => _inner.GetExpirationAsync(request, options);
-
-        public override AsyncUnaryCall<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.GetOrAddAsync(request, options));
-
-        public override AsyncUnaryCall<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CallOptions options) => _inner.GetValueAsync(request, options);
-
-        public override AsyncUnaryCall<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.RefreshDistributedAsync(request, options));
-
-        public override AsyncUnaryCall<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, CallOptions options) =>
-            _inner.RemoveExpirationAsync(request, options);
-
-        public override AsyncUnaryCall<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.SetEntryAsync(request, options));
-
-        public override AsyncUnaryCall<TryAddAsyncResponse> TryAddEntryAsync(TryAddEntryAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.TryAddEntryAsync(request, options));
-
-        public override AsyncUnaryCall<TouchAsyncResponse> TouchAsync(TouchAsyncRequest request, CallOptions options) => _inner.TouchAsync(request, options);
-
-        public override AsyncUnaryCall<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, CallOptions options) => _inner.UpdateAsync(request, options);
+            _ = await _inner.SendAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
+            fault.MarkOwnerExecuted();
+            await fault.AfterOwnerExecuted().ConfigureAwait(false);
+            throw new ServerCallException(FrameStatus.Unavailable, "Injected: the owner response was lost.");
+        }
     }
 
     private sealed class LossyPool : IServerClientPool
@@ -160,7 +124,7 @@ internal sealed class LostForwardResponseProbe
 
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
-        public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => new LossyClient(_inner.ForNode(nodeId), _probe);
+        public IPeerClient ForNode(string nodeId) => new LossyClient(_inner.ForNode(nodeId), _probe);
 
         public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken) => _inner.LeaseChannel(nodeId, cancellationToken);
 

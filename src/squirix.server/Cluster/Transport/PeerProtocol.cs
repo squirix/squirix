@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -33,7 +34,7 @@ internal static class PeerProtocol
         {
             Version = HttpVersion.Version20,
             VersionPolicy = HttpVersionPolicy.RequestVersionExact,
-            Content = new ByteArrayContent(request.ToByteArray()),
+            Content = new RequestContent(request.ToByteArray()),
         };
         message.Content.Headers.ContentType = new MediaTypeHeaderValue(MediaType);
         if (fingerprint != null)
@@ -46,11 +47,11 @@ internal static class PeerProtocol
             message.Headers.Add(BudgetHeader, remaining.Ticks.ToString(CultureInfo.InvariantCulture));
         }
 
-        using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await SendRequestAsync(client, message, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode != HttpStatusCode.OK || response.Version.Major != 2 ||
             !string.Equals(response.Content.Headers.ContentType?.MediaType, MediaType, StringComparison.OrdinalIgnoreCase) ||
             !response.Headers.TryGetValues(StatusHeader, out var values))
-            throw new ServerCallException(FrameStatus.Unavailable, "The peer did not return a valid protocol response.");
+            throw new ServerCallException(FrameStatus.Unavailable, $"Invalid peer response for {path} (HTTP {response.Version} {response.StatusCode}, content type {response.Content.Headers.ContentType}).");
 
         using var headers = values.GetEnumerator();
         if (!headers.MoveNext() || !int.TryParse(headers.Current, NumberStyles.None, CultureInfo.InvariantCulture, out var code) ||
@@ -72,6 +73,48 @@ internal static class PeerProtocol
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static async Task<HttpResponseMessage> SendRequestAsync(HttpClient client, HttpRequestMessage message, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException error)
+        {
+            // A lost response may follow a committed mutation. Only failures before writing the body may prove a failed dial.
+            var cause = message.Content is RequestContent { Started: false } ? error : null;
+            throw new ServerCallException(FrameStatus.Unavailable, "Peer request failed.", cause);
+        }
+    }
+
+    private sealed class RequestContent : HttpContent
+    {
+        private readonly byte[] _bytes;
+        private int _started;
+
+        internal RequestContent(byte[] bytes)
+        {
+            _bytes = bytes;
+        }
+
+        internal bool Started => Volatile.Read(ref _started) != 0;
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            SerializeToStreamAsync(stream, context, CancellationToken.None);
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+        {
+            Volatile.Write(ref _started, 1);
+            return stream.WriteAsync(_bytes.AsMemory(), cancellationToken).AsTask();
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = _bytes.Length;
+            return true;
         }
     }
 }

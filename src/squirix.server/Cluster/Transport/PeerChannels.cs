@@ -56,14 +56,14 @@ internal sealed class PeerChannels
     /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
-    private PeerChannels(GrpcChannel forward, GrpcChannel lease)
+    private PeerChannels(HttpClient forward, GrpcChannel lease)
     {
         Forward = forward;
         Lease = lease;
     }
 
     /// <summary>Gets the channel of client calls forwarded to the peer.</summary>
-    internal GrpcChannel Forward { get; }
+    internal HttpClient Forward { get; }
 
     /// <summary>Gets the channel of every other internode call: replication, elections and probes.</summary>
     internal GrpcChannel Lease { get; }
@@ -84,10 +84,11 @@ internal sealed class PeerChannels
         TrackedConnections connections,
         TimeSpan forwardConnectTimeout)
     {
-        GrpcChannel? forward = null;
+        HttpClient? forward = null;
         try
         {
-            forward = GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, verifier, connections, forwardConnectTimeout));
+            var options = CreateChannelOptions(nodeId, args, verifier, connections, forwardConnectTimeout);
+            forward = new HttpClient(options.HttpHandler!, options.DisposeHttpClient) { BaseAddress = address, Timeout = Timeout.InfiniteTimeSpan };
             var created = new PeerChannels(forward, GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, verifier, connections, null)));
             forward = null;
             return created;
