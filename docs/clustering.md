@@ -221,7 +221,7 @@ Every node builds its consistent-hash ring from its own configuration. Two nodes
 
 A node that finds a peer with a different ring stops serving cache operations instead of executing on inconsistent ownership:
 
-- Each internal owner call carries a fingerprint of the sender ring. The receiving node compares it with its own before any handler or idempotency store runs.
+- Each internal owner call carries a fingerprint of the sender ring. The receiving node compares it with its own before the owner executes the request.
 - A mismatch refuses the call, so a forwarded operation is never executed by a node that disagrees with the sender about the owner.
 - Both nodes are fenced: the node that refused the call and the node whose forward was refused.
 - A fenced node refuses every cache operation until it is restarted.

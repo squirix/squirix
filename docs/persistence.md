@@ -97,8 +97,8 @@ started on the same directory is then not detected.
 ## File permissions
 
 On Unix every file the node creates in the data directory, including temp files and `node.lock`, has mode `0600`, and every
-directory it creates has mode `0700`, whatever the process umask is. Only the owning user can read the cached keys and values,
-the idempotency responses, or the journal and snapshot files. Windows keeps the access rules inherited from the parent directory.
+directory it creates has mode `0700`, whatever the process umask is. Only the owning user can read the cached keys and values
+or the journal and snapshot files. Windows keeps the access rules inherited from the parent directory.
 
 Creating a file sets its mode through the open handle, so the file system must support Unix permissions; a file system that
 refuses the change makes the node fail with an error naming the file.

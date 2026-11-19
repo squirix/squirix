@@ -16,22 +16,13 @@ internal readonly record struct DurableMutationPipeline<TState, TResult>
         TState state,
         Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal,
         Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
-        Func<TState, TResult, ValueTask>? afterAppend = null,
         Action<TState, TResult>? afterApply = null)
     {
         State = state;
         AppendJournal = appendJournal;
         ApplyMemory = applyMemory;
-        AfterAppend = afterAppend;
         AfterApply = afterApply;
     }
-
-    /// <summary>
-    /// Gets the optional phase that runs once the journal frame is on the ring and before the wait for its flush, outside the mutation gate, with the
-    /// result the precondition predicted. It runs only for a write whose precondition predicted a result and whose durable source is the cache journal.
-    /// A failure it throws is reported as an unknown outcome, because the frame is already on the ring.
-    /// </summary>
-    internal Func<TState, TResult, ValueTask>? AfterAppend { get; }
 
     /// <summary>
     /// Gets the optional phase that runs right after the memory apply succeeded, with its actual result, never when the apply failed. It runs outside the

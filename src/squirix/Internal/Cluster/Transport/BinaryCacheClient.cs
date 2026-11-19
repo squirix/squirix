@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Internal.Cluster.Reliability;
 using Squirix.Transport;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
@@ -156,7 +157,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         try
         {
             connection = await GetConnectionAsync(options.CancellationToken).ConfigureAwait(false);
-            var result = await connection.CallAsync(control, request, bodySize, parser, options).ConfigureAwait(false);
+            var preventReplay = !connection.SupportsMutationReplay && operation is not (BinaryOperation.GetEntry or BinaryOperation.GetValue or BinaryOperation.GetExpiration or BinaryOperation.GetDistributed);
+            var result = await connection.CallAsync(control, request, bodySize, parser, options, preventReplay).ConfigureAwait(false);
             return result as T ?? ThrowUnexpectedResponse<T>();
         }
         catch (Exception error) when (error is AuthenticationException or ConnectionRejectedException)
@@ -217,16 +219,19 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         private readonly Task _sender;
         private int _aborted;
 
-        private Connection(TcpClient socket, SslStream tls)
+        private Connection(TcpClient socket, SslStream tls, bool supportsMutationReplay)
         {
             _socket = socket;
             _tls = tls;
+            SupportsMutationReplay = supportsMutationReplay;
             _stopToken = _stop.Token;
             for (var i = 0; i < _pending.Length; i++)
                 _ = _slots.Writer.TryWrite(i);
             _reader = ReadAsync();
             _sender = SendAsync();
         }
+
+        internal bool SupportsMutationReplay { get; }
 
         internal bool IsAvailable => Volatile.Read(ref _aborted) == 0;
 
@@ -257,8 +262,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 await socket.ConnectAsync(endpoint.IdnHost, endpoint.Port, token).ConfigureAwait(false);
                 tls = new SslStream(socket.GetStream());
                 await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, handler), token).ConfigureAwait(false);
-                await NegotiateAsync(tls, provider, token).ConfigureAwait(false);
-                return new Connection(socket, tls);
+                var supportsMutationReplay = await NegotiateAsync(tls, provider, token).ConfigureAwait(false);
+                return new Connection(socket, tls, supportsMutationReplay);
             }
             catch
             {
@@ -269,7 +274,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
         }
 
-        internal async ValueTask<IMessage> CallAsync(int control, IMessage request, int bodySize, MessageParser parser, BinaryCallOptions options)
+        internal async ValueTask<IMessage> CallAsync(int control, IMessage request, int bodySize, MessageParser parser, BinaryCallOptions options, bool preventReplay)
         {
             var token = options.CancellationToken;
             int id;
@@ -301,11 +306,15 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 // Keep the slot for a late reply while other calls still need this connection.
                 if (!HasLiveCalls())
                     Abort();
+                if (preventReplay)
+                    throw UnknownOutcome();
                 throw;
             }
 
             if (result.Response != null)
                 return result.Response;
+            if (preventReplay && IsOutcomeUnconfirmed(result.Failure))
+                throw UnknownOutcome(result.Failure);
             if (result.Failure != null)
                 throw result.Failure;
             throw new IOException("The binary cache connection closed.");
@@ -323,6 +332,14 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 _ = Interlocked.Exchange(ref _pending[i], null)?.Completion.TrySetResult(default);
         }
 
+        private static bool IsOutcomeUnconfirmed(SquirixTransportException? failure) =>
+            failure == null ||
+            ((failure.StatusCode is CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded or CacheTransportStatusCode.Cancelled or CacheTransportStatusCode.Internal)
+             && !string.Equals(failure.Status.Detail, Frames.OwnerUnreachableDetail, StringComparison.Ordinal));
+
+        private static SquirixTransportException UnknownOutcome(Exception? cause = null) =>
+            new(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownDetail.Value, cause));
+
         private static SslClientAuthenticationOptions CreateTlsOptions(Uri endpoint, HttpMessageHandler? handler)
         {
             while (handler is DelegatingHandler { InnerHandler: { } inner })
@@ -337,7 +354,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             };
         }
 
-        private static async Task NegotiateAsync(SslStream tls, Func<CancellationToken, ValueTask<string>>? provider, CancellationToken token)
+        private static async Task<bool> NegotiateAsync(SslStream tls, Func<CancellationToken, ValueTask<string>>? provider, CancellationToken token)
         {
             var preface = ArrayPool<byte>.Shared.Rent(Frames.PrefaceBytes);
             try
@@ -348,10 +365,11 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 preface[4] = provider == null ? noCredentials : bearerCredentials;
                 await tls.WriteAsync(preface.AsMemory(0, Frames.PrefaceBytes), token).ConfigureAwait(false);
                 await tls.ReadExactlyAsync(preface.AsMemory(0, 1), token).ConfigureAwait(false);
-                if (preface[0] != Frames.Accepted)
+                if (preface[0] is not (Frames.Accepted or Frames.AcceptedWithMutationReplay))
                     throw new ConnectionRejectedException();
                 if (provider != null)
                     _ = await ConnectionAuthentication.AuthenticateAsync(tls, provider, token).ConfigureAwait(false);
+                return preface[0] == Frames.AcceptedWithMutationReplay;
             }
             finally
             {

@@ -59,9 +59,11 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     }
 
     /// <inheritdoc />
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     public void Refresh(string key) => Block(InvokeSyncAsync(() => RefreshAsync(key, CancellationToken.None)));
 
     /// <inheritdoc />
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     public async Task RefreshAsync(string key, CancellationToken token = default)
     {
         _session.ThrowIfDisposed();
@@ -73,9 +75,11 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     }
 
     /// <inheritdoc />
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     public void Remove(string key) => Block(InvokeSyncAsync(() => RemoveAsync(key, CancellationToken.None)));
 
     /// <inheritdoc />
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     public async Task RemoveAsync(string key, CancellationToken token = default)
     {
         _session.ThrowIfDisposed();
@@ -87,11 +91,13 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     }
 
     /// <inheritdoc />
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     public void Set(string key, byte[] value, DistributedCacheEntryOptions options) =>
         Block(InvokeSyncAsync(() => SetAsync(key, value, options, CancellationToken.None)));
 
     /// <inheritdoc />
     /// <remarks>The earlier of the two absolute deadlines wins when both absolute options are set.</remarks>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
     {
         _session.ThrowIfDisposed();

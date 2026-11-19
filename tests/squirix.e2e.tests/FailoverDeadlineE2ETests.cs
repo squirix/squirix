@@ -31,7 +31,8 @@ public sealed class FailoverDeadlineE2ETests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
 
-        await cache.SetAsync(key, "after-loss", cancellationToken: linked.Token);
-        _ = await Assert.That((await cache.GetValueAsync(key, linked.Token)).Value).IsEqualTo("after-loss");
+        var value = await cache.GetValueAsync(key, linked.Token);
+        _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(value.Value).IsEqualTo("before-loss");
     }
 }

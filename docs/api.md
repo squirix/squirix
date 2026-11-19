@@ -173,16 +173,17 @@ JSON text. `ICache<object>` reads native integers as `long` and JSON values as `
 A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
 the key already held one (`added=false`, `found=true`); when it added, the caller already has the value.
 
-Mutating cache requests require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
-hyphens, for example `0123456789abcdef0123456789abcdef`). The `Squirix` client SDK generates a fresh id per mutating
-call via `RpcOperationIdentity.New()`; custom binary clients must supply a conforming value. Over-length or malformed ids
-are rejected with `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
-reuse with a different payload (`FailedPrecondition`).
+On a replicated deployment, a mutation carries an `operation_id` of 32 lowercase hexadecimal characters. The SDK
+generates it once per call and uses it for retries. A raw binary client must supply it on replicated mutations and
+distributed adapter access. The replica group rejects a malformed identifier or reuse of the same identifier with a
+different mutation in the same cache and group.
 
-The adapter's `GetDistributed` uses its request ID for correlation. Every transport execution performs a fresh read and,
-when necessary, atomically renews the entry it observes. A retry may return newer bytes or a miss. The renewal has a separate
-server identity; its retained outcome contains no response bytes. `Remove` retains only its boolean result, so a repeated
-retained removal ID returns that boolean without deleting a replacement entry.
+On a node without replica groups, each request is executed against the current state. If an attempted mutation may
+have run and the reply cannot be confirmed, the SDK throws `CommitOutcomeUnknownException`.
+
+The adapter's `GetDistributed` reads the current value on every execution and atomically renews the observed entry
+when necessary. A retry may return newer bytes or a miss. Replicated renewals carry a separate server identity. The
+replica group retains only the boolean result of a committed removal.
 
 ### Entry limits (v0.1)
 
@@ -203,22 +204,10 @@ Violations return stable public codes: `INVALID_ENTRY_TAGS` as `InvalidArgument`
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
 `ArgumentException` → `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
-In a multi-node cluster, the entry node forwards the client request to the key owner (the replica group leader when automatic failover is on) over internode HTTP/2 unchanged, with
-the **client** `operation_id` and without running the cache pipeline itself. Only the owner records the outcome:
-idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
-the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport
-failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
-applied twice. In a replicated cache an outcome is replayable for at least 30 seconds by the clock of the node that answers the retry; with
-node clocks within 10 seconds of each other, it is replayable for at least 20 seconds after the leader decided it, across a leader change or
-a restart too. The `squirix` client retries within its 15 s operation deadline, so it is covered. A raw binary client that retries later than
-that may get a new execution of the mutation. On an RF=1 node an outcome is replayable for at least 30 seconds, and up to 15 minutes while
-the byte budget of the store has room.
-The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
-Operators can tune the in-memory store caps of an RF=1 node with `SQUIRIX_IDEMPOTENCY_*` — see
-[configuration.md — Idempotency store capacity](configuration.md#idempotency-store-capacity). A replicated host dedupes every write in
-the replica group of its key and keeps no node-wide record of it. There, a conditional write that took no effect (`TryAddEntry` or
-`GetOrAdd` over a present key, `Update` of an absent key) is evaluated again on retry instead of replayed, and the read of `GetOrAdd`
-reflects the current value.
+The entry node forwards a request to the key owner. With replica groups, the group can replay a committed outcome
+across leader changes and restarts. The window is at least 30 seconds by the answering node's clock, or at least
+20 seconds after the leader decided it when clocks differ by at most 10 seconds. The SDK's 15-second deadline
+fits inside that window. Conditional requests that produced no commit are evaluated against current state on retry.
 
 The public binary operation names and wire IDs are recorded in a golden snapshot:
 `tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixBinaryOperations.golden.txt`.

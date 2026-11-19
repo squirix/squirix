@@ -195,9 +195,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
         _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                                .ReturnValue(default);
-        var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
-        _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
-        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", NoOpSnapshotTelemetry.Instance);
+        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, "test-node", NoOpSnapshotTelemetry.Instance);
         _ = await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 

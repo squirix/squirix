@@ -1,13 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Binary;
-using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -66,30 +64,5 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         _ = await Assert.That(addFailure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         _ = await Assert.That(getOrAddFailure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         _ = await Assert.That(harness.ReadFrames(cancellationToken).Count).IsEqualTo(framesBefore);
-    }
-
-    /// <summary>After a restart, a retried remove and a retried get-or-add replay the stored response instead of running again.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RestartReplaysRemoveAndGetOrAdd(CancellationToken cancellationToken)
-    {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        var harness = new FusedWriteHarness(Dir, journal);
-        var getOrAdd = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(1), "first");
-        var remove = FusedWriteHarness.Remove(FusedWriteHarness.OpId(2));
-        var added = await harness.Adapter.Mutations.GetOrAddAsync(getOrAdd, CancellationToken.None);
-        var removed = await harness.Adapter.Mutations.RemoveAsync(remove, CancellationToken.None);
-        await journal.ShutdownAsync();
-
-        var (memory, store) = await harness.RecoverAsync(cancellationToken);
-        var addedReplayed = store.TryReplay(getOrAdd.OperationId, RpcMutationFingerprints.GetOrAdd(getOrAdd.CacheName, getOrAdd.Key, getOrAdd.Entry), GetOrAddAsyncResponse.Parser, out var addedAgain);
-        var removedReplayed = store.TryReplay(remove.OperationId, RpcMutationFingerprints.Remove(remove.CacheName, remove.Key), RemoveAsyncResponse.Parser, out var removedAgain);
-
-        _ = await Assert.That(addedReplayed).IsTrue();
-        _ = await Assert.That(removedReplayed).IsTrue();
-        _ = await Assert.That(addedAgain).IsEqualTo(added);
-        _ = await Assert.That(removedAgain).IsEqualTo(removed);
-        _ = await Assert.That(removed.Removed).IsTrue();
-        _ = await Assert.That(memory.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
     }
 }

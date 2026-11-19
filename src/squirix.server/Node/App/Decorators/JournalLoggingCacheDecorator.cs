@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -63,13 +62,11 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         var cacheKey = new CacheKey(cacheName, key);
         return _executor.ExecuteAsync(
             cacheKey,
-            static (s, ct) => EvaluateRemovePreconditionAsync(s.Self, s.Memory, ct),
+            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, RemoveJournalArgs Journal, RemoveMemoryArgs Memory), bool>(
                 (this, new RemoveJournalArgs(cacheKey), new RemoveMemoryArgs(operationId, cacheName, key)),
                 static (s, ownership, ct) => s.Self._journal.AppendRemoveAsync(ownership, s.Journal.CacheKey, ct),
-                static (s, ct) => s.Self._inner.RemoveAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, ct),
-                static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (s, ct) => s.Self._inner.RemoveAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, ct)),
             cancellationToken);
     }
 
@@ -153,13 +150,11 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         var cacheKey = new CacheKey(cacheName, key);
         _ = await _executor.ExecuteAsync(
             cacheKey,
-            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply(true)),
+            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, SetMemoryArgs Memory), bool>(
                 (this, new PutJournalArgs(cacheKey, payload.Memory), new SetMemoryArgs(operationId, cacheName, key, entry, payload.Memory.Length)),
                 static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, s.Journal.CacheKey, s.Journal.Payload, ct),
-                static (s, ct) => s.Self.ApplySetEntryAsync(s.Memory, ct),
-                static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (s, ct) => s.Self.ApplySetEntryAsync(s.Memory, ct)),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -169,22 +164,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         CancellationToken cancellationToken)
     {
         var existing = await self._inner.GetValueAsync(args.CacheName, args.Key, cancellationToken).ConfigureAwait(false);
-        return existing.Found ? DurableMutationCondition<bool>.Skip(false) : DurableMutationCondition<bool>.Apply(true);
-    }
-
-    private static async ValueTask<DurableMutationCondition<bool>> EvaluateRemovePreconditionAsync(
-        JournalLoggingCacheDecorator<T> self,
-        RemoveMemoryArgs args,
-        CancellationToken cancellationToken)
-    {
-        // Only a write stamped by an RPC scope can append its outcome ahead of the apply, so every other remove pays no extra read.
-        if (RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue == null)
-            return DurableMutationCondition<bool>.Apply();
-
-        // The remove frame is appended whatever is found. The key lock and the apply slot hold from this read to the apply, so what is read
-        // is what the apply removes; a live entry that expires in between is reported removed, as of the moment of this read.
-        var current = await self.ReadCurrentAsync(args.CacheName, args.Key, cancellationToken).ConfigureAwait(false);
-        return DurableMutationCondition<bool>.Apply(current != null);
+        return existing.Found ? DurableMutationCondition<bool>.Skip(false) : DurableMutationCondition<bool>.Apply();
     }
 
     private static async ValueTask<bool> ApplyDecidedAsync<TArgs>(DecidedUpsertState<TArgs> state, CancellationToken cancellationToken)
@@ -207,7 +187,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
             return DurableMutationCondition<bool>.Skip(false);
 
         state.Upsert.Set(decided, state.PreparedValue is { } value ? JournalEntryPayload.EncodeWithPreparedValue(decided, value) : EncodeWhole(decided));
-        return DurableMutationCondition<bool>.Apply(true);
+        return DurableMutationCondition<bool>.Apply();
     }
 
     private static PooledJournalPayload EncodeWhole(NodeCacheEntry<T> decided)
@@ -238,14 +218,10 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
                     await s.Self._journal.AppendPutAsync(ownership, s.Args.CacheKey, payload.Memory, ct).ConfigureAwait(false);
                 },
                 static (s, ct) => s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, s.Args.Prepared.EncodedLength, ct),
-                static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
                 static (s, actual) =>
                 {
                     // The precondition predicted an add under the key lock: an apply that refused it leaves a put frame the memory never took.
-                    // The latch keeps the outcome unconfirmed, so nothing is promoted.
-                    if (actual)
-                        RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply();
-                    else
+                    if (!actual)
                         s.Self._journal.FailJournalPipeline(new InvalidOperationException("an add predicted to take effect was refused by memory after its journal frame entered the ring."));
                 }),
             cancellationToken);
@@ -275,9 +251,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
             new DurableMutationPipeline<DecidedUpsertState<TArgs>, bool>(
                 state,
                 static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, new CacheKey(s.CacheName, s.Key), s.Upsert.Payload, ct),
-                static (s, ct) => ApplyDecidedAsync(s, ct),
-                static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted),
-                static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                static (s, ct) => ApplyDecidedAsync(s, ct)),
             cancellationToken).ConfigureAwait(false);
     }
 

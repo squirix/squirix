@@ -22,7 +22,7 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// <para>
 /// Every key is removed and every entry stored through the local cache chain the follower apply uses, below memory admission and with the
-/// operation stamping suspended, so the effects reach memory and the cache journal like applied records do. An entry already past its deadline is
+/// the replica apply context active, so the effects reach memory and the cache journal like applied records do. An entry already past its deadline is
 /// stored all the same: on a replicated host expiry is decided by committed records, and the replayed record removes it.
 /// </para>
 /// <para>
@@ -168,8 +168,8 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
         {
             EnsureOwnedBy(groupId, entries.Span, keys);
 
-            // The stamping is suspended once for the whole batch: each suspension allocates a frame, and the batch writes every entry the same way.
-            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+            // All writes in the batch share the replica apply context.
+            using (ReplicaApplyContext.Enter())
             {
                 for (var i = 0; i < entries.Length; i++)
                 {
@@ -240,7 +240,7 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <returns><see langword="true" /> when the key is removed; <see langword="false" /> when the journal refused the removal.</returns>
     private async ValueTask<bool> TryRemoveAsync(CacheKey current)
     {
-        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        using (ReplicaApplyContext.Enter())
         {
             try
             {

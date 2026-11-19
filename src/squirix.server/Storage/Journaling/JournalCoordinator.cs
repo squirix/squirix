@@ -217,32 +217,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
-    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
-        ArgumentNullException.ThrowIfNull(responseBytes);
-
-        return ExecuteUnderSnapshotBarrierAsync(
-            (Journal: this, Pipeline: _appendPipeline, OperationId: operationId, Fingerprint: fingerprint, ResponseBytes: responseBytes, Appended: appended),
-            static async (state, ownership, ct) =>
-            {
-                // Entered after the mutation gate is held, mirroring DurableMutationExecutor: lets snapshot-cut
-                // quiesce idempotency outcomes alongside cache mutations without risking a gate deadlock.
-                state.Journal.InFlightApplyGate.Enter();
-                try
-                {
-                    var record = state.Pipeline.AllocateIdempotencyRecord(in ownership, state.OperationId, state.Fingerprint, state.ResponseBytes);
-                    await state.Pipeline.AppendRecordCoreAsync(record, ct, state.Appended).ConfigureAwait(false);
-                }
-                finally
-                {
-                    state.Journal.InFlightApplyGate.Exit();
-                }
-            },
-            cancellationToken);
-    }
-
     public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
@@ -461,21 +435,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             _timeProvider = timeProvider;
         }
 
-        internal JournalRecord AllocateIdempotencyRecord(in AsyncLockOwnership ownership, string operationId, string fingerprint, byte[] responseBytes)
-        {
-            // Allocated before renting: a caller refused for not holding the gate leaves no record out of the pool.
-            var sequence = _owner.AllocateSequence(in ownership);
-            var record = JournalRecord.RentForAppend();
-            record.Sequence = sequence;
-            record.UnixMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-            record.Operation = JournalOperationKind.IdempotencyOutcome;
-            record.Key = new CacheKey(string.Empty, string.Empty);
-            record.IdempotencyOperationId = operationId;
-            record.IdempotencyFingerprint = fingerprint;
-            record.IdempotencyResponseBytes = responseBytes;
-            return record;
-        }
-
         internal JournalRecord AllocateRecord(in AsyncLockOwnership ownership, CacheKey key, JournalOperationKind operation, ReadOnlyMemory<byte> putEntryBytes = default)
         {
             // Allocated before renting: a caller refused for not holding the gate leaves no record out of the pool.
@@ -489,21 +448,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return record;
         }
 
-        internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken, Action? accepted = null)
+        internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
         {
-            var idempotencyStamped = StampIdempotencyOperationId(record);
-            var cacheMutation = record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove;
-            if (cacheMutation && (JournalMutationContext.Current?.HasAppendedOutcome ?? false))
-            {
-                // The scope already appended its outcome frame, and its write was answered and recorded as completed: a further mutation frame
-                // would not be covered by that outcome, so a retry would replay success without it. Refused before the frame is enqueued or
-                // stamped, and the journal is latched, because this is a programming error that must not continue.
-                record.ReturnToAppendPool();
-                var refusal = new InvalidOperationException("a cache mutation frame was appended after the operation's outcome frame.");
-                _owner.DurabilityPipeline.FailJournalPipeline(refusal);
-                throw refusal;
-            }
-
             _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
             await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -527,11 +473,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 }
 
                 var startedMs = Environment.TickCount64;
-                await EnqueueAppendAsync(frameBytes, frameLen, idempotencyStamped, cacheMutation, cancellationToken).ConfigureAwait(false);
+                await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
 
-                // Nothing between the ring enqueue and this callback throws except the typed post-enqueue fault of the write ack, so a caller
-                // that sets a flag here knows exactly whether the frame is on the ring; the metrics below may throw and run after it.
-                accepted?.Invoke();
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
             finally
@@ -539,38 +482,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 record.ReturnToAppendPool();
             }
         }
-
-        /// <summary>
-        /// Stamps mutation frames appended inside an operation scope with the active operation id. The durable
-        /// frame becomes the write-ahead intent: recovery can reconstruct "started but outcome unknown" records from
-        /// it and refuse to re-execute the mutation after a crash.
-        /// </summary>
-        /// <param name="record">The record about to be encoded and enqueued.</param>
-        /// <returns>
-        /// <see langword="true" /> when the record was stamped from the ambient scope. The caller reports it via
-        /// <see cref="IJournalMutationContext.NotifyMutationStamped" /> only after the frame is
-        /// successfully enqueued: a failure before enqueue (encode, gate, or ring) leaves the idempotency
-        /// reservation retryable instead of pinning it as outcome-unknown.
-        /// </returns>
-        private static bool StampIdempotencyOperationId(JournalRecord record)
-        {
-            if (record.MutationOperationId != null)
-                return false;
-
-            var stampedOperationId = ResolveAmbientOperationId(record);
-
-            record.MutationOperationId = stampedOperationId;
-            record.MutationFingerprint = stampedOperationId != null ? JournalMutationContext.Current?.Fingerprint : null;
-            return stampedOperationId != null;
-        }
-
-        /// <summary>Resolves the ambient operation id for record kinds that carry client mutations; other kinds keep their existing id.</summary>
-        /// <param name="record">The record about to be stamped.</param>
-        /// <returns>The operation id to stamp, or the record's current id for kinds that are never stamped from the ambient scope.</returns>
-        private static string? ResolveAmbientOperationId(JournalRecord record) =>
-            record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove
-                ? JournalMutationContext.Current?.OperationId
-                : record.MutationOperationId;
 
         /// <summary>Waits for the journal thread's write ack of a frame already on the ring.</summary>
         /// <param name="appendAck">Write ack of the enqueued frame.</param>
@@ -590,7 +501,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             }
         }
 
-        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, bool idempotencyStamped, bool cacheMutation, CancellationToken cancellationToken)
+        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
         {
             var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) : null;
             var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
@@ -607,13 +518,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
                 throw;
             }
-
-            // The frame is on the ring and may become durable even if the write ack below faults (shutdown or the failure latch after the
-            // write reached the file), so the stamp is reported before that wait: the idempotency intent must survive such a fault.
-            if (idempotencyStamped)
-                JournalMutationContext.Current?.NotifyMutationStamped();
-            else if (cacheMutation)
-                JournalMutationContext.Current?.NotifyMutationApplied();
 
             // The durability wait stays outside the gate: the gate covers only the publishing, so a
             // slow journal thread never blocks shutdown drain on fsync latency.

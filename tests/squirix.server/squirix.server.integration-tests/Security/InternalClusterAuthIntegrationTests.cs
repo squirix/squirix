@@ -9,7 +9,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -335,10 +334,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         var receiver = cluster["node-a"];
         var stored = receiver.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey("default", key), cancellationToken);
-        var idempotency = receiver.GetRequiredService<RpcMutationIdempotencyStore>();
         _ = await Assert.That(stored.Found).IsFalse();
-        _ = await Assert.That(idempotency.RecordCount).IsEqualTo(0);
-        _ = await Assert.That(idempotency.ExecutionCount).IsEqualTo(0);
     }
 
     private async Task AssertReadyAsync(ITestNodeHost node, CancellationToken cancellationToken)

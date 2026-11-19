@@ -11,7 +11,6 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -142,7 +141,6 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             StoreFactory.CreateReader(),
             clock);
         await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);

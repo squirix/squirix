@@ -9,8 +9,7 @@ namespace Squirix.Server.Errors;
 /// <para>
 /// On the wire it is <see cref="FrameStatus.Unavailable" /> with <see cref="ServerOpContract.OwnerUnreachableDetail" />. On this node it also
 /// carries the connection failure as its cause, which no status received from a peer carries, so a failure a peer relays with the same detail
-/// is never taken for one. The forwarder raises it only when no attempt of the forward connected to the target; the safety of running the
-/// request elsewhere rests, as for any retry, on its operation id and the idempotency of the group log.
+/// is never taken for one. The forwarder raises it only when no attempt of the forward connected to the target; the request can then be routed elsewhere safely.
 /// </para>
 /// <para>
 /// Only a failure the transport reports as a connect failure counts. A target whose host does not answer at all, or a connect slower than the

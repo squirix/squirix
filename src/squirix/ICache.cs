@@ -23,6 +23,7 @@ public interface ICache<T>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the value has been added.</returns>
     /// <exception cref="CacheConflictException">Thrown when a live entry already exists for <paramref name="key" />.</exception>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task AddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>Gets a full entry with presence information. Expired entries are returned as not found.</summary>
@@ -69,12 +70,14 @@ public interface ICache<T>
     /// <param name="key">Cache key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> when a live entry was removed; otherwise <see langword="false" />.</returns>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default);
 
     /// <summary>Removes expiration from a live entry.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> when a live entry expiration was removed; otherwise <see langword="false" />.</returns>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken = default);
 
     /// <summary>Creates or overwrites the value for the key.</summary>
@@ -86,6 +89,7 @@ public interface ICache<T>
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the value has been stored.</returns>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>Updates the expiration of a live entry using the provided relative expiration.</summary>
@@ -93,6 +97,7 @@ public interface ICache<T>
     /// <param name="expiration">Relative expiration to apply.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> when a live entry was updated; otherwise <see langword="false" />.</returns>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default);
 
     /// <summary>Updates the expiration of a live entry using an absolute expiration time on the client clock.</summary>
@@ -103,6 +108,7 @@ public interface ICache<T>
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> when a live entry was updated; otherwise <see langword="false" />.</returns>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task<bool> TouchAsync(string key, DateTimeOffset absoluteExpiration, CancellationToken cancellationToken = default);
 
     /// <summary>Attempts to add a new value for the key without throwing for an existing live entry.</summary>
@@ -111,6 +117,7 @@ public interface ICache<T>
     /// <param name="options">Entry options. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> when the value was added; otherwise <see langword="false" />.</returns>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>Updates the value of a live entry without affecting its expiration.</summary>
@@ -122,5 +129,6 @@ public interface ICache<T>
     /// The value update and expiration preservation are performed as a single cache operation.
     /// If the key is missing or expired, no value is written.
     /// </remarks>
+    /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
     Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default);
 }

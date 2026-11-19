@@ -17,7 +17,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
-/// <summary>A hosted write through the production decorator chain waits for one flush, and a remove answers what it saw when it was prepared.</summary>
+/// <summary>A hosted write through the production decorator chain waits for one flush, and a remove removes the entry after durability.</summary>
 [Immutable]
 public sealed class FusedWriteChainTests : IsolatedStorageTestBase
 {
@@ -25,7 +25,7 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
 
     private readonly Meter _testMeter = new("test-fused-write-chain");
 
-    /// <summary>A set of an absent key through memory admission and payload preparation flushes once and records its outcome.</summary>
+    /// <summary>A set of an absent key through memory admission and payload preparation flushes once and produces a plain mutation frame.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task SetThroughHostChainFlushesOnce(CancellationToken cancellationToken)
@@ -41,14 +41,14 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
         var frames = harness.ReadFrames(cancellationToken);
 
         _ = await Assert.That(flushes).IsEqualTo(1);
-        _ = await Assert.That(frames).Count().IsEqualTo(2);
-        _ = await Assert.That(frames[1].Operation).IsEqualTo(JournalOperationKind.IdempotencyOutcome);
+        _ = await Assert.That(frames).Count().IsEqualTo(1);
+        _ = await Assert.That(frames[0].Operation).IsEqualTo(JournalOperationKind.Put);
     }
 
-    /// <summary>A remove of an entry that is live when it is prepared and expires while its flush is parked answers what it removed, and memory matches the journal.</summary>
+    /// <summary>A remove of an entry that is live when it is prepared and expires while its flush is parked leaves it absent in memory and after recovery.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RemoveExpiringWhileParkedReportsRemoved(CancellationToken cancellationToken)
+    public async Task RemoveExpiringWhileParkedRecoversAbsent(CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
@@ -59,14 +59,12 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         harness.Clock.Advance(TimeSpan.FromSeconds(2));
         journal.Writer.Flush.Release();
-        var response = await remove.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        _ = await remove.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
-        var (memory, store) = await harness.RecoverAsync(cancellationToken);
+        var memory = await harness.RecoverAsync(cancellationToken);
 
-        _ = await Assert.That(response.Removed).IsTrue();
         _ = await Assert.That(harness.Physical.GetEntry(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
         _ = await Assert.That(memory.GetEntry(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
-        _ = await Assert.That(store.RecordCount).IsEqualTo(2);
     }
 
     /// <inheritdoc />

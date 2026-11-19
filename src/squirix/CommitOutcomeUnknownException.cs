@@ -4,7 +4,7 @@ using Squirix.Internal.Cluster.Reliability;
 
 namespace Squirix;
 
-/// <summary>Thrown when a mutation may have committed but its exact durable outcome could not be confirmed within the original request budget.</summary>
+/// <summary>Thrown when a mutation may have committed but its outcome could not be confirmed.</summary>
 [PublicAPI]
 public sealed class CommitOutcomeUnknownException : Exception
 {

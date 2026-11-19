@@ -55,9 +55,9 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        await AssertForwardRejectedAsync(ex);
+        await AssertForwardRejectedOrUnknownAsync(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), cancellationToken);
+        var owner = await cluster.GetCacheAsync<object?>("orders", "nodeB", cancellationToken);
+        _ = await Assert.That((await owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies node A rejects internode forwarding to node C with an untrusted server certificate while node B traffic still flows.</summary>
@@ -106,9 +106,9 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-expired-peer");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        await AssertForwardRejectedAsync(ex);
+        await AssertForwardRejectedOrUnknownAsync(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), cancellationToken);
+        var owner = await cluster.GetCacheAsync<object?>("orders", "nodeB", cancellationToken);
+        _ = await Assert.That((await owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies node B rejects internode forwarding when node A does not present a client certificate.</summary>
@@ -122,9 +122,9 @@ public sealed class InterNodeMtlsTests
         var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        await AssertForwardRejectedAsync(ex);
+        await AssertForwardRejectedOrUnknownAsync(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), cancellationToken);
+        var owner = await cluster.GetCacheAsync<object?>("orders", "nodeB", cancellationToken);
+        _ = await Assert.That((await owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies external JWT authentication works independently of internode mTLS forwarding.</summary>
@@ -168,6 +168,26 @@ public sealed class InterNodeMtlsTests
         _ = await Assert.That(
             exception.StatusCode == CacheTransportStatusCode.Unavailable || exception.StatusCode == CacheTransportStatusCode.Internal || exception.StatusCode == CacheTransportStatusCode.Unknown ||
             exception.StatusCode == CacheTransportStatusCode.DeadlineExceeded).IsTrue();
+    }
+
+    private static async Task AssertForwardRejectedOrUnknownAsync(Task write, CancellationToken cancellationToken)
+    {
+        var failed = false;
+        try
+        {
+            await write.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        }
+        catch (SquirixTransportException error)
+        {
+            await AssertForwardRejectedAsync(error);
+            failed = true;
+        }
+        catch (CommitOutcomeUnknownException)
+        {
+            failed = true;
+        }
+
+        _ = await Assert.That(failed).IsTrue();
     }
 
     private static async Task<ICache<object?>> ConnectForForwardingAsync(HostedCluster cluster, CancellationToken cancellationToken)

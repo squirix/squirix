@@ -44,11 +44,12 @@ internal static class BinaryEndpoint
         ApiPath + nameof(BinaryOperation.RefreshDistributed),
     ];
 
-    internal static ConnectionDelegate Create(ConnectionDelegate next, IServiceProvider services)
+    internal static ConnectionDelegate Create(ConnectionDelegate next, IServiceProvider services, bool mutationReplay)
     {
         var validator = services.GetService<ConnectionAuthenticationValidator>();
         var authenticate = new ConnectionAuthenticationMiddleware(DispatchAsync, validator, TimeProvider.System);
-        return connection => AcceptAsync(connection, next, authenticate, services, validator != null);
+        var accepted = mutationReplay ? Frames.AcceptedWithMutationReplay : Frames.Accepted;
+        return connection => AcceptAsync(connection, next, authenticate, services, validator != null, accepted);
 
         Task DispatchAsync(ConnectionContext connection)
         {
@@ -61,7 +62,8 @@ internal static class BinaryEndpoint
         ConnectionDelegate next,
         ConnectionAuthenticationMiddleware authenticate,
         IServiceProvider services,
-        bool requiresCredentials)
+        bool requiresCredentials,
+        byte accepted)
     {
         var reader = connection.Transport.Input;
         using var timeout = new TimedCancellation(TimeSpan.FromSeconds(5), TimeProvider.System, connection.ConnectionClosed);
@@ -74,7 +76,7 @@ internal static class BinaryEndpoint
             {
                 var allowed = mode == 1 ? requiresCredentials : mode == 0 && !requiresCredentials;
                 var writer = connection.Transport.Output;
-                writer.GetSpan(1)[0] = allowed ? Frames.Accepted : Frames.Rejected;
+                writer.GetSpan(1)[0] = allowed ? accepted : Frames.Rejected;
                 writer.Advance(1);
                 _ = await writer.FlushAsync(timeout.Token).ConfigureAwait(false);
                 if (!allowed)

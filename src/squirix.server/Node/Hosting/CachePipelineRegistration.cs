@@ -10,7 +10,6 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
@@ -34,8 +33,6 @@ internal static class CachePipelineRegistration
             ResolveLocalCache(sp),
             sp.GetRequiredService<PhysicalCache<object?>>(),
             sp.GetService<JournalLoggingCacheDecorator<object?>>(),
-            sp.GetRequiredService<RpcMutationIdempotencyStore>(),
-            sp.GetRequiredService<IRpcMutationIdempotencyCoordinator>(),
             sp.GetRequiredService<IBackpressureGate>(),
             sp.GetRequiredService<IBackpressureClientIdResolver>()));
 

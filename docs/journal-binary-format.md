@@ -42,9 +42,9 @@ u32 payloadLen       // per opcode, see below
 | 5      | RemoveWithMutationOperationId | mutation prefix only                                    |
 | 6      | IdempotencyStarted            | structured write-ahead idempotency intent               |
 
-The mutation prefix of opcodes 4 and 5 is `u16 operationIdLen`, the operation id (UTF-8), `u16 fingerprintLen`, the request fingerprint
-(UTF-8; `0` when none). A cache-entry frame written for an idempotent RPC carries it as the write-ahead intent, so recovery rebuilds the
-started record with the fingerprint. A frame applied from a replica group entry carries no prefix: the group log is its durable source.
+New records use opcodes 1 and 2. Recovery reads older opcodes 3 through 6. The mutation prefix of opcodes 4
+and 5 is `u16 operationIdLen`, the UTF-8 operation ID, `u16 fingerprintLen`, and the UTF-8 fingerprint. Recovery
+applies the cache mutation from those frames and skips the historical outcome and intent records.
 
 ## Cache-entry frames
 

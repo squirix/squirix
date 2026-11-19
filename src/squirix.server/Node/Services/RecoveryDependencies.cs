@@ -17,7 +17,6 @@ internal sealed class RecoveryDependencies<T>
         Ledger manifestStore,
         ILocalCacheRecovery<T> localCache,
         AsyncManualResetEvent asyncManualResetEvent,
-        RpcMutationIdempotencyStore idempotency,
         ISnapshotReader snapshotReader,
         TimeProvider timeProvider)
     {
@@ -25,14 +24,12 @@ internal sealed class RecoveryDependencies<T>
         ArgumentNullException.ThrowIfNull(manifestStore);
         ArgumentNullException.ThrowIfNull(localCache);
         ArgumentNullException.ThrowIfNull(asyncManualResetEvent);
-        ArgumentNullException.ThrowIfNull(idempotency);
         ArgumentNullException.ThrowIfNull(snapshotReader);
         ArgumentNullException.ThrowIfNull(timeProvider);
         Persistence = persistence;
         Ledger = manifestStore;
         LocalCache = localCache;
         AsyncManualResetEvent = asyncManualResetEvent;
-        Idempotency = idempotency;
         SnapshotReader = snapshotReader;
         TimeProvider = timeProvider;
     }
@@ -41,8 +38,6 @@ internal sealed class RecoveryDependencies<T>
 
     /// <summary>Gets who decides expiry; under <see cref="CacheExpiryAuthority.CommittedRecords" /> replay keeps entries past their deadline.</summary>
     internal CacheExpiryAuthority Expiry { get; init; } = CacheExpiryAuthority.LocalClock;
-
-    internal RpcMutationIdempotencyStore Idempotency { get; }
 
     internal Ledger Ledger { get; }
 

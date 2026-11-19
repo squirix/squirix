@@ -176,12 +176,10 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
             Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
             Arg.Any<CancellationToken>()).Callback((_, _, _, token) => gate?.WaitAsync(token) ?? ValueTask.FromResult("snap-test-path"));
-        var exporter = new IIdempotencySnapshotExporterCreateExpectations();
-        _ = exporter.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
         return new Coordinator(
             opt,
             metrics,
-            new CoordinatorDependencies(capture.Instance(), writer.Instance(), store, exporter.Instance(), "test-node", NoOpSnapshotTelemetry.Instance),
+            new CoordinatorDependencies(capture.Instance(), writer.Instance(), store, "test-node", NoOpSnapshotTelemetry.Instance),
             clock);
     }
 

@@ -71,7 +71,9 @@ every digit of a number survives a restart and a replica. The text is exactly on
 valid UTF-8, no comments, no trailing commas and nesting of at most 64 levels. A reader checks this and refuses an entry that
 fails, and it copies the text into its own buffer. Value kinds that are not listed (including `8` and above) are refused.
 
-## Idempotency body
+## Historical node outcome body
+
+Current node snapshots contain cache entries. Recovery can read historical outcome records and restores the cache entries.
 
 The current writer starts each body with a state byte. All integer fields below are little-endian.
 

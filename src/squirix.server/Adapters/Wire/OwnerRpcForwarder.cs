@@ -16,9 +16,9 @@ namespace Squirix.Server.Adapters.Wire;
 /// <summary>Sends an inbound single-key RPC unchanged from the entry node to the key owner and returns the owner response as is.</summary>
 /// <remarks>
 /// The entry node takes its own backpressure admission for the duration of the hop, including any slowdown delay and queue wait, but reserves
-/// no operation id, runs no cache pipeline and writes no journal record: only the owner does. The owner admits the forwarded call only to a
+/// no replay outcome, runs no cache pipeline and writes no journal record: only the owner does. The owner admits the forwarded call only to a
 /// free slot and refuses it at once otherwise, so a forwarded request waits in at most one admission queue and nodes never wait on each
-/// other. The request instance is sent as parsed, so the owner computes the same fingerprint as for a direct call.
+/// other. The request instance is sent as parsed.
 /// </remarks>
 [Immutable]
 internal sealed class OwnerRpcForwarder
@@ -27,8 +27,9 @@ internal sealed class OwnerRpcForwarder
     private readonly IBackpressureGate _gate;
     private readonly IServerClientPool _pool;
     private readonly RingAgreement _ringAgreement;
+    private readonly bool _mutationReplay;
 
-    internal OwnerRpcForwarder(IServerClientPool pool, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver, RingAgreement ringAgreement)
+    internal OwnerRpcForwarder(IServerClientPool pool, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver, RingAgreement ringAgreement, bool mutationReplay = false)
     {
         ArgumentNullException.ThrowIfNull(pool);
         ArgumentNullException.ThrowIfNull(gate);
@@ -38,6 +39,7 @@ internal sealed class OwnerRpcForwarder
         _gate = gate;
         _clientIdResolver = clientIdResolver;
         _ringAgreement = ringAgreement;
+        _mutationReplay = mutationReplay;
     }
 
     internal Task<GetEntryAsyncResponse> GetEntryAsync(string owner, GetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
@@ -146,7 +148,8 @@ internal sealed class OwnerRpcForwarder
 
         // The call policy may make several attempts and rethrows only the last failure, so every attempt is recorded: a forward is reported as
         // unreachable only when no attempt connected.
-        var attempts = new ConnectAttempts();
+        var preventReplay = !_mutationReplay && request is not (GetEntryAsyncRequest or GetExpirationAsyncRequest or GetValueAsyncRequest or GetDistributedAsyncRequest);
+        var attempts = new ConnectAttempts(preventReplay);
         using (lease)
         {
             try
@@ -190,7 +193,13 @@ internal sealed class OwnerRpcForwarder
     [ThreadSafe]
     private sealed class ConnectAttempts
     {
+        private readonly bool _preventReplay;
         private int _connected;
+
+        internal ConnectAttempts(bool preventReplay)
+        {
+            _preventReplay = preventReplay;
+        }
 
         /// <summary>Gets a value indicating whether every failed attempt so far failed to connect, so none of them sent the request.</summary>
         internal bool NoneConnected => Volatile.Read(ref _connected) == 0;
@@ -217,8 +226,21 @@ internal sealed class OwnerRpcForwarder
             catch (Exception ex) when (!OwnerUnreachableFailure.IsConnectFailure(ex is ServerCallException rpc ? rpc.InnerException : ex))
             {
                 Volatile.Write(ref _connected, 1);
+                if (_preventReplay && IsOutcomeUncertain(ex))
+                    throw ServerOpContract.CommitOutcomeUnknown().ToServerCallException();
                 throw;
             }
         }
+
+        private static bool IsOutcomeUncertain(Exception error) => error switch
+        {
+            ServerCallException rpc =>
+                (rpc.StatusCode is FrameStatus.Unavailable or FrameStatus.Cancelled or FrameStatus.DeadlineExceeded or FrameStatus.Internal)
+                && !RingMismatchFailure.IsRefusal(rpc)
+                && !StaleRouteSignals.TryReadStale(rpc, out _)
+                && !string.Equals(rpc.Message, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal),
+            OperationCanceledException or HttpRequestException or IOException => true,
+            _ => false,
+        };
     }
 }

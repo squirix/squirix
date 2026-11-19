@@ -6,8 +6,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -21,26 +19,14 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
-/// <summary>On a replicated host the replica group is the only authority that dedupes a write: the node-wide replay store takes no part.</summary>
+/// <summary>The replica group replays committed write outcomes.</summary>
 public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
 {
     private const string CacheName = "default";
     private const string Owner = "node-a";
     private const int Duplicates = 8;
 
-    /// <summary>A replicated host resolves the group coordinator, a single-copy host the one backed by the node-wide store.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task HostsResolveTheirOwnAuthority(CancellationToken cancellationToken)
-    {
-        await using var single = await StartClusterAsync("n1", new IntegrationStartOptions { EnableReplication = false }, cancellationToken);
-        await using var replicated = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-composition"), cancellationToken);
-
-        _ = await Assert.That(single["n1"].GetRequiredService<IRpcMutationIdempotencyCoordinator>()).IsTypeOf<RpcMutationIdempotencyCoordinator>();
-        _ = await Assert.That(replicated[Owner].GetRequiredService<IRpcMutationIdempotencyCoordinator>()).IsTypeOf<ReplicatedMutationCoordinator>();
-    }
-
-    /// <summary>A retry of a committed write replays the group outcome and appends nothing, and the node-wide store stays empty.</summary>
+    /// <summary>A retry of a committed write replays the group outcome without appending another record.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RetryReplaysGroupOutcome(CancellationToken cancellationToken)
@@ -58,7 +44,6 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         _ = await Assert.That(first.Added).IsTrue();
         _ = await Assert.That(retried.Added).IsTrue();
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(committed);
-        _ = await Assert.That(cluster[Owner].GetRequiredService<RpcMutationIdempotencyStore>().RecordCount).IsEqualTo(0);
     }
 
     /// <summary>Concurrent duplicates of one write join the first commit: the group log gets one entry and every caller gets its outcome.</summary>
@@ -83,7 +68,6 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
             _ = await Assert.That(response.Added).IsTrue();
 
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(before + 1);
-        _ = await Assert.That(cluster[Owner].GetRequiredService<RpcMutationIdempotencyStore>().RecordCount).IsEqualTo(0);
     }
 
     /// <summary>An operation identifier reused with another request is refused by the group as a reuse, and nothing is appended.</summary>
@@ -139,7 +123,6 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         _ = await Assert.That(existing.Found).IsTrue();
         _ = await Assert.That(existing.Value).IsEqualTo(ServerProtoEx.CacheValueToProto("first"));
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(committed);
-        _ = await Assert.That(cluster[Owner].GetRequiredService<RpcMutationIdempotencyStore>().RecordCount).IsEqualTo(0);
     }
 
     /// <summary>A retry of a committed touch replays the group outcome without appending another renewal.</summary>
@@ -162,7 +145,6 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         _ = await Assert.That(first.Found).IsTrue();
         _ = await Assert.That(retried.Found).IsTrue();
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(committed);
-        _ = await Assert.That(cluster[Owner].GetRequiredService<RpcMutationIdempotencyStore>().RecordCount).IsEqualTo(0);
     }
 
     /// <summary>The group tells an operation by its group and cache: the same identifier on another cache is a separate operation, not a reuse.</summary>

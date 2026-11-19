@@ -46,9 +46,9 @@ group leader (`FailedPrecondition` with detail `stale-term`) reroutes the call a
 `COMMIT_OUTCOME_UNKNOWN` is neither retried nor failed over. Avoid adding an unbounded application retry loop around
 these SDK retries; inspect capacity and validation failures instead.
 
-The client SDK keeps the same `operation_id` when it retries a mutating RPC on the next bootstrap endpoint. Server
-nodes propagate that id through owner-routing hops, so a retry that reaches a different entry node still deduplicates on
-the key owner when the payload fingerprint matches. See [api.md](api.md) for `operation_id` format and replay rules.
+For a node without replica groups, the SDK returns `CommitOutcomeUnknownException` when it cannot confirm
+whether a sent mutation took effect. For replica groups, retries keep the operation identifier across endpoints and
+owner routing. See [api.md](api.md) for the replica-group replay rules.
 
 ## Operation deadline
 
@@ -58,16 +58,16 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
 
 - The client sends the deadline to the server as a timeout in the binary request. The entry node and any owner-routing hop work
   within the same remaining budget.
-- When the deadline passes, the operation fails with `SquirixTransportException` and status `DeadlineExceeded`; no further attempt or
-  endpoint is tried. When the deadline passes after an endpoint failed with a transport error, that endpoint's error is
-  surfaced and the remaining endpoints are not tried.
+- When the deadline passes before a request could have reached the server (or while waiting for a read), the operation fails
+  with `SquirixTransportException` and status `DeadlineExceeded`. No further attempt or endpoint is tried.
+  If an endpoint already failed with a transport error, the SDK surfaces that error when the deadline passes.
 - For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by
   cancellation. Concurrent callers using the same client-side cache instance and key share one in-flight factory run, and its token is canceled once every caller waiting
   on it has canceled; a canceled caller stops waiting without canceling the others.
 - A caller `CancellationToken` still applies: whichever of the token and the deadline fires first ends the operation.
   Caller cancellation surfaces as `OperationCanceledException`.
 - A mutation that times out or whose caller stops waiting may still have been applied on the server. A new SDK call
-  gets a new `operation_id`. Reconcile the application state before repeating a non-idempotent change; reading the key
+  starts a separate operation. Reconcile the application state before repeating a non-idempotent change; reading the key
   can help, but does not by itself prove which writer produced its current value.
 - Deadline expiry is counted in `squirix_rpc_timeouts_total` with tags `scope=overall` and `kind=deadline_budget`.
 

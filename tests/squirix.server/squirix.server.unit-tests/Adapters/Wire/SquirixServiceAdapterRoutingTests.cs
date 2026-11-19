@@ -10,7 +10,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
@@ -168,7 +167,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
             new IInboundEndpointCacheOperationsCreateExpectations<object?>().Instance(),
             router,
             new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
-            new IRpcMutationIdempotencyCoordinatorCreateExpectations().Instance(),
+            false,
             TimeProvider.System);
     }
 
