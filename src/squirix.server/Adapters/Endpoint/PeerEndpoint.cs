@@ -93,7 +93,7 @@ internal static class PeerEndpoint
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(buffer, true);
             http.RequestAborted = aborted;
         }
 

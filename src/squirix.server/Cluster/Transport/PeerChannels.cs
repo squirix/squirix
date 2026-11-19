@@ -1,9 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Threading;
-using Grpc.Net.Client;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -56,20 +54,20 @@ internal sealed class PeerChannels
     /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
-    private PeerChannels(HttpClient forward, HttpClient replication, GrpcChannel lease)
+    private PeerChannels(HttpClient forward, HttpClient replication)
     {
         Forward = forward;
         Replication = new PeerClient(replication, null);
-        Lease = lease;
+        Lease = replication;
     }
 
     /// <summary>Gets the channel of client calls forwarded to the peer.</summary>
     internal HttpClient Forward { get; }
 
-    /// <summary>Gets the channel of every other internode call: replication, elections and probes.</summary>
-    internal GrpcChannel Lease { get; }
-
     internal IPeerClient Replication { get; }
+
+    /// <summary>Gets the channel of every other internode call: replication, elections and probes.</summary>
+    private HttpClient Lease { get; }
 
     /// <summary>Creates both channels of a peer; when the second fails, the first is disposed before the failure propagates.</summary>
     /// <param name="nodeId">The peer node identifier.</param>
@@ -93,14 +91,7 @@ internal sealed class PeerChannels
         {
             forward = CreateClient(address, nodeId, args, verifier, connections, forwardConnectTimeout);
             replication = CreateClient(address, nodeId, args, verifier, connections, null);
-            var transfer = GrpcChannel.ForAddress(address, new GrpcChannelOptions
-            {
-                HttpClient = replication,
-                DisposeHttpClient = true,
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            });
-            var created = new PeerChannels(forward, replication, transfer);
+            var created = new PeerChannels(forward, replication);
             forward = null;
             replication = null;
             return created;

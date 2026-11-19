@@ -27,14 +27,15 @@ internal static class PeerProtocol
     internal static async Task<T> SendAsync<T>(HttpClient client, string path, IMessage request, MessageParser<T> parser, string? fingerprint, CancellationToken cancellationToken)
         where T : IMessage<T>
     {
-        if (request.CalculateSize() > EntryLimits.GrpcMaxSendMessageSizeBytes)
+        var length = request.CalculateSize();
+        if (length > EntryLimits.GrpcMaxSendMessageSizeBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The request exceeds the peer message limit.");
 
         using var message = new HttpRequestMessage(HttpMethod.Post, Prefix + path)
         {
             Version = HttpVersion.Version20,
             VersionPolicy = HttpVersionPolicy.RequestVersionExact,
-            Content = new RequestContent(request.ToByteArray()),
+            Content = new RequestContent(request, length),
         };
         message.Content.Headers.ContentType = new MediaTypeHeaderValue(MediaType);
         if (fingerprint != null)
@@ -92,12 +93,14 @@ internal static class PeerProtocol
 
     private sealed class RequestContent : HttpContent
     {
-        private readonly byte[] _bytes;
+        private readonly IMessage _message;
+        private readonly int _length;
         private int _started;
 
-        internal RequestContent(byte[] bytes)
+        internal RequestContent(IMessage message, int length)
         {
-            _bytes = bytes;
+            _message = message;
+            _length = length;
         }
 
         internal bool Started => Volatile.Read(ref _started) != 0;
@@ -105,15 +108,24 @@ internal static class PeerProtocol
         protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
             SerializeToStreamAsync(stream, context, CancellationToken.None);
 
-        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
         {
-            Volatile.Write(ref _started, 1);
-            return stream.WriteAsync(_bytes.AsMemory(), cancellationToken).AsTask();
+            var bytes = ArrayPool<byte>.Shared.Rent(_length);
+            try
+            {
+                _message.WriteTo(bytes.AsSpan(0, _length));
+                Volatile.Write(ref _started, 1);
+                await stream.WriteAsync(bytes.AsMemory(0, _length), cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(bytes, true);
+            }
         }
 
         protected override bool TryComputeLength(out long length)
         {
-            length = _bytes.Length;
+            length = _length;
             return true;
         }
     }

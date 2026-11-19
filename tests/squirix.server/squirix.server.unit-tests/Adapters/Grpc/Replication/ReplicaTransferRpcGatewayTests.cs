@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Net;
@@ -173,8 +172,6 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
     /// <summary>Answers every call with a scripted gRPC reply and keeps the requests it received.</summary>
     private sealed class ScriptedHandler : HttpMessageHandler
     {
-        private const int FrameHeaderBytes = 5;
-
         internal List<TransferReplicaStateRequest> Received { get; } = [];
 
         internal TransferReplicaStateResponse Reply { get; init; } = new();
@@ -182,14 +179,11 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var body = await request.Content!.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            Received.Add(TransferReplicaStateRequest.Parser.ParseFrom(body.AsSpan(FrameHeaderBytes)));
+            Received.Add(TransferReplicaStateRequest.Parser.ParseFrom(body));
             var payload = Reply.ToByteArray();
-            var frame = new byte[FrameHeaderBytes + payload.Length];
-            BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(1), uint.CreateChecked(payload.Length));
-            payload.CopyTo(frame, FrameHeaderBytes);
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { Version = HttpVersion.Version20, Content = new ByteArrayContent(frame) };
-            response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc");
-            response.TrailingHeaders.Add("grpc-status", "0");
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Version = HttpVersion.Version20, Content = new ByteArrayContent(payload) };
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue(PeerProtocol.MediaType);
+            response.Headers.Add(PeerProtocol.StatusHeader, "0");
             return response;
         }
     }

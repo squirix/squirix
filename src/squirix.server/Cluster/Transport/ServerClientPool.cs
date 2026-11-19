@@ -120,10 +120,10 @@ internal sealed class ServerClientPool : IServerClientPool
         try
         {
             if (!cancellationToken.CanBeCanceled)
-                return new ServerChannelLease(channels.Lease, channels.Replication, null, _calls, _closing.Token);
+                return new ServerChannelLease(channels.Replication, null, _calls, _closing.Token);
 
             var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _closing.Token);
-            return new ServerChannelLease(channels.Lease, channels.Replication, linked, _calls, linked.Token);
+            return new ServerChannelLease(channels.Replication, linked, _calls, linked.Token);
         }
         catch
         {
