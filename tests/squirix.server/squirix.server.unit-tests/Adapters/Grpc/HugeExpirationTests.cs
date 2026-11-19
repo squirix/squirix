@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -159,7 +160,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
-        return new SquirixServiceAdapter<object?>(
+        return new SquirixServiceAdapter<object?>(new RoutedCacheOperations<object?>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(
@@ -168,6 +169,6 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
             new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance),
-            TimeProvider.System);
+            TimeProvider.System));
     }
 }

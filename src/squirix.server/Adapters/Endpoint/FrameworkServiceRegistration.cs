@@ -10,7 +10,6 @@ using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 
@@ -29,9 +28,9 @@ internal static class FrameworkServiceRegistration
             configureGrpc?.Invoke(o);
         }).AddServiceOptions<SquirixServiceAdapter<object?>>(static o => o.Interceptors.Add<CacheAdmissionInterceptor>());
 
-        _ = services.AddSingleton(static sp => new CacheAdmissionInterceptor(
-            sp.GetRequiredService<IBackpressureGate>(),
-            sp.GetRequiredService<IBackpressureClientIdResolver>()));
+        _ = services.AddSingleton<CacheRequestAdmission>();
+        _ = services.AddSingleton<CacheAdmissionInterceptor>();
+        _ = services.AddSingleton<BinaryDispatch>();
 
         // Clients never compress requests; refusing them rules out decompression bombs. Post-configure because
         // gRPC re-adds gzip and deflate after AddGrpc callbacks when the provider list is empty.

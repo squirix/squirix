@@ -1,56 +1,58 @@
+using Squirix.Transport.Binary;
+
 namespace Squirix.Transport;
 
 /// <summary>Classifies the outcome of a remote cache operation.</summary>
 public enum CacheTransportStatusCode
 {
     /// <summary>The call succeeded.</summary>
-    Ok = 0,
+    Ok = FrameStatus.Ok,
 
     /// <summary>The call was cancelled.</summary>
-    Cancelled = 1,
+    Cancelled = FrameStatus.Cancelled,
 
     /// <summary>The failure was not classified.</summary>
-    Unknown = 2,
+    Unknown = FrameStatus.Unknown,
 
     /// <summary>A request argument was invalid.</summary>
-    InvalidArgument = 3,
+    InvalidArgument = FrameStatus.InvalidArgument,
 
     /// <summary>The deadline expired.</summary>
-    DeadlineExceeded = 4,
+    DeadlineExceeded = FrameStatus.DeadlineExceeded,
 
     /// <summary>The requested resource was absent.</summary>
-    NotFound = 5,
+    NotFound = FrameStatus.NotFound,
 
     /// <summary>The resource already existed.</summary>
-    AlreadyExists = 6,
+    AlreadyExists = FrameStatus.AlreadyExists,
 
     /// <summary>The identity was forbidden from calling the operation.</summary>
-    PermissionDenied = 7,
+    PermissionDenied = FrameStatus.PermissionDenied,
 
     /// <summary>The server could not admit the operation.</summary>
-    ResourceExhausted = 8,
+    ResourceExhausted = FrameStatus.ResourceExhausted,
 
     /// <summary>A required precondition did not hold.</summary>
-    FailedPrecondition = 9,
+    FailedPrecondition = FrameStatus.FailedPrecondition,
 
     /// <summary>The operation was aborted.</summary>
-    Aborted = 10,
+    Aborted = FrameStatus.Aborted,
 
     /// <summary>A request value exceeded its bounds.</summary>
-    OutOfRange = 11,
+    OutOfRange = FrameStatus.OutOfRange,
 
     /// <summary>The operation is not supported.</summary>
-    Unimplemented = 12,
+    Unimplemented = FrameStatus.Unimplemented,
 
     /// <summary>An internal error occurred.</summary>
-    Internal = 13,
+    Internal = FrameStatus.Internal,
 
     /// <summary>The service is temporarily unavailable.</summary>
-    Unavailable = 14,
+    Unavailable = FrameStatus.Unavailable,
 
     /// <summary>The response indicates unrecoverable data loss.</summary>
-    DataLoss = 15,
+    DataLoss = FrameStatus.DataLoss,
 
     /// <summary>The endpoint rejected the credentials.</summary>
-    Unauthenticated = 16,
+    Unauthenticated = FrameStatus.Unauthenticated,
 }

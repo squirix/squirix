@@ -45,7 +45,7 @@ public sealed class CacheAdmissionInterceptorTests : ServerUnitTestBase
             clock);
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(meter), clock);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
-        var interceptor = new CacheAdmissionInterceptor(gate, SharedClientIdResolver.Instance);
+        var interceptor = new CacheAdmissionInterceptor(new CacheRequestAdmission(gate, SharedClientIdResolver.Instance));
         var context = new TestServerCallContext(method: "/cache/TryAddEntry");
         IBackpressureGate pipelineGate = gate;
         Task<TryAddAsyncResponse> HandleAsync(string request, ServerCallContext call)
@@ -91,7 +91,7 @@ public sealed class CacheAdmissionInterceptorTests : ServerUnitTestBase
         using var gate = CreateGate(meter);
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(meter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
-        var interceptor = new CacheAdmissionInterceptor(gate, SharedClientIdResolver.Instance);
+        var interceptor = new CacheAdmissionInterceptor(new CacheRequestAdmission(gate, SharedClientIdResolver.Instance));
         var release = new TaskCompletionSource<TryAddAsyncResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var context = new TestServerCallContext(method: "/squirix.cache.v2.SquirixCacheService/TryAddEntry");
         Task<TryAddAsyncResponse> HandleAsync(string request, ServerCallContext call)
@@ -171,7 +171,7 @@ public sealed class CacheAdmissionInterceptorTests : ServerUnitTestBase
     {
         using var meter = new Meter("admission-test");
         using var gate = CreateGate(meter);
-        var interceptor = new CacheAdmissionInterceptor(gate, SharedClientIdResolver.Instance);
+        var interceptor = new CacheAdmissionInterceptor(new CacheRequestAdmission(gate, SharedClientIdResolver.Instance));
         _ = await NodeAsyncAssert.ThrowsAsync<OperationCanceledException>(
             interceptor.UnaryServerHandler(
                 "request",

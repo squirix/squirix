@@ -7,6 +7,7 @@ using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -221,7 +222,7 @@ internal sealed class FusedWriteHarness
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
-        return new SquirixServiceAdapter<object?>(
+        return new SquirixServiceAdapter<object?>(new RoutedCacheOperations<object?>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(
@@ -230,7 +231,7 @@ internal sealed class FusedWriteHarness
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
             Coordinator,
-            Clock);
+            Clock));
     }
 
     /// <summary>A journal frame as the segments hold it.</summary>

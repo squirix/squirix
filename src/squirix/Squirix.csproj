@@ -30,6 +30,7 @@
 
     <ItemGroup>
         <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\FrameStatus.cs" Link="Transport\Binary\FrameStatus.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\ConnectionAuthenticationProtocol.cs" Link="Internal\Cluster\Transport\Grpc\ConnectionAuthenticationProtocol.cs"/>
     </ItemGroup>
 
