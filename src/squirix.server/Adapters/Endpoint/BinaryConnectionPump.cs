@@ -10,6 +10,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
@@ -70,55 +71,6 @@ internal sealed partial class BinaryConnectionPump
     [LoggerMessage(EventId = 3032, Level = LogLevel.Error, Message = "Binary cache request {RequestId} failed")]
     private static partial void LogCallFailure(ILogger logger, int requestId, Exception exception);
 
-    private static async ValueTask<byte[]> ReadBodyAsync(Stream input, int size, CancellationToken cancellationToken)
-    {
-        var body = ArrayPool<byte>.Shared.Rent(size);
-        try
-        {
-            await input.ReadExactlyAsync(body.AsMemory(0, size), cancellationToken).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            return body;
-        }
-        catch
-        {
-            ArrayPool<byte>.Shared.Return(body);
-            throw;
-        }
-    }
-
-    private static int WriteResponse(PipeWriter writer, in PendingResponse frame)
-    {
-        var payload = frame.Response.Payload;
-        var status = frame.Response.Status;
-        var size = payload?.CalculateSize() ?? 0;
-        if (size > Frames.MaxResponseBytes)
-        {
-            size = 0;
-            status = FrameStatus.ResourceExhausted;
-        }
-
-        var length = Frames.HeaderBytes + size;
-        var target = writer.GetSpan(length);
-        if (size == 0 || payload == null)
-            Frames.Write(target, frame.Id, 0, Unsafe.BitCast<FrameStatus, int>(status));
-        else
-            Frames.WriteMessage(target, frame.Id, size, Unsafe.BitCast<FrameStatus, int>(status), payload);
-
-        writer.Advance(length);
-        return length;
-    }
-
-    private static (int Id, int Size, int Control) ReadHeader(in ReadOnlySequence<byte> buffer)
-    {
-        var first = buffer.FirstSpan;
-        if (first.Length >= Frames.HeaderBytes)
-            return Frames.Read(first, Frames.MaxRequestBytes);
-
-        Span<byte> header = stackalloc byte[Frames.HeaderBytes];
-        buffer.Slice(0, Frames.HeaderBytes).CopyTo(header);
-        return Frames.Read(header, Frames.MaxRequestBytes);
-    }
-
     private async Task ReadAsync(CancellationToken stop)
     {
         var input = _connection.Transport.Input;
@@ -177,7 +129,7 @@ internal sealed partial class BinaryConnectionPump
                 var header = buffer;
                 buffer = buffer.Slice(Frames.HeaderBytes);
                 consumed = examined = buffer.Start;
-                var frame = ReadHeader(in header);
+                var frame = FrameIO.ReadHeader(in header);
                 if (buffer.Length < frame.Size)
                     return new PartialFrame(slot, frame);
 
@@ -315,7 +267,7 @@ internal sealed partial class BinaryConnectionPump
         {
             try
             {
-                var read = ReadBodyAsync(stream, partial.Frame.Size, deadline.Token);
+                var read = FrameIO.ReadBodyAsync(stream, partial.Frame.Size, deadline.Token);
                 PublishBeforeWait(read.IsCompletedSuccessfully);
                 body = await read.ConfigureAwait(false);
             }
@@ -342,10 +294,11 @@ internal sealed partial class BinaryConnectionPump
             return false;
         }
 
-        response = current.Take(index++);
+        response = ResponseBatch.Take(ref current, index++);
         if (index == current.Count)
         {
             current.Release();
+            current = default;
             index = 0;
         }
 
@@ -354,7 +307,7 @@ internal sealed partial class BinaryConnectionPump
 
     private void Stage(in PendingResponse response, ref ResponseBatch ready)
     {
-        ready.Add(in response);
+        ready = ready.Append(in response);
         if (ready.Count == ReadyBatchLimit)
             Publish(ref ready);
     }
@@ -366,8 +319,7 @@ internal sealed partial class BinaryConnectionPump
 
         if (!_outgoing.Writer.TryWrite(ready))
             ready.Release();
-        else
-            ready = default;
+        ready = default;
     }
 
     private async Task PublishOnCompletionAsync(ValueTask<PendingResponse?> pending)
@@ -391,7 +343,7 @@ internal sealed partial class BinaryConnectionPump
                 var count = 0;
                 for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && TryReadResponse(ref current, ref index, out var frame); count++)
                 {
-                    bytes += WriteResponse(writer, in frame);
+                    bytes += FrameIO.WriteResponse(writer, in frame);
                     _ = _slots.Writer.TryWrite(frame.Slot);
                 }
 
@@ -485,43 +437,95 @@ internal sealed partial class BinaryConnectionPump
 
     private readonly record struct PendingResponse(int Slot, int Id, BinaryResponse Response);
 
-    private struct ResponseBatch
+    [Mutable]
+    private readonly record struct ResponseBatch(PendingResponse First, PendingResponse[]? Remaining, int Count)
     {
-        private PendingResponse _first;
-        private PendingResponse[]? _remaining;
-
         internal ResponseBatch(in PendingResponse first)
+            : this(first, null, 1)
         {
-            _first = first;
-            Count = 1;
         }
 
-        internal int Count { get; private set; }
-
-        internal PendingResponse Take(int index)
+        internal static PendingResponse Take(ref ResponseBatch batch, int index)
         {
-            ref var entry = ref (index == 0 ? ref _first : ref _remaining![index - 1]);
+            if (index == 0)
+            {
+                var first = batch.First;
+                batch = batch with { First = default };
+                return first;
+            }
+
+            ref var entry = ref batch.Remaining![index - 1];
             var response = entry;
             entry = default;
             return response;
         }
 
-        internal void Add(in PendingResponse response)
+        internal ResponseBatch Append(in PendingResponse response)
         {
             if (Count == 0)
-                _first = response;
-            else
-                (_remaining ??= ArrayPool<PendingResponse>.Shared.Rent(MaxPending - 1))[Count - 1] = response;
+                return new ResponseBatch(in response);
 
-            Count++;
+            var remaining = Remaining ?? ArrayPool<PendingResponse>.Shared.Rent(MaxPending - 1);
+            remaining[Count - 1] = response;
+            return new ResponseBatch(First, remaining, Count + 1);
         }
 
         internal void Release()
         {
-            if (_remaining != null)
-                ArrayPool<PendingResponse>.Shared.Return(_remaining, true);
+            if (Remaining != null)
+                ArrayPool<PendingResponse>.Shared.Return(Remaining, true);
+        }
+    }
 
-            this = default;
+    private static class FrameIO
+    {
+        internal static async ValueTask<byte[]> ReadBodyAsync(Stream input, int size, CancellationToken cancellationToken)
+        {
+            var body = ArrayPool<byte>.Shared.Rent(size);
+            try
+            {
+                await input.ReadExactlyAsync(body.AsMemory(0, size), cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                return body;
+            }
+            catch
+            {
+                ArrayPool<byte>.Shared.Return(body);
+                throw;
+            }
+        }
+
+        internal static int WriteResponse(PipeWriter writer, in PendingResponse frame)
+        {
+            var payload = frame.Response.Payload;
+            var status = frame.Response.Status;
+            var size = payload?.CalculateSize() ?? 0;
+            if (size > Frames.MaxResponseBytes)
+            {
+                size = 0;
+                status = FrameStatus.ResourceExhausted;
+            }
+
+            var length = Frames.HeaderBytes + size;
+            var target = writer.GetSpan(length);
+            if (size == 0 || payload == null)
+                Frames.Write(target, frame.Id, 0, Unsafe.BitCast<FrameStatus, int>(status));
+            else
+                Frames.WriteMessage(target, frame.Id, size, Unsafe.BitCast<FrameStatus, int>(status), payload);
+
+            writer.Advance(length);
+            return length;
+        }
+
+        internal static (int Id, int Size, int Control) ReadHeader(in ReadOnlySequence<byte> buffer)
+        {
+            var first = buffer.FirstSpan;
+            if (first.Length >= Frames.HeaderBytes)
+                return Frames.Read(first, Frames.MaxRequestBytes);
+
+            Span<byte> header = stackalloc byte[Frames.HeaderBytes];
+            buffer.Slice(0, Frames.HeaderBytes).CopyTo(header);
+            return Frames.Read(header, Frames.MaxRequestBytes);
         }
     }
 

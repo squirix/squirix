@@ -1,8 +1,7 @@
 using System;
 using System.IO;
-using Squirix.Transport;
 
-namespace Squirix.Internal.Cluster;
+namespace Squirix.Transport;
 
 /// <summary>Identifies an explicit authentication rejection received over the verified TLS transport.</summary>
 internal sealed class ConnectionRejectedException : IOException

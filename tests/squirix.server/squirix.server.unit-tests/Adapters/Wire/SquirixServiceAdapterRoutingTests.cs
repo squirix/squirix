@@ -86,7 +86,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         await using var policy = CreatePolicy();
         var adapter = CreateAdapter(invoker, policy, false);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adapter.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adapter.Mutations.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
         _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
@@ -113,18 +113,18 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
     private static Func<RoutedCacheOperations<object?>, CancellationToken, Task>[] CreateCalls() =>
     [
-        static async (adapter, context) => _ = await adapter.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "c", Key = "k" }, context),
-        static async (adapter, context) => _ = await adapter.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "c", Key = "k" }, context),
-        static async (adapter, context) => _ = await adapter.GetOrAddAsync(new GetOrAddAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.GetValueAsync(new GetValueAsyncRequest { CacheName = "c", Key = "k" }, context),
-        static async (adapter, context) => _ = await adapter.RemoveAsync(new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.RemoveExpirationAsync(new RemoveExpirationAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.TouchAsync(
+        static async (adapter, context) => _ = await adapter.Reads.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "c", Key = "k" }, context),
+        static async (adapter, context) => _ = await adapter.Reads.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "c", Key = "k" }, context),
+        static async (adapter, context) => _ = await adapter.Mutations.GetOrAddAsync(new GetOrAddAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.Reads.GetValueAsync(new GetValueAsyncRequest { CacheName = "c", Key = "k" }, context),
+        static async (adapter, context) => _ = await adapter.Mutations.RemoveAsync(new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.Mutations.RemoveExpirationAsync(new RemoveExpirationAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.Mutations.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.Mutations.TouchAsync(
             new TouchAsyncRequest { CacheName = "c", Key = "k", Expiration = CreateEntry().Expiration, OperationId = OperationId },
             context),
-        static async (adapter, context) => _ = await adapter.AddEntryIfAbsentAsync(new TryAddEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.UpdateAsync(new UpdateAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.Mutations.AddEntryIfAbsentAsync(new TryAddEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.Mutations.UpdateAsync(new UpdateAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
     ];
 
     private static async Task AssertRerouteSendsSameRequestAsync(Func<RoutedCacheOperations<object?>, CancellationToken, Task> call, ServerCallPolicy policy)
