@@ -7,7 +7,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -199,11 +198,8 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
     private static async Task AssertNothingExecutedAsync(ITestNodeHost owner, string key, CancellationToken cancellationToken)
     {
         var stored = owner.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
-        var idempotency = owner.GetRequiredService<RpcMutationIdempotencyStore>();
 
         _ = await Assert.That(stored.Found).IsFalse();
-        _ = await Assert.That(idempotency.RecordCount).IsEqualTo(0);
-        _ = await Assert.That(idempotency.ExecutionCount).IsEqualTo(0);
     }
 
     private async Task AssertNotReadyAsync(ITestNodeHost node, CancellationToken cancellationToken)

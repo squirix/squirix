@@ -41,8 +41,6 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
             Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
             Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
-        var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
-        _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
         var coordinator = new Coordinator(
             opt,
             journal,
@@ -50,7 +48,6 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 captureExpectations.Instance(),
                 writerExpectations.Instance(),
                 store,
-                exporterExpectations.Instance(),
                 "test-node",
                 NoOpSnapshotTelemetry.Instance),
             TimeProvider.System);

@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App.Decorators;
@@ -41,9 +40,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T>
                 new DurableMutationPipeline<DistributedAccessState, ValueTuple<ReadOnlyMemory<byte>?>>(
                     state,
                     static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, new CacheKey(s.CacheName, s.Key), s.Upsert.Payload, ct),
-                    static (s, ct) => ApplyDistributedAccessAsync(s, ct),
-                    static (_, predicted) => RpcMutationIdempotencyExecutionAmbient.AppendPredictedOutcomeAsync(predicted.Item1),
-                    static (_, _) => RpcMutationIdempotencyExecutionAmbient.PromoteOutcomeAfterApply()),
+                    static (s, ct) => ApplyDistributedAccessAsync(s, ct)),
                 cancellationToken).ConfigureAwait(false);
             return result.Item1;
         }
@@ -60,7 +57,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T>
 
             var entry = new NodeCacheEntry<T>(current!.Value, current.Version, deadline, tags: current.Tags);
             state.Upsert.Set(entry, EncodeWhole(entry));
-            return DurableMutationCondition<ValueTuple<ReadOnlyMemory<byte>?>>.Apply(result);
+            return DurableMutationCondition<ValueTuple<ReadOnlyMemory<byte>?>>.Apply();
         }
 
         private static async ValueTask<ValueTuple<ReadOnlyMemory<byte>?>> ApplyDistributedAccessAsync(DistributedAccessState state, CancellationToken cancellationToken)

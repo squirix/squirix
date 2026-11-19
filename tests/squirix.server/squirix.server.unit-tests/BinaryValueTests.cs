@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -114,36 +113,6 @@ public sealed class BinaryValueTests : ServerUnitTestBase
         var destination = new ArrayBufferWriter<byte>();
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws((wire, destination), static state => CacheValueWire.WriteScalarJson(state.wire, state.destination));
         _ = await Assert.That(destination.WrittenCount).IsEqualTo(0);
-    }
-
-    /// <summary>RPC and replica fingerprints retain binary presence and every payload byte across reserialization.</summary>
-    /// <param name="length">The payload length around hashing buffer boundaries.</param>
-    [Test]
-    [Arguments(0)]
-    [Arguments(1)]
-    [Arguments(512)]
-    [Arguments(65536)]
-    public async Task BinaryFingerprintsPreserveIdentity(int length)
-    {
-        var entry = new NodeCacheEntry<object?>(new byte[length]);
-        var wire = entry.MapToProto();
-        var reparsed = CacheEntryWire.Parser.ParseFrom(wire.ToByteArray());
-        var fingerprint = RpcMutationFingerprints.SetEntry("binary", "key", wire);
-        _ = await Assert.That(RpcMutationFingerprints.SetEntry("binary", "key", reparsed)).IsEqualTo(fingerprint);
-        var replica = ReplicaOperationFingerprints.Set("op", "binary", "key", entry);
-        var other = new NodeCacheEntry<object?>(new byte[length + 1]);
-        _ = await Assert.That(RpcMutationFingerprints.SetEntry("binary", "key", other.MapToProto())).IsNotEqualTo(fingerprint);
-        _ = await Assert.That(replica.AsSpan().SequenceEqual(ReplicaOperationFingerprints.Set("op", "binary", "key", other))).IsFalse();
-        var scalar = new NodeCacheEntry<object?>(null).MapToProto();
-        _ = await Assert.That(RpcMutationFingerprints.SetEntry("binary", "key", scalar)).IsNotEqualTo(fingerprint);
-        if (length > 0)
-        {
-            var changed = new byte[length];
-            changed[^1] = 255;
-            var different = new NodeCacheEntry<object?>(changed);
-            _ = await Assert.That(RpcMutationFingerprints.SetEntry("binary", "key", different.MapToProto())).IsNotEqualTo(fingerprint);
-            _ = await Assert.That(replica.AsSpan().SequenceEqual(ReplicaOperationFingerprints.Set("op", "binary", "key", different))).IsFalse();
-        }
     }
 
     /// <summary>Canonical remove outcomes omit binary bytes entirely.</summary>

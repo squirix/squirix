@@ -9,7 +9,6 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Transport.Wire.Cache;
 
@@ -22,8 +21,6 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly PhysicalCache<object?> _physical;
     private readonly JournalLoggingCacheDecorator<object?>? _durable;
-    private readonly RpcMutationIdempotencyStore _outcomes;
-    private readonly IRpcMutationIdempotencyCoordinator _idempotency;
     private readonly IBackpressureGate _gate;
     private readonly IBackpressureClientIdResolver _clients;
 
@@ -31,22 +28,18 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         ILogicalNamespacedCache<object?> local,
         PhysicalCache<object?> physical,
         JournalLoggingCacheDecorator<object?>? durable,
-        RpcMutationIdempotencyStore outcomes,
-        IRpcMutationIdempotencyCoordinator idempotency,
         IBackpressureGate gate,
         IBackpressureClientIdResolver clients)
     {
         _local = local;
         _physical = physical;
         _durable = durable;
-        _outcomes = outcomes;
-        _idempotency = idempotency;
         _gate = gate;
         _clients = clients;
     }
 
     /// <inheritdoc />
-    public async Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken)
+    public async Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
     {
         var operation = refresh ? CacheOperationNames.Touch : CacheOperationNames.Get;
         var (admission, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clients.Resolve(), cancellationToken).ConfigureAwait(false);
@@ -56,8 +49,8 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         using (lease)
         {
             return _local is ReplicatedCache replicated
-                ? Response(await replicated.AccessDistributedAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false))
-                : await AccessSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
+                ? Response(await replicated.AccessDistributedAsync(RpcMutationContracts.RequireOperationId(operationId), cacheName, key, refresh, cancellationToken).ConfigureAwait(false))
+                : await AccessSingleAsync(cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -67,53 +60,19 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
     private static GetDistributedAsyncResponse Response(ReadOnlyMemory<byte>? payload) =>
         payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = UnsafeByteOperations.UnsafeWrap(bytes) } : new GetDistributedAsyncResponse();
 
-    private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken)
+    private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string cacheName, string key, bool refresh, CancellationToken cancellationToken)
     {
-        if (refresh && _outcomes.HasRetainedOperation(operationId))
-            return await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
-
         var entry = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (refresh && _outcomes.HasRetainedOperation(operationId))
-            return await ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, refresh, cancellationToken).ConfigureAwait(false);
-
         if (entry == null)
             return new GetDistributedAsyncResponse();
 
         var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
-        var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
-        if (policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry))
-        {
-            var renewal = refresh
-                ? ExecuteSingleAsync(operationId, cacheName, key, fingerprintFactory, true, cancellationToken)
-                : ReadSingleAsync(cacheName, key, cancellationToken);
-            return await renewal.ConfigureAwait(false);
-        }
+        if (policy.SlidingTicks == null || _physical.DistributedAccess.CanReadWithoutRenewal(entry))
+            return Response(refresh ? null : payload);
 
-        return Response(readOnlyResult);
+        var renewed = _durable is { } durable
+            ? await durable.DistributedAccess.AccessDistributedAsync(string.Empty, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
+            : _physical.DistributedAccess.AccessDistributed(new CacheKey(cacheName, key), refresh, cancellationToken);
+        return Response(renewed);
     }
-
-    private async Task<GetDistributedAsyncResponse> ReadSingleAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        // The journal key lock or physical cache lock binds the value to its renewal.
-        // No RPC outcome scope retains the response after serialization.
-        var payload = _durable is { } durable
-            ? await durable.DistributedAccess.AccessDistributedAsync(Guid.NewGuid().ToString("N"), cacheName, key, false, cancellationToken).ConfigureAwait(false)
-            : _physical.DistributedAccess.AccessDistributed(new CacheKey(cacheName, key), false, cancellationToken);
-        return Response(payload);
-    }
-
-    private Task<GetDistributedAsyncResponse> ExecuteSingleAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken) =>
-        _idempotency.ExecuteAsync(
-            operationId,
-            static state => state.FingerprintFactory(state.CacheName, state.Key, state.Refresh),
-            (Owner: this, OperationId: operationId, CacheName: cacheName, Key: key, FingerprintFactory: fingerprintFactory, Refresh: refresh),
-            static async (state, token) =>
-            {
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<ReadOnlyMemory<byte>?>(static payload => Response(payload));
-                var payload = state.Owner._durable is { } durable
-                    ? await durable.DistributedAccess.AccessDistributedAsync(state.OperationId, state.CacheName, state.Key, state.Refresh, token).ConfigureAwait(false)
-                    : state.Owner._physical.DistributedAccess.AccessDistributed(new CacheKey(state.CacheName, state.Key), state.Refresh, token);
-                return Response(payload);
-            },
-            cancellationToken);
 }

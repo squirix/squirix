@@ -399,7 +399,6 @@ at startup:
 | Persistence knobs (`PersistenceOptions`) | No | Host defaults when `--persist` / `UsePersistence()`; not a JSON section today |
 | Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
 | Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
-| Idempotency store | Env only | `SQUIRIX_IDEMPOTENCY_*` overrides; not a JSON section |
 | Journal metrics exporter interval | No | Fixed at 5 seconds |
 
 `squirix-server validate-config --settings Squirix.settings.json --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
@@ -560,7 +559,7 @@ The entry node also limits forwarded calls per owner to half of `MaxInFlight` (a
 that finds all of them taken is refused at once with `peer_busy` and does not wait while holding its admission slot, so a
 slow or hung owner cannot pin more than that many slots. The entry node sends each forwarded call once and does not
 retry it against the owner; the Squirix client retries transient failures (`Unavailable`, `Internal`, `ResourceExhausted`
-and deadline expiry) with the same operation id. A raw binary caller that does not use the Squirix client must retry them
+and deadline expiry) for eligible requests. On replicated hosts, mutating retries carry the same operation ID. A raw binary caller that does not use the Squirix client must retry them
 itself.
 
 | Field                         | Type            | Default        | Validation                                       |
@@ -674,41 +673,13 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
-| `SQUIRIX_IDEMPOTENCY_MAX_IN_FLIGHT_RECORDS`          | Caps in-memory mutation idempotency replay records (default `1048576`; the byte budget below is normally the limit that applies).                                                                                  |
-| `SQUIRIX_IDEMPOTENCY_MAX_BYTES`                      | Byte budget of the in-memory replay records, each charged 512 bytes plus its response (default 5% of the process memory, at least 32 MiB and at most 256 MiB; must be at least 512).                               |
-| `SQUIRIX_IDEMPOTENCY_RETENTION_MINUTES`              | How long successful mutation outcomes remain replayable (default `15`).                                                                                                                                            |
-| `SQUIRIX_IDEMPOTENCY_SWEEP_INTERVAL_SECONDS`         | Background sweep interval for expired idempotency records (default `60`, at most `4294967`, about 49.7 days).                                                                                                      |
 | `SQUIRIX_TEST_ROOT`                                  | Test-only root for generated node data directories.                                                                                                                                                                |
 
 For the `SQUIRIX_CLUSTER_MTLS_*` variables, including certificate paths and the internal port, see
 [Internode mTLS configuration](security/internode-mtls.md#configuration).
 
-### Idempotency store capacity
-
-Only a node without replica groups (RF=1) keeps the node-wide replay store these variables size. A replicated host, where every write
-commits through the replica group of its key, leaves deduplication to that group's own idempotency state and never touches the node
-store; its capacity is described in [replication-consensus.md](architecture/replication-consensus.md#replicated-mutation-effects).
-
-On an RF=1 node an outcome stays replayable for at least 30 seconds, so the store admits about
-`min(MaxInFlightRecords, MaxBytes / (512 + response bytes)) / 30` new mutations per second once it is full, and a new mutation is
-refused with the retryable `TOO_MANY_REQUESTS` while every outcome is younger than 30 seconds. A response is charged when it is
-recorded, because its mutation already ran: a large response is recorded even over the budget, and new mutations are then refused until
-older outcomes age past 30 seconds. Reservations of mutations in flight are never evicted. The count and the bytes in use are reported
-as `squirix_idempotency_records` and `squirix_idempotency_bytes`; `squirix_idempotency_evictions_total` and
-`squirix_idempotency_rejections_total` count what made room and what was refused.
-
-| Process memory | Default budget | Small mutations per second (about 514 bytes each) |
-| -------------- | -------------- | ------------------------------------------------- |
-| up to 640 MiB  | 32 MiB         | about 2,180                                       |
-| 2 GiB          | about 102 MiB  | about 7,000                                       |
-| 5 GiB or more  | 256 MiB        | about 17,400                                      |
-
-The budget is an estimate of the bytes the retained records hold; the memory the process really uses for them can be higher.
-
-Moving existing RF=1 data into an RF>1 topology is not supported in this release; waiting for the replay retention period
-does not make that migration supported. An RF>1 deployment must start with an empty data directory and uses replica-group
-idempotency state instead of the RF=1 replay store. Do not assume it can deduplicate retries of writes made to the previous
-RF=1 deployment. See [activated topology stamps](#activated-topology-stamp-topologystamp) and the
+Moving existing data to an activated replicated topology requires an empty data directory. See
+[activated topology stamps](#activated-topology-stamp-topologystamp) and the
 [operational runbook](operational-runbook.md#activated-topology-stamp).
 
 ## Security notes

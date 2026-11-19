@@ -13,19 +13,6 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 /// </remarks>
 internal interface IJournalMutationAppender
 {
-    /// <summary>Appends the idempotency outcome frame of an operation under the mutation gate.</summary>
-    /// <param name="operationId">The operation identifier.</param>
-    /// <param name="fingerprint">The mutation fingerprint.</param>
-    /// <param name="responseBytes">The serialized response.</param>
-    /// <param name="appended">
-    /// Runs under the mutation gate once the frame is accepted (enqueued, and written when group commit is on), right before the append
-    /// metrics are recorded, so a snapshot cut sees the frame and what this does together or neither. It is not run when the append throws
-    /// before that point; a failure after it (an append subscriber, for example) is still thrown by the append. <see langword="null" /> runs nothing.
-    /// </param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the frame is enqueued; durability is awaited separately.</returns>
-    ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken);
-
     ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
 
     ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken);

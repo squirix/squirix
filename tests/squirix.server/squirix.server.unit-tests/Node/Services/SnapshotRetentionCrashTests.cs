@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -207,8 +206,7 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
 
     private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, Ledger ledger, CancellationToken cancellationToken)
     {
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
-        var dependencies = new RecoveryDependencies<object?>(OptionsOf(scenario), ledger, scenario.Cache, new AsyncManualResetEvent(true), store, StoreFactory.CreateReader(), TimeProvider.System);
+        var dependencies = new RecoveryDependencies<object?>(OptionsOf(scenario), ledger, scenario.Cache, new AsyncManualResetEvent(true), StoreFactory.CreateReader(), TimeProvider.System);
         return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
     }
 }

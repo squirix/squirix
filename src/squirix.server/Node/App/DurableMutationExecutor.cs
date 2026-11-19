@@ -55,7 +55,7 @@ internal sealed class DurableMutationExecutor
     /// so a re-applied committed entry never waits for its own flush; any other write still does.
     /// </summary>
     /// <returns><see langword="true" /> when the cache journal is not the durable source of the running write.</returns>
-    private static bool SkipsCacheJournalDurabilityWait() => RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
+    private static bool SkipsCacheJournalDurabilityWait() => ReplicaApplyContext.IsActive;
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<TResult> ExecuteKeyedAsync<TState, TResult>(
@@ -92,12 +92,7 @@ internal sealed class DurableMutationExecutor
                 // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller. Memory is applied
                 // only once the frame is covered by a completed flush, so a reader never sees a value a crash or a flush failure could lose.
                 if (!SkipsCacheJournalDurabilityWait())
-                {
-                    // The optional phase appends what must become durable together with the frame, so one flush covers both.
-                    if (plan.HasPrediction && pipeline.AfterAppend is { } afterAppend)
-                        await RunAfterAppendAsync(afterAppend, pipeline.State, plan.Predicted!).ConfigureAwait(false);
                     await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
-                }
 
                 // The apply slot stays held across the wait above, so a snapshot cut waits for this write and covers it.
                 var result = await _journal.ExecuteUnderSnapshotBarrierAsync(
@@ -152,21 +147,6 @@ internal sealed class DurableMutationExecutor
         }
     }
 
-    private async ValueTask RunAfterAppendAsync<TState, TResult>(Func<TState, TResult, ValueTask> afterAppend, TState state, TResult predicted)
-    {
-        try
-        {
-            await afterAppend(state, predicted).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // Whatever the phase appended is on the ring behind the mutation frame, so a healthy journal would flush both while this write never
-            // applies: memory and the journal would diverge. Same policy as a failed apply: fail-stop.
-            _journal.FailJournalPipeline(new InvalidOperationException("after-append phase failed after its journal frame entered the ring.", ex));
-            throw;
-        }
-    }
-
     private ValueTask<DurableMutationPlan<TResult>> PrepareUnderBarrierAsync<TState, TResult>(
         KeyedExecutionState state,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
@@ -209,7 +189,7 @@ internal sealed class DurableMutationExecutor
         try
         {
             await appendJournal(mutationState, ownership, cancellationToken).ConfigureAwait(false);
-            return decision.HasPrediction ? DurableMutationPlan<TResult>.Apply(decision.Predicted) : DurableMutationPlan<TResult>.Apply();
+            return DurableMutationPlan<TResult>.Apply();
         }
         catch (JournalPostEnqueueFaultException ex)
         {
@@ -241,20 +221,12 @@ internal sealed class DurableMutationExecutor
     [Immutable]
     private readonly record struct DurableMutationPlan<TResult>
     {
-        private DurableMutationPlan(bool shouldApply, TResult? skipResult, bool isCutPending = false, bool hasPrediction = false, TResult? predicted = default)
+        private DurableMutationPlan(bool shouldApply, TResult? skipResult, bool isCutPending = false)
         {
             ShouldApply = shouldApply;
             SkipResult = skipResult;
             IsCutPending = isCutPending;
-            HasPrediction = hasPrediction;
-            Predicted = predicted;
         }
-
-        /// <summary>Gets a value indicating whether the precondition predicted the result of the mutation.</summary>
-        internal bool HasPrediction { get; }
-
-        /// <summary>Gets the result the precondition predicted, when <see cref="HasPrediction" /> is true.</summary>
-        internal TResult? Predicted { get; }
 
         /// <summary>Gets a value indicating whether a snapshot cut refused admission, so nothing ran and the caller must wait for the cut and retry.</summary>
         internal bool IsCutPending { get; }
@@ -268,11 +240,6 @@ internal sealed class DurableMutationExecutor
         /// <summary>Creates a plan that continues to durability commit and memory apply.</summary>
         /// <returns>An apply plan.</returns>
         internal static DurableMutationPlan<TResult> Apply() => new(true, default);
-
-        /// <summary>Creates a plan that continues to durability commit and memory apply, with the result the precondition predicted.</summary>
-        /// <param name="predicted">The predicted result.</param>
-        /// <returns>An apply plan that carries the prediction.</returns>
-        internal static DurableMutationPlan<TResult> Apply(TResult? predicted) => new(true, default, false, true, predicted);
 
         /// <summary>Creates a plan for a mutation a pending snapshot cut refused to admit.</summary>
         /// <returns>A cut-pending plan.</returns>

@@ -75,7 +75,6 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<ILocalCacheRecovery<object?>>(),
                 sp.GetRequiredService<AsyncManualResetEvent>(),
-                sp.GetRequiredService<RpcMutationIdempotencyStore>(),
                 sp.GetRequiredService<ISnapshotReader>(),
                 ResolveClock(sp))
             {
@@ -147,7 +146,6 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<ISnapshotEntryCapture>(),
                 sp.GetRequiredService<ISnapshotWriter>(),
                 sp.GetRequiredService<Ledger>(),
-                sp.GetRequiredService<IIdempotencySnapshotExporter>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
                 sp.GetRequiredService<ISnapshotTelemetry>()),
             ResolveClock(sp)));

@@ -1,9 +1,7 @@
 # Journal group commit
 
 Durable mutations append a journal record and wait for a durability flush before the caller gets its response. Without
-group commit, each mutation pays for its own durability flush (typically one fsync round-trip per commit). A hosted
-write with an operation id waits for one flush, not two: its outcome frame is appended right behind its mutation frame
-and the same flush covers both.
+group commit, each mutation pays for its own durability flush (typically one fsync round-trip per commit).
 
 ## Defaults
 
@@ -23,15 +21,8 @@ Both are public hosting settings under `SquirixServerOptions.Journal` or `Squiri
 
 Group commit never lets a caller or a reader see a value before its journal bytes are fsynced:
 
-- **Apply after fsync.** A mutation appends, waits for the shared flush, and applies to memory only afterwards, with or
-  without an operation id. A reader never sees a value that a crash right now would lose, and a failed fsync never leaves
+- **Apply after fsync.** A mutation appends, waits for the shared flush, and applies to memory only afterwards. A reader never sees a value that a crash right now would lose, and a failed fsync never leaves
   the value in memory.
-- **Response after the outcome is durable (with an operation id).** Every mutation of the v0.1 client carries an
-  operation id, and its outcome is recorded durably before the response is sent. For the v0.1 RPCs the outcome is known
-  before the apply, so its frame is appended right behind the mutation frame and one flush makes both durable; a
-  mutation whose outcome frame cannot be appended with it falls back to recording the outcome after the apply, with a
-  second flush. The journal order guarantees that a durable outcome frame always has its mutation frame durable before it.
-
 ## Scope and failure behaviour
 
 - **RF>1.** Group commit affects the node cache journal only; replicated writes use the replica group log for durability
@@ -39,21 +30,10 @@ Group commit never lets a caller or a reader see a value before its journal byte
   Background log maintenance calls
   `ReplicaGroupCommitter.FlushAppliedAsync` before persisting the applied index and compacting the group log. That
   maintenance waits for the cache journal flush; it is not an additional `GroupCommitMaxWait` on every replicated commit.
-- **Cancellation.** After the append the durability wait cannot be cancelled by the caller. A client deadline shorter than
-  `GroupCommitMaxWait` ends the call with `DeadlineExceeded` while the write still commits; a retry with the same
-  operation id replays the recorded outcome.
-- **Shutdown and flush failure.** A graceful stop completes pending grouped writes successfully: the final flush of the
-  shutdown marker covers their frames, including the outcome frame of a write with an operation id that is parked in the
-  durability wait, so that write is applied and answered. A write whose outcome frame was not yet appended when the stop
-  began is made durable and applied, but its outcome can no longer be appended, so it ends with `COMMIT_OUTCOME_UNKNOWN`
-  (`Unavailable`); retry with the same operation id after restart. Any write also ends with
-  `COMMIT_OUTCOME_UNKNOWN` when the stop times out, the final flush fails, or a failure was latched before the marker; the
-  write may or may not be durable.
-
-A new public SDK call generates a new operation id; it does not repeat the previous call with its original id.
-The same-id retry described above requires a caller that retains and resends that id, within the replay window.
-After `COMMIT_OUTCOME_UNKNOWN`, reconcile the application state before issuing another mutation through the SDK.
-See [unknown commit outcomes](diagnostics.md#metrics-ownership).
+- **Cancellation.** After the append, caller cancellation cannot stop the durability wait or memory apply. A client
+  may stop waiting while the write completes.
+- **Shutdown and flush failure.** A graceful stop flushes pending records and lets their writes apply. If the final
+  flush fails or shutdown interrupts it, the caller can receive an unknown commit outcome.
 
 ## When to enable group commit
 
@@ -67,9 +47,8 @@ latency. Raising the batch threshold can reduce flush frequency under load, but 
 
 Effects to account for:
 
-- **One durability wait per hosted write.** A hosted write waits once, for a flush that covers its mutation frame and its
-  idempotency outcome frame, so a lone write pays up to `1 × MaxWait`. A write that falls back to recording its outcome
-  after the apply waits twice.
+- **One durability wait per hosted write.** A hosted write waits once, for a flush that covers its mutation frame and other
+  pending writes.
 - **Hot key.** Writers queue for the same key in arrival order and hold it across the durability wait. A hot key
   completes about one write per fsync. Writers on distinct keys can share a flush when they reach
   `AwaitDurabilityCommitAsync` together.
@@ -89,23 +68,6 @@ Suggested sweep:
    exceeds your budget.
 
 See [journal-single-owner-wal.md](journal-single-owner-wal.md) for the journal thread wait loop.
-
-### Measured on one machine
-
-`DurableMutationGroupCommitBenchmarks`: hosted write path (mutation frame plus idempotency outcome frame, measured with
-two durability waits per write, so the figures overstate the latency cost of one wait), distinct keys,
-256 B values, 8 writers with 200 writes each, `MaxBatch = 32`, benchmark quick mode, Windows 11, local NVMe SSD with a
-write cache (cheap fsync). Throughput in writes per second:
-
-| Writers | Off (`MaxWait = 0`) | `MaxWait = 1 ms` | `MaxWait = 5 ms` |
-| ------- | ------------------- | ---------------- | ---------------- |
-| 8       | ~9,600              | ~1,900           | ~640             |
-
-On this machine group commit still does not beat the default: with 8 writers the batch never fills, so every write
-waits out `MaxWait` per durability wait, and fsync is cheap enough that sharing it would not pay. The high-resolution
-batch timer keeps that wait close to `MaxWait`, where the system timer tick previously stretched it to about `15.6 ms`
-(about 290 and 260 writes per second at `1 ms` and `5 ms`). Expect a gain only on storage where one fsync costs
-milliseconds; measure there.
 
 ### Development benchmarks vs production tuning
 

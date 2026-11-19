@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
@@ -16,7 +15,6 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -75,39 +73,17 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<IServerClientPool>(),
                 sp.GetRequiredService<IBackpressureGate>(),
                 sp.GetRequiredService<IBackpressureClientIdResolver>(),
-                sp.GetRequiredService<RingAgreement>()));
-            _ = services.AddSingleton(static sp => new RpcMutationIdempotencyStore(
-                sp.GetRequiredService<IdempotencyOptions>(),
-                sp.GetRequiredService<TopologyOptions>().NodeId,
-                sp.GetRequiredService<IdempotencyMetrics>(),
-                sp.GetRequiredService<TimeProvider>()));
-            _ = services.AddSingleton<IIdempotencySnapshotExporter>(static sp => sp.GetRequiredService<RpcMutationIdempotencyStore>());
-            _ = services.AddIdempotencyCoordinator();
-            _ = services.AddSingleton<RoutedCacheOperations<object?>>();
+                sp.GetRequiredService<RingAgreement>(),
+                sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled));
+            _ = services.AddSingleton(static sp => new RoutedCacheOperations<object?>(
+                sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>(),
+                sp.GetRequiredService<OwnerRouter>(),
+                sp.GetRequiredService<OwnerRpcForwarder>(),
+                sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled,
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<IDistributedCacheAccess>(),
+                sp.GetService<IJournalCoordinator>()));
             _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
-
-            return services;
-        }
-
-        private IServiceCollection AddIdempotencyCoordinator()
-        {
-            _ = services.AddSingleton(static sp =>
-            {
-                var store = sp.GetRequiredService<RpcMutationIdempotencyStore>();
-                var journal = sp.GetService<IJournalCoordinator>();
-                var logger = sp.GetRequiredService<ILogger<RpcMutationIdempotencyCoordinator>>();
-                return journal != null ? new RpcMutationIdempotencyCoordinator(store, journal, logger) : new RpcMutationIdempotencyCoordinator(store, logger);
-            });
-
-            // The same flag that puts ReplicatedCache in front of the local chain: where every write commits through a replica group, the group
-            // idempotency state is the single dedupe authority, so the node-wide store is left out of the write path.
-            _ = services.AddSingleton<IRpcMutationIdempotencyCoordinator>(static sp =>
-            {
-                if (sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
-                    return new ReplicatedMutationCoordinator(sp.GetService<IJournalCoordinator>());
-
-                return sp.GetRequiredService<RpcMutationIdempotencyCoordinator>();
-            });
 
             return services;
         }
@@ -116,8 +92,6 @@ internal static class RuntimeServiceRegistration
         {
             _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>(), sp.GetRequiredService<Meter>()));
             _ = services.AddHostedService<MemoryPressureMetricsService>();
-            _ = services.AddHostedService<IdempotencyMetricsService>();
-            _ = services.AddHostedService<IdempotencyStoreSweepService>();
             return services;
         }
 
@@ -156,7 +130,6 @@ internal static class RuntimeServiceRegistration
             // method only registers the metrics types against that shared meter.
             _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new CacheMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new IdempotencyMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new MemoryPressureMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new ReplicationMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new ReplicaCatchUpMetrics(sp.GetRequiredService<Meter>()));

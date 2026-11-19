@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
@@ -11,15 +10,12 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
-using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Storage;
@@ -34,8 +30,8 @@ using Squirix.Transport.Wire.Cache;
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>
-/// The hosted write path of a single node over a real journal on a stallable segment writer: the gRPC adapter, the idempotency coordinator, the
-/// journal decorator and memory, all on one fake clock. The journal belongs to the caller, which disposes it; the meter is shared and lives for the test run.
+/// The hosted write path of a single node over a real journal on a stallable segment writer: the binary adapter, the
+/// journal decorator and memory, all on one fake clock. The journal belongs to the caller.
 /// </summary>
 [Mutable]
 internal sealed class FusedWriteHarness
@@ -47,8 +43,6 @@ internal sealed class FusedWriteHarness
     internal const string Key = "k";
 
     private const string Self = "node-a";
-
-    private static readonly Meter SharedMeter = new("fused-write-harness");
 
     internal FusedWriteHarness(
         string dir,
@@ -62,22 +56,17 @@ internal sealed class FusedWriteHarness
         Physical = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
         Executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
         Cache = new JournalLoggingCacheDecorator<object?>(innerOverride ?? new ClientCache<object?>(Physical, Physical), journal.Journal, Executor, Clock, Physical.RawReader);
-        Store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(SharedMeter), Clock);
-        Coordinator = new RpcMutationIdempotencyCoordinator(Store, journal.Journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         Adapter = CreateAdapter(chain?.Invoke(Cache) ?? Cache);
     }
 
-    /// <summary>Gets the adapter whose handlers run under the coordinator.</summary>
+    /// <summary>Gets the adapter whose handlers use the journal.</summary>
     internal RoutedCacheOperations<object?> Adapter { get; }
 
     /// <summary>Gets the journal decorator the handlers write through.</summary>
     internal JournalLoggingCacheDecorator<object?> Cache { get; }
 
-    /// <summary>Gets the clock of the decorator, the memory, the store and the adapter.</summary>
+    /// <summary>Gets the clock of the decorator, the memory and the adapter.</summary>
     internal FakeTimeProvider Clock { get; }
-
-    /// <summary>Gets the idempotency coordinator the adapter executes through.</summary>
-    internal RpcMutationIdempotencyCoordinator Coordinator { get; }
 
     /// <summary>Gets the data directory of the journal.</summary>
     internal string Dir { get; }
@@ -87,9 +76,6 @@ internal sealed class FusedWriteHarness
 
     /// <summary>Gets the memory the decorator applies to.</summary>
     internal PhysicalCache<object?> Physical { get; }
-
-    /// <summary>Gets the idempotency store.</summary>
-    internal RpcMutationIdempotencyStore Store { get; }
 
     /// <summary>Gets the journal over the stallable writer.</summary>
     private StallableJournal Journal { get; }
@@ -154,23 +140,6 @@ internal sealed class FusedWriteHarness
     /// <returns>A 32-character lowercase hex operation id.</returns>
     internal static string OpId(int number) => number.ToString("x32", System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>Runs one idempotent set of the shared key under the coordinator, with the outcome projection a set handler registers.</summary>
-    /// <param name="operationId">Operation id.</param>
-    /// <param name="value">The value.</param>
-    /// <param name="cancellationToken">Cancellation token of the write.</param>
-    /// <returns>The response of the write.</returns>
-    internal Task<SetAsyncResponse> SetThroughScopeAsync(string operationId, string value, CancellationToken cancellationToken) => Coordinator.ExecuteAsync(
-        operationId,
-        static _ => "fp",
-        (Harness: this, OperationId: operationId, Value: value),
-        static async (state, token) =>
-        {
-            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static _ => new SetAsyncResponse());
-            await state.Harness.Cache.SetEntryAsync(state.OperationId, CacheName, Key, new NodeCacheEntry<object?>(state.Value), token);
-            return new SetAsyncResponse();
-        },
-        cancellationToken);
-
     /// <summary>Reads every frame the segments hold right now, in order.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The frames.</returns>
@@ -187,18 +156,17 @@ internal sealed class FusedWriteHarness
         return frames;
     }
 
-    /// <summary>Recovers the journal into a fresh memory and idempotency store, as a restart would; the journal must be shut down first.</summary>
+    /// <summary>Recovers the journal into fresh cache memory; the journal must be shut down first.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The recovered memory and store.</returns>
-    internal async Task<(PhysicalCache<object?> Memory, RpcMutationIdempotencyStore Store)> RecoverAsync(CancellationToken cancellationToken)
+    /// <returns>The recovered memory.</returns>
+    internal async Task<PhysicalCache<object?>> RecoverAsync(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var memory = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(SharedMeter), Clock);
-        var dependencies = new RecoveryDependencies<object?>(persistence, ledger, memory, new AsyncManualResetEvent(true), store, StoreFactory.CreateReader(), Clock);
+        var dependencies = new RecoveryDependencies<object?>(persistence, ledger, memory, new AsyncManualResetEvent(true), StoreFactory.CreateReader(), Clock);
         await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
-        return (memory, store);
+        return memory;
     }
 
     /// <summary>Creates the wire form of an entry holding a string.</summary>
@@ -230,8 +198,9 @@ internal sealed class FusedWriteHarness
                 new IBackpressureGateCreateExpectations().Instance(),
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
-            Coordinator,
-            Clock);
+            false,
+            Clock,
+            journal: Journal.Journal);
     }
 
     /// <summary>A journal frame as the segments hold it.</summary>

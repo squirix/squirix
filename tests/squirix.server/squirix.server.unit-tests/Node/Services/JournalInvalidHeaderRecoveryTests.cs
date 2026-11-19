@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -92,7 +91,6 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                 scenario.Ledger,
                 scenario.Cache,
                 gate,
-                new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
                 StoreFactory.CreateReader(),
                 TimeProvider.System));
 

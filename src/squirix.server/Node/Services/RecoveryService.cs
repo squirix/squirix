@@ -31,7 +31,6 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly IHostApplicationLifetime? _applicationLifetime;
     private readonly AsyncManualResetEvent _asyncManualResetEvent;
     private readonly CacheExpiryAuthority _expiry;
-    private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly ILocalCacheRecovery<T> _localCache;
     private readonly ILogger<RecoveryService<T>> _log;
     private readonly Ledger _manifestStore;
@@ -52,7 +51,6 @@ internal sealed class RecoveryService<T> : IHostedService
         _manifestStore = deps.Ledger;
         _localCache = deps.LocalCache;
         _asyncManualResetEvent = deps.AsyncManualResetEvent;
-        _idempotency = deps.Idempotency;
         _snapshotReader = deps.SnapshotReader;
         _timeProvider = deps.TimeProvider;
         _expiry = deps.Expiry;
@@ -114,19 +112,13 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
-    /// <summary>Resolves the creation time of a replayed idempotency record.</summary>
-    /// <param name="record">The journal record.</param>
-    /// <returns>The frame write time; the server clock when the frame has none.</returns>
-    private DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
-        record.UnixMs <= 0 ? _timeProvider.GetUtcNow().UtcDateTime : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
-
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
         switch (record.Operation)
         {
             case JournalOperationKind.Put:
             {
-                var key = PrepareMutationKey(record);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 var putEntryBytes = record.PutEntryBytes;
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry, out var bytesRead))
                     throw CreateJournalDecodeFailure();
@@ -151,17 +143,13 @@ internal sealed class RecoveryService<T> : IHostedService
 
             case JournalOperationKind.Remove:
             {
-                var key = PrepareMutationKey(record);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
             case JournalOperationKind.IdempotencyOutcome:
-                _idempotency.RestoreRecord(record.IdempotencyOperationId!, record.IdempotencyFingerprint!, record.IdempotencyResponseBytes, ResolveIdempotencyCreatedUtc(record));
-                break;
-
             case JournalOperationKind.IdempotencyStarted:
-                _idempotency.RestoreStarted(record.IdempotencyOperationId!, record.IdempotencyFingerprint, ResolveIdempotencyCreatedUtc(record));
                 break;
 
             case JournalOperationKind.AwaitDurabilityCommit:
@@ -209,15 +197,6 @@ internal sealed class RecoveryService<T> : IHostedService
         context.ManifestCurrentJournal,
         context.FirstAvailableSegment,
         fromSegment);
-
-    /// <summary>Restores the write-ahead started intent for a mutation frame and normalizes its cache key.</summary>
-    /// <param name="record">The journal record being replayed.</param>
-    /// <returns>The normalized cache key.</returns>
-    private CacheKey PrepareMutationKey(JournalRecord record)
-    {
-        RestoreStartedMutation(record);
-        return record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
-    }
 
     private async Task ReplayAsync(CancellationToken cancellationToken)
     {
@@ -312,7 +291,6 @@ internal sealed class RecoveryService<T> : IHostedService
                 return new ReplayState(fromSegment, lastAppliedSeq);
 
             await ApplySnapshotEntriesAsync(snapshot, cancellationToken).ConfigureAwait(false);
-            _idempotency.RestoreSnapshotRecords(snapshot.IdempotencyRecords);
             fromSegment = snapshotReference.ReplayFromJournalSegment > 0 ? snapshotReference.ReplayFromJournalSegment : 1;
             ServerLog.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
             return new ReplayState(fromSegment, lastAppliedSeq, true);
@@ -320,14 +298,6 @@ internal sealed class RecoveryService<T> : IHostedService
 
         HandleSnapshotLoadFailure(context, snapshotPath, out fromSegment, out lastAppliedSeq);
         return new ReplayState(fromSegment, lastAppliedSeq);
-    }
-
-    private void RestoreStartedMutation(JournalRecord record)
-    {
-        if (record.MutationOperationId is not { } operationId)
-            return;
-
-        _idempotency.RestoreStarted(operationId, record.MutationFingerprint, ResolveIdempotencyCreatedUtc(record));
     }
 
     [Immutable]

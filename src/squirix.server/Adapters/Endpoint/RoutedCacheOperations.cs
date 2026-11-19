@@ -6,9 +6,9 @@ using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
@@ -22,17 +22,17 @@ internal sealed class RoutedCacheOperations<T>
         IInboundEndpointCacheOperations<T> cacheOperations,
         OwnerRouter router,
         OwnerRpcForwarder forwarder,
-        IRpcMutationIdempotencyCoordinator idempotency,
+        bool replicated,
         TimeProvider timeProvider,
-        IDistributedCacheAccess? distributedAccess = null)
+        IDistributedCacheAccess? distributedAccess = null,
+        IJournalCoordinator? journal = null)
     {
         ArgumentNullException.ThrowIfNull(cacheOperations);
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(forwarder);
-        ArgumentNullException.ThrowIfNull(idempotency);
         ArgumentNullException.ThrowIfNull(timeProvider);
         Reads = new ReadOperations(cacheOperations, router, forwarder, timeProvider, distributedAccess);
-        Mutations = new MutationOperations(cacheOperations, router, forwarder, idempotency);
+        Mutations = new MutationOperations(cacheOperations, router, forwarder, replicated, journal);
     }
 
     internal ReadOperations Reads { get; }
@@ -105,10 +105,9 @@ internal sealed class RoutedCacheOperations<T>
         {
             var cache = SquirixServiceAdapterValidation.RequireCacheName(cacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(key);
-            var id = RpcMutationContracts.RequireOperationId(operationId);
             var access = _distributedAccess ??
                          ThrowHelper.Throw<IDistributedCacheAccess>(new ServerCallException(FrameStatus.Unimplemented, "Distributed cache access is unavailable."));
-            return access.AccessAsync(id, cache, key, RpcMutationFingerprints.DistributedAccess, refresh, cancellationToken);
+            return access.AccessAsync(operationId, cache, key, refresh, cancellationToken);
         }
 
         private ICacheApi<T> ApiForRequest(string cacheName) => _cacheOperations.ForCache(SquirixServiceAdapterValidation.RequireCacheName(cacheName));
@@ -169,15 +168,13 @@ internal sealed class RoutedCacheOperations<T>
     {
         private readonly OwnerRpcForwarder _forwarder;
         private readonly MutationHandlers _handlers;
-        private readonly IRpcMutationIdempotencyCoordinator _idempotency;
         private readonly OwnerRouter _router;
 
-        internal MutationOperations(IInboundEndpointCacheOperations<T> cacheOperations, OwnerRouter router, OwnerRpcForwarder forwarder, IRpcMutationIdempotencyCoordinator idempotency)
+        internal MutationOperations(IInboundEndpointCacheOperations<T> cacheOperations, OwnerRouter router, OwnerRpcForwarder forwarder, bool replicated, IJournalCoordinator? journal)
         {
             _router = router;
             _forwarder = forwarder;
-            _idempotency = idempotency;
-            _handlers = new MutationHandlers(cacheOperations);
+            _handlers = new MutationHandlers(cacheOperations, replicated, journal);
         }
 
         internal Task<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -185,12 +182,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.GetOrAddAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.GetOrAdd(h.Request.CacheName, h.Request.Key, h.Request.Entry),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.GetOrAddAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.GetOrAddAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         internal Task<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -198,12 +190,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.RemoveAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.Remove(h.Request.CacheName, h.Request.Key),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.RemoveAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.RemoveAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         internal Task<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -211,12 +198,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.RemoveExpirationAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.RemoveExpiration(h.Request.CacheName, h.Request.Key),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.RemoveExpirationAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.RemoveExpirationAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         internal Task<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -224,12 +206,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.SetDistributedAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.SetDistributed(h.Request),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.SetDistributedAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.SetDistributedAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         internal Task<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -237,12 +214,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.SetEntryAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.SetEntry(h.Request.CacheName, h.Request.Key, h.Request.Entry),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.SetEntryAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.SetEntryAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         internal Task<TouchAsyncResponse> TouchAsync(TouchAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -250,12 +222,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.TouchAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.Touch(h.Request.CacheName, h.Request.Key, h.Request.Expiration),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.TouchAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.TouchAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         internal Task<TryAddAsyncResponse> AddEntryIfAbsentAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -263,12 +230,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.AddEntryIfAbsentAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.AddEntryIfAbsent(h.Request.CacheName, h.Request.Key, h.Request.Entry),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.AddEntryAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.AddEntryAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         internal Task<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -276,12 +238,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.UpdateAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
-                s.Request.OperationId,
-                static h => RpcMutationFingerprints.Update(h.Request.CacheName, h.Request.Key, h.Request.Entry),
-                (Handlers: s.Adapter._handlers, s.Request),
-                static (h, token) => h.Handlers.UpdateAsyncCoreAsync(h.Request, token),
-                ct),
+            static (s, ct) => s.Adapter._handlers.UpdateAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
         [Immutable]
@@ -289,18 +246,27 @@ internal sealed class RoutedCacheOperations<T>
         {
             private readonly IInboundEndpointCacheOperations<T> _cacheOperations;
 
-            internal MutationHandlers(IInboundEndpointCacheOperations<T> cacheOperations)
+            private readonly bool _replicated;
+            private readonly IJournalCoordinator? _journal;
+
+            internal MutationHandlers(IInboundEndpointCacheOperations<T> cacheOperations, bool replicated, IJournalCoordinator? journal)
             {
                 _cacheOperations = cacheOperations;
+                _replicated = replicated;
+                _journal = journal;
             }
 
             internal async Task<TryAddAsyncResponse> AddEntryAsyncCoreAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static added => new TryAddAsyncResponse { Added = added });
+
                 var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(
-                    RpcMutationContracts.RequireOperationId(request.OperationId),
+                    operationId,
                     request.Key,
                     request.Entry.MapFromProto<T>(),
                     cancellationToken).ConfigureAwait(false);
@@ -309,6 +275,10 @@ internal sealed class RoutedCacheOperations<T>
 
             internal async Task<GetOrAddAsyncResponse> GetOrAddAsyncCoreAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
                 var api = _cacheOperations.ForCache(cacheName);
@@ -319,9 +289,7 @@ internal sealed class RoutedCacheOperations<T>
                 var entry = request.Entry.MapFromProto<T>();
 
                 // The response of an add that took effect carries no value and is known before the add is applied.
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static added =>
-                    added ? AddedResponse() : throw new InvalidOperationException("Only an add that took effect has a predicted outcome."));
-                var (added, existing) = await api.AddOrGetAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken)
+                var (added, existing) = await api.AddOrGetAsync(operationId, request.Key, entry, cancellationToken)
                                                  .ConfigureAwait(false);
                 return added
                     ? AddedResponse()
@@ -334,27 +302,39 @@ internal sealed class RoutedCacheOperations<T>
 
             internal async Task<RemoveAsyncResponse> RemoveAsyncCoreAsync(RemoveAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static result => RemoveResponse(result));
-                var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken)
+
+                var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(operationId, request.Key, cancellationToken)
                                                    .ConfigureAwait(false);
                 return RemoveResponse(result);
             }
 
             internal async Task<RemoveExpirationAsyncResponse> RemoveExpirationAsyncCoreAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static found => new RemoveExpirationAsyncResponse { Found = found });
+
                 var found = await _cacheOperations.ForCache(cacheName)
-                                                  .RemoveExpirationAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken)
+                                                  .RemoveExpirationAsync(operationId, request.Key, cancellationToken)
                                                   .ConfigureAwait(false);
                 return new RemoveExpirationAsyncResponse { Found = found };
             }
 
             internal async Task<SetAsyncResponse> SetDistributedAsyncCoreAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
                 var policy = new DistributedCachePolicy(request.HasExpiresAtUnixMs ? request.ExpiresAtUnixMs : null, request.HasSlidingTicks ? request.SlidingTicks : null);
@@ -369,9 +349,8 @@ internal sealed class RoutedCacheOperations<T>
                 if (write is not T value)
                     throw new ServerCallException(FrameStatus.Internal, "The node cannot store distributed cache values.");
 
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static _ => new SetAsyncResponse());
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
-                    RpcMutationContracts.RequireOperationId(request.OperationId),
+                    operationId,
                     request.Key,
                     new NodeCacheEntry<T>(value, expiresUtc: write.DeadlineForSizing),
                     cancellationToken).ConfigureAwait(false);
@@ -380,11 +359,15 @@ internal sealed class RoutedCacheOperations<T>
 
             internal async Task<SetAsyncResponse> SetEntryAsyncCoreAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static _ => new SetAsyncResponse());
+
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
-                    RpcMutationContracts.RequireOperationId(request.OperationId),
+                    operationId,
                     request.Key,
                     request.Entry.MapFromProto<T>(),
                     cancellationToken).ConfigureAwait(false);
@@ -393,11 +376,15 @@ internal sealed class RoutedCacheOperations<T>
 
             internal async Task<TouchAsyncResponse> TouchAsyncCoreAsync(TouchAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static found => new TouchAsyncResponse { Found = found });
+
                 var found = await _cacheOperations.ForCache(cacheName).TouchAsync(
-                    RpcMutationContracts.RequireOperationId(request.OperationId),
+                    operationId,
                     request.Key,
                     ServerProtoEx.RequireDuration(request.Expiration),
                     cancellationToken).ConfigureAwait(false);
@@ -406,11 +393,15 @@ internal sealed class RoutedCacheOperations<T>
 
             internal async Task<UpdateAsyncResponse> UpdateAsyncCoreAsync(UpdateAsyncRequest request, CancellationToken cancellationToken)
             {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
                 SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static updated => new UpdateAsyncResponse { Updated = updated });
+
                 var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
-                    RpcMutationContracts.RequireOperationId(request.OperationId),
+                    operationId,
                     request.Key,
                     request.Entry.MapFromProto<T>().Value,
                     cancellationToken).ConfigureAwait(false);

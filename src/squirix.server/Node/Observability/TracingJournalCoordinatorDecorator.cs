@@ -51,15 +51,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public long UsedBytes => _inner.UsedBytes;
 
-    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken) =>
-        _tracer.IsEnabled
-            ? TracedAsync(
-                JournalOperationKind.IdempotencyOutcome,
-                null,
-                (operationId, fingerprint, responseBytes, appended, cancellationToken),
-                static (inner, args) => inner.AppendIdempotencyOutcomeAsync(args.operationId, args.fingerprint, args.responseBytes, args.appended, args.cancellationToken))
-            : _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, appended, cancellationToken);
-
     public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
         _tracer.IsEnabled
             ? TracedAsync(

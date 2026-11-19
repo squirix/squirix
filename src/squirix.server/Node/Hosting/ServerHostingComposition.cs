@@ -740,7 +740,7 @@ internal static class ServerHostingComposition
             {
                 var services = listenOptions.ApplicationServices;
                 var middleware = new ConnectionAuthenticationMiddleware(next, services.GetService<ConnectionAuthenticationValidator>(), TimeProvider.System);
-                return BinaryEndpoint.Create(middleware.OnConnectionAsync, services);
+                return BinaryEndpoint.Create(middleware.OnConnectionAsync, services, services.GetRequiredService<FeatureState>().NetworkReplicationEnabled);
             });
         }
     }

@@ -1,23 +1,18 @@
 using System;
-using System.Collections.Generic;
-using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -28,8 +23,6 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTestBase
 {
-    private readonly Meter _testMeter = new("test");
-
     /// <summary>Replay must skip Put entries whose absolute expiration has already passed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -43,27 +36,6 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         await RunRecoveryAsync(scenario, cancellationToken);
 
         _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("gone"), cancellationToken).Found).IsFalse();
-    }
-
-    /// <summary>Idempotency replay with UnixMs == 0 must fall back to the recovery wall clock for CreatedUtc.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task IdempotencyZeroUnixMsUsesWallClock(CancellationToken cancellationToken)
-    {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-zero");
-        var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
-        var id = BinaryJournalTestSegmentWriter.BuildIdempotencyRecord("op-zero", "fp-zero", bytes, 0L, 1UL);
-        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, id);
-        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
-
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
-        await RunRecoveryAsync(scenario, store, cancellationToken);
-
-        IIdempotencySnapshotExporter exporter = store;
-        var snapshot = new List<PersistedIdempotencyRecord>();
-        exporter.ExportSnapshot(snapshot, DateTime.UtcNow);
-        var exported = await Assert.That(snapshot).HasSingleItem();
-        _ = await Assert.That(exported.OperationId).IsEqualTo("op-zero");
     }
 
     /// <summary>A put whose deadline passed, followed by a put of a live entry for the same key, replays as the live entry.</summary>
@@ -122,6 +94,28 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var b = scenario.Cache.GetValue(CacheKey.Default("b"), cancellationToken);
         _ = await Assert.That(b.Found).IsTrue();
         _ = await Assert.That(b.Value).IsEqualTo("vb");
+    }
+
+    /// <summary>Restores older mutation frames while skipping their recorded outcomes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LegacyOutcomeFramesPreserveCacheData(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-legacy-outcome");
+        const string operationId = "0123456789abcdef0123456789abcdef";
+        var put = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "legacy", "initial");
+        put.MutationOperationId = operationId;
+        put.MutationFingerprint = "fingerprint";
+        var outcome = BinaryJournalTestSegmentWriter.BuildIdempotencyRecord(operationId, "fingerprint", [], 0, 2UL);
+        var update = BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "legacy", "current");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [put, outcome, update]);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 4 }, cancellationToken);
+
+        await RunRecoveryAsync(scenario, cancellationToken);
+
+        var value = scenario.Cache.GetValue(CacheKey.Default("legacy"), cancellationToken);
+        _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(value.Value).IsEqualTo("current");
     }
 
     /// <summary>A frame carrying an unassigned opcode fails recovery instead of being skipped.</summary>
@@ -210,29 +204,14 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         await scenario.Ledger.WriteAsync(manifest, cancellationToken);
     }
 
-    /// <inheritdoc />
-    protected override void DisposeManaged() => _testMeter.Dispose();
-
-    private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, RpcMutationIdempotencyStore store)
+    private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario)
     {
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         var reader = StoreFactory.CreateReader();
-        var recoveryDependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, new AsyncManualResetEvent(true), store, reader, TimeProvider.System);
+        var recoveryDependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, new AsyncManualResetEvent(true), reader, TimeProvider.System);
         return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies);
     }
 
-    /// <summary>Runs recovery for the given builder and idempotency store.</summary>
-    /// <param name="builder">The recovery scenario builder.</param>
-    /// <param name="store">The idempotency store.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private static Task RunRecoveryAsync(RecoveryScenarioBuilder builder, RpcMutationIdempotencyStore store, CancellationToken cancellationToken) =>
-        CreateRecovery(builder, store).StartAsync(cancellationToken);
-
-    /// <summary>Runs recovery for the given builder with a fresh idempotency store.</summary>
-    /// <param name="builder">The recovery scenario builder.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private Task RunRecoveryAsync(RecoveryScenarioBuilder builder, CancellationToken cancellationToken) => RunRecoveryAsync(
-        builder,
-        new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
-        cancellationToken);
+    private static Task RunRecoveryAsync(RecoveryScenarioBuilder builder, CancellationToken cancellationToken) =>
+        CreateRecovery(builder).StartAsync(cancellationToken);
 }

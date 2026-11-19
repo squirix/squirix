@@ -120,8 +120,6 @@ public class TracingDecoratorBenchmarks
 
         public long UsedBytes => 0;
 
-        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken) => CompleteAsync();
-
         public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => CompleteAsync();
 
         public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => CompleteAsync();

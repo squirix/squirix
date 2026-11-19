@@ -9,9 +9,11 @@ namespace Squirix.Transport.Binary;
 internal static class Frames
 {
     /// <summary>Identifies the versioned binary cache protocol.</summary>
-    internal const uint Preface = 0x53514231; // SQB1
+    internal const uint Preface = 0x53514232; // SQB2
     internal const byte Accepted = 1;
     internal const byte Rejected = 2;
+    internal const byte AcceptedWithMutationReplay = 3;
+    internal const string OwnerUnreachableDetail = "owner_unreachable";
     internal const int PrefaceBytes = 5;
     internal const int HeaderBytes = 12;
 

@@ -15,13 +15,13 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
-/// <summary>Real gRPC replay requests obey admission before reaching the retained outcome.</summary>
-public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
+/// <summary>Repeated writes obey the admission rules.</summary>
+public sealed class RepeatedWriteAdmissionTests : NodeIntegrationTestBase
 {
-    /// <summary>Replays consume rate tokens, while a fresh mutation consumes exactly one token.</summary>
+    /// <summary>Each request consumes a rate token.</summary>
     /// <param name="cancellationToken">Test cancellation token.</param>
     [Test]
-    public async Task ReplayObeysRateLimitTest(CancellationToken cancellationToken)
+    public async Task RepeatedWriteObeysRateLimit(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         var options = new IntegrationStartOptions
@@ -51,16 +51,16 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
 
         clock.Advance(TimeSpan.FromSeconds(1));
         var replay = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
-        _ = await Assert.That(replay.Added).IsTrue();
+        _ = await Assert.That(replay.Added).IsFalse();
     }
 
-    /// <summary>A cached success cannot bypass a saturated gate; a retry after release still replays the original result.</summary>
+    /// <summary>A repeated write uses the same admission gate and evaluates the current entry.</summary>
     /// <param name="persistent">Whether the node journals mutations.</param>
     /// <param name="cancellationToken">Test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task ReplayObeysCapacityTest(bool persistent, CancellationToken cancellationToken)
+    public async Task RepeatedWriteObeysCapacity(bool persistent, CancellationToken cancellationToken)
     {
         var options = new IntegrationStartOptions
         {
@@ -95,6 +95,6 @@ public sealed class ReplayAdmissionTests : NodeIntegrationTestBase
         }
 
         var replay = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
-        _ = await Assert.That(replay.Added).IsTrue();
+        _ = await Assert.That(replay.Added).IsFalse();
     }
 }

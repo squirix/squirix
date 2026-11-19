@@ -91,7 +91,7 @@ Ownership mismatch signals:
 Ring mismatch signals:
 
 - A ring mismatch means two nodes were started with different `ClusterId`, `VirtualNodes`, or peer `NodeId` lists, so they disagree on key owners.
-- The first forwarded call between them is refused before it touches any idempotency store. Clients see `Unavailable` and the trailer `squirix-error-code`
+- The first forwarded call between them is refused before the key owner executes it. Clients see `Unavailable` and the trailer `squirix-error-code`
   with `ring-mismatch`; later operations on the fenced nodes see `ring-fenced`.
 - A missing fingerprint means the peer runs a version without ring agreement: a rolling upgrade to this version fences the upgraded nodes, so upgrade RF=1 clusters
   with a full stop and start.
@@ -307,7 +307,7 @@ If recovery fails, stop the node and preserve both the failed restore directory 
 
 Preserve the journal files and the `man-current` manifest during recovery triage.
 
-Snapshot recovery is staged. A node publishes snapshot cache entries and retained idempotency records only after the
+Snapshot recovery is staged. A node publishes snapshot cache entries only after the
 whole snapshot validates. A snapshot with an unsupported format version stops recovery; the node does not skip it.
 For other snapshot load failures, recovery can fall back to journal replay from a clean state, without applying the
 snapshot watermark, only if the journal replay range is available. If the required range is unavailable, startup fails

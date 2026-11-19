@@ -76,6 +76,55 @@ public sealed class BinaryMultiplexingTests
         _ = await Assert.That((await third).Value).IsEqualTo("third value");
     }
 
+    /// <summary>A mutation whose reply is lost on a single-copy connection is reported as ambiguous.</summary>
+    /// <param name="closeConnection">Whether to close the connection or leave the request unanswered.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The test listener did not bind an IP endpoint.</exception>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task UnconfirmedMutationDoesNotRetry(bool closeConnection, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var token = timeout.Token;
+        using var certificate = CreateTlsCertificate();
+        var thumbprint = certificate.Thumbprint;
+        using var handler = new SocketsHttpHandler();
+        handler.SslOptions.RemoteCertificateValidationCallback = (_, remote, _, _) =>
+            string.Equals(remote?.GetCertHashString(), thumbprint, StringComparison.Ordinal);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        if (listener.LocalEndpoint is not IPEndPoint endpoint)
+            throw new InvalidOperationException("The TLS listener has no IP endpoint.");
+
+        var options = new SquirixClientOptions();
+        options.Endpoints.Add(new UriBuilder(Uri.UriSchemeHttps, "localhost", endpoint.Port).Uri);
+        var connecting = SquirixClient.ConnectAsync(options, handler, token);
+        using var socket = await listener.AcceptTcpClientAsync(token);
+        await using var stream = new SslStream(socket.GetStream());
+        await NegotiateAsync(stream, certificate, token);
+        await using var client = await connecting;
+        var cache = await client.GetCacheAsync<string>("default", token);
+
+        var write = cache.SetAsync("lost-reply", "written", cancellationToken: token);
+        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
+        await stream.ReadExactlyAsync(header, token);
+        var (_, size, control) = Frames.Read(header, Frames.MaxRequestBytes);
+        _ = await Assert.That(Frames.ReadOperationId(control)).IsEqualTo(Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.SetEntry));
+        var body = GC.AllocateUninitializedArray<byte>(size);
+        await stream.ReadExactlyAsync(body, token);
+        var request = (control & Frames.TracedRequest) == 0
+            ? SetEntryAsyncRequest.Parser.ParseFrom(body)
+            : SetEntryAsyncRequest.Parser.ParseFrom(BinaryTracedRequest.Parser.ParseFrom(body).Payload);
+        _ = await Assert.That(request.Key).IsEqualTo("lost-reply");
+        if (closeConnection)
+            socket.Close();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<CommitOutcomeUnknownException>(write, TimeSpan.FromSeconds(5), TimeProvider.System, token);
+        _ = await Assert.That(listener.Pending()).IsFalse();
+    }
+
     private static X509Certificate2 CreateTlsCertificate()
     {
         using var authority = TestCertificates.CreateStandaloneCertificateAuthority();

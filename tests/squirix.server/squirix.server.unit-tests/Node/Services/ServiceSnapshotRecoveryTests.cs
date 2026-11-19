@@ -8,7 +8,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -245,9 +244,8 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
     {
         var gate = new AsyncManualResetEvent(true);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var reader = StoreFactory.CreateReader();
-        var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, store, reader, TimeProvider.System);
+        var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, reader, TimeProvider.System);
         var options = new RecoveryOptions { BlockOnStart = blockOnStart };
         return new RecoveryService<object?>(options, logger, dependencies);
     }

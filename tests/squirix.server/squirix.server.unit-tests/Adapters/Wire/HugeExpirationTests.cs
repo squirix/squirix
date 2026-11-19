@@ -3,15 +3,12 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Observability;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.UnitTests.Support;
@@ -78,7 +75,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     {
         TimeSpan? seen = null;
         var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.TouchAsync(OperationId, Key, Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+        _ = api.Setups.TouchAsync(string.Empty, Key, Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Callback((_, _, expiration, _) =>
             {
                 seen = expiration;
@@ -104,7 +101,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     {
         TimeSpan? seen = null;
         var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.SetEntryAsync(OperationId, Key, Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        _ = api.Setups.SetEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
             .Callback((_, _, entry, _) =>
             {
                 seen = entry.Expiration;
@@ -129,7 +126,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     {
         TimeSpan? seen = null;
         var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.TryAddEntryAsync(OperationId, Key, Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        _ = api.Setups.TryAddEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
             .Callback((_, _, entry, _) =>
             {
                 seen = entry.Expiration;
@@ -149,7 +146,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
 
     private static CacheEntryWire CreateEntry(Duration expiration) => new() { Value = JsonValueKit.Wire("{\"__v\":\"v\"}"), Expiration = expiration };
 
-    private RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
+    private static RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
     {
         var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
         _ = operations.Setups.ForCache(CacheName).ReturnValue(api);
@@ -158,7 +155,6 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Self);
         var invocation = new IRemoteInvocationStateCreateExpectations();
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
         return new RoutedCacheOperations<object?>(
             operations.Instance(),
@@ -168,7 +164,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 new IBackpressureGateCreateExpectations().Instance(),
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
-            new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance),
+            false,
             TimeProvider.System);
     }
 }

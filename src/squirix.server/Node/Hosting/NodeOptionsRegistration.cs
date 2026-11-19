@@ -10,7 +10,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 
@@ -32,8 +31,6 @@ internal static class NodeOptionsRegistration
         var unresolvedMemoryPressure = await PressureBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         var memoryPressure = args.MemoryPressureOptions ?? OptionsResolver.Resolve(unresolvedMemoryPressure, GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<PressureOptions, PressureOptionsValidator>(services, memoryPressure);
-        var idempotency = IdempotencyBootstrap.Load(cancellationToken);
-        AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
         if (args.PersistenceOptions != null)
             await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, cancellationToken).ConfigureAwait(false);

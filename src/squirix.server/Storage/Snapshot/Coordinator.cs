@@ -30,7 +30,6 @@ internal sealed class Coordinator
 
     private readonly CaptureScratch _captureScratch = new();
     private readonly ISnapshotEntryCapture _entryCapture;
-    private readonly IIdempotencySnapshotExporter _idempotency;
     private readonly Ledger _manifestStore;
     private readonly string _nodeId;
     private readonly ISnapshotWriter _snapWriter;
@@ -45,7 +44,6 @@ internal sealed class Coordinator
         _entryCapture = deps.EntryCapture;
         _snapWriter = deps.SnapWriter;
         _manifestStore = deps.Ledger;
-        _idempotency = deps.Idempotency;
         _nodeId = deps.NodeId;
         _telemetry = deps.Telemetry;
         _timeProvider = timeProvider;
@@ -111,8 +109,7 @@ internal sealed class Coordinator
         var utcNow = _timeProvider.GetUtcNow().UtcDateTime;
         await _entryCapture.CaptureEntriesAsync(_captureScratch.Items, utcNow, cancellationToken).ConfigureAwait(false);
 
-        _idempotency.ExportSnapshot(_captureScratch.IdempotencyRecords, utcNow);
-        return new CapturedSnapshotBundle(_captureScratch.Items, journal.CurrentSegmentIndex, journal.NextSequence, _captureScratch.IdempotencyRecords);
+        return new CapturedSnapshotBundle(_captureScratch.Items, journal.CurrentSegmentIndex, journal.NextSequence);
     }
 
     private async ValueTask<SnapshotRef?> PublishSnapshotAsync(
@@ -132,7 +129,7 @@ internal sealed class Coordinator
         var nextIndex = _snapWriter.AllocateIndex(prev.LastSnapshot?.Index ?? 0);
         currentActivity?.SetTag("snapshot.index", InvariantDigitStrings.Format(nextIndex));
 
-        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, captured.IdempotencyRecordsAtFlush, cancellationToken).ConfigureAwait(false);
+        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, [], cancellationToken).ConfigureAwait(false);
         currentActivity?.SetTag("snapshot.path", path);
 
         prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
@@ -175,21 +172,14 @@ internal sealed class Coordinator
     private sealed record CapturedSnapshotBundle(
         List<(CacheKey Key, NodeCacheEntry<object?> Entry)> Items,
         int ReplayFromJournalSegmentAtFlush,
-        ulong NextSequenceAtFlush,
-        IReadOnlyList<PersistedIdempotencyRecord> IdempotencyRecordsAtFlush);
+        ulong NextSequenceAtFlush);
 
     [Immutable]
     private sealed class CaptureScratch
     {
-        internal List<PersistedIdempotencyRecord> IdempotencyRecords { get; } = [];
-
         internal List<(CacheKey Key, NodeCacheEntry<object?> Entry)> Items { get; } = [];
 
-        internal void Clear()
-        {
-            Items.Clear();
-            IdempotencyRecords.Clear();
-        }
+        internal void Clear() => Items.Clear();
     }
 
     /// <summary>

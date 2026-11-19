@@ -3,15 +3,12 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Observability;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.UnitTests.Support;
@@ -22,7 +19,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
-/// <summary>GetOrAdd adds with its operation id before it reads, so a retry replays the recorded outcome of its add.</summary>
+/// <summary>GetOrAdd returns the decision of the atomic cache operation.</summary>
 public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
 {
     private const string OperationId = "0123456789abcdef0123456789abcdef";
@@ -30,15 +27,12 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
 
     private readonly Meter _testMeter = new("test-get-or-add-order");
 
-    /// <summary>
-    /// A retry whose RPC record is gone, of a GetOrAdd whose first attempt added the value, answers that it added it: the add replays the
-    /// recorded outcome and nothing reads the value first.
-    /// </summary>
+    /// <summary>An insertion reports that it added the requested value.</summary>
     [Test]
-    public async Task RetryReplaysTheRecordedAdd()
+    public async Task AbsentKeyReturnsAddedResult()
     {
         var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(true, default)));
 
         var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
@@ -52,7 +46,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     public async Task PresentKeyReturnsItsValue()
     {
         var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(false, new NodeCacheValueResult<object?>(true, "existing"))));
 
         var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
@@ -73,7 +67,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         Entry = new CacheEntryWire { Value = JsonValueKit.Wire("{\"__v\":\"added\"}"), Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) },
     };
 
-    private RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
+    private static RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
     {
         var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
         _ = operations.Setups.ForCache("c").ReturnValue(api);
@@ -82,7 +76,6 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Self);
         var invocation = new IRemoteInvocationStateCreateExpectations();
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
         return new RoutedCacheOperations<object?>(
@@ -93,7 +86,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
                 new IBackpressureGateCreateExpectations().Instance(),
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
-            new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance),
+            false,
             TimeProvider.System);
     }
 }

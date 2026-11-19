@@ -10,7 +10,6 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -109,7 +108,6 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             capture.Instance(),
             StoreFactory.CreateWriter(journal.Journal.Options),
             journal.Ledger,
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
             NoOpSnapshotTelemetry.Instance);
         var snapshots = new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
@@ -162,7 +160,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
     }
 
-    private Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<object?>? existingCache = null)
+    private static Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<object?>? existingCache = null)
     {
         var persistence = journal.Journal.Options;
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
@@ -171,7 +169,6 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             new LocalCacheSnapshotCapture<object?>(cache),
             StoreFactory.CreateWriter(persistence),
             journal.Ledger,
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
             NoOpSnapshotTelemetry.Instance);
         return new Coordinator(opt, journal.Journal, deps, TimeProvider.System);

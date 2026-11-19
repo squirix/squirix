@@ -15,61 +15,48 @@ using TUnit.Core;
 
 namespace Squirix.E2ETests.Cluster;
 
-/// <summary>
-/// End-to-end coverage that a mutation whose forwarded response is lost between the entry node and the key owner
-/// is replayed, not re-executed, when the client fails over to a third node.
-/// </summary>
-/// <remarks>
-/// The entry node (nodeA) forwards to the owner (nodeB); the owner executes, then every forward from the entry node fails as unreachable. The entry
-/// node forwards once per client attempt, so the client retries on nodeA with the same operation id and then fails over to nodeC.
-/// While the response is lost, a direct write to the owner changes the key as a later writer would; a re-executed mutation would overwrite that write, a replayed one leaves it untouched.
-/// </remarks>
+/// <summary>Covers mutations and reads whose forwarded replies are lost.</summary>
 public sealed class LostForwardResponseE2ETests
 {
     private const string CacheName = "default";
 
-    /// <summary>TryAdd keeps its first outcome and does not add the entry again when the client fails over.</summary>
+    /// <summary>TryAdd reports an unknown outcome without executing again.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ConditionalAddReplaysAfterLostResponse(CancellationToken cancellationToken)
+    public async Task ConditionalAddReportsLostResponse(CancellationToken cancellationToken)
     {
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-try-add");
-        await using var scenario = await Scenario.StartAsync(nameof(ConditionalAddReplaysAfterLostResponse), key, static async (owner, k, ct) => _ = await owner.RemoveAsync(k, ct), cancellationToken);
+        await using var scenario = await Scenario.StartAsync(nameof(ConditionalAddReportsLostResponse), key, static async (owner, k, ct) => _ = await owner.RemoveAsync(k, ct), cancellationToken);
 
-        var added = await scenario.Cache.TryAddAsync(key, "first", cancellationToken: cancellationToken);
-
-        _ = await Assert.That(added).IsTrue();
-        await scenario.AssertFailedOverWithSingleExecutionAsync();
+        await AssertUnknownAsync(scenario.Cache.TryAddAsync(key, "first", cancellationToken: cancellationToken), cancellationToken);
+        await scenario.AssertSingleExecutionAsync(1);
         _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>GetOrAdd keeps its first outcome and does not add the entry again when the client fails over.</summary>
+    /// <summary>GetOrAdd reports an unknown outcome without executing again.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task GetOrAddReplaysAfterLostForwardResponse(CancellationToken cancellationToken)
+    public async Task GetOrAddReportsLostResponse(CancellationToken cancellationToken)
     {
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-get-or-add");
-        await using var scenario = await Scenario.StartAsync(nameof(GetOrAddReplaysAfterLostForwardResponse), key, static async (owner, k, ct) => _ = await owner.RemoveAsync(k, ct), cancellationToken);
+        await using var scenario = await Scenario.StartAsync(nameof(GetOrAddReportsLostResponse), key, static async (owner, k, ct) => _ = await owner.RemoveAsync(k, ct), cancellationToken);
 
-        var result = await scenario.Cache.GetOrAddAsync(key, static (_, _) => Task.FromResult<string?>("first"), cancellationToken: cancellationToken);
-
-        _ = await Assert.That(result.Found).IsTrue();
-        _ = await Assert.That(result.Value).IsEqualTo("first");
-        await scenario.AssertFailedOverWithSingleExecutionAsync();
+        await AssertUnknownAsync(scenario.Cache.GetOrAddAsync(key, static (_, _) => Task.FromResult<string?>("first"), cancellationToken: cancellationToken), cancellationToken);
+        await scenario.AssertSingleExecutionAsync(1);
         _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Set keeps its first outcome and does not overwrite a later write when the client fails over.</summary>
+    /// <summary>Set reports an unknown outcome and leaves a later write intact.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SetReplaysAfterLostForwardResponse(CancellationToken cancellationToken)
+    public async Task SetReportsLostResponse(CancellationToken cancellationToken)
     {
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-set");
-        await using var scenario = await Scenario.StartAsync(nameof(SetReplaysAfterLostForwardResponse), key, static (owner, k, ct) => owner.SetAsync(k, "second", cancellationToken: ct), cancellationToken);
+        await using var scenario = await Scenario.StartAsync(nameof(SetReportsLostResponse), key, static (owner, k, ct) => owner.SetAsync(k, "second", cancellationToken: ct), cancellationToken);
 
-        await scenario.Cache.SetAsync(key, "first", cancellationToken: cancellationToken);
+        await AssertUnknownAsync(scenario.Cache.SetAsync(key, "first", cancellationToken: cancellationToken), cancellationToken);
 
-        await scenario.AssertFailedOverWithSingleExecutionAsync();
+        await scenario.AssertSingleExecutionAsync(1);
         var read = await scenario.Owner.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
         _ = await Assert.That(read.Value).IsEqualTo("second");
@@ -96,8 +83,11 @@ public sealed class LostForwardResponseE2ETests
         if (present)
             await scenario.Owner.SetAsync(key, "first", cancellationToken: cancellationToken);
 
-        _ = await Assert.That(await scenario.Cache.RemoveAsync(key, cancellationToken)).IsEqualTo(present);
-        await scenario.AssertFailedOverWithSingleExecutionAsync();
+        if (replicas == 1)
+            await AssertUnknownAsync(scenario.Cache.RemoveAsync(key, cancellationToken), cancellationToken);
+        else
+            _ = await Assert.That(await scenario.Cache.RemoveAsync(key, cancellationToken)).IsEqualTo(present);
+        await scenario.AssertSingleExecutionAsync(replicas == 1 ? 1 : 3);
         _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("second");
     }
 
@@ -140,6 +130,9 @@ public sealed class LostForwardResponseE2ETests
         _ = await Assert.That(probe.OwnerExecutions(key)).IsEqualTo(1);
         _ = await Assert.That(probe.ForwardAttempts(key)).IsEqualTo(3);
     }
+
+    private static async Task AssertUnknownAsync(Task call, CancellationToken cancellationToken) =>
+        _ = await Squirix.Server.TestKit.NodeAsyncAssert.ThrowsAsync<CommitOutcomeUnknownException>(call, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
     private sealed class EntryProbe
     {
@@ -212,12 +205,13 @@ public sealed class LostForwardResponseE2ETests
             }
         }
 
-        /// <summary>Asserts the client retried on the entry node (one forward per client attempt) before failing over, and the owner ran the mutation once.</summary>
+        /// <summary>Asserts the number of forwards and that the owner ran the mutation once.</summary>
         /// <returns>A task that completes when the assertions pass.</returns>
-        internal async Task AssertFailedOverWithSingleExecutionAsync()
+        /// <param name="attempts">Expected number of forward attempts.</param>
+        internal async Task AssertSingleExecutionAsync(int attempts)
         {
             _ = await Assert.That(_probe.OwnerExecutions(_key)).IsEqualTo(1);
-            _ = await Assert.That(_probe.ForwardAttempts(_key)).IsEqualTo(3);
+            _ = await Assert.That(_probe.ForwardAttempts(_key)).IsEqualTo(attempts);
         }
     }
 }

@@ -294,8 +294,6 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
             _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                                    .ReturnValue(default);
-            var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
-            _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
             var writerExpectations = new ISnapshotWriterCreateExpectations();
             _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
             _ = writerExpectations.Setups.WriteAsync(
@@ -306,7 +304,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             var coordinator = new Coordinator(
                 options,
                 journal,
-                new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, exporterExpectations.Instance(), "test-node", NoOpSnapshotTelemetry.Instance),
+                new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, "test-node", NoOpSnapshotTelemetry.Instance),
                 clock);
             var service = new SnapshotTriggerService(NullLogger<SnapshotTriggerService>.Instance, coordinator, journal, clock);
             return new Harness(ledger, journal, clock, service, writer);

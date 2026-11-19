@@ -155,7 +155,7 @@ public sealed class PublicBinaryChannel : IDisposable
         preface[4] = _token == null ? anonymous : bearer;
         await stream.WriteAsync(preface, cancellationToken).ConfigureAwait(false);
         await stream.ReadExactlyAsync(preface.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
-        if (preface[0] != Frames.Accepted)
+        if (preface[0] is not (Frames.Accepted or Frames.AcceptedWithMutationReplay))
             throw new ServerCallException(FrameStatus.Unauthenticated, "Binary connection credentials are required or unsupported.");
         if (_token == null)
             return;
