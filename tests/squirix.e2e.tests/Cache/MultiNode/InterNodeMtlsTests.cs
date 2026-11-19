@@ -1,7 +1,7 @@
 using System;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
@@ -40,8 +40,8 @@ public sealed class InterNodeMtlsTests
         var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
-        var status = await InterNodeGrpcProbe.GetValueAsync(cluster.GetUri("nodeB"), cancellationToken);
-        _ = await Assert.That(status).IsEqualTo(StatusCode.Unimplemented);
+        var status = await InterNodeProbe.GetValueAsync(cluster.GetUri("nodeB"), cancellationToken);
+        _ = await Assert.That(status).IsEqualTo(HttpStatusCode.NotFound);
     }
 
     /// <summary>Verifies node B rejects internode forwarding when node A presents a certificate signed by an untrusted CA.</summary>

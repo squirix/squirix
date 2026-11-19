@@ -390,7 +390,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
 
     private static void EnsureDistributedRecordFits(long bytes)
     {
-        // Keep the same wire headroom as state transfer for the gRPC envelope and framing.
+        // Keep the same wire headroom as state transfer for the peer envelope and framing.
         if (bytes > ReplicaTransferOptions.MessageBudgetBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The distributed renewal record exceeds the replication message budget.");
     }

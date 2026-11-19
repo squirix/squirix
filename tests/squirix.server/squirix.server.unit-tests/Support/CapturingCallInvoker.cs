@@ -3,14 +3,12 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
-using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>Unary-only <see cref="CallInvoker" /> that records every request instance it is given and answers with a configured response or failure.</summary>
-internal sealed class CapturingCallInvoker : CallInvoker, IPeerClient
+/// <summary>Unary-only peer client that records every request instance it is given and answers with a configured response or failure.</summary>
+internal sealed class CapturingCallInvoker : IPeerClient
 {
     private readonly Func<Exception?>? _failure;
     private readonly Func<string, object?>? _respond;
@@ -37,44 +35,8 @@ internal sealed class CapturingCallInvoker : CallInvoker, IPeerClient
         Methods.Add(name);
         Requests.Add(request);
         var error = _failure?.Invoke();
-        return CompleteAsync<T>(error is RpcException rpc ? CallErrors.FromGrpc(rpc) : error, _respond?.Invoke(name));
+        return CompleteAsync<T>(error, _respond?.Invoke(name));
     }
-
-    /// <inheritdoc />
-    public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-        Method<TRequest, TResponse> method,
-        string? host,
-        CallOptions options) => throw new NotSupportedException("The capturing invoker supports unary calls only.");
-
-    /// <inheritdoc />
-    public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
-        Method<TRequest, TResponse> method,
-        string? host,
-        CallOptions options) => throw new NotSupportedException("The capturing invoker supports unary calls only.");
-
-    /// <inheritdoc />
-    public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-        Method<TRequest, TResponse> method,
-        string? host,
-        CallOptions options,
-        TRequest request) => throw new NotSupportedException("The capturing invoker supports unary calls only.");
-
-    /// <inheritdoc />
-    public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
-    {
-        Methods.Add(method.Name);
-        Requests.Add(request);
-        return new AsyncUnaryCall<TResponse>(
-            CompleteAsync<TResponse>(_failure?.Invoke(), _respond?.Invoke(method.Name)),
-            Task.FromResult(new Metadata()),
-            static () => new Status(StatusCode.OK, string.Empty),
-            static () => [],
-            static () => { });
-    }
-
-    /// <inheritdoc />
-    public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-        throw new NotSupportedException("The capturing invoker supports asynchronous calls only.");
 
     private static Task<TResponse> CompleteAsync<TResponse>(Exception? failure, object? configured) => (failure, configured) switch
     {

@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -48,8 +49,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
         using (var channel = CreateBinaryChannel(node.Uri))
         {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            var client = new CacheWireClient(channel);
+            var first = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
             _ = await Assert.That(first.Added).IsTrue();
         }
 
@@ -65,8 +66,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             cancellationToken);
         using (var channel = CreateBinaryChannel(restartCluster["node-c"].Uri))
         {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            var client = new CacheWireClient(channel);
+            var retry = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
             _ = await Assert.That(retry.Added).IsTrue();
         }
     }
@@ -88,8 +89,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         var node = cluster["node-a"];
         using (var channel = CreateBinaryChannel(node.Uri))
         {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            var client = new CacheWireClient(channel);
+            var first = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
             _ = await Assert.That(first.Added).IsTrue();
         }
 
@@ -103,8 +104,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             cancellationToken);
         using (var channel = CreateBinaryChannel(restartCluster["node-a"].Uri))
         {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            var client = new CacheWireClient(channel);
+            var retry = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
             _ = await Assert.That(retry.Added).IsTrue();
 
             var get = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "force-kill-idempotency" }, cancellationToken: cancellationToken);
@@ -129,7 +130,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         var node = cluster["node-b"];
         using (var channel = CreateBinaryChannel(node.Uri))
         {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var client = new CacheWireClient(channel);
             var first = await client.SetEntryAsync(request, cancellationToken: cancellationToken);
             _ = await Assert.That(first).IsNotNull();
         }
@@ -143,7 +144,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             cancellationToken);
         using (var channel = CreateBinaryChannel(restartCluster["node-b"].Uri))
         {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var client = new CacheWireClient(channel);
             var retry = await client.SetEntryAsync(request, cancellationToken: cancellationToken);
             _ = await Assert.That(retry).IsNotNull();
 

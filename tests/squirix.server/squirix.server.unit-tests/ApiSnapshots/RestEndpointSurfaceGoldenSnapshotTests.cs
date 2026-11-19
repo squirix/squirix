@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
@@ -64,14 +64,10 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
             if (endpoint is not RouteEndpoint route)
                 return;
 
-            // gRPC endpoints are covered by a separate contract surface and must not dilute REST goldens.
-            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() != null)
+            if (route.Metadata.GetMetadata<InternalListenerEndpointMetadata>() != null)
                 return;
 
             var pattern = route.RoutePattern.RawText ?? "/";
-            if (pattern.Contains("grpcunimplemented", StringComparison.Ordinal))
-                return;
-
             AppendHttpMethods(route, pattern, routes);
         }
 

@@ -46,9 +46,15 @@ public sealed class PeerProtocolTests : ServerSurfaceTestBase
         using var invalid = CreateRequest(PeerProtocol.Prefix + "ping");
         invalid.Headers.Add(PeerProtocol.BudgetHeader, "-1");
 
+        using var overflow = CreateRequest(PeerProtocol.Prefix + "ping");
+        overflow.Headers.Add(PeerProtocol.BudgetHeader, "9223372036854775807");
+
         using var unknownResponse = await client.SendAsync(unknown, cancellationToken);
         using var invalidResponse = await client.SendAsync(invalid, cancellationToken);
 
+        using var overflowResponse = await client.SendAsync(overflow, cancellationToken);
+
+        _ = await Assert.That(overflowResponse.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         _ = await Assert.That(unknownResponse.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
         _ = await Assert.That(invalidResponse.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
     }

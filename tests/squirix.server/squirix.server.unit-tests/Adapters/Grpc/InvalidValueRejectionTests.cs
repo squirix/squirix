@@ -31,8 +31,8 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         request.Entry.Value = JsonValueKit.Wire(BrokenJson);
         var flushesBefore = harness.FlushCount;
 
-        var first = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.SetEntry(request, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var retry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.SetEntry(request, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var first = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.SetEntryAsync(request, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.SetEntryAsync(request, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(first.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         _ = await Assert.That(retry.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
@@ -49,7 +49,7 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
-        _ = await harness.Adapter.SetEntry(FusedWriteHarness.Set(FusedWriteHarness.OpId(1)), new TestServerCallContext());
+        _ = await harness.Adapter.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1)), CancellationToken.None);
         var framesBefore = harness.ReadFrames(cancellationToken).Count;
         var update = FusedWriteHarness.Update(FusedWriteHarness.OpId(2), "x");
         update.Entry.Value = JsonValueKit.Wire(BrokenJson);
@@ -58,9 +58,9 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         var getOrAdd = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(4), "x", "another");
         getOrAdd.Entry.Value = JsonValueKit.Wire(BrokenJson);
 
-        var updateFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Update(update, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var addFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.TryAddEntry(add, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var getOrAddFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.GetOrAdd(getOrAdd, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var updateFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.UpdateAsync(update, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var addFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.AddEntryIfAbsentAsync(add, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var getOrAddFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.GetOrAddAsync(getOrAdd, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(updateFailure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         _ = await Assert.That(addFailure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
@@ -77,8 +77,8 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         var harness = new FusedWriteHarness(Dir, journal);
         var getOrAdd = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(1), "first");
         var remove = FusedWriteHarness.Remove(FusedWriteHarness.OpId(2));
-        var added = await harness.Adapter.GetOrAdd(getOrAdd, new TestServerCallContext());
-        var removed = await harness.Adapter.Remove(remove, new TestServerCallContext());
+        var added = await harness.Adapter.GetOrAddAsync(getOrAdd, CancellationToken.None);
+        var removed = await harness.Adapter.RemoveAsync(remove, CancellationToken.None);
         await journal.ShutdownAsync();
 
         var (memory, store) = await harness.RecoverAsync(cancellationToken);

@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc;
@@ -42,7 +41,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         var adapter = CreateAdapter(invoker, policy, false);
 
         foreach (var call in CreateCalls())
-            await call(adapter, new TestServerCallContext());
+            await call(adapter, CancellationToken.None);
 
         string[] methods = ["GetEntry", "GetExpiration", "GetOrAdd", "GetValue", "Remove", "RemoveExpiration", "SetEntry", "Touch", "TryAddEntry", "Update"];
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(methods.Length);
@@ -61,7 +60,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
         foreach (var call in CreateCalls())
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call(adapter, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call(adapter, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
             _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         }
@@ -87,7 +86,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         await using var policy = CreatePolicy();
         var adapter = CreateAdapter(invoker, policy, false);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adapter.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
         _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
@@ -112,29 +111,29 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         _ => throw new ArgumentOutOfRangeException(nameof(method), method, "Unsupported method."),
     };
 
-    private static Func<SquirixServiceAdapter<object?>, ServerCallContext, Task>[] CreateCalls() =>
+    private static Func<RoutedCacheOperations<object?>, CancellationToken, Task>[] CreateCalls() =>
     [
-        static async (adapter, context) => _ = await adapter.GetEntry(new GetEntryAsyncRequest { CacheName = "c", Key = "k" }, context),
-        static async (adapter, context) => _ = await adapter.GetExpiration(new GetExpirationAsyncRequest { CacheName = "c", Key = "k" }, context),
-        static async (adapter, context) => _ = await adapter.GetOrAdd(new GetOrAddAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.GetValue(new GetValueAsyncRequest { CacheName = "c", Key = "k" }, context),
-        static async (adapter, context) => _ = await adapter.Remove(new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.RemoveExpiration(new RemoveExpirationAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.Touch(
+        static async (adapter, context) => _ = await adapter.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "c", Key = "k" }, context),
+        static async (adapter, context) => _ = await adapter.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "c", Key = "k" }, context),
+        static async (adapter, context) => _ = await adapter.GetOrAddAsync(new GetOrAddAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.GetValueAsync(new GetValueAsyncRequest { CacheName = "c", Key = "k" }, context),
+        static async (adapter, context) => _ = await adapter.RemoveAsync(new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.RemoveExpirationAsync(new RemoveExpirationAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.TouchAsync(
             new TouchAsyncRequest { CacheName = "c", Key = "k", Expiration = CreateEntry().Expiration, OperationId = OperationId },
             context),
-        static async (adapter, context) => _ = await adapter.TryAddEntry(new TryAddEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
-        static async (adapter, context) => _ = await adapter.Update(new UpdateAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.AddEntryIfAbsentAsync(new TryAddEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
+        static async (adapter, context) => _ = await adapter.UpdateAsync(new UpdateAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
     ];
 
-    private static async Task AssertRerouteSendsSameRequestAsync(Func<SquirixServiceAdapter<object?>, ServerCallContext, Task> call, ServerCallPolicy policy)
+    private static async Task AssertRerouteSendsSameRequestAsync(Func<RoutedCacheOperations<object?>, CancellationToken, Task> call, ServerCallPolicy policy)
     {
         var calls = 0;
         var invoker = new CapturingCallInvoker(static method => CreateResponse(method), () => ++calls == 1 ? StaleOwnerWithHint("node-c") : null);
         var adapter = CreateAdapter(invoker, policy, false, new FakeLeaderTable(Self, new LeaderRoute(Remote, 2)));
 
-        await call(adapter, new TestServerCallContext());
+        await call(adapter, CancellationToken.None);
 
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(2);
         _ = await Assert.That(invoker.Requests[1]).IsSameReferenceAs(invoker.Requests[0]);
@@ -144,7 +143,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
     private static CacheEntryWire CreateEntry() => new() { Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) };
 
-    private static SquirixServiceAdapter<object?> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall, IGroupLeaderTable? table = null)
+    private static RoutedCacheOperations<object?> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall, IGroupLeaderTable? table = null)
     {
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
@@ -165,12 +164,12 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
             : new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, OwnerRouters.LeaderWait, TimeProvider.System, OwnerRouters.Locator(Self, Remote, "node-c"));
 
         // The cache operations and the coordinator have no setups: any call to them fails the test.
-        return new SquirixServiceAdapter<object?>(new RoutedCacheOperations<object?>(
+        return new RoutedCacheOperations<object?>(
             new IInboundEndpointCacheOperationsCreateExpectations<object?>().Instance(),
             router,
             new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
             new IRpcMutationIdempotencyCoordinatorCreateExpectations().Instance(),
-            TimeProvider.System));
+            TimeProvider.System);
     }
 
     private ServerCallPolicy CreatePolicy() => new(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)), TimeProvider.System);

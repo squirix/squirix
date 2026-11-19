@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -68,7 +67,7 @@ public sealed class UnknownCommitFailoverTests
         _ = await Assert.That(held).IsGreaterThan(appended).Because("the entry must reach a follower before the leader dies, or the retry is a plain first execution");
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
-        var unknown = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var unknown = await NodeAsyncAssert.ThrowsAsync<WireCallException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         fabric.HealAll();
 
         var (_, term) = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
@@ -93,5 +92,5 @@ public sealed class UnknownCommitFailoverTests
     /// <param name="exception">The failure.</param>
     /// <returns><see langword="true" /> for a retryable status or an unknown commit outcome; otherwise <see langword="false" />.</returns>
     private static bool IsRetryable(Exception exception) =>
-        exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.Internal or StatusCode.DeadlineExceeded or StatusCode.Cancelled };
+        exception is CommitOutcomeUnknownException or WireCallException { StatusCode: WireStatus.Unavailable or WireStatus.Internal or WireStatus.DeadlineExceeded or WireStatus.Cancelled };
 }

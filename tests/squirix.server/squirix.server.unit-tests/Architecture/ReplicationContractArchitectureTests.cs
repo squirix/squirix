@@ -24,16 +24,10 @@ public sealed class ReplicationContractArchitectureTests : ServerUnitTestBase
         var sharedProto = await File.ReadAllTextAsync(Path.Join(root, "src", "shared", "Squirix", "Transport", "Grpc", "Protos", "SquirixCache.proto"), cancellationToken);
         _ = await Assert.That(sharedProto).DoesNotContain("SquirixReplicationService", StringComparison.Ordinal);
         _ = await Assert.That(sharedProto).DoesNotContain("squirix.replication", StringComparison.Ordinal);
-        var serverProtobuf = await ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElementAsync(
-            "Protobuf",
-            @"Adapters\Grpc\Replication\SquirixReplication.proto");
-        _ = await Assert.That(serverProtobuf.GetAttribute("GrpcServices", string.Empty)).IsEqualTo("Server;Client");
-        _ = await Assert.That(serverProtobuf.GetAttribute("ProtoRoot", string.Empty)).IsEqualTo(@"Adapters\Grpc\Replication");
-        _ = await Assert.That(serverProtobuf.GetAttribute("Access", string.Empty)).IsEqualTo("Internal");
         var clientProjectPath = Path.Join(root, "src", "squirix", "Squirix.csproj");
         var clientProject = await File.ReadAllTextAsync(clientProjectPath, cancellationToken);
         _ = await Assert.That(clientProject).DoesNotContain("SquirixReplication.proto", StringComparison.Ordinal);
-        _ = await Assert.That(typeof(SquirixReplicationService).IsVisible).IsFalse();
-        _ = await Assert.That(typeof(SquirixReplicationService.SquirixReplicationServiceBase).IsVisible).IsFalse();
+        _ = await Assert.That(typeof(ReplicationEnvelopeHeader).IsVisible).IsFalse();
+        _ = await Assert.That(typeof(TransferReplicaStateRequest).IsVisible).IsFalse();
     }
 }

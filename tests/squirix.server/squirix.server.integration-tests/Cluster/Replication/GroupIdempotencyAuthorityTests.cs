@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -12,6 +11,8 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -47,12 +48,12 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-retry"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
         using var channel = CreateBinaryChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = AddRequest(RpcOperationIdentity.New(), cluster[Owner].FindKeyOwnedBy(CacheName, Owner), "first");
 
-        var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var first = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
         var committed = await LastLogIndexAsync(cluster[Owner], cancellationToken);
-        var retried = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+        var retried = await client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
 
         _ = await Assert.That(first.Added).IsTrue();
         _ = await Assert.That(retried.Added).IsTrue();
@@ -68,13 +69,13 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-concurrent"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
         using var channel = CreateBinaryChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = AddRequest(RpcOperationIdentity.New(), cluster[Owner].FindKeyOwnedBy(CacheName, Owner), "first");
         var before = await LastLogIndexAsync(cluster[Owner], cancellationToken);
 
         var calls = new Task<TryAddAsyncResponse>[Duplicates];
         for (var i = 0; i < calls.Length; i++)
-            calls[i] = client.TryAddEntryAsync(request, cancellationToken: cancellationToken).ResponseAsync;
+            calls[i] = client.AddEntryIfAbsentAsync(request, cancellationToken: cancellationToken);
 
         var responses = await Task.WhenAll(calls);
 
@@ -93,17 +94,17 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-mismatch"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
         using var channel = CreateBinaryChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var operationId = RpcOperationIdentity.New();
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
-        _ = await client.TryAddEntryAsync(AddRequest(operationId, key, "a"), cancellationToken: cancellationToken);
+        _ = await client.AddEntryIfAbsentAsync(AddRequest(operationId, key, "a"), cancellationToken: cancellationToken);
         var committed = await LastLogIndexAsync(cluster[Owner], cancellationToken);
 
         var reused = AddRequest(operationId, key, "b");
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.TryAddEntryAsync(reused, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.AddEntryIfAbsentAsync(reused, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(refused.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(committed);
     }
 
@@ -115,7 +116,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-get-or-add"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
         using var channel = CreateBinaryChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new GetOrAddAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -149,9 +150,9 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-touch"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
         using var channel = CreateBinaryChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
-        _ = await client.TryAddEntryAsync(AddRequest(RpcOperationIdentity.New(), key, "value"), cancellationToken: cancellationToken);
+        _ = await client.AddEntryIfAbsentAsync(AddRequest(RpcOperationIdentity.New(), key, "value"), cancellationToken: cancellationToken);
         var touch = new TouchAsyncRequest { OperationId = RpcOperationIdentity.New(), CacheName = CacheName, Key = key, Expiration = Duration.FromTimeSpan(TimeSpan.FromHours(1)) };
 
         var first = await client.TouchAsync(touch, cancellationToken: cancellationToken);
@@ -172,14 +173,14 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", Options("group-authority-scope"), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
         using var channel = CreateBinaryChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var operationId = RpcOperationIdentity.New();
         var before = await LastLogIndexAsync(cluster[Owner], cancellationToken);
 
-        var first = await client.TryAddEntryAsync(AddRequest(operationId, cluster[Owner].FindKeyOwnedBy(CacheName, Owner), "a"), cancellationToken: cancellationToken);
+        var first = await client.AddEntryIfAbsentAsync(AddRequest(operationId, cluster[Owner].FindKeyOwnedBy(CacheName, Owner), "a"), cancellationToken: cancellationToken);
         var other = AddRequest(operationId, cluster[Owner].FindKeyOwnedBy("other", Owner), "b");
         other.CacheName = "other";
-        var second = await client.TryAddEntryAsync(other, cancellationToken: cancellationToken);
+        var second = await client.AddEntryIfAbsentAsync(other, cancellationToken: cancellationToken);
 
         _ = await Assert.That(first.Added).IsTrue();
         _ = await Assert.That(second.Added).IsTrue();

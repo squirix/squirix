@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
@@ -20,7 +19,6 @@ using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
-using ReplicationServiceAdapter = Squirix.Server.Adapters.Grpc.Replication.SquirixReplicationServiceAdapter;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -46,16 +44,21 @@ internal static class SquirixEndpointMapping
         _ = app.MapPost(PeerProtocol.Prefix + "ping", PeerEndpoint.PingAsync)
             .WithMetadata(internalListener).AllowAnonymous();
         _ = app.MapPost(PeerProtocol.Prefix + "owner/{operation}", ForwardAsync).WithMetadata(internalListener).AllowAnonymous();
-        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().WithMetadata(internalListener).AllowAnonymous();
 
         // Closed replication service: internal listener only, for foundation transport tests
         // and on network-replication-activated hosts.
         if (featureState.FoundationOnly || featureState.NetworkReplicationEnabled)
-        {
             _ = app.MapPost(PeerProtocol.Prefix + "replication/{operation}", PeerDispatch.HandleAsync).WithMetadata(internalListener).AllowAnonymous();
-            _ = app.MapGrpcService<ReplicationServiceAdapter>().WithMetadata(internalListener).AllowAnonymous();
-        }
 
+        return app;
+    }
+
+    internal static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
+    {
+        _ = app.MapSquirixEndpoints();
+        var extensions = app.Services.GetService<ExtensionOptions>();
+        extensions?.MapEndpoints?.Invoke(app);
+        extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
         return app;
     }
 

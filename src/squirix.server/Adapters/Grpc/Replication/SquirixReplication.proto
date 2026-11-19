@@ -150,12 +150,3 @@ message ReplicaVoteResponse {
   bool granted = 2;
   string refusal_code = 3;
 }
-
-service SquirixReplicationService {
-  rpc AppendReplicaEntries (AppendReplicaEntriesRequest) returns (AppendReplicaEntriesResponse);
-  rpc GetReplicaStatus (GetReplicaStatusRequest) returns (GetReplicaStatusResponse);
-  rpc OfferReplicaBootstrap (OfferReplicaBootstrapRequest) returns (OfferReplicaBootstrapResponse);
-  rpc PreVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
-  rpc RequestVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
-  rpc TransferReplicaState (TransferReplicaStateRequest) returns (TransferReplicaStateResponse);
-}

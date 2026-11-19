@@ -1,9 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -31,14 +32,14 @@ public sealed class OidcJwtAuthTests : ServerSurfaceTestBase
         var uri = cluster["node-oidc-auth"].Uri;
 
         using var channel = CreateBinaryChannel(uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = "oidc-smoke" };
 
-        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        var missingAuth = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetValueAsync(request, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(FrameStatus.Unauthenticated);
 
         using var authenticated = CreateBinaryChannel(uri, authority.CreateBearerToken(Audience));
-        var authenticatedClient = new SquirixCacheService.SquirixCacheServiceClient(authenticated);
+        var authenticatedClient = new CacheWireClient(authenticated);
         var response = await authenticatedClient.GetValueAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(response.Found).IsFalse();
     }
@@ -66,11 +67,11 @@ public sealed class OidcJwtAuthTests : ServerSurfaceTestBase
             cancellationToken);
         var uri = cluster["node-oidc-explicit"].Uri;
         using var accepted = CreateBinaryChannel(uri, authority.CreateBearerToken(Audience, issuer: issuer));
-        var client = new SquirixCacheService.SquirixCacheServiceClient(accepted);
+        var client = new CacheWireClient(accepted);
         var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "explicit-issuer" }, cancellationToken: cancellationToken);
         _ = await Assert.That(response.Found).IsFalse();
         using var metadata = CreateBinaryChannel(uri, authority.CreateBearerToken(Audience));
-        var metadataClient = new SquirixCacheService.SquirixCacheServiceClient(metadata);
+        var metadataClient = new CacheWireClient(metadata);
         var metadataResponse = await metadataClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "metadata-issuer" }, cancellationToken: cancellationToken);
         _ = await Assert.That(metadataResponse.Found).IsFalse();
         await AssertCredentialRejectedAsync(uri, authority.CreateBearerToken(Audience, issuer: "https://untrusted-issuer.test"), cancellationToken);
@@ -100,7 +101,7 @@ public sealed class OidcJwtAuthTests : ServerSurfaceTestBase
             cancellationToken);
         var uri = cluster["node-oidc-static"].Uri;
         using var accepted = CreateBinaryChannel(uri, TestJwtHelper.CreateBearerToken(credentials));
-        var client = new SquirixCacheService.SquirixCacheServiceClient(accepted);
+        var client = new CacheWireClient(accepted);
         var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "static-key-metadata" }, cancellationToken: cancellationToken);
         _ = await Assert.That(response.Found).IsFalse();
         var unknownIssuer = new TestJwtCredentials(credentials.GetSigningKey(), "https://untrusted-issuer.test", Audience);
@@ -113,13 +114,13 @@ public sealed class OidcJwtAuthTests : ServerSurfaceTestBase
     {
         var acknowledgement = byte.MaxValue;
         using var channel = CreateBinaryChannel(uri, token, status => acknowledgement = status);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var exception = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "denied-issuer" }, cancellationToken: cancellationToken).ResponseAsync,
+        var client = new CacheWireClient(channel);
+        var exception = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "denied-issuer" }, cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
-        _ = await Assert.That(exception.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(exception.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(acknowledgement).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials);
     }
 }

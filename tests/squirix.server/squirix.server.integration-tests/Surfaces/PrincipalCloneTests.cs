@@ -2,13 +2,14 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -29,7 +30,7 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         var probe = new PolicyProbe(true);
         await using var cluster = await StartClusterAsync("clone-role", _ => CreateOptions(credentials, probe, 0), cancellationToken);
         using var channel = CreateBinaryChannel(cluster["clone-role"].Uri, TestJwtHelper.CreateBearerToken(credentials));
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         _ = await client.SetEntryAsync(CreateMutation("clone-role"), cancellationToken: cancellationToken);
         var result = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "clone-role" }, cancellationToken: cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
@@ -52,18 +53,18 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         var uri = cluster["clone-denial"].Uri;
         var acknowledgement = byte.MaxValue;
         using var channel = CreateBinaryChannel(uri, TestJwtHelper.CreateBearerToken(credentials), status => acknowledgement = status);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var exception = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.SetEntryAsync(CreateMutation("clone-denial"), cancellationToken: cancellationToken).ResponseAsync,
+        var client = new CacheWireClient(channel);
+        var exception = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.SetEntryAsync(CreateMutation("clone-denial"), cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
         _ = await Assert.That(acknowledgement).IsEqualTo(duringRequest ? ConnectionAuthenticationProtocol.Accepted : ConnectionAuthenticationProtocol.InvalidCredentials);
-        _ = await Assert.That(exception.StatusCode).IsEqualTo(duringRequest ? StatusCode.Unauthenticated : StatusCode.Unavailable);
+        _ = await Assert.That(exception.StatusCode).IsEqualTo(duringRequest ? FrameStatus.Unauthenticated : FrameStatus.Unavailable);
         _ = await Assert.That(probe.Entries).IsEqualTo(0);
         probe.EnableControl();
         using var control = CreateBinaryChannel(uri, TestJwtHelper.CreateBearerToken(credentials));
-        var controlClient = new SquirixCacheService.SquirixCacheServiceClient(control);
+        var controlClient = new CacheWireClient(control);
         var result = await controlClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "clone-denial" }, cancellationToken: cancellationToken);
         _ = await Assert.That(result.Found).IsFalse();
         _ = await Assert.That(probe.Entries).IsEqualTo(1);

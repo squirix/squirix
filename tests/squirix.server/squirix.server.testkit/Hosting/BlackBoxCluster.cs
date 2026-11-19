@@ -58,7 +58,6 @@ internal static class BlackBoxCluster
 
     private static NodeHostStartOptions CreateNodeHostOptions(BlackBoxStartOptions options, MtlsOptions? mtlsOptions, MtlsCertificate? mtlsMaterial) => new()
     {
-        ConfigureGrpc = options.ConfigureGrpc,
         ServicesConfigure = options.ServicesConfigure,
         BackpressureOptions = options.BackpressureOptions?.ToServerOptions(),
         MemoryPressureOptions = options.MemoryPressureOptions?.ToServerOptions(),

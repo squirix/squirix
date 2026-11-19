@@ -208,19 +208,3 @@ message RefreshDistributedAsyncRequest {
 }
 
 message RefreshDistributedAsyncResponse {}
-
-service SquirixCacheService {
-    rpc SetEntry(SetEntryAsyncRequest) returns (SetAsyncResponse);
-    rpc GetEntry(GetEntryAsyncRequest) returns (GetEntryAsyncResponse);
-    rpc GetValue(GetValueAsyncRequest) returns (GetValueAsyncResponse);
-    rpc Remove(RemoveAsyncRequest) returns (RemoveAsyncResponse);
-    rpc TryAddEntry(TryAddEntryAsyncRequest) returns (TryAddAsyncResponse);
-    rpc Touch(TouchAsyncRequest) returns (TouchAsyncResponse);
-    rpc RemoveExpiration(RemoveExpirationAsyncRequest) returns (RemoveExpirationAsyncResponse);
-    rpc Update(UpdateAsyncRequest) returns (UpdateAsyncResponse);
-    rpc GetExpiration(GetExpirationAsyncRequest) returns (GetExpirationAsyncResponse);
-    rpc GetOrAdd(GetOrAddAsyncRequest) returns (GetOrAddAsyncResponse);
-    rpc SetDistributed(SetDistributedAsyncRequest) returns (SetAsyncResponse);
-    rpc GetDistributed(GetDistributedAsyncRequest) returns (GetDistributedAsyncResponse);
-    rpc RefreshDistributed(RefreshDistributedAsyncRequest) returns (RefreshDistributedAsyncResponse);
-}

@@ -32,7 +32,7 @@ public static class AspNetCoreExtensions
         return ConfigureSquirixServerBuilderAsync(builder, configure, settingsPath, loadDiscoveredSettings, configureExtensions, null, cancellationToken);
     }
 
-    /// <summary>Opens node storage (topology stamp, manifest, journal startup repair, replica group logs) and maps Squirix gRPC, health, and metrics endpoints.</summary>
+    /// <summary>Opens node storage (topology stamp, manifest, journal startup repair, replica group logs) and maps Squirix peer, health, and metrics endpoints.</summary>
     /// <param name="app">The built ASP.NET Core application.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application.</returns>

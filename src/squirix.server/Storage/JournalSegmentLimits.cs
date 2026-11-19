@@ -45,10 +45,10 @@ internal static class JournalSegmentLimits
     /// <summary>The smallest segment, in megabytes, that holds the largest journal frame the server writes.</summary>
     /// <remarks>
     /// A frame never spans segments. The largest variable part of a frame is an entry (at most <see cref="EntryLimits.MaxEntrySizeBytes" />)
-    /// or a recorded reply, which is at most <see cref="EntryLimits.GrpcMaxSendMessageSizeBytes" /> since a larger one cannot reach the
+    /// or a recorded reply, which is at most <see cref="EntryLimits.MaxSendMessageSizeBytes" /> since a larger one cannot reach the
     /// client; a segment also starts with a 5-byte file header.
     /// </remarks>
-    internal const int MinSegmentMb = (SegmentFileHeaderBytes + EntryLimits.GrpcMaxSendMessageSizeBytes + MaxFrameOverheadBytes + BytesPerMb - 1) / BytesPerMb;
+    internal const int MinSegmentMb = (SegmentFileHeaderBytes + EntryLimits.MaxSendMessageSizeBytes + MaxFrameOverheadBytes + BytesPerMb - 1) / BytesPerMb;
 
     private const int BytesPerMb = 1024 * 1024;
 

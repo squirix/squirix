@@ -1,5 +1,3 @@
-using System;
-using Grpc.AspNetCore.Server;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -12,7 +10,6 @@ internal sealed class BlackBoxStartOptions : ClusterStartOptions
     internal TestNodeBackpressureOptions? BackpressureOptions { get; init; }
 
     /// <summary>Gets an optional gRPC server configuration hook (for example extra interceptors).</summary>
-    internal Action<GrpcServiceOptions>? ConfigureGrpc { get; init; }
 
     /// <summary>Gets optional memory pressure overrides; <see langword="null" /> keeps the server defaults.</summary>
     internal TestNodeMemoryPressureOptions? MemoryPressureOptions { get; init; }

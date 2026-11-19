@@ -8,7 +8,6 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -16,7 +15,7 @@ using Squirix.Transport.Grpc.Cache;
 namespace Squirix.Server.TestKit.Networking;
 
 /// <summary>Sends public binary frames while reusing generated protobuf method descriptors in the raw wire tests.</summary>
-public sealed class PublicBinaryChannel : CallInvoker, IDisposable
+public sealed class PublicBinaryChannel : IDisposable
 {
     private readonly Uri _uri;
     private readonly string? _token;
@@ -47,117 +46,14 @@ public sealed class PublicBinaryChannel : CallInvoker, IDisposable
         }
     }
 
-    /// <inheritdoc />
-    public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
-        Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
+    internal async Task<T> ExchangeAsync<T>(BinaryOperation operation, IMessage message, MessageParser<T> parser, DateTime? deadline, CancellationToken cancellationToken)
+        where T : IMessage<T>
     {
-        ArgumentNullException.ThrowIfNull(method);
-        if (options.Headers is { Count: > 0 })
-            ThrowUnsupportedMetadata();
-
-        var lifetime = new CallLifetime(options.CancellationToken);
-        return new AsyncUnaryCall<TResponse>(
-            UnwrapAsync(ExchangeAsync(method, options.WithCancellationToken(lifetime.Token), request), lifetime),
-            Task.FromResult(new Metadata()),
-            static () => throw new NotSupportedException(),
-            static () => throw new NotSupportedException(),
-            lifetime.Cancel);
-    }
-
-    /// <inheritdoc />
-    public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-        throw new NotSupportedException();
-
-    /// <inheritdoc />
-    public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) =>
-        throw new NotSupportedException();
-
-    /// <inheritdoc />
-    public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-        throw new NotSupportedException();
-
-    /// <inheritdoc />
-    public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) =>
-        throw new NotSupportedException();
-
-    private static void ThrowUnsupportedMetadata() => throw new NotSupportedException("The public binary test channel has no request metadata.");
-
-    private static async Task<T> UnwrapAsync<T>(Task<Reply<T>> response, CallLifetime lifetime)
-    {
-        await using var owned = lifetime.ConfigureAwait(false);
-        var reply = await response.ConfigureAwait(false);
-        return reply.Status.StatusCode == StatusCode.OK ? reply.Value! : throw new RpcException(reply.Status, reply.Trailers);
-    }
-
-    private static Reply<T> Failure<T>(StatusCode status, string detail) => new(default, new Status(status, detail), []);
-
-    private static Reply<T> ParseReply<T>(BinaryOperation operation, int control, byte[] body)
-    {
-        if (control == 0)
-        {
-            var value = ParseMessage(operation, body);
-            return value is T typed ? new Reply<T>(typed, Status.DefaultSuccess, []) : Failure<T>(StatusCode.DataLoss, "Unexpected protobuf response type.");
-        }
-
-        var status = Unsafe.BitCast<int, StatusCode>(control);
-        var error = BinaryCallError.Parser.ParseFrom(body);
-        var trailers = new Metadata();
-        foreach (var entry in error.Trailers)
-        {
-            if (entry.ValueCase == BinaryCallError.Types.Trailer.ValueOneofCase.Binary)
-                trailers.Add(entry.Key, entry.Binary.ToByteArray());
-            else
-                trailers.Add(entry.Key, entry.Text);
-        }
-
-        return new Reply<T>(default, new Status(status, error.Detail), trailers);
-    }
-
-    private static IMessage? ParseMessage(BinaryOperation operation, byte[] body) => operation switch
-    {
-        BinaryOperation.SetEntry => SetAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.GetEntry => GetEntryAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.GetValue => GetValueAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.Remove => RemoveAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.TryAddEntry => TryAddAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.Touch => TouchAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.RemoveExpiration => RemoveExpirationAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.Update => UpdateAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.GetExpiration => GetExpirationAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.GetOrAdd => GetOrAddAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.SetDistributed => SetAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.GetDistributed => GetDistributedAsyncResponse.Parser.ParseFrom(body),
-        BinaryOperation.RefreshDistributed => RefreshDistributedAsyncResponse.Parser.ParseFrom(body),
-        _ => null,
-    };
-
-    private static void ThrowUnexpectedResponseId() => throw new InvalidDataException("Unexpected response ID.");
-
-    private static async Task<Reply<T>> ReadReplyAsync<T>(Stream stream, BinaryOperation operation, CancellationToken cancellationToken)
-    {
-        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
-        await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
-        var (id, size, status) = Frames.Read(header, Frames.MaxResponseBytes);
-        if (id != 0)
-            ThrowUnexpectedResponseId();
-
-        var body = GC.AllocateUninitializedArray<byte>(size);
-        await stream.ReadExactlyAsync(body, cancellationToken).ConfigureAwait(false);
-        return ParseReply<T>(operation, status, body);
-    }
-
-    private async Task<Reply<TResponse>> ExchangeAsync<TRequest, TResponse>(
-        Method<TRequest, TResponse> method, CallOptions options, TRequest request)
-    {
-        var now = TimeProvider.System.GetUtcNow().UtcDateTime;
-        var budget = options.Deadline is { } deadline ? deadline - now : TimeSpan.FromSeconds(30);
+        var budget = deadline is { } end ? end - TimeProvider.System.GetUtcNow().UtcDateTime : TimeSpan.FromSeconds(30);
         if (budget <= TimeSpan.Zero)
-            return Failure<TResponse>(StatusCode.DeadlineExceeded, "The request deadline elapsed.");
+            throw new ServerCallException(FrameStatus.DeadlineExceeded, "The request deadline elapsed.");
 
-        if (!Enum.TryParse<BinaryOperation>(method.Name, out var operation) || request is not IMessage message)
-            return Failure<TResponse>(StatusCode.Unimplemented, method.Name);
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(budget);
         SslStream? stream = null;
         try
@@ -168,39 +64,51 @@ public sealed class PublicBinaryChannel : CallInvoker, IDisposable
             var control = (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | Convert.ToInt32(Math.Floor(Math.Min(budget.TotalMilliseconds, ushort.MaxValue)));
             Frames.WriteMessage(bytes, 0, size, control, message);
             await stream.WriteAsync(bytes, timeout.Token).ConfigureAwait(false);
-            var result = await ReadReplyAsync<TResponse>(stream, operation, timeout.Token).ConfigureAwait(false);
+            var (value, failure) = await ReadReplyAsync(stream, parser, timeout.Token).ConfigureAwait(false);
             lock (_lifetime)
             {
-                if (Volatile.Read(ref _disposed) != 0)
-                    return result;
-
-                _idle.Add(stream);
-                stream = null;
+                if (Volatile.Read(ref _disposed) == 0)
+                {
+                    _idle.Add(stream);
+                    stream = null;
+                }
             }
 
-            return result;
-        }
-        catch (RpcException error)
-        {
-            return new Reply<TResponse>(default, error.Status, error.Trailers);
+            return failure == null ? value! : throw failure;
         }
         catch (OperationCanceledException)
         {
-            return Failure<TResponse>(options.CancellationToken.IsCancellationRequested ? StatusCode.Cancelled : StatusCode.DeadlineExceeded, "The request was cancelled.");
+            throw new ServerCallException(cancellationToken.IsCancellationRequested ? FrameStatus.Cancelled : FrameStatus.DeadlineExceeded, "The request was cancelled.");
         }
         catch (Exception error) when (error is InvalidProtocolBufferException or InvalidDataException)
         {
-            return Failure<TResponse>(StatusCode.DataLoss, error.Message);
+            throw new ServerCallException(FrameStatus.DataLoss, error.Message);
         }
         catch (Exception error) when (error is IOException or SocketException or System.Security.Authentication.AuthenticationException)
         {
-            return Failure<TResponse>(StatusCode.Unavailable, error.Message);
+            throw new ServerCallException(FrameStatus.Unavailable, error.Message);
         }
         finally
         {
             if (stream != null)
                 await stream.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    private static void ThrowUnexpectedResponseId() => throw new InvalidDataException("Unexpected response ID.");
+
+    private static async Task<(T? Value, ServerCallException? Failure)> ReadReplyAsync<T>(Stream stream, MessageParser<T> parser, CancellationToken cancellationToken)
+        where T : IMessage<T>
+    {
+        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
+        await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
+        var (id, size, status) = Frames.Read(header, Frames.MaxResponseBytes);
+        if (id != 0)
+            ThrowUnexpectedResponseId();
+
+        var body = GC.AllocateUninitializedArray<byte>(size);
+        await stream.ReadExactlyAsync(body, cancellationToken).ConfigureAwait(false);
+        return status == 0 ? (parser.ParseFrom(body), null) : (default, new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(body)));
     }
 
 #pragma warning disable CA2000 // The returned TLS stream owns the socket through NetworkStream.
@@ -248,7 +156,7 @@ public sealed class PublicBinaryChannel : CallInvoker, IDisposable
         await stream.WriteAsync(preface, cancellationToken).ConfigureAwait(false);
         await stream.ReadExactlyAsync(preface.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
         if (preface[0] != Frames.Accepted)
-            throw new RpcException(new Status(StatusCode.Unauthenticated, "Binary connection credentials are required or unsupported."));
+            throw new ServerCallException(FrameStatus.Unauthenticated, "Binary connection credentials are required or unsupported.");
         if (_token == null)
             return;
 
@@ -263,51 +171,5 @@ public sealed class PublicBinaryChannel : CallInvoker, IDisposable
         _acknowledgement?.Invoke(status);
         if (status != ConnectionAuthenticationProtocol.Accepted)
             throw new IOException("JWT authentication rejected.");
-    }
-
-    private readonly record struct Reply<T>(T? Value, Status Status, Metadata Trailers);
-
-    private sealed class CallLifetime : IAsyncDisposable
-    {
-        private readonly Lock _gate = new();
-        private readonly CancellationTokenSource _source;
-        private Task? _cancellation;
-        private bool _finished;
-
-        internal CallLifetime(CancellationToken callerToken)
-        {
-            _source = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
-        }
-
-        internal CancellationToken Token => _source.Token;
-
-        public async ValueTask DisposeAsync()
-        {
-            Task? cancellation;
-            lock (_gate)
-            {
-                _finished = true;
-                cancellation = _cancellation;
-            }
-
-            try
-            {
-                if (cancellation != null)
-                    await cancellation.ConfigureAwait(false);
-            }
-            finally
-            {
-                _source.Dispose();
-            }
-        }
-
-        internal void Cancel()
-        {
-            lock (_gate)
-            {
-                if (!_finished)
-                    _cancellation ??= _source.CancelAsync();
-            }
-        }
     }
 }

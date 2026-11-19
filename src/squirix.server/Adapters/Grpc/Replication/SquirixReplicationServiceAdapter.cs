@@ -84,7 +84,6 @@ internal sealed class SquirixReplicationServiceAdapter
         return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
 
-    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.AppendReplicaEntries" />
     internal async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, HttpContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
@@ -104,7 +103,6 @@ internal sealed class SquirixReplicationServiceAdapter
         };
     }
 
-    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.GetReplicaStatus" />
     internal async Task<GetReplicaStatusResponse> GetReplicaStatusAsync(GetReplicaStatusRequest request, HttpContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
@@ -145,7 +143,6 @@ internal sealed class SquirixReplicationServiceAdapter
         };
     }
 
-    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.OfferReplicaBootstrap" />
     internal async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrapAsync(OfferReplicaBootstrapRequest request, HttpContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
@@ -161,7 +158,6 @@ internal sealed class SquirixReplicationServiceAdapter
         };
     }
 
-    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.PreVote" />
     internal async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, HttpContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
@@ -173,7 +169,6 @@ internal sealed class SquirixReplicationServiceAdapter
         return MapVote(in result);
     }
 
-    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.RequestVote" />
     internal async Task<ReplicaVoteResponse> RequestVoteAsync(ReplicaVoteRequest request, HttpContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
@@ -185,7 +180,6 @@ internal sealed class SquirixReplicationServiceAdapter
         return MapVote(in result);
     }
 
-    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.TransferReplicaState" />
     internal async Task<TransferReplicaStateResponse> TransferReplicaStateAsync(TransferReplicaStateRequest request, HttpContext context)
     {
         _ = EnsureHeader(request.Header, context, true);

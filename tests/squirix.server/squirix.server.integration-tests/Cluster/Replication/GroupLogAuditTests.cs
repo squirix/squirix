@@ -1,12 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -93,7 +93,7 @@ public sealed class GroupLogAuditTests : NodeIntegrationTestBase
                     await write.Committers.ForKey(Scope, write.Key).CommitSetAsync(write.OperationId, Scope, write.Key, new NodeCacheEntry<object?> { Value = write.OperationId }, token);
                     return true;
                 }
-                catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable or StatusCode.ResourceExhausted)
+                catch (ServerCallException exception) when (exception.StatusCode is FrameStatus.Unavailable or FrameStatus.ResourceExhausted)
                 {
                     return false;
                 }

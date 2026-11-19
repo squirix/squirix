@@ -7,7 +7,6 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -54,7 +53,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
                 var cause = ++attempt == 1
                     ? new HttpRequestException(HttpRequestError.ResponseEnded, "the response ended")
                     : new HttpRequestException(HttpRequestError.ConnectionError, "connection refused");
-                return raw ? cause : new RpcException(new Status(StatusCode.Unavailable, "start failed", cause));
+                return raw ? cause : new ServerCallException(FrameStatus.Unavailable, "start failed", cause);
             });
         var forwarder = CreateForwarder(invoker);
 
@@ -89,13 +88,12 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     public async Task HandshakeFailureMapsToUnavailable(CancellationToken cancellationToken)
     {
         var handshakeInvoker = new CapturingCallInvoker(
-            failure: static () => new RpcException(
-                new Status(
-                    StatusCode.Internal,
+            failure: static () => new ServerCallException(
+                    FrameStatus.Internal,
                     "Error starting gRPC call.",
-                    new HttpRequestException(HttpRequestError.SecureConnectionError, "The SSL connection could not be established.", new ObjectDisposedException("credential")))));
+                    new HttpRequestException(HttpRequestError.SecureConnectionError, "The SSL connection could not be established.", new ObjectDisposedException("credential"))));
         var handshake = CreateForwarder(handshakeInvoker);
-        var owner = CreateForwarder(new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Internal, "owner failed"))));
+        var owner = CreateForwarder(new CapturingCallInvoker(failure: static () => new ServerCallException(FrameStatus.Internal, "owner failed")));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
         var handshakeFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(handshake.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

@@ -2,10 +2,8 @@ using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -13,7 +11,6 @@ namespace Squirix.Server.Adapters.Endpoint;
 internal sealed class ConnectionAuthenticationHandler : AuthenticationHandler<JwtBearerOptions>
 {
     private readonly ConnectionAuthenticationValidator _validator;
-    private bool _renewalRequired;
 
     public ConnectionAuthenticationHandler(
         IOptionsMonitor<JwtBearerOptions> options,
@@ -32,7 +29,6 @@ internal sealed class ConnectionAuthenticationHandler : AuthenticationHandler<Jw
             return AuthenticateResult.Fail("The request has no authenticated connection identity.");
         if (!await _validator.IsCurrentAsync(connection, Context.RequestAborted).ConfigureAwait(false))
         {
-            _renewalRequired = true;
             connection.RequestClose();
             return AuthenticateResult.Fail("The connection must authenticate again.");
         }
@@ -41,20 +37,5 @@ internal sealed class ConnectionAuthenticationHandler : AuthenticationHandler<Jw
         return principal == null
             ? AuthenticateResult.Fail("The connection identity cannot provide an independent authorization snapshot.")
             : AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
-    }
-
-    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
-    {
-        if (!_renewalRequired || Request.ContentType?.StartsWith("application/grpc", System.StringComparison.OrdinalIgnoreCase) != true)
-        {
-            Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
-        }
-
-        Response.StatusCode = StatusCodes.Status200OK;
-        Response.ContentType = "application/grpc";
-        Response.Headers["grpc-status"] = "14";
-        Response.Headers["grpc-message"] = ConnectionAuthenticationProtocol.RenewalRequired;
-        return Task.CompletedTask;
     }
 }

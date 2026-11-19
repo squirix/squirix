@@ -1,10 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -49,18 +50,18 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
 
         var rejectedStatus = byte.MaxValue;
         using var channel = CreateBinaryChannel(cluster[NodeId].Uri, token, status => rejectedStatus = status);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
-        var exception = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync,
+        var exception = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetValueAsync(request, cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
-        _ = await Assert.That(exception.StatusCode).IsEqualTo(StatusCode.Unavailable).Because(key);
+        _ = await Assert.That(exception.StatusCode).IsEqualTo(FrameStatus.Unavailable).Because(key);
         _ = await Assert.That(rejectedStatus).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials).Because(key);
 
         using var accepted = CreateBinaryChannel(cluster[NodeId].Uri, authority.CreateBearerToken(Audience));
-        var acceptedClient = new SquirixCacheService.SquirixCacheServiceClient(accepted);
+        var acceptedClient = new CacheWireClient(accepted);
         var response = await acceptedClient.GetValueAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(response.Found).IsFalse().Because(key);
     }

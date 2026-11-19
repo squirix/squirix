@@ -41,7 +41,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(true, default)));
 
-        var response = await CreateAdapter(api.Instance()).GetOrAdd(CreateRequest(), new TestServerCallContext());
+        var response = await CreateAdapter(api.Instance()).GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsTrue();
         _ = await Assert.That(response.Found).IsTrue();
@@ -55,7 +55,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(false, new NodeCacheValueResult<object?>(true, "existing"))));
 
-        var response = await CreateAdapter(api.Instance()).GetOrAdd(CreateRequest(), new TestServerCallContext());
+        var response = await CreateAdapter(api.Instance()).GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsFalse();
         _ = await Assert.That(response.Found).IsTrue();
@@ -73,7 +73,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         Entry = new CacheEntryWire { Value = JsonValueKit.Wire("{\"__v\":\"added\"}"), Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) },
     };
 
-    private SquirixServiceAdapter<object?> CreateAdapter(ICacheApi<object?> api)
+    private RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
     {
         var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
         _ = operations.Setups.ForCache("c").ReturnValue(api);
@@ -85,7 +85,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
-        return new SquirixServiceAdapter<object?>(new RoutedCacheOperations<object?>(
+        return new RoutedCacheOperations<object?>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(
@@ -94,6 +94,6 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
             new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance),
-            TimeProvider.System));
+            TimeProvider.System);
     }
 }

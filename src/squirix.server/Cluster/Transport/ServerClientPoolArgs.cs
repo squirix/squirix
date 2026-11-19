@@ -1,6 +1,5 @@
 using System;
 using System.Net.Http;
-using Grpc.Core.Interceptors;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -19,10 +18,6 @@ internal sealed class ServerClientPoolArgs
     internal bool InterNodeMtlsEnabled { get; init; }
 
     internal string? RingFingerprint { get; init; }
-
-    internal Interceptor? Interceptor { get; init; }
-
-    internal Interceptor? InternalOwnerInterceptor { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 

@@ -2,12 +2,12 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -42,7 +42,7 @@ public sealed class CommitUnknownMappingTests : ServerUnitTestBase
     [Test]
     public async Task GrpcUsesUnavailableAndStableCode()
     {
-        _ = await Assert.That(SquirixErrorMapper.ToGrpcStatusCode(SquirixErrorCode.CommitOutcomeUnknown)).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(SquirixErrorMapper.ToFrameStatus(SquirixErrorCode.CommitOutcomeUnknown)).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(SquirixErrorMapper.ToPublicCode(SquirixErrorCode.CommitOutcomeUnknown)).IsEqualTo(StableCode);
     }
 

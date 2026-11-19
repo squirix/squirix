@@ -42,8 +42,7 @@ public sealed class BinaryTransportSurfaceTests
         legacy.Content = new ByteArrayContent([0, 0, 0, 0, 0]);
         legacy.Content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc");
         using var reply = await LoopbackClient.SendAsync(legacy, cancellationToken);
-        var unimplemented = reply.Headers.TryGetValues("grpc-status", out var values) && ContainsUnimplemented(values);
-        _ = await Assert.That(reply.StatusCode == HttpStatusCode.NotFound || unimplemented).IsTrue();
+        _ = await Assert.That(reply.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
     /// <summary>Preserves the caller's W3C trace across the entry node and a forwarded call.</summary>
@@ -84,16 +83,5 @@ public sealed class BinaryTransportSurfaceTests
         _ = await Assert.That(observed[1].ParentSpanId).IsEqualTo(caller.SpanId);
         _ = await Assert.That(observed[0].TraceStateString).IsEqualTo(traceState);
         _ = await Assert.That(observed[1].TraceStateString).IsEqualTo(traceState);
-    }
-
-    private static bool ContainsUnimplemented(System.Collections.Generic.IEnumerable<string> values)
-    {
-        foreach (var value in values)
-        {
-            if (string.Equals(value, "12", StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
     }
 }

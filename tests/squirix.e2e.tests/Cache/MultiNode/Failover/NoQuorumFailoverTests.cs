@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -69,14 +68,14 @@ public sealed class NoQuorumFailoverTests
         await using var wire = WireClient.Connect(cluster.GetUri(survivor));
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         attempt.CancelAfter(AttemptTimeout);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<WireCallException>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refusal.StatusCode, refusal.Status.Detail))
-            .IsEqualTo((StatusCode.Unavailable, WireClient.NoLeaderRefusalDetail))
+        _ = await Assert.That((refusal.StatusCode, refusal.Message))
+            .IsEqualTo((WireStatus.Unavailable, WireClient.NoLeaderRefusalDetail))
             .Because($"a node without a leader must refuse the read as unavailable within one attempt, got {Describe(refusal)}");
     }
 
-    private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
+    private static string Describe(Exception exception) => exception is WireCallException rpc ? $"{nameof(WireCallException)} {rpc.StatusCode} '{rpc.Message}'" : exception.GetType().Name;
 
     /// <summary>Determines whether a failure is one the client may answer by sending the write again: an unavailable or timed out call, or an unknown commit.</summary>
     /// <param name="exception">The failure.</param>

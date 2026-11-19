@@ -5,7 +5,6 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
@@ -14,6 +13,7 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -38,9 +38,9 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         var rejectedStatus = byte.MaxValue;
         var loopback = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port.Port));
         using var channel = CreateBinaryChannel(loopback, TestJwtHelper.CreateBearerToken(credentials), status => rejectedStatus = status);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var denied = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "denied" }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(denied.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        var client = new CacheWireClient(channel);
+        var denied = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "denied" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(denied.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(rejectedStatus).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials);
         _ = await Assert.That(probe.Events).IsEqualTo(1);
         _ = await Assert.That(probe.RpcEntries).IsEqualTo(0);
@@ -68,7 +68,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         var probe = new HookProbe(false);
         await using var cluster = await StartClusterAsync("hooks", _ => CreateOptions(credentials, probe), cancellationToken);
         using var channel = CreateBinaryChannel(cluster["hooks"].Uri, TestJwtHelper.CreateBearerToken(credentials));
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         for (var i = 0; i < 2; i++)
         {
             var result = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "claims" }, cancellationToken: cancellationToken);
@@ -92,16 +92,16 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         var probe = new HookProbe(false);
         await using var cluster = await StartClusterAsync("hooks", _ => CreateOptions(credentials, probe), cancellationToken);
         using var channel = CreateBinaryChannel(cluster["hooks"].Uri, TestJwtHelper.CreateBearerToken(credentials));
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var client = new CacheWireClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = "hook-failure" };
 
         probe.FailNextTransform();
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync,
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetValueAsync(request, cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unknown);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unknown);
 
         var result = await client.GetValueAsync(request, cancellationToken: cancellationToken);
         _ = await Assert.That(result.Found).IsFalse();

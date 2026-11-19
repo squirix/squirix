@@ -35,7 +35,7 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
         var request = FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a");
 
         var flushesBefore = harness.FlushCount;
-        _ = await harness.Adapter.SetEntry(request, new TestServerCallContext());
+        _ = await harness.Adapter.SetEntryAsync(request, CancellationToken.None);
         var flushes = harness.FlushCount - flushesBefore;
         await journal.ShutdownAsync();
         var frames = harness.ReadFrames(cancellationToken);
@@ -52,10 +52,10 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
-        _ = await harness.Adapter.SetEntry(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a", ttl: TimeSpan.FromSeconds(1)), new TestServerCallContext());
+        _ = await harness.Adapter.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a", ttl: TimeSpan.FromSeconds(1)), CancellationToken.None);
         journal.Writer.Flush.Arm();
 
-        var remove = harness.Adapter.Remove(FusedWriteHarness.Remove(FusedWriteHarness.OpId(2)), new TestServerCallContext());
+        var remove = harness.Adapter.RemoveAsync(FusedWriteHarness.Remove(FusedWriteHarness.OpId(2)), CancellationToken.None);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         harness.Clock.Advance(TimeSpan.FromSeconds(2));
         journal.Writer.Flush.Release();

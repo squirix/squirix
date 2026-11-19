@@ -23,9 +23,7 @@ internal static class ServiceRegistration
             Func<string, HttpMessageHandler>? peerHandlerFactory,
             int maxInFlight)
         {
-            _ = services.AddSingleton(static _ => new ClientInterceptor());
             _ = services.AddSingleton(sp => new ServerCallCorrelation(sp.GetRequiredService<ILogger<ServerCallCorrelation>>(), cluster.NodeId));
-            _ = services.AddSingleton(static sp => new InternalOwnerClientInterceptor(sp.GetRequiredService<RingFingerprint>()));
 
             _ = services.AddSingleton<IServerClientPool>(sp =>
             {
@@ -47,11 +45,9 @@ internal static class ServiceRegistration
                         PeerHandlerFactory = peerHandlerFactory,
                         ForwardConnectTimeout = cluster.ForwardConnectTimeout,
                         RingFingerprint = sp.GetRequiredService<RingFingerprint>().Value,
-                        Interceptor = sp.GetRequiredService<ClientInterceptor>(),
                         MtlsOptions = mtlsOptions,
                         Certificate = certificate,
                         InterNodeMtlsEnabled = interNodeMtlsEnabled,
-                        InternalOwnerInterceptor = interNodeMtlsEnabled ? sp.GetRequiredService<InternalOwnerClientInterceptor>() : null,
                     },
                     sp.GetRequiredService<ServerClientPoolMetrics>(),
                     sp.GetRequiredService<ILogger<ServerClientPool>>(),

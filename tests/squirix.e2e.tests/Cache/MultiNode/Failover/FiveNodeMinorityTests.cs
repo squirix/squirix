@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -121,8 +120,8 @@ public sealed class FiveNodeMinorityTests
         _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.FollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {FailoverSteps.DescribeRefusal(split.FollowerRead)}");
         _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.DeposedLeaderRead)).IsTrue().Because($"the deposed leader must refuse the read, got {FailoverSteps.DescribeRefusal(split.DeposedLeaderRead)}");
         _ = await Assert.That(FailoverSteps.IsPartitionRefusal(split.DeposedFollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {FailoverSteps.DescribeRefusal(split.DeposedFollowerRead)}");
-        _ = await Assert.That(split.DeposedLeaderRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed leader must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(split.DeposedLeaderRead)}");
-        _ = await Assert.That(split.DeposedFollowerRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the cut-off follower must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(split.DeposedFollowerRead)}");
+        _ = await Assert.That(split.DeposedLeaderRead is WireCallException { StatusCode: not WireStatus.DeadlineExceeded }).IsTrue().Because($"the deposed leader must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(split.DeposedLeaderRead)}");
+        _ = await Assert.That(split.DeposedFollowerRead is WireCallException { StatusCode: not WireStatus.DeadlineExceeded }).IsTrue().Because($"the cut-off follower must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(split.DeposedFollowerRead)}");
         _ = await Assert.That(split.ProbeRead).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
         _ = await Assert.That(split.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
         _ = await Assert.That(majority).Contains(split.Leader.NodeId);
@@ -227,8 +226,8 @@ public sealed class FiveNodeMinorityTests
             followerWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(followerWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             leaderRead = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(leaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             followerRead = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException>(followerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            deposedLeaderRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(deposedLeaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            deposedFollowerRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(deposedFollowerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            deposedLeaderRead = await NodeAsyncAssert.ThrowsAsync<WireCallException>(deposedLeaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            deposedFollowerRead = await NodeAsyncAssert.ThrowsAsync<WireCallException>(deposedFollowerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         catch
         {

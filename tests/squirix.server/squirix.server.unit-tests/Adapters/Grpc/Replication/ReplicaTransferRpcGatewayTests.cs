@@ -128,8 +128,8 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         Array.Fill(small, new ReplicaStateEntry("c", new byte[] { 1 }, new byte[] { 1 }, long.MaxValue));
         var batch = ReplicaTransferWire.MessageRequest(Header(), Message(ReplicaTransferStep.Entries, int.MaxValue, entries: small));
 
-        _ = await Assert.That(snapshot.CalculateSize()).IsLessThanOrEqualTo(EntryLimits.GrpcMaxSendMessageSizeBytes);
-        _ = await Assert.That(batch.CalculateSize()).IsLessThanOrEqualTo(EntryLimits.GrpcMaxSendMessageSizeBytes);
+        _ = await Assert.That(snapshot.CalculateSize()).IsLessThanOrEqualTo(EntryLimits.MaxSendMessageSizeBytes);
+        _ = await Assert.That(batch.CalculateSize()).IsLessThanOrEqualTo(EntryLimits.MaxSendMessageSizeBytes);
     }
 
     private static ServerClientPool CreatePool(HttpMessageHandler handler, Meter meter)

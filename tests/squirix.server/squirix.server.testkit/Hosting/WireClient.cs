@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -16,12 +17,12 @@ internal sealed class WireClient : IAsyncDisposable
     internal const string NoLeaderRefusalDetail = ServerOpContract.NoLeaderAuthorityDetail;
 
     private readonly PublicBinaryChannel _channel;
-    private readonly SquirixCacheService.SquirixCacheServiceClient _client;
+    private readonly CacheWireClient _client;
 
     private WireClient(PublicBinaryChannel channel)
     {
         _channel = channel;
-        _client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        _client = new CacheWireClient(channel);
     }
 
     /// <inheritdoc />
@@ -49,7 +50,7 @@ internal sealed class WireClient : IAsyncDisposable
     internal async Task<bool> ReadAsync(string cacheName, string key, TimeSpan deadline, CancellationToken cancellationToken)
     {
         var request = new GetValueAsyncRequest { CacheName = WireMutation.Canonical(cacheName), Key = key };
-        var response = await _client.GetValueAsync(request, deadline: DateTime.UtcNow.Add(deadline), cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await ObserveAsync(_client.GetValueAsync(request, DateTime.UtcNow.Add(deadline), cancellationToken)).ConfigureAwait(false);
         return response.Found;
     }
 
@@ -61,6 +62,18 @@ internal sealed class WireClient : IAsyncDisposable
     internal Task<WireOutcome> SendAsync(WireMutation mutation, TimeSpan deadline, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(mutation);
-        return mutation.SendAsync(_client, DateTime.UtcNow.Add(deadline), cancellationToken);
+        return ObserveAsync(mutation.SendAsync(_client, DateTime.UtcNow.Add(deadline), cancellationToken));
+    }
+
+    private static async Task<T> ObserveAsync<T>(Task<T> call)
+    {
+        try
+        {
+            return await call.ConfigureAwait(false);
+        }
+        catch (ServerCallException error)
+        {
+            throw new WireCallException(error);
+        }
     }
 }

@@ -53,7 +53,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         await using (app)
         {
             using var channel = CreateBinaryChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var client = new CacheWireClient(channel);
             _ = await client.SetEntryAsync(CreateSet("warm-up", "warm"), cancellationToken: cancellationToken);
 
             var started = TimeProvider.System.GetTimestamp();
@@ -77,7 +77,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsTrue();
 
             using var channel = CreateBinaryChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var client = new CacheWireClient(channel);
 
             // The first call opens the connection and the segment, so the measured writes arrive together.
             _ = await client.SetEntryAsync(CreateSet("warm-up", "warm"), cancellationToken: cancellationToken);
@@ -113,7 +113,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         await using (app)
         {
             using var channel = CreateBinaryChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var client = new CacheWireClient(channel);
 
             var mutations = new Task[Concurrency];
             for (var i = 0; i < Concurrency; i++)
@@ -129,7 +129,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         await using (restarted)
         {
             using var channel = CreateBinaryChannel(restartedUri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var client = new CacheWireClient(channel);
 
             var after = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
 
@@ -145,11 +145,11 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         options.Journal.GroupCommitMaxBatch = Concurrency;
     }
 
-    private static async Task WriteBurstAsync(SquirixCacheService.SquirixCacheServiceClient client, int round, CancellationToken cancellationToken)
+    private static async Task WriteBurstAsync(CacheWireClient client, int round, CancellationToken cancellationToken)
     {
         var writes = new Task[Concurrency];
         for (var i = 0; i < Concurrency; i++)
-            writes[i] = client.SetEntryAsync(CreateSet($"distinct-{round}-{i}", "value"), cancellationToken: cancellationToken).ResponseAsync;
+            writes[i] = client.SetEntryAsync(CreateSet($"distinct-{round}-{i}", "value"), cancellationToken: cancellationToken);
 
         await Task.WhenAll(writes).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
     }
@@ -165,16 +165,16 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     private static JournalCoordinator GetJournal(WebApplication app) =>
         ThrowHelper.Required(app.Services.GetRequiredService<JournalCoordinatorHost>().Coordinator as JournalCoordinator, "The hosted journal is not a JournalCoordinator.");
 
-    private static Task MutateAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, int index, CancellationToken cancellationToken)
+    private static Task MutateAsync(CacheWireClient client, string key, int index, CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
         return (index % 3) switch
         {
-            0 => client.SetEntryAsync(CreateSet(key, $"value-{index}"), cancellationToken: cancellationToken).ResponseAsync,
-            1 => client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken).ResponseAsync,
+            0 => client.SetEntryAsync(CreateSet(key, $"value-{index}"), cancellationToken: cancellationToken),
+            1 => client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken),
             _ => client.TouchAsync(
                 new TouchAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Expiration = Duration.FromTimeSpan(TimeSpan.FromHours(1)) },
-                cancellationToken: cancellationToken).ResponseAsync,
+                cancellationToken: cancellationToken),
         };
     }
 

@@ -18,6 +18,8 @@ namespace Squirix.Server.Adapters.Endpoint;
 
 internal static class PeerEndpoint
 {
+    private const long MaxBudgetTicks = (uint.MaxValue - 1L) * TimeSpan.TicksPerMillisecond;
+
     internal static Task PingAsync(HttpContext http) => HandleAsync(http, static (_, body, _) =>
         Task.FromResult(body.IsEmpty ? new BinaryResponse(FrameStatus.Ok) : new BinaryResponse(FrameStatus.InvalidArgument)));
 
@@ -30,7 +32,7 @@ internal static class PeerEndpoint
             return;
         }
 
-        if (http.Request.ContentLength is not (>= 0 and <= EntryLimits.GrpcMaxReceiveMessageSizeBytes))
+        if (http.Request.ContentLength is not (>= 0 and <= EntryLimits.MaxReceiveMessageSizeBytes))
         {
             http.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
             return;
@@ -47,7 +49,7 @@ internal static class PeerEndpoint
         TimeSpan? budget = null;
         if (http.Request.Headers.TryGetValue(PeerProtocol.BudgetHeader, out var header))
         {
-            if (header.Count != 1 || !long.TryParse(header[0], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks) || ticks <= 0)
+            if (header.Count != 1 || !long.TryParse(header[0], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks) || ticks is <= 0 or > MaxBudgetTicks)
             {
                 http.Response.StatusCode = StatusCodes.Status400BadRequest;
                 return;
@@ -64,7 +66,7 @@ internal static class PeerEndpoint
     {
         using var deadlineScope = budget is { } left ? ServerRpcDeadlineContext.Push(new ServerDeadlineBudget(clock, left, clock.GetTimestamp())) : null;
         var aborted = http.RequestAborted;
-        using var deadline = budget is { TotalMilliseconds: < uint.MaxValue - 1 } timeout ? new TimedCancellation(timeout, clock, aborted) : null;
+        using var deadline = budget is { } timeout ? new TimedCancellation(timeout, clock, aborted) : null;
         http.RequestAborted = deadline?.Token ?? aborted;
         var size = Convert.ToInt32(http.Request.ContentLength!.Value);
         var buffer = ArrayPool<byte>.Shared.Rent(size);
@@ -103,7 +105,7 @@ internal static class PeerEndpoint
     private static async Task WriteAsync(HttpContext http, BinaryResponse reply)
     {
         var size = reply.Payload?.CalculateSize() ?? 0;
-        if (size > EntryLimits.GrpcMaxSendMessageSizeBytes)
+        if (size > EntryLimits.MaxSendMessageSizeBytes)
         {
             var error = new BinaryCallError { Detail = "The response exceeds the peer message limit." };
             reply = new BinaryResponse(FrameStatus.ResourceExhausted, error);

@@ -5,7 +5,6 @@ using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Connections.Features;
@@ -315,7 +314,7 @@ public sealed class ConnectionPrefaceTests
             var output = connection.Outgoing.Reader;
             var totalSize = requests * Frames.HeaderBytes;
             var result = await output.ReadAtLeastAsync(totalSize, guard.Token);
-            var ok = System.Runtime.CompilerServices.Unsafe.BitCast<StatusCode, int>(StatusCode.OK);
+            var ok = System.Runtime.CompilerServices.Unsafe.BitCast<FrameStatus, int>(FrameStatus.Ok);
             var successfulIds = new HashSet<int>();
             for (var i = 0; i < requests; i++)
             {

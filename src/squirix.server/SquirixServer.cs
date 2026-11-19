@@ -68,8 +68,6 @@ public sealed class SquirixServer : IAsyncDisposable
         _ = builder.Logging.ClearProviders();
         _ = builder.Logging.AddConsole();
         _ = builder.Logging.AddDebug();
-        _ = builder.Logging.AddFilter("Grpc", LogLevel.Information);
-        _ = builder.Logging.AddFilter("Grpc.AspNetCore.Server", LogLevel.Information);
         _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
 
         _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken)

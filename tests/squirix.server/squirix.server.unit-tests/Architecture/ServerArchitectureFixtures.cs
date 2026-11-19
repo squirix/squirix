@@ -22,7 +22,6 @@ internal static class ServerArchitectureFixtures
 
     internal static readonly string[] KnownServerPackageDependencyBaseline =
     [
-        "Grpc.AspNetCore",
         "Microsoft.AspNetCore.Authentication.JwtBearer",
     ];
 

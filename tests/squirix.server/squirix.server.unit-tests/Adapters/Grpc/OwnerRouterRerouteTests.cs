@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
@@ -15,6 +14,7 @@ using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Binary;
+using Squirix.Transport.Grpc.Cache;
 using Squirix.Transport.Grpc.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -71,8 +71,15 @@ public sealed class OwnerRouterRerouteTests
     public async Task StaleTermTrailerReroutes()
     {
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
-        var trailers = new Metadata { { GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, RefusalCodes.StaleTerm }, { GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Second } };
-        var attempts = new Attempts(CallErrors.FromGrpc(new RpcException(new Status(StatusCode.FailedPrecondition, "deposed"), trailers)));
+        var trailers = new BinaryCallError
+        {
+            Trailers =
+            {
+                new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, Text = RefusalCodes.StaleTerm },
+                new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Text = Second },
+            },
+        };
+        var attempts = new Attempts(new ServerCallException(FrameStatus.FailedPrecondition, trailers));
 
         _ = await attempts.RunAsync(CreateRouter(table, false, TimeProvider.System));
 
@@ -308,16 +315,19 @@ public sealed class OwnerRouterRerouteTests
     [Test]
     public async Task HintWithoutTermIsRead()
     {
-        var trailers = new Metadata
+        var trailers = new BinaryCallError
         {
-            { GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, "stale-owner" },
-            { GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Second },
-            { GrpcStaleOwnerMarkers.LeaderTermMetadataKey, "x" },
+            Trailers =
+            {
+                new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, Text = "stale-owner" },
+                new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Text = Second },
+                new BinaryCallError.Types.Trailer { Key = GrpcStaleOwnerMarkers.LeaderTermMetadataKey, Text = "x" },
+            },
         };
 
-        _ = await Assert.That(StaleRouteSignals.TryReadStale(CallErrors.FromGrpc(new RpcException(new Status(StatusCode.FailedPrecondition, "stale"), trailers)), out var hint)).IsTrue();
+        _ = await Assert.That(StaleRouteSignals.TryReadStale(new ServerCallException(FrameStatus.FailedPrecondition, trailers), out var hint)).IsTrue();
         _ = await Assert.That(hint).IsEqualTo(new LeaderRoute(Second, 0));
-        _ = await Assert.That(StaleRouteSignals.TryReadStale(CallErrors.FromGrpc(new RpcException(new Status(StatusCode.Unavailable, RefusalCodes.StaleTerm), trailers)), out _)).IsFalse();
+        _ = await Assert.That(StaleRouteSignals.TryReadStale(new ServerCallException(FrameStatus.Unavailable, trailers), out _)).IsFalse();
     }
 
     /// <summary>Creates the router of this node over a table, for a call that is or is not a trusted internal owner RPC.</summary>

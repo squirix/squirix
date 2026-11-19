@@ -51,7 +51,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         var operation = refresh ? CacheOperationNames.Touch : CacheOperationNames.Get;
         var (admission, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clients.Resolve(), cancellationToken).ConfigureAwait(false);
         if (!admission.IsAccepted)
-            throw ServerOpContract.TooManyRequests(admission.RejectReason ?? "unknown").ToRpcException();
+            throw ServerOpContract.TooManyRequests(admission.RejectReason ?? "unknown").ToServerCallException();
 
         using (lease)
         {

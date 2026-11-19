@@ -123,7 +123,7 @@ Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squi
 (see [configuration.md](configuration.md)).
 
 `Peers[].Uri` always carries the primary listener origin (port **5000** in the samples). The internode mTLS
-gRPC transport endpoint is derived from that origin by swapping in `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`
+HTTP/2 peer endpoint is derived from that origin by swapping in `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`
 (**5100**): keep each local peer entry aligned with its configured peer URI and never enter port `5100`
 in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 

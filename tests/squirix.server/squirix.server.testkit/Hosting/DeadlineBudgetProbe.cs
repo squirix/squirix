@@ -1,14 +1,7 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
-using Grpc.Core;
-using Grpc.Core.Interceptors;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -38,46 +31,11 @@ public sealed class DeadlineBudgetProbe
     {
         ArgumentNullException.ThrowIfNull(services);
         _ = services.AddSingleton(new BinaryCallObserver(_ => Record(ServerRpcDeadlineContext.CurrentBudget?.Remaining)));
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<GrpcServiceOptions>>(new ProbeOptionsConfigurator(this)));
     }
 
     private void Record(TimeSpan? budget)
     {
         lock (_gate)
             _lastBudget = budget;
-    }
-
-    [Immutable]
-    internal sealed class ProbeInterceptor : Interceptor
-    {
-        private const string CacheServiceSegment = "SquirixCacheService/";
-
-        private readonly DeadlineBudgetProbe _probe;
-
-        public ProbeInterceptor(DeadlineBudgetProbe probe)
-        {
-            _probe = probe;
-        }
-
-        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
-        {
-            if (context.Method.Contains(CacheServiceSegment, StringComparison.Ordinal))
-                _probe.Record(ServerRpcDeadlineContext.CurrentBudget?.Remaining);
-
-            return continuation(request, context);
-        }
-    }
-
-    [Immutable]
-    private sealed class ProbeOptionsConfigurator : IConfigureOptions<GrpcServiceOptions>
-    {
-        private readonly DeadlineBudgetProbe _probe;
-
-        internal ProbeOptionsConfigurator(DeadlineBudgetProbe probe)
-        {
-            _probe = probe;
-        }
-
-        public void Configure(GrpcServiceOptions options) => options.Interceptors.Add<ProbeInterceptor>(_probe);
     }
 }

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -187,7 +186,7 @@ internal static class FailoverSteps
     internal static string DescribeRefusal(Exception exception) => exception switch
     {
         SquirixTransportException transport => $"{nameof(SquirixTransportException)} {transport.StatusCode} '{transport.Message}'",
-        RpcException rpc => $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'",
+        WireCallException rpc => $"{nameof(WireCallException)} {rpc.StatusCode} '{rpc.Message}'",
         _ => exception.GetType().Name,
     };
 
@@ -197,5 +196,5 @@ internal static class FailoverSteps
     internal static bool IsPartitionRefusal(Exception exception) =>
         exception is CommitOutcomeUnknownException
             or SquirixTransportException { StatusCode: CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded or CacheTransportStatusCode.ResourceExhausted }
-            or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.ResourceExhausted };
+            or WireCallException { StatusCode: WireStatus.Unavailable or WireStatus.DeadlineExceeded or WireStatus.ResourceExhausted };
 }

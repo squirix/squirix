@@ -349,7 +349,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
     /// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
     /// <remarks>The pool sets the connect timeout of every handler created here, so a peer that accepts but never answers cannot hold a connection open.</remarks>
-    internal static class ServerGrpcEndpoints
+    internal static class PeerEndpoints
     {
         private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 

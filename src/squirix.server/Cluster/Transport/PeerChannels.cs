@@ -152,7 +152,7 @@ internal sealed class PeerChannels
         TimeSpan? dialTimeout)
     {
         var factory = args.OwnedHandlerFactory ?? ((certificate, expectedPeerNodeId, tracked) =>
-            ServerClientPool.ServerGrpcEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
+            ServerClientPool.PeerEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
         HttpMessageHandler? ownedHandler = null;
         try
         {

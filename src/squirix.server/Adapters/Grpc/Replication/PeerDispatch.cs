@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -31,8 +32,15 @@ internal static class PeerDispatch
 
     private static TransferReplicaStateRequest ParseTransfer(ReadOnlyMemory<byte> body)
     {
-        return MemoryMarshal.TryGetArray(body, out var segment) && segment.Offset == 0
-            ? ReplicaTransferParser.Parse(segment.Array!, segment.Count)
-            : throw new InvalidOperationException("State transfer requires the rented request buffer.");
+        try
+        {
+            return MemoryMarshal.TryGetArray(body, out var segment) && segment.Offset == 0
+                ? ReplicaTransferParser.Parse(segment.Array!, segment.Count)
+                : throw new InvalidOperationException("State transfer requires the rented request buffer.");
+        }
+        catch (InvalidDataException error)
+        {
+            throw new ServerCallException(FrameStatus.InvalidArgument, "Malformed state transfer.", error);
+        }
     }
 }

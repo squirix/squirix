@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
@@ -61,7 +60,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     [Test]
     public async Task CommitOutcomeUnknownIsNotRetried(CancellationToken cancellationToken)
     {
-        var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail)));
+        var invoker = new CapturingCallInvoker(failure: static () => new ServerCallException(FrameStatus.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail));
         var forwarder = CreateForwarder(invoker);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.SetEntryAsync(Owner, new SetEntryAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -82,7 +81,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var refused = CreateForwarder(new CapturingCallInvoker(failure: static () => new HttpRequestException(HttpRequestError.ConnectionError, "connection refused")));
         var started = CreateForwarder(
             new CapturingCallInvoker(
-                failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ConnectionError, "refused")))));
+                failure: static () => new ServerCallException(FrameStatus.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ConnectionError, "refused"))));
         var reset = CreateForwarder(new CapturingCallInvoker(failure: static () => new IOException("connection reset")));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
@@ -107,10 +106,10 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     public async Task RelayedUnreachableIsNotLocal(CancellationToken cancellationToken)
     {
         var relayed = CreateForwarder(
-            new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.OwnerUnreachableDetail))));
+            new CapturingCallInvoker(failure: static () => new ServerCallException(FrameStatus.Unavailable, ServerOpContract.OwnerUnreachableDetail)));
         var broken = CreateForwarder(
             new CapturingCallInvoker(
-                failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ResponseEnded, "ended")))));
+                failure: static () => new ServerCallException(FrameStatus.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ResponseEnded, "ended"))));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
         var relayedFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(relayed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -184,18 +183,21 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         _ = await Assert.That(fromLookup.Message).IsEqualTo("ServerPeer client pool is disposed.");
     }
 
-    /// <summary>The owner failure keeps its status, detail and application trailers, and loses the reserved protocol trailers.</summary>
+    /// <summary>The owner failure keeps its status, detail and application trailers, including binary trailer values.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RelayStripsReservedTrailers(CancellationToken cancellationToken)
+    public async Task RelayPreservesApplicationTrailers(CancellationToken cancellationToken)
     {
-        var trailers = new Metadata
+        var trailers = new BinaryCallError
         {
-            { "squirix-error-code", "stale-owner" },
-            { "grpc-status-extra", "reserved" },
-            { "detail-bin", [1, 2, 3] },
+            Detail = "Key is owned by 'x'.",
+            Trailers =
+            {
+                new BinaryCallError.Types.Trailer { Key = "squirix-error-code", Text = "stale-owner" },
+                new BinaryCallError.Types.Trailer { Key = "detail-bin", Binary = ByteString.CopyFrom(1, 2, 3) },
+            },
         };
-        var invoker = new CapturingCallInvoker(failure: () => new RpcException(new Status(StatusCode.FailedPrecondition, "Key is owned by 'x'."), trailers));
+        var invoker = new CapturingCallInvoker(failure: () => new ServerCallException(FrameStatus.FailedPrecondition, trailers));
         var forwarder = CreateForwarder(invoker);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -274,7 +276,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     [Test]
     public async Task ResourceExhaustedIsNotRetried(CancellationToken cancellationToken)
     {
-        var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.ResourceExhausted, "Server is overloaded (busy).")));
+        var invoker = new CapturingCallInvoker(failure: static () => new ServerCallException(FrameStatus.ResourceExhausted, "Server is overloaded (busy)."));
         var forwarder = CreateForwarder(invoker);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.TouchAsync(Owner, new TouchAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -333,7 +335,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
             new AdmissionOptions { MaxInFlight = 8, MaxQueue = 1, SlowdownThreshold = 1, MaxSlowdownDelay = TimeSpan.Zero },
             new BackpressureMetrics(_testMeter),
             TimeProvider.System);
-        var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, "owner is down")));
+        var invoker = new CapturingCallInvoker(failure: static () => new ServerCallException(FrameStatus.Unavailable, "owner is down"));
         var forwarder = CreateForwarder(invoker, policy, gate);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.TouchAsync(Owner, new TouchAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

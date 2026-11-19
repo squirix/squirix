@@ -28,7 +28,7 @@ internal static class PeerProtocol
         where T : IMessage<T>
     {
         var length = request.CalculateSize();
-        if (length > EntryLimits.GrpcMaxSendMessageSizeBytes)
+        if (length > EntryLimits.MaxSendMessageSizeBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The request exceeds the peer message limit.");
 
         using var message = new HttpRequestMessage(HttpMethod.Post, Prefix + path)
@@ -49,6 +49,12 @@ internal static class PeerProtocol
         }
 
         using var response = await SendRequestAsync(client, message, cancellationToken).ConfigureAwait(false);
+        return await ReadResponseAsync(response, path, parser, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<T> ReadResponseAsync<T>(HttpResponseMessage response, string path, MessageParser<T> parser, CancellationToken cancellationToken)
+        where T : IMessage<T>
+    {
         if (response.StatusCode != HttpStatusCode.OK || response.Version.Major != 2 ||
             !string.Equals(response.Content.Headers.ContentType?.MediaType, MediaType, StringComparison.OrdinalIgnoreCase) ||
             !response.Headers.TryGetValues(StatusHeader, out var values))
@@ -59,7 +65,7 @@ internal static class PeerProtocol
             code is < 0 or > 16 || headers.MoveNext())
             throw new ServerCallException(FrameStatus.Internal, "The peer returned an invalid status.");
 
-        if (response.Content.Headers.ContentLength is not (>= 0 and <= EntryLimits.GrpcMaxReceiveMessageSizeBytes) || response.Content.Headers.ContentEncoding.Count != 0)
+        if (response.Content.Headers.ContentLength is not (>= 0 and <= EntryLimits.MaxReceiveMessageSizeBytes) || response.Content.Headers.ContentEncoding.Count != 0)
             throw new ServerCallException(FrameStatus.Internal, "The peer returned an invalid payload length or encoding.");
 
         var size = Convert.ToInt32(response.Content.Headers.ContentLength.Value);
@@ -71,9 +77,17 @@ internal static class PeerProtocol
             var status = Unsafe.BitCast<int, FrameStatus>(code);
             return status == FrameStatus.Ok ? parser.ParseFrom(buffer, 0, size) : throw new ServerCallException(status, BinaryCallError.Parser.ParseFrom(buffer, 0, size));
         }
+        catch (InvalidProtocolBufferException)
+        {
+            throw new ServerCallException(FrameStatus.DataLoss, "Malformed peer response.");
+        }
+        catch (IOException)
+        {
+            throw new ServerCallException(FrameStatus.Unavailable, "The peer response ended before it could be decoded.");
+        }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(buffer, true);
         }
     }
 

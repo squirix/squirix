@@ -85,9 +85,9 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(true);
             });
 
-        var response = await CreateAdapter(api.Instance()).Touch(
+        var response = await CreateAdapter(api.Instance()).TouchAsync(
             new TouchAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Expiration = new Duration { Seconds = seconds, Nanos = nanos } },
-            new TestServerCallContext());
+            CancellationToken.None);
 
         _ = await Assert.That(response.Found).IsTrue();
         _ = await Assert.That(seen).IsEqualTo(TimeSpan.MaxValue);
@@ -111,9 +111,9 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 return ValueTask.CompletedTask;
             });
 
-        _ = await CreateAdapter(api.Instance()).SetEntry(
+        _ = await CreateAdapter(api.Instance()).SetEntryAsync(
             new SetEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(new Duration { Seconds = seconds, Nanos = nanos }) },
-            new TestServerCallContext());
+            CancellationToken.None);
 
         _ = await Assert.That(seen).IsEqualTo(TimeSpan.MaxValue);
     }
@@ -136,9 +136,9 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(true);
             });
 
-        var response = await CreateAdapter(api.Instance()).TryAddEntry(
+        var response = await CreateAdapter(api.Instance()).AddEntryIfAbsentAsync(
             new TryAddEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(new Duration { Seconds = seconds, Nanos = nanos }) },
-            new TestServerCallContext());
+            CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsTrue();
         _ = await Assert.That(seen).IsEqualTo(TimeSpan.MaxValue);
@@ -149,7 +149,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
 
     private static CacheEntryWire CreateEntry(Duration expiration) => new() { Value = JsonValueKit.Wire("{\"__v\":\"v\"}"), Expiration = expiration };
 
-    private SquirixServiceAdapter<object?> CreateAdapter(ICacheApi<object?> api)
+    private RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
     {
         var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
         _ = operations.Setups.ForCache(CacheName).ReturnValue(api);
@@ -160,7 +160,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
-        return new SquirixServiceAdapter<object?>(new RoutedCacheOperations<object?>(
+        return new RoutedCacheOperations<object?>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(
@@ -169,6 +169,6 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 new IBackpressureClientIdResolverCreateExpectations().Instance(),
                 RingAgreements.Create()),
             new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance),
-            TimeProvider.System));
+            TimeProvider.System);
     }
 }

@@ -27,7 +27,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
-        var context = new TestServerCallContext();
+        var context = CancellationToken.None;
 
         var set = FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a", ttl: Ttl);
         var update = FusedWriteHarness.Update(FusedWriteHarness.OpId(2), "b");
@@ -37,13 +37,13 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var getOrAdd = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(6), "d", "k3");
         var remove = FusedWriteHarness.Remove(FusedWriteHarness.OpId(7));
 
-        _ = await AssertFusedAsync(harness, set.OperationId, () => harness.Adapter.SetEntry(set, context), cancellationToken);
-        var updated = await AssertFusedAsync(harness, update.OperationId, () => harness.Adapter.Update(update, context), cancellationToken);
-        var touched = await AssertFusedAsync(harness, touch.OperationId, () => harness.Adapter.Touch(touch, context), cancellationToken);
-        var expirationRemoved = await AssertFusedAsync(harness, removeExpiration.OperationId, () => harness.Adapter.RemoveExpiration(removeExpiration, context), cancellationToken);
-        var added = await AssertFusedAsync(harness, tryAdd.OperationId, () => harness.Adapter.TryAddEntry(tryAdd, context), cancellationToken);
-        var gotOrAdded = await AssertFusedAsync(harness, getOrAdd.OperationId, () => harness.Adapter.GetOrAdd(getOrAdd, context), cancellationToken);
-        var removed = await AssertFusedAsync(harness, remove.OperationId, () => harness.Adapter.Remove(remove, context), cancellationToken);
+        _ = await AssertFusedAsync(harness, set.OperationId, () => harness.Adapter.SetEntryAsync(set, context), cancellationToken);
+        var updated = await AssertFusedAsync(harness, update.OperationId, () => harness.Adapter.UpdateAsync(update, context), cancellationToken);
+        var touched = await AssertFusedAsync(harness, touch.OperationId, () => harness.Adapter.TouchAsync(touch, context), cancellationToken);
+        var expirationRemoved = await AssertFusedAsync(harness, removeExpiration.OperationId, () => harness.Adapter.RemoveExpirationAsync(removeExpiration, context), cancellationToken);
+        var added = await AssertFusedAsync(harness, tryAdd.OperationId, () => harness.Adapter.AddEntryIfAbsentAsync(tryAdd, context), cancellationToken);
+        var gotOrAdded = await AssertFusedAsync(harness, getOrAdd.OperationId, () => harness.Adapter.GetOrAddAsync(getOrAdd, context), cancellationToken);
+        var removed = await AssertFusedAsync(harness, remove.OperationId, () => harness.Adapter.RemoveAsync(remove, context), cancellationToken);
 
         _ = await Assert.That(updated.Updated).IsTrue();
         _ = await Assert.That(touched.Found).IsTrue();
@@ -67,7 +67,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var request = FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a");
 
         var flushesBefore = harness.FlushCount;
-        _ = await harness.Adapter.SetEntry(request, new TestServerCallContext());
+        _ = await harness.Adapter.SetEntryAsync(request, CancellationToken.None);
         var flushes = harness.FlushCount - flushesBefore;
         await journal.ShutdownAsync();
         var frames = harness.ReadFrames(cancellationToken);
@@ -94,7 +94,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var harness = new FusedWriteHarness(Dir, journal);
         var request = FusedWriteHarness.Remove(FusedWriteHarness.OpId(1));
 
-        var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.Remove(request, new TestServerCallContext()), cancellationToken);
+        var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.RemoveAsync(request, CancellationToken.None), cancellationToken);
 
         _ = await Assert.That(response.Removed).IsFalse();
     }
@@ -106,10 +106,10 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
-        _ = await harness.Adapter.SetEntry(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a"), new TestServerCallContext());
+        _ = await harness.Adapter.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a"), CancellationToken.None);
         var request = FusedWriteHarness.AddIfAbsent(FusedWriteHarness.OpId(2), "b");
 
-        var response = await harness.Adapter.TryAddEntry(request, new TestServerCallContext());
+        var response = await harness.Adapter.AddEntryIfAbsentAsync(request, CancellationToken.None);
         var frames = harness.ReadFrames(cancellationToken);
 
         _ = await Assert.That(response.Added).IsFalse();
@@ -123,11 +123,11 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
-        _ = await harness.Adapter.SetEntry(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "old", ttl: TimeSpan.FromSeconds(1)), new TestServerCallContext());
+        _ = await harness.Adapter.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "old", ttl: TimeSpan.FromSeconds(1)), CancellationToken.None);
         harness.Clock.Advance(TimeSpan.FromSeconds(2));
         var request = FusedWriteHarness.AddIfAbsent(FusedWriteHarness.OpId(2), "new");
 
-        var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.TryAddEntry(request, new TestServerCallContext()), cancellationToken);
+        var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.AddEntryIfAbsentAsync(request, CancellationToken.None), cancellationToken);
         var current = harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
 
         _ = await Assert.That(response.Added).IsTrue();
@@ -141,11 +141,11 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
-        _ = await harness.Adapter.SetEntry(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "old", ttl: TimeSpan.FromSeconds(1)), new TestServerCallContext());
+        _ = await harness.Adapter.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "old", ttl: TimeSpan.FromSeconds(1)), CancellationToken.None);
         harness.Clock.Advance(TimeSpan.FromSeconds(1));
         var request = FusedWriteHarness.Remove(FusedWriteHarness.OpId(2));
 
-        var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.Remove(request, new TestServerCallContext()), cancellationToken);
+        var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.RemoveAsync(request, CancellationToken.None), cancellationToken);
 
         _ = await Assert.That(response.Removed).IsFalse();
     }

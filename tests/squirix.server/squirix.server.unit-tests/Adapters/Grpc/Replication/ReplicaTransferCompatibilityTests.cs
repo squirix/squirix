@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
@@ -32,8 +31,9 @@ public sealed class ReplicaTransferCompatibilityTests
             request.Header = new ReplicationEnvelopeHeader { SchemaVersion = 1, SenderNodeId = "sender", TopologyFingerprint = ByteString.CopyFromUtf8("fingerprint") };
             request.TransferId = "transfer";
             request.Sequence = uint.MaxValue;
-            using var parsed = ReplicaTransferWire.Parse(new ReadOnlySequence<byte>(request.ToByteArray()), ArrayPool<byte>.Shared);
-            _ = await Assert.That(parsed.Request.Equals(request)).IsTrue();
+            var bytes = request.ToByteArray();
+            var parsed = ReplicaTransferParser.Parse(bytes, bytes.Length);
+            _ = await Assert.That(parsed.Equals(request)).IsTrue();
         }
     }
 
@@ -55,8 +55,8 @@ public sealed class ReplicaTransferCompatibilityTests
         {
             bytes = [.. bytes, .. part];
             var expected = TransferReplicaStateRequest.Parser.ParseFrom(bytes);
-            using var actual = ReplicaTransferWire.Parse(new ReadOnlySequence<byte>(bytes), ArrayPool<byte>.Shared);
-            _ = await Assert.That(actual.Request.Equals(expected)).IsTrue();
+            var actual = ReplicaTransferParser.Parse(bytes, bytes.Length);
+            _ = await Assert.That(actual.Equals(expected)).IsTrue();
         }
     }
 
@@ -92,10 +92,10 @@ public sealed class ReplicaTransferCompatibilityTests
     {
         try
         {
-            using var buffer = ReplicaTransferWire.Parse(new ReadOnlySequence<byte>(bytes), ArrayPool<byte>.Shared);
-            return Convert.ToBase64String(buffer.Request.ToByteArray());
+            var buffer = ReplicaTransferParser.Parse(bytes, bytes.Length);
+            return Convert.ToBase64String(buffer.ToByteArray());
         }
-        catch (InvalidDataException)
+        catch (Exception error) when (error is InvalidDataException or InvalidProtocolBufferException)
         {
             return null;
         }
