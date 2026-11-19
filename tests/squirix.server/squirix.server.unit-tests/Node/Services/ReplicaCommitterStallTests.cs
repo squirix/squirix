@@ -7,7 +7,6 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
@@ -23,6 +22,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -85,20 +85,20 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var transport = error.ToRpcException();
+        var transport = error.ToServerCallException();
 
         // The remote owner reports the stable commit-unknown contract over gRPC.
         var remoteOwner = new ILogicalNamespacedCacheCreateExpectations<object?>();
         _ = remoteOwner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
-                       .Callback(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToRpcException()));
+                       .Callback(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToServerCallException()));
         var forwarded = new DomainErrorMappingCacheDecorator<object?>(remoteOwner.Instance());
-        var remote = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var remote = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-        _ = await Assert.That(transport.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(transport.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
-        _ = await Assert.That(remote.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(remote.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(transport.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(transport.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(remote.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(remote.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         await SequenceAssert.EqualAsync(["user_mutation"], operations.ToArray(), StringComparer.Ordinal);
         _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(log.UnknownCause?.InnerException?.Message).IsEqualTo("Injected memory apply failure after the majority.");
@@ -169,9 +169,9 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             await local.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
-            _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+            var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+            _ = await Assert.That(refused.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
             _ = await Assert.That(log.LeakCount).IsEqualTo(1);
 
             local.ReleaseApply();
@@ -338,7 +338,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
         var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
-        _ = await Assert.That(refused.ToRpcException().StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(refused.ToServerCallException().StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
 
         local.Recover();
@@ -435,8 +435,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         // Invalid progress demotes a ready follower to catching up: the next write has no verified majority and drops the started
         // state, so the write after it resyncs (a new coordinator whose start re-verifies the follower).
         _ = registry.EligibilityFor("n1").TryMarkCatchingUp(1, default);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 
     private static async Task<ulong> LastLogIndexAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)

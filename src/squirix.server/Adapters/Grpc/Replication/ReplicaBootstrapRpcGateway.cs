@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -28,14 +29,21 @@ internal sealed class ReplicaBootstrapRpcGateway : IReplicaBootstrapGateway
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
         var request = new GetReplicaStatusRequest { Header = ReplicaRpcGateway.MapHeader(in header) };
-        var response = await client.GetReplicaStatusAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-        return new ReplicaMemberStatus(
-            GroupMemberStateNames.Parse(response.MemberState),
-            string.Equals(response.Readiness, ReplicaReadinessNames.Ready, StringComparison.Ordinal),
-            response.TopologyFingerprint.ToByteArray(),
-            response.ConfigurationGeneration,
-            response.RefusalCode,
-            response.Term);
+        try
+        {
+            var response = await client.GetReplicaStatusAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+            return new ReplicaMemberStatus(
+                GroupMemberStateNames.Parse(response.MemberState),
+                string.Equals(response.Readiness, ReplicaReadinessNames.Ready, StringComparison.Ordinal),
+                response.TopologyFingerprint.ToByteArray(),
+                response.ConfigurationGeneration,
+                response.RefusalCode,
+                response.Term);
+        }
+        catch (RpcException failure)
+        {
+            throw CallErrors.FromGrpc(failure);
+        }
     }
 
     /// <inheritdoc />
@@ -45,7 +53,14 @@ internal sealed class ReplicaBootstrapRpcGateway : IReplicaBootstrapGateway
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
         var request = new OfferReplicaBootstrapRequest { Header = ReplicaRpcGateway.MapHeader(in header) };
-        var response = await client.OfferReplicaBootstrapAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-        return new ReplicaBootstrapOfferResult(response.Accepted, GroupMemberStateNames.Parse(response.MemberState), response.RefusalCode);
+        try
+        {
+            var response = await client.OfferReplicaBootstrapAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+            return new ReplicaBootstrapOfferResult(response.Accepted, GroupMemberStateNames.Parse(response.MemberState), response.RefusalCode);
+        }
+        catch (RpcException failure)
+        {
+            throw CallErrors.FromGrpc(failure);
+        }
     }
 }

@@ -3,8 +3,8 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Squirix.Server.Core;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
@@ -63,7 +63,7 @@ internal static class ServerProtoEx
         }
 
         if (!WireTimestamp.IsNormalized(e.ExpiresUtc))
-            throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedTimestampDetail));
+            throw new ServerCallException(FrameStatus.InvalidArgument, NonNormalizedTimestampDetail);
 
         expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
 
@@ -85,10 +85,10 @@ internal static class ServerProtoEx
     /// <summary>Converts a wire duration to a <see cref="TimeSpan" />, rejecting non-normalized input.</summary>
     /// <param name="duration">The wire duration.</param>
     /// <returns>The converted time span.</returns>
-    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.InvalidArgument" /> when nanos are out of range or their sign opposes the seconds.</exception>
+    /// <exception cref="ServerCallException">Thrown with <see cref="FrameStatus.InvalidArgument" /> when nanos are out of range or their sign opposes the seconds.</exception>
     internal static TimeSpan RequireDuration(Duration duration) => WireDuration.IsNormalized(duration)
         ? WireDuration.ToTimeSpan(duration)
-        : throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedDurationDetail));
+        : throw new ServerCallException(FrameStatus.InvalidArgument, NonNormalizedDurationDetail);
 
     private static TOut CastReference<TOut, TIn>(TIn input)
         where TIn : class?
@@ -122,7 +122,7 @@ internal static class ServerProtoEx
 
     private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
         ? Coerce<T>(wire.BinaryValue.ToByteArray())
-        : throw new RpcException(new Status(StatusCode.InvalidArgument, IncompatibleBinaryDetail));
+        : throw new ServerCallException(FrameStatus.InvalidArgument, IncompatibleBinaryDetail);
 
     private static object? ReadObject(CacheValue wire) => wire.KindCase switch
     {
@@ -134,8 +134,8 @@ internal static class ServerProtoEx
         CacheValue.KindOneofCase.BinaryValue => wire.BinaryValue.ToByteArray(),
         CacheValue.KindOneofCase.JsonUtf8 => JsonUtf8Value.TryCreate(wire.JsonUtf8.Memory, out var json)
             ? json
-            : throw new RpcException(new Status(StatusCode.InvalidArgument, InvalidJsonDetail)),
-        _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
+            : throw new ServerCallException(FrameStatus.InvalidArgument, InvalidJsonDetail),
+        _ => throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail),
     };
 
     private static T? ReadTyped<T>(CacheValue wire) => TryReadExactPrimitive(wire, out T? exact)
@@ -145,14 +145,14 @@ internal static class ServerProtoEx
             CacheValue.KindOneofCase.NullValue => default,
             CacheValue.KindOneofCase.BinaryValue => ReadBinary<T>(wire),
             CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(wire.JsonUtf8.Span) => ServerJsonSerializer.Deserialize<T>(wire.JsonUtf8.Span),
-            CacheValue.KindOneofCase.JsonUtf8 => throw new RpcException(new Status(StatusCode.InvalidArgument, InvalidJsonDetail)),
+            CacheValue.KindOneofCase.JsonUtf8 => throw new ServerCallException(FrameStatus.InvalidArgument, InvalidJsonDetail),
             CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue =>
                 DeserializeScalar<T>(wire),
-            _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
+            _ => throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail),
         };
 
     private static CacheValue RequireValue(CacheValue? wire) =>
-        wire == null || wire.KindCase == CacheValue.KindOneofCase.None ? throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)) : wire;
+        wire == null || wire.KindCase == CacheValue.KindOneofCase.None ? throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail) : wire;
 
     private static bool TryReadExactPrimitive<T>(CacheValue wire, out T? decoded)
     {

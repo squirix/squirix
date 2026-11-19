@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -15,6 +14,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -84,9 +84,9 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         await inner.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, DateTime.UtcNow.AddMinutes(-1)), cancellationToken);
         var cache = new ReplicatedCache(inner, committers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
     }
 
     /// <summary>
@@ -414,8 +414,8 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((1UL, 0UL));
 
         // A write that reaches the retired committer is refused like the write gate refuses it, never as an internal fault.
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     /// <summary>
@@ -477,24 +477,24 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
         var authorized = await committers.PromoteAsync("n2", 2UL, cancellationToken);
         var led = committers.Leads("n2");
-        var beforeGrant = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
+        var beforeGrant = NodeExceptionAssert.For<ServerCallException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
         _ = state.BecomeLeader(2UL);
         _ = state.GrantAuthority(2UL);
         var granted = committers.ForKey(CacheName, "b").GroupId;
         state.ObserveHigherTerm(3UL);
         var deposed = committers.FindAuthorized("n2");
-        var staleTerm = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
+        var staleTerm = NodeExceptionAssert.For<ServerCallException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
         state.BecomeFollower(3UL, false);
         state.ObserveLeaderContact("n3", 3UL);
-        var otherLeader = NodeExceptionAssert.For<RpcException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
+        var otherLeader = NodeExceptionAssert.For<ServerCallException>().Throws(committers, static set => set.ForKey(CacheName, "b"));
         var retired = await committers.RetireAsync("n2", cancellationToken);
 
         _ = await Assert.That((authorized, led, granted, retired, committers.Leads("n2"))).IsEqualTo((true, true, "n2", true, false));
         _ = await Assert.That(deposed).IsNull();
-        _ = await Assert.That((beforeGrant.StatusCode, beforeGrant.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
-        _ = await Assert.That((staleTerm.StatusCode, staleTerm.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
-        _ = await Assert.That(otherLeader.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(otherLeader.Status.Detail).Contains("'n3'");
+        _ = await Assert.That((beforeGrant.StatusCode, beforeGrant.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((staleTerm.StatusCode, staleTerm.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "stale-term"));
+        _ = await Assert.That(otherLeader.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(otherLeader.Message).Contains("'n3'");
         _ = await Assert.That(committers.Promotions!.TryRead(out var promotion)).IsTrue();
         _ = await Assert.That((promotion.Committer.GroupId, promotion.Tenure.IsCancellationRequested)).IsEqualTo(("n2", true));
     }

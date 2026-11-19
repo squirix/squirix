@@ -5,6 +5,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Node.Services;
@@ -17,7 +18,7 @@ internal static class ReplicaGroupCommitterReads
         /// <summary>Fences a leader read: confirms a read index with a majority in the led term and waits until memory applied it.</summary>
         /// <param name="cancellationToken">Cancellation token of the read.</param>
         /// <returns>A task that completes once the local read may be served.</returns>
-        /// <exception cref="Grpc.Core.RpcException">
+        /// <exception cref="ServerCallException">
         /// The read may not be served now, and nothing was read: this node has no leader authority in the group in the led term (the leader
         /// refusal of its election state: stale-term, stale-owner naming a known leader, or Unavailable), or a follower answered in a higher
         /// term (stale-term); or, within one election timeout, no majority confirmed the read index (Unavailable, read
@@ -61,7 +62,7 @@ internal static class ReplicaGroupCommitterReads
     /// <param name="leader">The election state of the group, and this node.</param>
     /// <param name="term">The led term the read index was confirmed in.</param>
     /// <param name="read">The confirmed read.</param>
-    /// <exception cref="Grpc.Core.RpcException">
+    /// <exception cref="ServerCallException">
     /// The gate refuses the read, and nothing was read: the leader refusal of the election state, stale-term when the gate saw a higher
     /// term and the state names no other leader; otherwise Unavailable.
     /// </exception>

@@ -4,6 +4,7 @@ using System.Threading;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Errors;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster;
 
@@ -47,7 +48,7 @@ internal sealed class RingAgreement
     internal bool IsFenced => Volatile.Read(ref _fenced);
 
     /// <summary>Throws when this node is fenced.</summary>
-    /// <exception cref="Grpc.Core.RpcException">The ring-fenced refusal when this node detected a ring mismatch.</exception>
+    /// <exception cref="ServerCallException">The ring-fenced refusal when this node detected a ring mismatch.</exception>
     internal void EnsureNotFenced()
     {
         if (IsFenced)
@@ -57,7 +58,7 @@ internal sealed class RingAgreement
     /// <summary>Checks the ring fingerprint a peer sent with an internal owner call.</summary>
     /// <param name="peerFingerprint">The fingerprint header value, or <see langword="null" /> when the peer sent none.</param>
     /// <param name="peerNodeId">The calling peer node id.</param>
-    /// <exception cref="Grpc.Core.RpcException">The ring-mismatch refusal when the fingerprint is missing or differs; this node is fenced.</exception>
+    /// <exception cref="ServerCallException">The ring-mismatch refusal when the fingerprint is missing or differs; this node is fenced.</exception>
     internal void EnsureInboundAgreement(string? peerFingerprint, string peerNodeId)
     {
         if (string.Equals(peerFingerprint, _local.Value, StringComparison.Ordinal))

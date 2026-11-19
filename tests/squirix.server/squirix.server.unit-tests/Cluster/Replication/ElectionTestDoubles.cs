@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
@@ -10,6 +9,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -141,7 +141,7 @@ internal static class ElectionTestDoubles
 
             return _answer(call) is { } reply
                 ? Task.FromResult(reply)
-                : Task.FromException<FollowerLogVoteResult>(new RpcException(new Status(StatusCode.Unavailable, "voter unreachable")));
+                : Task.FromException<FollowerLogVoteResult>(new ServerCallException(FrameStatus.Unavailable, "voter unreachable"));
         }
     }
 

@@ -1,5 +1,5 @@
 using System.Threading;
-using Grpc.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -23,12 +23,12 @@ internal static class ServerCancelClassifier
         operationEffectiveToken.IsCancellationRequested,
         perAttemptCompositeToken.IsCancellationRequested);
 
-    /// <summary>Returns true when a gRPC <see cref="StatusCode.Cancelled" /> fault should be surfaced as caller cancellation.</summary>
+    /// <summary>Returns true when a gRPC <see cref="FrameStatus.Cancelled" /> fault should be surfaced as caller cancellation.</summary>
     /// <param name="ex">The transport exception.</param>
     /// <param name="cancellationToken">The logical caller token for the operation.</param>
     /// <returns><see langword="true" /> when <paramref name="ex" /> is canceled and <paramref name="cancellationToken" /> is canceled; otherwise <see langword="false" />.</returns>
-    internal static bool IsCallerInitiatedGrpcCancellation(RpcException ex, CancellationToken cancellationToken) =>
-        ex.StatusCode is StatusCode.Cancelled && cancellationToken.IsCancellationRequested;
+    internal static bool IsCallerCancellation(ServerCallException ex, CancellationToken cancellationToken) =>
+        ex.StatusCode is FrameStatus.Cancelled && cancellationToken.IsCancellationRequested;
 
     /// <summary>
     /// Returns true while the linked operation effective token (caller plus optional RPC deadline budget) is not canceled,

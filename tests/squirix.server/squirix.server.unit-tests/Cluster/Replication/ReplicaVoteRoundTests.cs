@@ -3,13 +3,13 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -349,7 +349,7 @@ public sealed class ReplicaVoteRoundTests
         {
             Volatile.Write(ref _canceled[slot], true);
             _ = _transportCancel[slot]
-                ? source.TrySetException(new RpcException(new Status(StatusCode.Cancelled, "Call canceled.")))
+                ? source.TrySetException(new ServerCallException(FrameStatus.Cancelled, "Call canceled."))
                 : source.TrySetCanceled(cancellationToken);
         }
     }

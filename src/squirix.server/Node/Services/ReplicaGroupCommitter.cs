@@ -12,6 +12,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -338,7 +339,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="write">Whether a write is to be prepared next; <see langword="false" /> for verification.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The running coordinator and mutation factory.</returns>
-    /// <exception cref="Grpc.Core.RpcException">
+    /// <exception cref="ServerCallException">
     /// The write has no verified majority (Unavailable) or no authorized leadership in the led term (stale-term, stale-owner or Unavailable):
     /// nothing was written.
     /// </exception>
@@ -459,7 +460,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes once the coordinator is started.</returns>
     /// <exception cref="InvalidOperationException">This node does not serve the group, or the log moved past the led term.</exception>
-    /// <exception cref="Grpc.Core.RpcException">The leadership by election is retired: Unavailable, nothing was written.</exception>
+    /// <exception cref="ServerCallException">The leadership by election is retired: Unavailable, nothing was written.</exception>
     /// <exception cref="StaticLeaderTermExceededException">A static leader's log moved past term one; nothing was written.</exception>
     /// <remarks>Runs under the commit gate, and only while the committer is not started.</remarks>
     internal async Task StartAsync(CancellationToken cancellationToken)

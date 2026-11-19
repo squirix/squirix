@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -11,6 +10,7 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Adapters.Endpoint;
@@ -202,7 +202,7 @@ internal sealed class RoutedCacheOperations<T>
         SquirixServiceAdapterValidation.RequireValidCacheKey(key);
         var id = RpcMutationContracts.RequireOperationId(operationId);
         var access = _distributedAccess ??
-                     ThrowHelper.Throw<IDistributedCacheAccess>(new RpcException(new Status(StatusCode.Unimplemented, "Distributed cache access is unavailable.")));
+                     ThrowHelper.Throw<IDistributedCacheAccess>(new ServerCallException(FrameStatus.Unimplemented, "Distributed cache access is unavailable."));
         return access.AccessAsync(id, cache, key, RpcMutationFingerprints.DistributedAccess, refresh, cancellationToken);
     }
 
@@ -334,14 +334,14 @@ internal sealed class RoutedCacheOperations<T>
             var policy = new DistributedCachePolicy(request.HasExpiresAtUnixMs ? request.ExpiresAtUnixMs : null, request.HasSlidingTicks ? request.SlidingTicks : null);
             long? ttl = request.HasTtlTicks ? request.TtlTicks : null;
             if (!policy.IsValid() || ttl is <= 0)
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "The distributed cache expiration policy is invalid."));
+                throw new ServerCallException(FrameStatus.InvalidArgument, "The distributed cache expiration policy is invalid.");
 
             if (request.Value.Length > EntryLimits.MaxEntrySizeBytes - DistributedCachePolicy.HeaderLength)
-                throw ServerOpContract.PayloadTooLarge().ToRpcException();
+                throw ServerOpContract.PayloadTooLarge().ToServerCallException();
 
             var write = new DistributedCacheWrite(in policy, request.Value.Span, ttl);
             if (write is not T value)
-                throw new RpcException(new Status(StatusCode.Internal, "The node cannot store distributed cache values."));
+                throw new ServerCallException(FrameStatus.Internal, "The node cannot store distributed cache values.");
 
             RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static _ => new SetAsyncResponse());
             await _cacheOperations.ForCache(cacheName).SetEntryAsync(

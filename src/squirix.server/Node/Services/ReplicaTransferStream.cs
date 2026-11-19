@@ -6,10 +6,10 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -132,7 +132,7 @@ internal sealed class ReplicaTransferStream
         }
     }
 
-    private static bool IsTransportFault(Exception exception) => exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException;
+    private static bool IsTransportFault(Exception exception) => exception is ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException;
 
     private Result? Ended(in ReplicaTransferReply reply) => reply.Success ? null : Refused(in reply);
 

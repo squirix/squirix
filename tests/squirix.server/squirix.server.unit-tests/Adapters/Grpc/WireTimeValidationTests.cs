@@ -1,10 +1,10 @@
 using System;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -28,9 +28,9 @@ public sealed class WireTimeValidationTests
         var entry = CreateEntry();
         entry.ExpiresUtc = new Timestamp { Seconds = seconds, Nanos = nanos };
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
 
     /// <summary>An entry with a malformed relative expiration is rejected.</summary>
@@ -46,18 +46,18 @@ public sealed class WireTimeValidationTests
         var entry = CreateEntry();
         entry.Expiration = new Duration { Seconds = seconds, Nanos = nanos };
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
 
     /// <summary>A standalone malformed duration, as sent by touch, is rejected.</summary>
     [Test]
     public async Task MalformedTouchDurationIsInvalid()
     {
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(new Duration { Seconds = -1L, Nanos = 1 }, static value => _ = ServerProtoEx.RequireDuration(value));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(new Duration { Seconds = -1L, Nanos = 1 }, static value => _ = ServerProtoEx.RequireDuration(value));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
 
     /// <summary>Boundary values map without failing.</summary>

@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -12,6 +11,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -110,9 +110,9 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, gateway, cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refusal.Message).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
         var pending = await StatusAsync(registry, cancellationToken);
         _ = await Assert.That((pending.LastLogIndex, pending.CommitIndex)).IsEqualTo((2UL, 1UL));
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();

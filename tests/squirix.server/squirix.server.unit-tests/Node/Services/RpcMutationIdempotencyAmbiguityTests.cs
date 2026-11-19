@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
@@ -14,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -66,7 +66,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
                 static _ => "fp-1",
@@ -81,8 +81,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(ex.Status.Detail)).IsTrue();
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(ex.Message)).IsTrue();
         _ = await Assert.That(flag.Value).IsFalse();
     }
 
@@ -234,12 +234,12 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
         var joinedWhileInFlight = !retry.IsCompleted;
         gate.SetResult();
-        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(original, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(retry, JoinTimeout, TimeProvider.System, cancellationToken);
+        var originalError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(original, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(retry, JoinTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(joinedWhileInFlight).IsTrue();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Message)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
         _ = await Assert.That(flag.Value).IsFalse();
         _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);
     }
@@ -254,7 +254,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
-        var firstError = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var firstError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             coordinator.ExecuteAsync<(IJournalCoordinator Journal, ExecFlag Flag), TryAddAsyncResponse>(
                 ValidOperationId,
                 static _ => "fp-1",
@@ -271,10 +271,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
 
         _ = await Assert.That(flag.Value).IsTrue();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(firstError.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(firstError.Message)).IsTrue();
         _ = await Assert.That(store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out _)).IsFalse();
 
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
                 static _ => "fp-1",
@@ -289,8 +289,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
     }
 
     /// <summary>Releasing an unknown, completed, or mismatched reservation is a no-op.</summary>
@@ -416,7 +416,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var coordinator = new RpcMutationIdempotencyCoordinator(store, NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
         var flag = new ExecFlag();
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
                 static _ => "fp-1",
@@ -431,8 +431,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(ex.Status.Detail)).IsTrue();
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(ex.Message)).IsTrue();
         _ = await Assert.That(flag.Value).IsFalse();
     }
 

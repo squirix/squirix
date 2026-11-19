@@ -5,10 +5,10 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -87,7 +87,7 @@ internal sealed class ReplicaTermCeiling
         {
             return null;
         }
-        catch (Exception exception) when (exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
+        catch (Exception exception) when (exception is ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException)
         {
             // A member that cannot be reached tells no term; the ceiling then waits for one that can.
             return null;

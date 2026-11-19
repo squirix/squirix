@@ -14,6 +14,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -57,7 +58,7 @@ public sealed class OwnerRouterRerouteTests
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2)) { AfterWait = new LeaderRoute(Second, 3) };
-        var attempts = new Attempts(new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm)));
+        var attempts = new Attempts(new ServerCallException(FrameStatus.FailedPrecondition, RefusalCodes.StaleTerm));
 
         _ = await attempts.RunAsync(CreateRouter(table, false, clock));
 
@@ -71,7 +72,7 @@ public sealed class OwnerRouterRerouteTests
     {
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var trailers = new Metadata { { GrpcStaleOwnerMarkers.ErrorCodeMetadataKey, RefusalCodes.StaleTerm }, { GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey, Second } };
-        var attempts = new Attempts(new RpcException(new Status(StatusCode.FailedPrecondition, "deposed"), trailers));
+        var attempts = new Attempts(CallErrors.FromGrpc(new RpcException(new Status(StatusCode.FailedPrecondition, "deposed"), trailers)));
 
         _ = await attempts.RunAsync(CreateRouter(table, false, TimeProvider.System));
 
@@ -89,10 +90,10 @@ public sealed class OwnerRouterRerouteTests
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var attempts = new Attempts(StaleOwner(Second, 3), StaleOwner("node-d", 4));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Second}");
         _ = await Assert.That(table.Refuted.Count).IsEqualTo(1);
     }
@@ -109,16 +110,16 @@ public sealed class OwnerRouterRerouteTests
     [Arguments(2)]
     public async Task OtherFailuresAreNotRerouted(int kind, CancellationToken cancellationToken)
     {
-        RpcException[] failures =
+        ServerCallException[] failures =
         [
-            new(new Status(StatusCode.Unavailable, $"Key owner '{First}' is unreachable.")),
-            new(new Status(StatusCode.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail)),
+            new(FrameStatus.Unavailable, $"Key owner '{First}' is unreachable."),
+            new(FrameStatus.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail),
             ServerOpContract.NoLeaderAuthority(),
         ];
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var attempts = new Attempts(failures[kind]);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(failures[kind]);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
@@ -157,9 +158,9 @@ public sealed class OwnerRouterRerouteTests
         var table = new FakeLeaderTable(Self, new LeaderRoute(Self, 2)) { AfterRefute = new LeaderRoute(Self, 2) };
         var attempts = new Attempts(StaleOwner(null, 0));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(Attempts.Local);
     }
 
@@ -173,9 +174,9 @@ public sealed class OwnerRouterRerouteTests
         var attempts = new Attempts(StaleOwner(Second, 3)) { OnAttempt = () => clock.Advance(TimeSpan.FromSeconds(2)) };
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddSeconds(1), clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
     }
 
@@ -193,9 +194,9 @@ public sealed class OwnerRouterRerouteTests
         var attempts = new Attempts();
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(deadlineMilliseconds), clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(table.Waits.Count == 1 && table.Waits[0] == TimeSpan.FromMilliseconds(waitMilliseconds)).IsTrue();
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
     }
@@ -208,12 +209,12 @@ public sealed class OwnerRouterRerouteTests
         var attempts = new Attempts();
         var router = CreateRouter(table, true, TimeProvider.System);
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws((Router: router, Attempts: attempts), static s => _ = s.Attempts.RunAsync(s.Router));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws((Router: router, Attempts: attempts), static s => _ = s.Attempts.RunAsync(s.Router));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo($"Key is owned by '{First}', not current node '{Self}'.");
-        _ = await Assert.That(failure.Trailers.GetValue(GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey)).IsEqualTo(First);
-        _ = await Assert.That(failure.Trailers.GetValue(GrpcStaleOwnerMarkers.LeaderTermMetadataKey)).IsEqualTo("2");
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(failure.Message).IsEqualTo($"Key is owned by '{First}', not current node '{Self}'.");
+        _ = await Assert.That(failure.FindTrailer(GrpcStaleOwnerMarkers.LeaderNodeIdMetadataKey)).IsEqualTo(First);
+        _ = await Assert.That(failure.FindTrailer(GrpcStaleOwnerMarkers.LeaderTermMetadataKey)).IsEqualTo("2");
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
     }
 
@@ -280,9 +281,9 @@ public sealed class OwnerRouterRerouteTests
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var attempts = new Attempts(StaleOwner("node-x", 3));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
     }
 
@@ -314,9 +315,9 @@ public sealed class OwnerRouterRerouteTests
             { GrpcStaleOwnerMarkers.LeaderTermMetadataKey, "x" },
         };
 
-        _ = await Assert.That(StaleRouteSignals.TryReadStale(new RpcException(new Status(StatusCode.FailedPrecondition, "stale"), trailers), out var hint)).IsTrue();
+        _ = await Assert.That(StaleRouteSignals.TryReadStale(CallErrors.FromGrpc(new RpcException(new Status(StatusCode.FailedPrecondition, "stale"), trailers)), out var hint)).IsTrue();
         _ = await Assert.That(hint).IsEqualTo(new LeaderRoute(Second, 0));
-        _ = await Assert.That(StaleRouteSignals.TryReadStale(new RpcException(new Status(StatusCode.Unavailable, RefusalCodes.StaleTerm), trailers), out _)).IsFalse();
+        _ = await Assert.That(StaleRouteSignals.TryReadStale(CallErrors.FromGrpc(new RpcException(new Status(StatusCode.Unavailable, RefusalCodes.StaleTerm), trailers)), out _)).IsFalse();
     }
 
     /// <summary>Creates the router of this node over a table, for a call that is or is not a trusted internal owner RPC.</summary>
@@ -334,7 +335,7 @@ public sealed class OwnerRouterRerouteTests
         return new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, LeaderWait, clock, OwnerRouters.Locator(Self, First, Second, Other, Group));
     }
 
-    private static RpcException StaleOwner(string? leader, ulong term) =>
+    private static ServerCallException StaleOwner(string? leader, ulong term) =>
         leader == null ? StaleOwnerFailure.Create(Group, First) : StaleOwnerFailure.Create(leader, First, term);
 
     /// <summary>Records each attempt and fails the attempts in order with the configured failures; later attempts answer with their target.</summary>
@@ -343,11 +344,11 @@ public sealed class OwnerRouterRerouteTests
     {
         internal const string Local = "local";
 
-        private readonly Queue<RpcException> _failures;
+        private readonly Queue<ServerCallException> _failures;
 
-        internal Attempts(params RpcException[] failures)
+        internal Attempts(params ServerCallException[] failures)
         {
-            _failures = new Queue<RpcException>(failures);
+            _failures = new Queue<ServerCallException>(failures);
         }
 
         internal Action? OnAttempt { get; init; }

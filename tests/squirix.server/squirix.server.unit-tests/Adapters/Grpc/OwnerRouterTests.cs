@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
@@ -11,6 +10,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -67,12 +67,12 @@ public sealed class OwnerRouterTests
         var calls = new RouterCalls();
         var router = CreateRouter(Remote, true);
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws((Router: router, Calls: calls), static s => _ = s.Calls.RunAsync(s.Router, "cache", "key"));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws((Router: router, Calls: calls), static s => _ = s.Calls.RunAsync(s.Router, "cache", "key"));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(failure.Message).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.Error.Trailers.Count).IsEqualTo(1);
         _ = await Assert.That(calls.Targets.Count).IsEqualTo(0);
     }
 
@@ -83,10 +83,10 @@ public sealed class OwnerRouterTests
     {
         var calls = new RouterCalls(StaleOwnerFailure.Create("node-c", Remote));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls.RunAsync(CreateRouter(Remote, false), "cache", "key"), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(calls.RunAsync(CreateRouter(Remote, false), "cache", "key"), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That(string.Join(',', calls.Targets)).IsEqualTo(Remote);
     }
 
@@ -108,9 +108,9 @@ public sealed class OwnerRouterTests
             OwnerRouters.Locator(Self));
         var calls = new RouterCalls();
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws((Router: router, Calls: calls), static s => _ = s.Calls.RunAsync(s.Router, "cache", "key"));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws((Router: router, Calls: calls), static s => _ = s.Calls.RunAsync(s.Router, "cache", "key"));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(RingMismatchFailure.IsRefusal(failure)).IsTrue();
         _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsFalse();
     }

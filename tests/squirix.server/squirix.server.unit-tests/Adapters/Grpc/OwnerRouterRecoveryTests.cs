@@ -4,7 +4,6 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -19,6 +18,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -103,7 +103,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         var pending = !call.IsCompleted;
 
         scene.Clock.Advance(LeaderWait);
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, HangGuard, TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, HangGuard, TimeProvider.System, cancellationToken);
         scene.State.ObserveLeaderContact(First, 3UL);
         var next = await scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
@@ -147,7 +147,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(second);
         scene.OnFailure = () => scene.State.ObserveLeaderContact(Second, 4UL);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(second);
         _ = await Assert.That(string.Join(',', scene.Targets)).IsEqualTo($"{First},{Second}");
@@ -164,9 +164,9 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(StaleOwnerFailure.Create(First, Second, 5UL));
         scene.OnFailure = () => scene.State.ObserveLeaderContact(Second, 4UL);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(2);
     }
 
@@ -182,16 +182,16 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("router-recovery-ambiguous");
         await using var scene = await Scene.OpenAsync(dir, cancellationToken);
-        RpcException[] failures =
+        ServerCallException[] failures =
         [
-            new(new Status(StatusCode.Unavailable, ServerOpContract.OwnerUnreachableDetail)),
-            new(new Status(StatusCode.Unavailable, ServerOpContract.OwnerUnreachableDetail, new IOException("connection reset"))),
-            new(new Status(StatusCode.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail)),
-            new(new Status(StatusCode.DeadlineExceeded, "forward timed out")),
+            new(FrameStatus.Unavailable, ServerOpContract.OwnerUnreachableDetail),
+            new(FrameStatus.Unavailable, ServerOpContract.OwnerUnreachableDetail, new IOException("connection reset")),
+            new(FrameStatus.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail),
+            new(FrameStatus.DeadlineExceeded, "forward timed out"),
         ];
         scene.Failures.Enqueue(failures[kind]);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(failures[kind]);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -213,7 +213,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         var beforeBoundary = !call.IsCompleted;
 
         scene.Clock.Advance(TimeSpan.FromMilliseconds(1));
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, HangGuard, TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending && beforeBoundary).IsTrue();
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -230,7 +230,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(unreachable);
         scene.OnFailure = () => scene.Clock.Advance(LeaderWait);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(unreachable);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -261,7 +261,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(await waiting.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(Second);
     }
 
-    private static RpcException Unreachable() => OwnerUnreachableFailure.Create(new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"));
+    private static ServerCallException Unreachable() => OwnerUnreachableFailure.Create(new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"));
 
     [Mutable]
     private sealed class Scene : IAsyncDisposable
@@ -290,7 +290,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
 
         internal FakeTimeProvider Clock { get; }
 
-        internal Queue<RpcException> Failures { get; } = [];
+        internal Queue<ServerCallException> Failures { get; } = [];
 
         internal Action? OnFailure { get; set; }
 

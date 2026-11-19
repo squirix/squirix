@@ -2,11 +2,13 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
+using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -71,6 +73,10 @@ internal sealed class InboundCallInterceptor : Interceptor
         catch (ServerOpIdMismatchException)
         {
             throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
+        }
+        catch (ServerCallException ex)
+        {
+            throw CallErrors.ToGrpc(ex);
         }
         catch (SquirixException ex)
         {

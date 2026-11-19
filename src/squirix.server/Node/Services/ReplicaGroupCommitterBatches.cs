@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -339,7 +339,7 @@ internal static class ReplicaGroupCommitterBatches
     /// <returns>A new exception of the same contract, or <paramref name="shared" /> itself when it has no cheap copy.</returns>
     private static Exception FreshFailure(Exception shared) => shared switch
     {
-        RpcException rpc => new RpcException(rpc.Status, rpc.Trailers),
+        ServerCallException rpc => new ServerCallException(rpc.StatusCode, rpc.Error, rpc.InnerException),
         SquirixException { Detail: not null } squirix => new SquirixException(squirix.Code, squirix.Error, squirix.Detail),
         ServerOpIdMismatchException => new ServerOpIdMismatchException(),
         _ => shared,

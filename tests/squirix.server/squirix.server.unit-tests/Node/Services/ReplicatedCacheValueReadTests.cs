@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster;
@@ -15,6 +14,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -156,9 +156,9 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, new INodeLocatorCreateExpectations().Instance(), readerClock);
         var cache = new ReplicatedCache(local, readers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
         _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken)?.Value).IsEqualTo("v");
     }
 
@@ -189,8 +189,8 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         foreach (var read in reads)
         {
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
+            var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
         }
 
         _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, "a"), cancellationToken)?.Value).IsEqualTo("v");

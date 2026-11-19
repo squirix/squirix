@@ -6,6 +6,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -228,7 +229,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <summary>Confirms a read index for a leader read: the commit index, once a majority answered this leader in its term after it was taken.</summary>
     /// <param name="cancellationToken">Cancellation token; it ends the wait of this read only.</param>
     /// <returns>The confirmed read index.</returns>
-    /// <exception cref="Grpc.Core.RpcException">A follower answered in a higher term (stale-term), or the pipeline closed (Unavailable); nothing was read.</exception>
+    /// <exception cref="ServerCallException">A follower answered in a higher term (stale-term), or the pipeline closed (Unavailable); nothing was read.</exception>
     /// <exception cref="InvalidOperationException">The pipeline leads statically and confirms no read index.</exception>
     /// <remarks>Called outside the commit gate; readers that arrive while a round is in flight share the next round.</remarks>
     internal ValueTask<ulong> ConfirmReadIndexAsync(CancellationToken cancellationToken) =>

@@ -1,5 +1,5 @@
 using System;
-using Grpc.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Core;
 
@@ -11,7 +11,7 @@ internal static class DistributedCacheAccess
     /// <param name="current">The entry observed in the serialized decision.</param>
     /// <param name="now">The owner clock at the decision point.</param>
     /// <returns>The payload when live, the new deadline when it changes, and whether a stored entry expired.</returns>
-    /// <exception cref="RpcException">The live entry has a malformed envelope or an unrepresentable deadline.</exception>
+    /// <exception cref="ServerCallException">The live entry has a malformed envelope or an unrepresentable deadline.</exception>
     internal static (ReadOnlyMemory<byte>? Payload, DateTime? RenewTo, bool Expired) Decide<T>(NodeCacheEntry<T>? current, DateTime now)
     {
         if (current == null)
@@ -25,7 +25,7 @@ internal static class DistributedCacheAccess
             return (payload, null, false);
 
         if (current.ExpiresUtc == null || !policy.TryChooseDeadline(now, current.ExpiresUtc, out var deadline))
-            throw new RpcException(new Status(StatusCode.DataLoss, "The distributed cache entry has an invalid sliding deadline."));
+            throw new ServerCallException(FrameStatus.DataLoss, "The distributed cache entry has an invalid sliding deadline.");
         var renewal = deadline > current.ExpiresUtc ? deadline : null;
         return (payload, renewal, false);
     }
@@ -34,9 +34,9 @@ internal static class DistributedCacheAccess
     /// <param name="value">The stored value.</param>
     /// <param name="policy">The policy read from the envelope.</param>
     /// <returns>The payload, including a possible empty value.</returns>
-    /// <exception cref="RpcException">The entry is not a valid adapter envelope.</exception>
+    /// <exception cref="ServerCallException">The entry is not a valid adapter envelope.</exception>
     internal static ReadOnlyMemory<byte> ReadPayload(object? value, out DistributedCachePolicy policy) =>
         value is byte[] bytes && DistributedCachePolicy.TryRead(bytes, out policy)
             ? bytes.AsMemory(DistributedCachePolicy.HeaderLength)
-            : throw new RpcException(new Status(StatusCode.DataLoss, "The distributed cache entry has an invalid policy envelope."));
+            : throw new ServerCallException(FrameStatus.DataLoss, "The distributed cache entry has an invalid policy envelope.");
 }

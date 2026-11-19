@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -38,7 +39,14 @@ internal sealed class ReplicaTransferRpcGateway : IReplicaTransferGateway
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
-        var response = await client.TransferReplicaStateAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-        return ReplicaTransferWire.Reply(response);
+        try
+        {
+            var response = await client.TransferReplicaStateAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+            return ReplicaTransferWire.Reply(response);
+        }
+        catch (RpcException failure)
+        {
+            throw CallErrors.FromGrpc(failure);
+        }
     }
 }

@@ -5,12 +5,12 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -65,9 +65,9 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         var entry = new CacheEntryWire { Value = JsonValueKit.Wire(json) };
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
 
     /// <summary>JSON bytes with a byte order mark or invalid UTF-8, and nesting beyond 64 levels, are invalid arguments.</summary>
@@ -80,8 +80,8 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
 
         foreach (var entry in new[] { bom, utf8, deep })
         {
-            var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
-            _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+            _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         }
     }
 
@@ -91,8 +91,8 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         foreach (var entry in new[] { new CacheEntryWire(), new CacheEntryWire { Value = new CacheValue() } })
         {
-            var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
-            _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+            _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         }
     }
 

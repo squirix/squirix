@@ -1,5 +1,5 @@
 using System;
-using Grpc.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Errors;
 
@@ -43,29 +43,29 @@ internal static class ServerOpContract
     private const string PayloadTooLargeDetail = "Payload size limit is 4194304 bytes.";
 
     /// <summary>Creates the refusal of a replicated write before its local append, while the group has no verified write majority.</summary>
-    /// <returns><see cref="StatusCode.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
-    internal static RpcException NoWriteMajority() => new(new Status(StatusCode.Unavailable, NoWriteMajorityDetail));
+    /// <returns><see cref="FrameStatus.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
+    internal static ServerCallException NoWriteMajority() => new(FrameStatus.Unavailable, NoWriteMajorityDetail);
 
     /// <summary>Creates the refusal of a read or write in a group this node may not serve while no other leader of it is known.</summary>
-    /// <returns><see cref="StatusCode.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
-    internal static RpcException NoLeaderAuthority() => new(new Status(StatusCode.Unavailable, NoLeaderAuthorityDetail));
+    /// <returns><see cref="FrameStatus.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
+    internal static ServerCallException NoLeaderAuthority() => new(FrameStatus.Unavailable, NoLeaderAuthorityDetail);
 
     /// <summary>Creates the refusal of an operation whose route went stale after its single reroute, or that found no other route.</summary>
-    /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="LeaderChangedDetail" />: nothing was written, so a retry with the same operation id is safe.</returns>
-    internal static RpcException LeaderChanged() => new(new Status(StatusCode.Unavailable, LeaderChangedDetail));
+    /// <returns><see cref="FrameStatus.Unavailable" /> with <see cref="LeaderChangedDetail" />: nothing was written, so a retry with the same operation id is safe.</returns>
+    internal static ServerCallException LeaderChanged() => new(FrameStatus.Unavailable, LeaderChangedDetail);
 
     /// <summary>Creates the refusal of a read that found its entry expired while the tombstone of the entry could not commit.</summary>
     /// <param name="cause">The failure of the tombstone commit.</param>
-    /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="ExpirationPendingDetail" />: nothing was read, so a retry may succeed later.</returns>
-    internal static RpcException ExpirationPending(Exception cause) => new(new Status(StatusCode.Unavailable, ExpirationPendingDetail, cause));
+    /// <returns><see cref="FrameStatus.Unavailable" /> with <see cref="ExpirationPendingDetail" />: nothing was read, so a retry may succeed later.</returns>
+    internal static ServerCallException ExpirationPending(Exception cause) => new(FrameStatus.Unavailable, ExpirationPendingDetail, cause);
 
     /// <summary>Creates the refusal of a leader read whose read index no majority confirmed in the leader term in time.</summary>
-    /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="ReadQuorumUnconfirmedDetail" />: nothing was read, so a retry may succeed later.</returns>
-    internal static RpcException ReadQuorumUnconfirmed() => new(new Status(StatusCode.Unavailable, ReadQuorumUnconfirmedDetail));
+    /// <returns><see cref="FrameStatus.Unavailable" /> with <see cref="ReadQuorumUnconfirmedDetail" />: nothing was read, so a retry may succeed later.</returns>
+    internal static ServerCallException ReadQuorumUnconfirmed() => new(FrameStatus.Unavailable, ReadQuorumUnconfirmedDetail);
 
     /// <summary>Creates the refusal of a leader read whose confirmed read index memory did not apply in time.</summary>
-    /// <returns><see cref="StatusCode.Unavailable" /> with <see cref="ReadIndexUnappliedDetail" />: nothing was read, so a retry may succeed later.</returns>
-    internal static RpcException ReadIndexUnapplied() => new(new Status(StatusCode.Unavailable, ReadIndexUnappliedDetail));
+    /// <returns><see cref="FrameStatus.Unavailable" /> with <see cref="ReadIndexUnappliedDetail" />: nothing was read, so a retry may succeed later.</returns>
+    internal static ServerCallException ReadIndexUnapplied() => new(FrameStatus.Unavailable, ReadIndexUnappliedDetail);
 
     internal static SquirixException CommitOutcomeUnknown() => new(SquirixErrorCode.CommitOutcomeUnknown, "CommitOutcomeUnknown", CommitOutcomeUnknownDetail);
 

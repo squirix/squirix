@@ -1,5 +1,5 @@
 using System;
-using Grpc.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -9,18 +9,18 @@ internal static class StaleTermClassifier
     /// <summary>Determines whether <paramref name="exception" /> reports a stale term.</summary>
     /// <param name="exception">The gRPC transport exception from the attempted endpoint.</param>
     /// <returns>The classification verdict for the response.</returns>
-    internal static StaleTermVerdict Classify(RpcException exception)
+    internal static StaleTermVerdict Classify(ServerCallException exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        return Classify(exception.StatusCode, exception.Status.Detail);
+        return Classify(exception.StatusCode, exception.Message);
     }
 
     /// <summary>Determines whether the status identifies a stale term.</summary>
     /// <param name="statusCode">The gRPC status code.</param>
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns>The classification verdict for the status.</returns>
-    internal static StaleTermVerdict Classify(StatusCode statusCode, string? detail) =>
-        statusCode == StatusCode.FailedPrecondition && string.Equals(detail, RefusalCodes.StaleTerm, StringComparison.Ordinal)
+    internal static StaleTermVerdict Classify(FrameStatus statusCode, string? detail) =>
+        statusCode == FrameStatus.FailedPrecondition && string.Equals(detail, RefusalCodes.StaleTerm, StringComparison.Ordinal)
             ? StaleTermVerdict.Stale
             : StaleTermVerdict.Current;
 }

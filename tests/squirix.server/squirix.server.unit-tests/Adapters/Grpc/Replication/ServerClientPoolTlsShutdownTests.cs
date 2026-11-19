@@ -4,7 +4,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Attributes;
@@ -14,6 +13,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -76,7 +76,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
         material.ReleaseHold();
         _ = await Assert.That(material.IsReleased).IsTrue().Because("The pool must have released its hold once the stalled connection closed.");
         await connectionClosed.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await stub;
     }
 

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Cluster;
@@ -12,6 +11,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 
@@ -130,9 +130,9 @@ internal static class WipedCluster
         var cache = host.GetCache<object?>(CacheName);
         var key = host.FindKeyOwnedBy(CacheName, ownerId);
 
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "refused", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "refused", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 
     /// <summary>Checks that a node holds its copy of a group as an unseeded one at term zero, which has voted for nobody.</summary>

@@ -3,11 +3,11 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Cluster;
@@ -129,7 +129,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             return;
 
         _metrics.IncrementDrainRejectsTotal(_peer, 1);
-        throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
+        throw new ServerCallException(FrameStatus.Unavailable, "ServerPeer client pool is draining.");
     }
 
     [Immutable]
@@ -215,10 +215,10 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining != null && perAttempt >= budgetRemaining.Value;
 
-        private RpcException CreateBudgetExceeded()
+        private ServerCallException CreateBudgetExceeded()
         {
             _rpcMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-            return new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+            return new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.");
         }
 
         private bool IsSharedBudgetSpent(ServerDeadlineBudget? budget) => budget is { } value && UsesClock(value.Clock) && value.Remaining <= TimeSpan.Zero;
@@ -313,12 +313,12 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
         }
 
-        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, ServerDeadlineBudget? budget, CancellationToken effectiveToken)
+        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(ServerCallException rx, int attempt, ServerDeadlineBudget? budget, CancellationToken effectiveToken)
         {
             // A mutation may have committed durably even though its outcome is unknown (write-ahead idempotency
             // intent). Re-sending the same operation would re-execute it, so the caller must stop retrying and
             // let the replication/result layer resolve the ambiguous commit by journal index.
-            if (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rx.Status.Detail))
+            if (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rx.Message))
                 return AttemptOutcome<T>.Stop(rx);
 
             // A ring refusal comes from a configuration disagreement that a retry cannot fix; nothing was executed on the peer.
@@ -329,16 +329,16 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
 
-            if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
+            if (rx.StatusCode == FrameStatus.Cancelled || rx.StatusCode == FrameStatus.DeadlineExceeded)
             {
-                var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
+                var reason = rx.StatusCode == FrameStatus.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
                 _rpcMetrics.TimeoutsTotal.Add(_peer, "attempt", reason);
                 _metrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
             }
 
             // ResourceExhausted is an admission refusal by the peer, not a transient fault: it passes through instead of being retried against a peer that just refused.
-            if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal))
+            if (rx.StatusCode is not (FrameStatus.Unavailable or FrameStatus.Internal))
                 return AttemptOutcome<T>.Stop(rx);
             _metrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
@@ -374,21 +374,21 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         private void ThrowAfterFailedAttempts(Exception? last, ServerDeadlineBudget? budget, CancellationToken effectiveToken)
         {
             // Terminal mutation and topology refusals keep their no-retry contract at the deadline boundary.
-            if (last is RpcException rpc && (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rpc.Status.Detail) || RingMismatchFailure.IsRefusal(rpc)))
+            if (last is ServerCallException rpc && (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rpc.Message) || RingMismatchFailure.IsRefusal(rpc)))
                 throw rpc;
 
             if (budget == null || (ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget)))
             {
                 throw last switch
                 {
-                    TaskCanceledException or OperationCanceledException => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts timed out.")),
-                    RpcException { StatusCode: StatusCode.Cancelled } => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
+                    TaskCanceledException or OperationCanceledException => new ServerCallException(FrameStatus.DeadlineExceeded, "All attempts timed out."),
+                    ServerCallException { StatusCode: FrameStatus.Cancelled } => new ServerCallException(FrameStatus.DeadlineExceeded, "All attempts Canceled by per-attempt timeout."),
                     _ => last!,
                 };
             }
 
             _rpcMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-            throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+            throw new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.");
         }
 
         private void ThrowIfDraining()
@@ -397,7 +397,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 return;
 
             _metrics.IncrementDrainRejectsTotal(_peer, 1);
-            throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
+            throw new ServerCallException(FrameStatus.Unavailable, "ServerPeer client pool is draining.");
         }
 
         private async ValueTask<AttemptOutcome<T>> OneAttemptAsync<TState, T>(
@@ -421,7 +421,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             {
                 return AttemptOutcome<T>.Success(await action(state, attemptToken).ConfigureAwait(false));
             }
-            catch (Exception ex) when (ex is OperationCanceledException or RpcException or HttpRequestException)
+            catch (Exception ex) when (ex is OperationCanceledException or ServerCallException or HttpRequestException)
             {
                 failure = ex;
             }
@@ -434,10 +434,10 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             // The timer records which limit won even if its callback precedes the next timestamp observation.
             return failure switch
             {
-                RpcException rpc when ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rpc.Status.Detail) || RingMismatchFailure.IsRefusal(rpc) => AttemptOutcome<T>.Stop(rpc),
+                ServerCallException rpc when ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rpc.Message) || RingMismatchFailure.IsRefusal(rpc) => AttemptOutcome<T>.Stop(rpc),
                 _ when attemptBoundsBudget && attemptToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested => throw CreateBudgetExceeded(),
                 OperationCanceledException oce => await MapOperationCanceledFailureAsync<T>(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
-                RpcException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken).ConfigureAwait(false),
+                ServerCallException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken).ConfigureAwait(false),
                 HttpRequestException http => await MapHttpFailureAsync<T>(http, attempt, deadlineBudget, effectiveToken).ConfigureAwait(false),
                 _ => throw new InvalidOperationException("Unreachable attempt failure classification."),
             };
@@ -468,15 +468,15 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {
-                RpcException rx => ClassifyRetryReason(rx.StatusCode),
+                ServerCallException rx => ClassifyRetryReason(rx.StatusCode),
                 HttpRequestException => "http_request",
                 _ => "transient",
             };
 
-            private static string ClassifyRetryReason(StatusCode statusCode) => statusCode switch
+            private static string ClassifyRetryReason(FrameStatus statusCode) => statusCode switch
             {
-                StatusCode.Unavailable => "unavailable",
-                StatusCode.Internal => "internal",
+                FrameStatus.Unavailable => "unavailable",
+                FrameStatus.Internal => "internal",
                 _ => "transient",
             };
         }

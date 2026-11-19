@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -43,9 +43,9 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
 
         await fabric.IsolateAsync(Owner);
         await ledger.UntilAsync(() => !owner.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(Owner, out _), "the cut-off owner holds no authority", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(owner.GetCache<object?>(Scope).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(owner.GetCache<object?>(Scope).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode is StatusCode.Unavailable or StatusCode.FailedPrecondition).IsTrue();
+        _ = await Assert.That(refused.StatusCode is FrameStatus.Unavailable or FrameStatus.FailedPrecondition).IsTrue();
     }
 
     /// <summary>With both switches off, the owner leads its group statically and its resolved pipeline reads locally, even cut off.</summary>

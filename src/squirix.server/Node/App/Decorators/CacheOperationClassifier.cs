@@ -1,7 +1,7 @@
 using System;
-using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -19,9 +19,9 @@ internal static class CacheOperationClassifier
         OperationCanceledException => CacheOperationResults.Canceled,
         ResourceExhaustedException => CacheOperationResults.ResourceExhausted,
         JournalCapacityExceededException => CacheOperationResults.ResourceExhausted,
-        RpcException { StatusCode: StatusCode.Cancelled } => CacheOperationResults.Canceled,
-        RpcException { StatusCode: StatusCode.DeadlineExceeded } => CacheOperationResults.DeadlineExceeded,
-        RpcException { StatusCode: StatusCode.ResourceExhausted } => CacheOperationResults.ResourceExhausted,
+        ServerCallException { StatusCode: FrameStatus.Cancelled } => CacheOperationResults.Canceled,
+        ServerCallException { StatusCode: FrameStatus.DeadlineExceeded } => CacheOperationResults.DeadlineExceeded,
+        ServerCallException { StatusCode: FrameStatus.ResourceExhausted } => CacheOperationResults.ResourceExhausted,
         ArgumentException => CacheOperationResults.InvalidArgument,
         _ => CacheOperationResults.Failed,
     };
@@ -30,7 +30,7 @@ internal static class CacheOperationClassifier
     /// <param name="exception">The exception thrown by the inner cache.</param>
     /// <returns><see langword="true" /> when the exception gets a result label.</returns>
     internal static bool IsClassifiedException(Exception exception) =>
-        exception is TimeoutException or OperationCanceledException or ResourceExhaustedException or JournalCapacityExceededException or RpcException or ArgumentException;
+        exception is TimeoutException or OperationCanceledException or ResourceExhaustedException or JournalCapacityExceededException or ServerCallException or ArgumentException;
 
     internal static string ClassifyFoundBool(bool found) => found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 

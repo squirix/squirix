@@ -16,6 +16,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -60,9 +61,9 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
         foreach (var call in CreateCalls())
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call(adapter, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-            _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+            var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call(adapter, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+            _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         }
 
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(0);
@@ -86,10 +87,10 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         await using var policy = CreatePolicy();
         var adapter = CreateAdapter(invoker, policy, false);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
     }
 
@@ -139,7 +140,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         _ = await Assert.That(invoker.Requests[1]).IsSameReferenceAs(invoker.Requests[0]);
     }
 
-    private static RpcException StaleOwnerWithHint(string leader) => StaleOwnerFailure.Create(leader, Remote, 3);
+    private static ServerCallException StaleOwnerWithHint(string leader) => StaleOwnerFailure.Create(leader, Remote, 3);
 
     private static CacheEntryWire CreateEntry() => new() { Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) };
 

@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -17,6 +16,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -63,8 +63,8 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             if (dispose)
             {
                 await committer.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-                var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, HangGuard, TimeProvider.System, cancellationToken);
-                _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+                var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, HangGuard, TimeProvider.System, cancellationToken);
+                _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
             }
             else
             {

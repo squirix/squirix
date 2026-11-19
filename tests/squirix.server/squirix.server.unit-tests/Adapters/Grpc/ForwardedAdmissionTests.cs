@@ -16,6 +16,7 @@ using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -98,12 +99,12 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         var firstDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
         var secondDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
         _ = finish.Release(2);
-        var failureA = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        var failureB = await NodeAsyncAssert.ThrowsAsync<RpcException>(second, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        var failureA = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(first, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        var failureB = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(second, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(firstDecided && secondDecided).IsTrue();
-        _ = await Assert.That(failureA.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(failureB.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(failureA.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(failureB.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
         _ = await Assert.That(toB.Decisions[0]).IsEqualTo("forwarded_no_slot");
         _ = await Assert.That(toA.Decisions[0]).IsEqualTo("forwarded_no_slot");
         _ = await Assert.That(gateA.InFlight).IsEqualTo(0);

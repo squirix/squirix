@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -15,6 +14,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -54,7 +54,7 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
 
         _ = await Assert.That(parked).IsFalse();
         _ = await Assert.That(targets.Count).IsEqualTo(0);
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A trusted internal call reaching a follower whose leader went silent is refused as having no leader, not as stale-owner.</summary>
@@ -67,14 +67,14 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, time, cancellationToken);
         registry.StateFor(Group).ObserveLeaderContact(First, 3UL);
         var targets = new List<string>();
-        var live = NodeExceptionAssert.For<RpcException>().Throws((registry, time, targets), static s => _ = RunAsync(s.registry, s.time, s.targets, true));
+        var live = NodeExceptionAssert.For<ServerCallException>().Throws((registry, time, targets), static s => _ = RunAsync(s.registry, s.time, s.targets, true));
         time.Advance(registry.Election.ElectionTimeout);
 
-        var silent = NodeExceptionAssert.For<RpcException>().Throws((registry, time, targets), static s => _ = RunAsync(s.registry, s.time, s.targets, true));
+        var silent = NodeExceptionAssert.For<ServerCallException>().Throws((registry, time, targets), static s => _ = RunAsync(s.registry, s.time, s.targets, true));
 
-        _ = await Assert.That(live.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(silent.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(silent.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        _ = await Assert.That(live.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(silent.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(silent.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(targets.Count).IsEqualTo(0);
     }
 
@@ -112,9 +112,9 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
 
         time.Advance(LeaderWait);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(targets.Count).IsEqualTo(0);
     }
 

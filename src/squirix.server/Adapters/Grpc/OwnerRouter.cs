@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -9,6 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Adapters.Grpc;
@@ -96,10 +96,10 @@ internal sealed class OwnerRouter
     /// <param name="cancellationToken">The call cancellation token.</param>
     /// <returns>The response of the attempt that answered.</returns>
     /// <remarks>An invalid cache name or key runs on this node, so the canonical validation error is raised as for any local call.</remarks>
-    /// <exception cref="RpcException">
-    /// <see cref="StatusCode.Unavailable" /> with the ring-fenced trailer when this node detected a ring mismatch with a peer; or
-    /// <see cref="StatusCode.FailedPrecondition" /> with the stale-owner trailer when a trusted internal owner RPC reaches a node that does not lead
-    /// the key's group, or the refusal of the group view when a node that leads it gets no authority within the wait; or <see cref="StatusCode.Unavailable" /> when no leader is known within the wait, the route went stale again after the
+    /// <exception cref="ServerCallException">
+    /// <see cref="FrameStatus.Unavailable" /> with the ring-fenced trailer when this node detected a ring mismatch with a peer; or
+    /// <see cref="FrameStatus.FailedPrecondition" /> with the stale-owner trailer when a trusted internal owner RPC reaches a node that does not lead
+    /// the key's group, or the refusal of the group view when a node that leads it gets no authority within the wait; or <see cref="FrameStatus.Unavailable" /> when no leader is known within the wait, the route went stale again after the
     /// single reroute, or a forward could not connect to its target, or its target had no leader, and no reroute was left.
     /// </exception>
     internal Task<TResponse> ExecuteAsync<TState, TResponse>(
@@ -138,8 +138,8 @@ internal sealed class OwnerRouter
     /// <summary>Tells whether an attempt was refused because its target knows no leader of the group with authority; nothing was read or written.</summary>
     /// <param name="exception">The failure of one attempt.</param>
     /// <returns><see langword="true" /> for the no-leader refusal, relayed from a forward's target.</returns>
-    private static bool IsNoLeader(RpcException exception) => exception.StatusCode == StatusCode.Unavailable && string.Equals(
-        exception.Status.Detail,
+    private static bool IsNoLeader(ServerCallException exception) => exception.StatusCode == FrameStatus.Unavailable && string.Equals(
+        exception.Message,
         ServerOpContract.NoLeaderAuthorityDetail,
         StringComparison.Ordinal);
 
@@ -174,7 +174,7 @@ internal sealed class OwnerRouter
     /// It waits as a call entering here does, bounded by the leader wait and the attempt budget of the call, and ends at once when the node steps down or
     /// sees a higher term. Any other node refuses at once.
     /// </remarks>
-    /// <exception cref="RpcException">The refusal of <see cref="RefuseInternal" /> when this node does not get authority within the wait.</exception>
+    /// <exception cref="ServerCallException">The refusal of <see cref="RefuseInternal" /> when this node does not get authority within the wait.</exception>
     private async Task<TResponse> AwaitAuthorityAsync<TState, TResponse>(
         string groupId,
         LeaderRoute route,
@@ -197,7 +197,7 @@ internal sealed class OwnerRouter
     /// With a static table the stale-owner refusal naming the owner, as before leader routing; otherwise the leader refusal of the group view, with
     /// the leader hint trailers.
     /// </returns>
-    private RpcException RefuseInternal(string groupId, in LeaderRoute route)
+    private ServerCallException RefuseInternal(string groupId, in LeaderRoute route)
     {
         var self = _ownershipResolver.SelfNodeId;
         if (_table is StaticLeaderTable)
@@ -277,7 +277,7 @@ internal sealed class OwnerRouter
     /// <param name="call">The attempt budget of the call.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
     /// <returns>The route.</returns>
-    /// <exception cref="RpcException"><see cref="StatusCode.Unavailable" />: no leader became known within the wait.</exception>
+    /// <exception cref="ServerCallException"><see cref="FrameStatus.Unavailable" />: no leader became known within the wait.</exception>
     private async ValueTask<LeaderRoute> ResolveAsync(string groupId, ServerDeadlineBudget call, CancellationToken cancellationToken)
     {
         var route = ResolveNow(groupId);
@@ -330,8 +330,8 @@ internal sealed class OwnerRouter
     /// <param name="budget">The budget of the operation.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
     /// <returns>The next route, never <paramref name="refused" />, and whether the table reported it.</returns>
-    /// <exception cref="RpcException">
-    /// <see cref="StatusCode.Unavailable" />: the reroute was already spent, the time to refusal passed, no other route is known, or no leader became
+    /// <exception cref="ServerCallException">
+    /// <see cref="FrameStatus.Unavailable" />: the reroute was already spent, the time to refusal passed, no other route is known, or no leader became
     /// known within the wait.
     /// </exception>
     private async ValueTask<(LeaderRoute Route, bool FromTable)> RerouteAsync(
@@ -422,13 +422,13 @@ internal sealed class OwnerRouter
 
                 return response;
             }
-            catch (RpcException ex) when (StaleRouteSignals.TryReadStale(ex, out var hint))
+            catch (ServerCallException ex) when (StaleRouteSignals.TryReadStale(ex, out var hint))
             {
                 var shared = BudgetFor(in call, ref budget);
                 (route, fromTable) = await RerouteAsync(groupId, route, fromTable, hint, call, shared, cancellationToken).ConfigureAwait(false);
                 fellBack = false;
             }
-            catch (RpcException ex) when (OwnerUnreachableFailure.IsLocal(ex) || IsNoLeader(ex))
+            catch (ServerCallException ex) when (OwnerUnreachableFailure.IsLocal(ex) || IsNoLeader(ex))
             {
                 var shared = BudgetFor(in call, ref budget);
                 var next = await RecoverRouteAsync(groupId, route, call, (shared, OwnerUnreachableFailure.IsLocal(ex)), cancellationToken).ConfigureAwait(false);

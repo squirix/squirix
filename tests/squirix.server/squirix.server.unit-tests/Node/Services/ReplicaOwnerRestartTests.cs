@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -9,6 +8,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -70,9 +70,9 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, gateway);
 
         var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refusal.Message).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
 
         var eligibility = registry.EligibilityFor("n1");
         _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
@@ -144,11 +144,11 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         _ = eligibility.TryMarkCatchingUp(1, default);
         _ = eligibility.TryMarkCatchingUp(2, default);
         var retried = await committer.CommitTryAddAsync(operationId, "cache", "k1", entry, cancellationToken);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitTryAddAsync(NewOperationId(), "cache", "k2", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitTryAddAsync(NewOperationId(), "cache", "k2", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
         _ = await Assert.That(retried).IsTrue();
-        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 
     /// <summary>A write that cannot reach a majority is refused retryably before the local append, so it leaves no uncommitted tail behind.</summary>
@@ -164,9 +164,9 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
         var refused = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
-        var refusal = await NodeAsyncAssert.ThrowsAsync<RpcException>(refused, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(refusal.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refusal.Status.Detail).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
+        var refusal = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(refused, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(refusal.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refusal.Message).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
         _ = registry.TryGetLog("n1", out var log);
         var status = await log!.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(status.CommitIndex);

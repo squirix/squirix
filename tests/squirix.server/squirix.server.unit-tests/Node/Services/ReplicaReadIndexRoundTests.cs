@@ -3,13 +3,13 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -75,9 +75,9 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         leader.Rounds.Observe(before, 1, Accepted(Term));
         leader.Rounds.Observe(before, 2, Accepted(Term));
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
     }
 
     /// <summary>A log mismatch from a follower in the term is an answer from its log: it counts as contact and confirms the round.</summary>
@@ -122,9 +122,9 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var ticket = await leader.NextBeatAsync(cancellationToken);
         leader.Rounds.Observe(ticket, 1, Accepted(Term));
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
     }
 
     /// <summary>
@@ -169,11 +169,11 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var ticket = await leader.NextBeatAsync(cancellationToken);
         leader.Rounds.Observe(ticket, 1, Accepted(Term + 1));
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
-        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(leader.ConfirmAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
+        var later = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(leader.ConfirmAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
-        _ = await Assert.That((later.StatusCode, later.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "stale-term"));
+        _ = await Assert.That((later.StatusCode, later.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "stale-term"));
     }
 
     /// <summary>A reader that arrives while a round is in flight does not share it: it starts the next round, at the commit index of its arrival.</summary>
@@ -207,11 +207,11 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var confirming = leader.ConfirmAsync(cancellationToken);
         _ = await leader.NextBeatAsync(cancellationToken);
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
-        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(leader.ConfirmAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
+        var later = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(leader.ConfirmAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
-        _ = await Assert.That(later.Status.Detail).IsEqualTo(ServerOpContract.ReadQuorumUnconfirmedDetail);
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
+        _ = await Assert.That(later.Message).IsEqualTo(ServerOpContract.ReadQuorumUnconfirmedDetail);
         _ = await Assert.That(later).IsNotSameReferenceAs(refused);
     }
 

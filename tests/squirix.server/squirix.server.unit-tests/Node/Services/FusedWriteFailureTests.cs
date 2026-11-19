@@ -4,7 +4,6 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -15,6 +14,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -41,11 +41,11 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var operationId = FusedWriteHarness.OpId(1);
 
         var first = RunAsync(harness, operationId, () => SetAsync(harness, operationId, "a"), cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(RunAsync(harness, operationId, static () => Task.CompletedTask, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(RunAsync(harness, operationId, static () => Task.CompletedTask, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retry.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retry.Message)).IsTrue();
         _ = await Assert.That(harness.Store.TryReplay(operationId, Fingerprint, SetAsyncResponse.Parser, out _)).IsFalse();
     }
 
@@ -64,7 +64,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var cut = journal.Journal.ExecuteSnapshotCutAsync(0, static (_, _, _) => ValueTask.FromResult(0), static (_, _, _, _) => ValueTask.FromResult(0), cancellationToken)
                          .AsTask();
         journal.Writer.Flush.ReleaseWithFailure(new IOException("fsync failed"));
-        var writeError = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var writeError = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var cutError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(cut, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(writeError).IsNotNull();
@@ -134,12 +134,12 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                                   .AsTask();
                 },
                 cancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             await journal.ShutdownAsync();
             var outcomes = harness.ReadFrames(cancellationToken).FindAll(static frame => frame.Operation == JournalOperationKind.IdempotencyOutcome);
             var exported = Export(harness);
 
-            _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+            _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
             _ = await Assert.That(outcomes.Count).IsLessThanOrEqualTo(1);
             _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNotNull();
             _ = await Assert.That(harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
@@ -165,11 +165,11 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var write = RunAsync(harness, operationId, () => SetAsync(harness, operationId, "a"), cancellationToken);
         await journal.Writer.Write.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         journal.Writer.Write.ReleaseWithFailure(new IOException("outcome write failed"));
-        var error = await NodeAsyncAssert.ThrowsOneOfAsync<SquirixException, RpcException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsOneOfAsync<SquirixException, ServerCallException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(
             error is SquirixException { Code: SquirixErrorCode.CommitOutcomeUnknown } ||
-            (error is RpcException rpc && ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rpc.Status.Detail))).IsTrue();
+            (error is ServerCallException rpc && ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rpc.Message))).IsTrue();
         _ = await Assert.That(harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
         _ = await Assert.That(harness.Store.TryReplay(operationId, Fingerprint, SetAsyncResponse.Parser, out _)).IsFalse();
     }
@@ -192,11 +192,11 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                 throw new InvalidOperationException("response building failed");
             },
             cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var replayed = await RunAsync(harness, operationId, static () => throw new InvalidOperationException("the retry must not run"), cancellationToken);
         var exported = Export(harness);
 
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
         _ = await Assert.That(replayed).IsEqualTo(new SetAsyncResponse());
         _ = await Assert.That((await Assert.That(exported).HasSingleItem()).State).IsEqualTo(IdempotencyRecordState.Completed);
     }
@@ -255,12 +255,12 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                 await harness.Cache.SetEntryAsync(operationId, FusedWriteHarness.CacheName, "other", new NodeCacheEntry<object?>("b"), cancellationToken);
             },
             cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var replayed = await RunAsync(harness, operationId, static () => throw new InvalidOperationException("the retry must not run"), cancellationToken);
         await journal.ShutdownAsync();
         var frames = harness.ReadFrames(cancellationToken);
 
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
         _ = await Assert.That(frames).Count().IsEqualTo(2);
         _ = await Assert.That(frames[1].Operation).IsEqualTo(JournalOperationKind.IdempotencyOutcome);
 
@@ -321,11 +321,11 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                     await s.Journal.Journal.AppendPutUnderGateAsync(new CacheKey(FusedWriteHarness.CacheName, "other"), JournalEntryPayloadKit.EncodePut("b"), s.Token);
                 }),
             cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
         var frames = harness.ReadFrames(cancellationToken);
 
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Message)).IsTrue();
         _ = await Assert.That(frames).Count().IsEqualTo(2);
     }
 

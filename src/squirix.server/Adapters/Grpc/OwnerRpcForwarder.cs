@@ -9,6 +9,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Adapters.Grpc;
@@ -131,28 +132,7 @@ internal sealed class OwnerRpcForwarder
         static (client, r, ct) => client.UpdateAsync(r, cancellationToken: ct).ResponseAsync,
         cancellationToken);
 
-    private static RpcException CreatePoolDisposedUnavailable() => new(new Status(StatusCode.Unavailable, "ServerPeer client pool is disposed."));
-
-    /// <summary>Copies an owner failure so it reaches the caller with its status, detail and application trailers, minus the reserved protocol trailers.</summary>
-    /// <param name="ex">The owner failure.</param>
-    /// <returns>The exception to throw to the caller.</returns>
-    private static RpcException RelayOwnerFailure(RpcException ex)
-    {
-        var trailers = new Metadata();
-        for (var i = 0; i < ex.Trailers.Count; i++)
-        {
-            var entry = ex.Trailers[i];
-            if (entry.Key.StartsWith("grpc-", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (entry.IsBinary)
-                trailers.Add(entry.Key, entry.ValueBytes);
-            else
-                trailers.Add(entry.Key, entry.Value);
-        }
-
-        return new RpcException(ex.Status, trailers);
-    }
+    private static ServerCallException CreatePoolDisposedUnavailable() => new(FrameStatus.Unavailable, "ServerPeer client pool is disposed.");
 
     private async Task<TResponse> ForwardAsync<TRequest, TResponse>(
         string owner,
@@ -183,25 +163,25 @@ internal sealed class OwnerRpcForwarder
             {
                 throw CreatePoolDisposedUnavailable();
             }
-            catch (RpcException ex)
+            catch (ServerCallException ex)
             {
                 // Only a failure of this client carries its cause; a status the owner sent never does. A failed connect sent nothing, whatever
                 // status the client gave it: a failed TLS handshake surfaces as Internal, not Unavailable.
-                if (attempts.NoneConnected && OwnerUnreachableFailure.IsConnectFailure(ex.Status.DebugException))
-                    throw OwnerUnreachableFailure.Create(ex.Status.DebugException!);
+                if (attempts.NoneConnected && OwnerUnreachableFailure.IsConnectFailure(ex.InnerException))
+                    throw OwnerUnreachableFailure.Create(ex.InnerException!);
 
                 // The owner refused because its ring differs from this node: fence this node too, then relay the refusal with its trailers.
                 if (RingMismatchFailure.IsMismatch(ex))
                     _ringAgreement.ReportOutboundMismatch(owner);
 
-                throw RelayOwnerFailure(ex);
+                throw;
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException)
             {
                 // Any other transport failure may follow a request the owner already received, so it is not reported as unreachable.
                 throw attempts.NoneConnected && OwnerUnreachableFailure.IsConnectFailure(ex)
                     ? OwnerUnreachableFailure.Create(ex)
-                    : new RpcException(new Status(StatusCode.Unavailable, $"The connection to key owner '{owner}' failed after the call may have reached it."));
+                    : new ServerCallException(FrameStatus.Unavailable, $"The connection to key owner '{owner}' failed after the call may have reached it.");
             }
         }
     }
@@ -224,6 +204,7 @@ internal sealed class OwnerRpcForwarder
         /// <param name="request">The request.</param>
         /// <param name="cancellationToken">The attempt cancellation token.</param>
         /// <returns>The response.</returns>
+        /// <exception cref="ServerCallException">The peer call failed.</exception>
         internal async Task<TResponse> RunAsync<TRequest, TResponse>(
             Func<SquirixCacheService.SquirixCacheServiceClient, TRequest, CancellationToken, Task<TResponse>> call,
             SquirixCacheService.SquirixCacheServiceClient client,
@@ -234,7 +215,13 @@ internal sealed class OwnerRpcForwarder
             {
                 return await call(client, request, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (!OwnerUnreachableFailure.IsConnectFailure(ex is RpcException rpc ? rpc.Status.DebugException : ex))
+            catch (RpcException ex)
+            {
+                if (!OwnerUnreachableFailure.IsConnectFailure(ex.Status.DebugException))
+                    Volatile.Write(ref _connected, 1);
+                throw CallErrors.FromGrpc(ex);
+            }
+            catch (Exception ex) when (!OwnerUnreachableFailure.IsConnectFailure(ex is ServerCallException rpc ? rpc.InnerException : ex))
             {
                 Volatile.Write(ref _connected, 1);
                 throw;

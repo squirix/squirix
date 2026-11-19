@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -11,6 +10,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -392,7 +392,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         // Keep the same wire headroom as state transfer for the gRPC envelope and framing.
         if (bytes > ReplicaTransferOptions.MessageBudgetBytes)
-            throw new RpcException(new Status(StatusCode.ResourceExhausted, "The distributed renewal record exceeds the replication message budget."));
+            throw new ServerCallException(FrameStatus.ResourceExhausted, "The distributed renewal record exceeds the replication message budget.");
     }
 
     /// <summary>Encodes a decided record and checks that its effect agrees with its outcome.</summary>

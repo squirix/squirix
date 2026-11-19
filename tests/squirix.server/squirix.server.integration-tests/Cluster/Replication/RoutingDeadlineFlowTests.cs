@@ -2,13 +2,13 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -32,7 +32,7 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
         var budget = new RerouteBudget(DateTimeOffset.UtcNow.AddSeconds(-1), TimeProvider.System);
         _ = await Assert.That(budget.HasExpired()).IsTrue();
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(
             policy.ExecuteAsync(
                 attempts,
                 static (counter, _) =>
@@ -44,7 +44,7 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
         _ = await Assert.That(attempts.Count).IsEqualTo(0);
     }
 
@@ -55,7 +55,7 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var budget = new RerouteBudget(time.GetUtcNow() + TimeSpan.FromSeconds(10), time);
 
-        _ = await Assert.That(StaleTermClassifier.Classify(new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm)))).IsEqualTo(StaleTermVerdict.Stale);
+        _ = await Assert.That(StaleTermClassifier.Classify(new ServerCallException(FrameStatus.FailedPrecondition, RefusalCodes.StaleTerm))).IsEqualTo(StaleTermVerdict.Stale);
         _ = await Assert.That(budget.TryConsumeReroute()).IsTrue();
         _ = await Assert.That(budget.HasExpired()).IsFalse();
 

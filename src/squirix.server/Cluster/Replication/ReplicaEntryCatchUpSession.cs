@@ -3,9 +3,9 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -102,7 +102,7 @@ internal sealed class ReplicaEntryCatchUpSession
         OperationCanceledException when cancellationToken.IsCancellationRequested => null,
         OperationCanceledException => lease.IsClosed ? ReplicaCatchUpOutcome.Aborted : ReplicaCatchUpOutcome.Unreachable,
         ObjectDisposedException => ReplicaCatchUpOutcome.Aborted,
-        RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException => ReplicaCatchUpOutcome.Unreachable,
+        ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException => ReplicaCatchUpOutcome.Unreachable,
         _ => null,
     };
 

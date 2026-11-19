@@ -17,6 +17,7 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -63,10 +64,10 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail)));
         var forwarder = CreateForwarder(invoker);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.SetEntryAsync(Owner, new SetEntryAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.SetEntryAsync(Owner, new SetEntryAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
     }
 
@@ -85,15 +86,15 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var reset = CreateForwarder(new CapturingCallInvoker(failure: static () => new IOException("connection reset")));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
-        var refusedFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(refused.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var startedFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(started.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var resetFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(reset.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refusedFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(refused.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var startedFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(started.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var resetFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(reset.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refusedFailure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refusedFailure.Status.Detail).IsEqualTo(ServerOpContract.OwnerUnreachableDetail);
+        _ = await Assert.That(refusedFailure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refusedFailure.Message).IsEqualTo(ServerOpContract.OwnerUnreachableDetail);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(refusedFailure) && OwnerUnreachableFailure.IsLocal(startedFailure)).IsTrue();
-        _ = await Assert.That(resetFailure.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(resetFailure.Status.Detail).IsEqualTo("The connection to key owner 'node-b' failed after the call may have reached it.");
+        _ = await Assert.That(resetFailure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(resetFailure.Message).IsEqualTo("The connection to key owner 'node-b' failed after the call may have reached it.");
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(resetFailure)).IsFalse();
     }
 
@@ -112,12 +113,12 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
                 failure: static () => new RpcException(new Status(StatusCode.Unavailable, "start failed", new HttpRequestException(HttpRequestError.ResponseEnded, "ended")))));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
-        var relayedFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(relayed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var brokenFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(broken.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var relayedFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(relayed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var brokenFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(broken.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(relayedFailure.Status.Detail).IsEqualTo(ServerOpContract.OwnerUnreachableDetail);
+        _ = await Assert.That(relayedFailure.Message).IsEqualTo(ServerOpContract.OwnerUnreachableDetail);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(relayedFailure)).IsFalse();
-        _ = await Assert.That(brokenFailure.Status.Detail).IsEqualTo("start failed");
+        _ = await Assert.That(brokenFailure.Message).IsEqualTo("start failed");
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(brokenFailure)).IsFalse();
     }
 
@@ -174,13 +175,13 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).Callback(static _ => throw new ObjectDisposedException("pool"));
         var lookupDisposed = new OwnerRpcForwarder(poolExpectations.Instance(), CreateGate([], Decision.Accepted()), CreateClientIdResolver(), RingAgreements.Create());
 
-        var fromPolicy = await NodeAsyncAssert.ThrowsAsync<RpcException>(policyDisposed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var fromLookup = await NodeAsyncAssert.ThrowsAsync<RpcException>(lookupDisposed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var fromPolicy = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(policyDisposed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var fromLookup = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(lookupDisposed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(fromPolicy.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(fromPolicy.Status.Detail).IsEqualTo("ServerPeer client pool is disposed.");
-        _ = await Assert.That(fromLookup.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(fromLookup.Status.Detail).IsEqualTo("ServerPeer client pool is disposed.");
+        _ = await Assert.That(fromPolicy.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(fromPolicy.Message).IsEqualTo("ServerPeer client pool is disposed.");
+        _ = await Assert.That(fromLookup.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(fromLookup.Message).IsEqualTo("ServerPeer client pool is disposed.");
     }
 
     /// <summary>The owner failure keeps its status, detail and application trailers, and loses the reserved protocol trailers.</summary>
@@ -197,13 +198,14 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: () => new RpcException(new Status(StatusCode.FailedPrecondition, "Key is owned by 'x'."), trailers));
         var forwarder = CreateForwarder(invoker);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'x'.");
-        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(2);
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(Convert.ToHexString(failure.Trailers.GetValueBytes("detail-bin") ?? [])).IsEqualTo("010203");
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(failure.Message).IsEqualTo("Key is owned by 'x'.");
+        _ = await Assert.That(failure.Error.Trailers.Count).IsEqualTo(2);
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.Error.Trailers[1].Key).IsEqualTo("detail-bin");
+        _ = await Assert.That(Convert.ToHexString(failure.Error.Trailers[1].Binary.Span)).IsEqualTo("010203");
     }
 
     /// <summary>The owner response is returned as is.</summary>
@@ -228,7 +230,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: static () => RingMismatchFailure.Mismatch());
         var forwarder = CreateForwarder(invoker, agreement: agreement);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsTrue();
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
@@ -245,7 +247,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: static () => RingMismatchFailure.Fenced());
         var forwarder = CreateForwarder(invoker, agreement: agreement);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(RingMismatchFailure.IsRefusal(failure)).IsTrue();
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
@@ -261,9 +263,9 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: static () => StaleOwnerFailure.Create("node-c", Owner));
         var forwarder = CreateForwarder(invoker, agreement: agreement);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.RemoveAsync(Owner, new RemoveAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
         _ = await Assert.That(agreement.IsFenced).IsFalse();
     }
 
@@ -275,10 +277,10 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.ResourceExhausted, "Server is overloaded (busy).")));
         var forwarder = CreateForwarder(invoker);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.TouchAsync(Owner, new TouchAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.TouchAsync(Owner, new TouchAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo("Server is overloaded (busy).");
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(failure.Message).IsEqualTo("Server is overloaded (busy).");
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
     }
 
@@ -334,9 +336,9 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Unavailable, "owner is down")));
         var forwarder = CreateForwarder(invoker, policy, gate);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.TouchAsync(Owner, new TouchAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarder.TouchAsync(Owner, new TouchAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
         _ = await Assert.That(gate.InFlight).IsEqualTo(0);
     }

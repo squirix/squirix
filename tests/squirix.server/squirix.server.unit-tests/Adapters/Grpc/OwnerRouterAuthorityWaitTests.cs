@@ -1,12 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -48,9 +48,9 @@ public sealed class OwnerRouterAuthorityWaitTests
         var table = new FakeLeaderTable(Self, default) { LedWithoutAuthority = true, LedTerm = 3 };
         var attempts = new OwnerRouterRerouteTests.Attempts();
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, true, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, true, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         _ = await Assert.That(table.AuthorityWaits.Count).IsEqualTo(1);
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
     }
@@ -63,9 +63,9 @@ public sealed class OwnerRouterAuthorityWaitTests
         var attempts = new OwnerRouterRerouteTests.Attempts();
         var router = OwnerRouterRerouteTests.CreateRouter(table, true, TimeProvider.System);
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws((Router: router, Attempts: attempts), static s => _ = s.Attempts.RunAsync(s.Router));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws((Router: router, Attempts: attempts), static s => _ = s.Attempts.RunAsync(s.Router));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
         _ = await Assert.That(table.AuthorityWaits.Count).IsEqualTo(0);
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
     }
