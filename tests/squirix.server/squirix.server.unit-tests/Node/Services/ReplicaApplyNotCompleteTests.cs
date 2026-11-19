@@ -46,7 +46,7 @@ public sealed class ReplicaApplyNotCompleteTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var firstPasses = clock.WhenTimersAsync(2);
 
         await service.StartAsync(cancellationToken);
@@ -78,7 +78,7 @@ public sealed class ReplicaApplyNotCompleteTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, new StubCache(), meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var firstPasses = clock.WhenTimersAsync(2);
 
         await service.StartAsync(cancellationToken);
@@ -105,7 +105,7 @@ public sealed class ReplicaApplyNotCompleteTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, new StubCache(), meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var firstPasses = clock.WhenTimersAsync(2);
 
         await service.StartAsync(cancellationToken);
@@ -133,7 +133,7 @@ public sealed class ReplicaApplyNotCompleteTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var firstPasses = clock.WhenTimersAsync(2);
 
         await service.StartAsync(cancellationToken);
@@ -168,7 +168,7 @@ public sealed class ReplicaApplyNotCompleteTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var firstPasses = clock.WhenTimersAsync(2);
 
         await service.StartAsync(cancellationToken);

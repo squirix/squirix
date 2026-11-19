@@ -1,11 +1,16 @@
-using System.Collections.Generic;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
 
-/// <summary>A durable log status with the entries above its commit index, read under one log gate acquisition.</summary>
-/// <param name="Status">The durable log status.</param>
-/// <param name="CommitTerm">Term of the entry at the status commit index; zero at the log origin or when <paramref name="Entries" /> is empty.</param>
-/// <param name="Entries">Durable entries above the status commit index through its last log index, in index order.</param>
+/// <summary>The fixed index bounds and suffix revision captured at leader startup.</summary>
+/// <param name="Status">The paired commit and last-log bounds.</param>
+/// <param name="Revision">Changes whenever the journal replaces its suffix.</param>
 [Immutable]
-internal sealed record FollowerLogTail(FollowerLogStatus Status, ulong CommitTerm, IReadOnlyList<FollowerLogEntry> Entries);
+internal sealed record FollowerLogTail(FollowerLogStatus Status, long Revision)
+{
+    internal const int BatchEntries = 256;
+    internal const long BatchBytes = 4L * 1024 * 1024;
+
+    internal static int CountThrough(ulong afterIndex, ulong throughIndex) =>
+        int.CreateChecked(System.Math.Min(ulong.CreateChecked(BatchEntries), throughIndex - afterIndex));
+}

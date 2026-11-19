@@ -28,6 +28,8 @@ internal static class FollowerLogRead
             meta.MemberState)
         {
             CommitHint = owner.CommitHint,
+            NeedsPayloadFlush = journal.FlushThrough > meta.LastAppliedIndex ||
+                                (journal.PayloadBytes >= journal.MaxPayloadBytes && Math.Max(owner.CommitHint, meta.CommitIndex) > meta.LastAppliedIndex),
         };
     }
 
@@ -36,7 +38,7 @@ internal static class FollowerLogRead
         var snapshotIndex = journal.SnapshotBaseline.LastIncludedIndex;
         var logLength = owner.LogLength;
         if (snapshotIndex == 0UL)
-            return new FollowerLogRetention(logLength, journal.EntryOffsets.Count, journal.Entries.Count, snapshotIndex);
+            return new FollowerLogRetention(logLength, journal.EntryOffsets.Count, journal.Entries.Count, snapshotIndex) { RetainedPayloadBytes = journal.PayloadBytes };
 
         var suffixOffset = journal.TryGetEntryOffset(snapshotIndex + 1UL, out var first) ? first.Offset : logLength;
         var lastLogIndex = owner.LastLogIndex;
@@ -44,6 +46,7 @@ internal static class FollowerLogRead
         return new FollowerLogRetention(logLength, suffixEntries, journal.Entries.Count, snapshotIndex)
         {
             CompactionBytes = GroupLogSlots.HeaderSize + logLength - suffixOffset,
+            RetainedPayloadBytes = journal.PayloadBytes,
         };
     }
 
@@ -81,7 +84,20 @@ internal static class FollowerLogRead
         if (maxCount == 0 || fromIndex > lastLogIndex)
             return new FollowerLogEntriesRead(true, prev, prevTerm, lastLogIndex, commitIndex, []);
 
-        var count = int.CreateTruncating(Math.Min(lastLogIndex - fromIndex + 1UL, ulong.CreateChecked(maxCount)));
+        var entries = await ReadPayloadsAsync(journal, owner, fromIndex, maxCount, maxPayloadBytes, cancellationToken).ConfigureAwait(false);
+        return new FollowerLogEntriesRead(true, prev, prevTerm, lastLogIndex, commitIndex, entries) { TailRevision = journal.TailRevision };
+    }
+
+    internal static Task<FollowerLogEntry[]> ReadPayloadsAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        ulong fromIndex,
+        int maxCount,
+        long maxPayloadBytes,
+        CancellationToken cancellationToken)
+    {
+        var lastLogIndex = owner.LastLogIndex;
+        var count = int.CreateChecked(Math.Min(lastLogIndex - fromIndex + 1UL, ulong.CreateChecked(maxCount)));
         var frames = new (ulong LogIndex, long Offset)[count];
         var frameOverhead = GroupLogCodec.ComputeFrameEncodedLength(0);
         var selected = 0;
@@ -104,8 +120,7 @@ internal static class FollowerLogRead
             frames[selected++] = (logIndex, offset);
         }
 
-        var entries = await GroupLogFrameReader.ReadAllAsync(journal.LogPath, new ArraySegment<(ulong LogIndex, long Offset)>(frames, 0, selected), cancellationToken).ConfigureAwait(false);
-        return new FollowerLogEntriesRead(true, prev, prevTerm, lastLogIndex, commitIndex, entries);
+        return GroupLogFrameReader.ReadAllAsync(journal.LogPath, new ArraySegment<(ulong LogIndex, long Offset)>(frames, 0, selected), cancellationToken);
     }
 
     private static long GetOffset(FollowerLogJournal journal, IFollowerLogContext owner, ulong logIndex) =>

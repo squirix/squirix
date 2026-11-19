@@ -5,10 +5,15 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -82,7 +87,7 @@ public sealed class ReplicaRecoveredTailTests : ServerUnitTestBase
 
         _ = await Assert.That(beforeBoundary).IsFalse();
         _ = await Assert.That(atBoundary).IsTrue();
-        _ = await Assert.That(reads).IsEqualTo(2);
+        _ = await Assert.That(reads).IsEqualTo(0);
     }
 
     /// <summary>The coordinator retains prepared entries, not the recovered container or its original payload buffers.</summary>
@@ -123,6 +128,66 @@ public sealed class ReplicaRecoveredTailTests : ServerUnitTestBase
         _ = await Assert.That(retained.Pipeline.Applied.TryPeek(out var applied)).IsTrue();
         _ = await Assert.That(applied).IsEqualTo(1UL);
         GC.KeepAlive(coordinator);
+    }
+
+    /// <summary>A suffix replaced at the same indexes cannot be visited or pinned under an earlier leader snapshot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplacedSuffixInvalidatesCapturedPages(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-replaced-tail");
+        const string group = "group-a";
+        await using var log = new FollowerLog(dir, group, GroupComposition.Create(group), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        FollowerLogEntry[] first = [new(1, 1, new byte[] { 1 })];
+        var request = new FollowerLogAppendRequest(group, 1, 0, 0, 0, first);
+        _ = await Assert.That((await log.AppendAsync(request, cancellationToken)).Success).IsTrue();
+        var captured = await log.GetLeaderTailAsync(cancellationToken);
+        const byte replacementValue = 2;
+        FollowerLogEntry[] replacement = [new(1, 1, new byte[] { replacementValue })];
+        _ = await Assert.That((await log.AppendAsync(request with { Entries = replacement }, cancellationToken)).Success).IsTrue();
+        var visited = false;
+        var stale = log.VisitLeaderTailBatchAsync(captured, 0, _ => visited = true, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stale, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(visited).IsFalse();
+        var fresh = await log.GetLeaderTailAsync(cancellationToken);
+        byte read = 0;
+        await log.VisitLeaderTailBatchAsync(fresh, 0, page => read = page[0].Payload.Span[0], cancellationToken);
+        _ = await Assert.That(read).IsEqualTo(replacementValue);
+    }
+
+    /// <summary>A failed apply of a spilled page resumes at the failed entry and respects the requested upper bound.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PagedApplyResumesAtFailedEntry(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-paged-apply-retry");
+        const string group = "group-a";
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, MaxRetainedPayloadBytes = 1 };
+        await using var log = new FollowerLog(dir, group, GroupComposition.Create(group), NullLogger<FollowerLog>.Instance, options);
+        await log.OpenSeededAsync(cancellationToken);
+        var value = new byte[(2 * 1024 * 1024) + 1];
+        FollowerLogEntry[] entries = [new(1, 1, value), new(2, 1, value), new(3, 2, value)];
+        var append = await log.AppendAsync(new FollowerLogAppendRequest(group, 2, 0, 0, 0, entries), cancellationToken);
+        _ = await Assert.That(append.Success).IsTrue();
+        var tail = await ReplicaRecoveredTail.ReadAsync(log, await log.GetLeaderTailAsync(cancellationToken), 2, new TailRebuilder(), cancellationToken);
+        var pipeline = new RunPipeline { FailApplyAt = 2 };
+        var pending = new ReplicaPendingApplies(pipeline, log.Idempotency, static _ => { }, tail);
+        _ = await Assert.That(pending.CommittableIndex(0, 2)).IsEqualTo(0UL);
+        _ = await Assert.That(pending.CommittableIndex(0, 3)).IsEqualTo(3UL);
+        _ = await Assert.That((await log.AdvanceCommitAsync(3, cancellationToken)).Success).IsTrue();
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pending.ApplyThroughAsync(3), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await SequenceAssert.EqualAsync([1UL], pipeline.Applied.ToArray());
+        _ = await Assert.That(pending.Covers(1)).IsFalse();
+        _ = await Assert.That(pending.Covers(2)).IsTrue();
+
+        pipeline.StopFailingApply();
+        await pending.ApplyThroughAsync(2);
+        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.Applied.ToArray());
+        _ = await Assert.That(pending.LastIndex).IsEqualTo(3UL);
+        await pending.ApplyThroughAsync(3);
+        await SequenceAssert.EqualAsync([1UL, 2UL, 3UL], pipeline.Applied.ToArray());
+        _ = await Assert.That(pending.IsEmpty).IsTrue();
     }
 
     [SuppressMessage("Reliability", "CA2000", Justification = "Ownership is transferred to the test, which asynchronously disposes the coordinator.")]

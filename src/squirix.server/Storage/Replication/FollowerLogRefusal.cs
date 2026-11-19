@@ -40,4 +40,7 @@ internal static class FollowerLogRefusal
 
     /// <summary>The copy of the group on this node is marked incomplete and awaits a state transfer, so it takes no entries and adopts no term from a leader; it still answers ballots.</summary>
     internal const string Incomplete = "incomplete";
+
+    /// <summary>The follower can free retained payload bytes by making its applied progress durable. The append may be retried.</summary>
+    internal const string ApplyBacklog = "apply-backlog";
 }

@@ -97,7 +97,7 @@ public class ReplicaApplyPassBenchmarks
         var appliers = new ReplicaGroupAppliers(_registry, new ClientCache<object?>(physical, physical), GroupId, NullLogger<ReplicaGroupAppliers>.Instance, new ReplicationMetrics(_meter));
         _committers = new ReplicaGroupCommitters([], "n9", new SingleGroupLocator(), TimeProvider.System);
         _clock = new CountingClock();
-        _service = new ReplicaApplyService(_registry, appliers, _committers, _host.Coordinator, NullLogger<ReplicaApplyService>.Instance, _clock);
+        _service = new ReplicaApplyService(_registry, appliers, _committers, _host.Coordinator, _host.Coordinator, NullLogger<ReplicaApplyService>.Instance, _clock);
         await _service.StartAsync(CancellationToken.None).ConfigureAwait(false);
         while (_clock.Timers < 1)
             await Task.Yield();

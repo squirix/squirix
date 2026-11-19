@@ -127,10 +127,17 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-outcome-pinned");
         var records = await SeedTailAsync(dir, cancellationToken, "k1", "k2");
+        var options = new FollowerLogOptions
+        {
+            TimeProvider = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            MaxRetainedPayloadBytes = Entry(in records[0]).Payload.Length,
+        };
 
-        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, Groups, options, cancellationToken);
         var log = LogOf(registry);
 
+        _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).RetainedPayloads).IsEqualTo(1);
         _ = await Assert.That(Lookup(log, in records[0])).IsEqualTo(GroupIdempotencyLookup.Unresolved);
         _ = await Assert.That(Lookup(log, in records[1])).IsEqualTo(GroupIdempotencyLookup.Unresolved);
         _ = await Assert.That(log.Idempotency.HasUnresolvedThrough(1UL)).IsTrue();

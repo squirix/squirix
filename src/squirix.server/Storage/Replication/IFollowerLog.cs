@@ -167,15 +167,18 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The retained log bytes, entries, payloads, and the snapshot index.</returns>
     ValueTask<FollowerLogRetention> GetRetentionAsync(CancellationToken cancellationToken);
 
-    /// <summary>Reads the durable log status, its uncommitted tail, and the term at its commit index as one consistent view.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The status with exactly the durable entries above its commit index.</returns>
-    /// <exception cref="System.IO.InvalidDataException">The log retains no term for its commit index.</exception>
-    /// <remarks>
-    /// A leader reads its tail through this call instead of a status followed by separate tail reads: a commit that advances between
-    /// separate reads would pair a status with a shorter tail than it reports.
-    /// </remarks>
+    /// <summary>Captures the bounds of the leader tail without reading its payloads.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the log gate.</param>
+    /// <returns>The status and the revision of the captured suffix.</returns>
     ValueTask<FollowerLogTail> GetLeaderTailAsync(CancellationToken cancellationToken);
+
+    /// <summary>Visits one bounded page under the log gate so a replacement suffix cannot acquire stale idempotency pins.</summary>
+    /// <param name="tail">The captured leader tail.</param>
+    /// <param name="afterIndex">The last processed index.</param>
+    /// <param name="visit">Consumes the page and installs its pins before releasing the gate.</param>
+    /// <param name="cancellationToken">Cancels waiting or reading.</param>
+    /// <returns>A task that completes after the page has been visited.</returns>
+    ValueTask VisitLeaderTailBatchAsync(FollowerLogTail tail, ulong afterIndex, Action<IReadOnlyList<FollowerLogEntry>> visit, CancellationToken cancellationToken);
 
     /// <summary>Reads status and the current-term commit predicate without materializing the uncommitted tail.</summary>
     /// <param name="term">The leader term to check.</param>

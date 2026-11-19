@@ -81,6 +81,8 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(3UL);
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await log.GetCommitReadinessAsync(1UL, cancellationToken)).CanCommit).IsFalse();
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, FollowerLogTail>(log.GetLeaderTailAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(await log.CompactThroughAsync(2UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.NotReady);
 

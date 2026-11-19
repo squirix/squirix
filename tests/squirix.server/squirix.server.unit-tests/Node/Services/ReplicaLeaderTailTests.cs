@@ -44,6 +44,57 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(["k1"], cache.Applied.ToArray(), StringComparer.Ordinal);
     }
 
+    /// <summary>Leader startup pages spilled entries by both count and bytes and later applies them in WAL order.</summary>
+    /// <param name="largeValues">Whether bytes or the maximum entry count splits the first page.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The test log or its recovered tail is missing.</exception>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task PromotionPagesSpilledTail(bool largeValues, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-paged-promotion");
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, MaxRetainedPayloadBytes = 1 };
+        var cache = new StubCache();
+        var factory = new ReplicaMutationFactory(cache, "n1", 1, TimeProvider.System, NullLogger.Instance);
+        var value = largeValues ? new string('x', 2 * 1024 * 1024) : "v";
+        var count = largeValues ? 3 : 257;
+        var entries = new FollowerLogEntry[count];
+        var keys = new string[count];
+        for (var i = 0; i < count; i++)
+        {
+            keys[i] = $"key-{i}";
+            var index = ulong.CreateChecked(i + 1);
+            var mutation = factory.PrepareSet(NewOperationId(), "cache", keys[i], Entry(value), index);
+            entries[i] = new FollowerLogEntry(index, 1, mutation.CanonicalPayload);
+        }
+
+        await using (var writer = new FollowerLog(dir, "n1", GroupComposition.Create("n1"), NullLogger<FollowerLog>.Instance, options))
+        {
+            await writer.OpenSeededAsync(cancellationToken);
+            var appended = await writer.AppendAsync(new FollowerLogAppendRequest("n1", 1, 0, 0, 0, entries), cancellationToken);
+            _ = await Assert.That(appended.Success).IsTrue();
+        }
+
+        await using var registry = await OpenRegistryAsync(dir, options, cancellationToken);
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The group log is not open.");
+
+        _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).RetainedPayloadBytes).IsEqualTo(0L);
+        var snapshot = await log.GetLeaderTailAsync(cancellationToken);
+        var firstPageCount = 0;
+        await log.VisitLeaderTailBatchAsync(snapshot, 0, page => firstPageCount = page.Count, cancellationToken);
+        _ = await Assert.That(firstPageCount).IsEqualTo(largeValues ? 1 : 256);
+
+        var tail = await ReplicaRecoveredTail.ReadAsync(log, snapshot, 1, factory, cancellationToken);
+        _ = await Assert.That(tail).IsNotNull();
+        _ = await Assert.That((tail!.FirstIndex, tail.LastIndex, tail.Mutations.Count)).IsEqualTo((1UL, ulong.CreateChecked(count), 0));
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(ulong.CreateChecked(count));
+        await SequenceAssert.EqualAsync(keys, cache.Applied.ToArray(), StringComparer.Ordinal);
+    }
+
     /// <summary>A recovered tail is pinned even when the idempotency store is full, so the group still starts and the tail commits.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

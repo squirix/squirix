@@ -40,7 +40,7 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var applied = WhenAppliedAsync(cache, 1);
         var firstPasses = clock.WhenTimersAsync(2);
@@ -80,7 +80,7 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
 
         // The first append adopts the leader term, which publishes metadata once; only the appends after it are measured.
@@ -127,7 +127,7 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache, meter);
         var clock = new ParkingClock();
-        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
+        using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), OwnedLogTestKit.Durable(), NullLogger<ReplicaApplyService>.Instance, clock);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var appended = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k1", 1UL), 0UL, 1UL), cancellationToken);
         _ = await Assert.That(appended.Success).IsTrue().Because($"refused with '{appended.RefusalCode}'");

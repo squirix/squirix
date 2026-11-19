@@ -95,7 +95,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
         var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, options.MaxSnapshotBytes, _faults);
-        _journal = new FollowerLogJournal(paths, snapshot, new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, groupId, _faults, log));
+        _journal = new FollowerLogJournal(paths, snapshot, new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, groupId, _faults, log), options.MaxRetainedPayloadBytes);
         _mirror = new FollowerLogMirror(_journal, log, groupId, options.ShutdownBudget, options.ShutdownTimeProvider);
         _idempotency = new GroupIdempotencyState(
             options.IdempotencyCapacity,
@@ -305,7 +305,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             return CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration)
                 ? new FollowerLogAppendResult(false, FollowerLogRefusal.TopologyMismatch, _meta.CurrentTerm, _lastLogIndex)
-                : await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
+                : await AppendLockedAsync(request, cancellationToken, backpressure: true).ConfigureAwait(false);
         }
     }
 
@@ -445,7 +445,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var status = CaptureStatus();
         var canCommit = status is { Readiness: FollowerLogReadiness.Ready, MemberState: GroupMemberState.Complete } && status.CurrentTerm <= term &&
-                        (status.LastLogIndex == status.CommitIndex || _journal.HasUncommittedTerm(status.CommitIndex, term));
+                        status.LastAppliedIndex <= status.CommitIndex &&
+                        (status.LastLogIndex == status.CommitIndex || _journal.HasUncommittedTerm(status.CommitIndex, status.LastLogIndex, term));
         return (status, canCommit);
     }
 
@@ -455,7 +456,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         _faults.OnBeforeMemoryApply();
-        return _journal.CollectCommittedEntries(_meta.CommitIndex, _meta.LastAppliedIndex);
+        var cached = _journal.CollectCommittedEntries(_meta.CommitIndex, _meta.LastAppliedIndex);
+        return await ReadWholeRangeAsync(cached, _meta.LastAppliedIndex, _meta.CommitIndex, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -465,7 +467,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         _faults.OnBeforeMemoryApply();
-        return _journal.CollectCommittedRange(afterIndex, _meta.CommitIndex, maxCount);
+        return await ReadCachedRangeAsync(afterIndex, _meta.CommitIndex, maxCount, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -473,11 +475,28 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        // One gate acquisition: a commit advancing between the status and the tail would pair the status with a shorter tail.
         var status = CaptureStatus();
-        return status.LastLogIndex == status.CommitIndex
-            ? new FollowerLogTail(status, 0UL, [])
-            : new FollowerLogTail(status, FollowerLogRead.GetTerm(_journal, this, status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
+        if (status.LastLogIndex > status.CommitIndex)
+            _ = FollowerLogRead.GetTerm(_journal, this, status.CommitIndex);
+
+        return status.LastAppliedIndex <= status.CommitIndex
+            ? new FollowerLogTail(status, _journal.TailRevision)
+            : throw new InvalidDataException($"Replica group '{GroupId}' applied index {status.LastAppliedIndex} exceeds commit index {status.CommitIndex}.");
+    }
+
+    /// <inheritdoc />
+    public async ValueTask VisitLeaderTailBatchAsync(
+        FollowerLogTail tail, ulong afterIndex, Action<IReadOnlyList<FollowerLogEntry>> visit, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (tail.Revision != _journal.TailRevision || tail.Status.CurrentTerm != _meta.CurrentTerm || Refuses)
+            throw new InvalidOperationException($"Replica group '{GroupId}' changed during leader tail recovery.");
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(afterIndex, tail.Status.CommitIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(afterIndex, tail.Status.LastLogIndex);
+        var count = FollowerLogTail.CountThrough(afterIndex, tail.Status.LastLogIndex);
+        var page = await FollowerLogRead.ReadPayloadsAsync(_journal, this, afterIndex + 1UL, count, FollowerLogTail.BatchBytes, cancellationToken).ConfigureAwait(false);
+        visit(page);
     }
 
     /// <inheritdoc />
@@ -512,7 +531,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return _journal.CollectUncommittedTail(_meta.CommitIndex);
+        return await ReadUncommittedTailAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Latches the log failed after an append whose frames may have reached the disk, and logs it.</summary>
@@ -649,6 +668,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
     }
 
+    /// <summary>Reads a bounded batch from the uncommitted tail while recovering idempotency pins.</summary>
+    /// <param name="afterIndex">The last pinned or committed index.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The next batch of entries, or an empty batch at the end of the tail.</returns>
+    internal async ValueTask<IReadOnlyList<FollowerLogEntry>> ReadRecoveredTailBatchAsync(ulong afterIndex, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        var start = Math.Max(afterIndex, Math.Max(_meta.CommitIndex, _meta.LastAppliedIndex));
+        return await ReadCachedRangeAsync(start, _lastLogIndex, 256, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the group log is open and ready.</returns>
@@ -671,13 +701,42 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             ServerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
     }
 
+    private async ValueTask<IReadOnlyList<FollowerLogEntry>> ReadCachedRangeAsync(
+        ulong afterIndex, ulong throughIndex, int maxCount, CancellationToken cancellationToken)
+    {
+        var cached = _journal.CollectCachedRange(afterIndex, throughIndex, maxCount);
+        if (cached.Count != 0 || maxCount == 0 || afterIndex < _meta.LastAppliedIndex || afterIndex >= throughIndex)
+            return cached;
+
+        // Disk-only records are read in bounded chunks even when the caller requests many entries.
+        const long readBatchBytes = 4L * 1024 * 1024;
+        var count = int.CreateChecked(Math.Min(ulong.CreateChecked(maxCount), throughIndex - afterIndex));
+        return await FollowerLogRead.ReadPayloadsAsync(_journal, this, afterIndex + 1UL, count, readBatchBytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    private ValueTask<IReadOnlyList<FollowerLogEntry>> ReadUncommittedTailAsync(CancellationToken cancellationToken)
+    {
+        // Recovery can preserve an applied watermark above commit. Never rehydrate those applied frames as an uncommitted tail.
+        var afterIndex = Math.Max(_meta.CommitIndex, _meta.LastAppliedIndex);
+        return ReadWholeRangeAsync(_journal.CollectUncommittedTail(afterIndex), afterIndex, _lastLogIndex, cancellationToken);
+    }
+
+    private async ValueTask<IReadOnlyList<FollowerLogEntry>> ReadWholeRangeAsync(
+        List<FollowerLogEntry> cached, ulong afterIndex, ulong throughIndex, CancellationToken cancellationToken)
+    {
+        if (throughIndex <= afterIndex || ulong.CreateChecked(cached.Count) == throughIndex - afterIndex)
+            return cached;
+
+        return await FollowerLogRead.ReadPayloadsAsync(_journal, this, afterIndex + 1UL, int.CreateChecked(throughIndex - afterIndex), long.MaxValue, cancellationToken)
+                                    .ConfigureAwait(false);
+    }
+
     private async Task<FollowerLogAppendResult> AppendCoreAsync(FollowerLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
 
-        // Payload ownership is materialized lazily: the caller is blocked on this appending, so validation
-        // reads its buffer directly and only entries that will actually hit disk are copied (inside
-        // AppendVerifiedBatchAsync, synchronously after PrepareAppendBatch and before any await).
+        // The caller awaits the append, so checks can read its payload buffer directly. New frames are
+        // encoded after validation and the retained-payload admission check.
         AsyncLockHolder lockGuard;
         try
         {
@@ -697,10 +756,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="request">The appending request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="onScheduled">Optional notification after frames are handed to storage.</param>
+    /// <param name="backpressure">Whether this is a remote append that may be retried after apply advances.</param>
     /// <returns>The outcome of the appending attempt.</returns>
     /// <exception cref="ReplicaShutdownRefusedException">The shutdown refused or cut the term write, so no frame was scheduled.</exception>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private async Task<FollowerLogAppendResult> AppendLockedAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken, Action? onScheduled = null)
+    private async Task<FollowerLogAppendResult> AppendLockedAsync(
+        FollowerLogAppendRequest request, CancellationToken cancellationToken, Action? onScheduled = null, bool backpressure = false)
     {
         if (Refuses)
             return new FollowerLogAppendResult(false, RefusalCode, _meta.CurrentTerm, _lastLogIndex);
@@ -720,7 +781,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return termError.Value;
 
         var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(_journal, this, in request);
-        return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken, onScheduled).ConfigureAwait(false);
+        return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, backpressure, cancellationToken, onScheduled).ConfigureAwait(false);
     }
 
     /// <summary>Builds the status of the durable log state.</summary>

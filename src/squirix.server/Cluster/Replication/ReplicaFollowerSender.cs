@@ -858,6 +858,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     [ThreadSafe]
     private sealed class FollowerRequests
     {
+        private static readonly TimeSpan ApplyBacklogRetryDelay = TimeSpan.FromMilliseconds(10);
+
         private readonly TimeSpan _appendTimeout;
         private readonly ReplicaFollowerSender _owner;
         private bool _retired;
@@ -964,7 +966,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 var bound = RentBound();
                 try
                 {
-                    return await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, bound.Token).ConfigureAwait(false);
+                    return await AppendUntilReadyAsync(request, bound.Token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -974,7 +976,22 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
             using var timeout = new CancellationTokenSource(_appendTimeout, _owner.TimeProvider);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_owner._closing.Token, timeout.Token, cancellationToken);
-            return await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, linked.Token).ConfigureAwait(false);
+            return await AppendUntilReadyAsync(request, linked.Token).ConfigureAwait(false);
+        }
+
+        private async Task<FollowerLogAppendResult> AppendUntilReadyAsync(FollowerBatch request, CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(result.RefusalCode, RefusalCodes.ApplyBacklog, StringComparison.Ordinal))
+                    return result;
+
+                // The follower is alive, but did not write this batch. Keep the slot and the original deadline.
+                _owner.ReplyObserver?.Invoke(_owner.ReplicaIndex, result);
+                await Task.Delay(ApplyBacklogRetryDelay, _owner.TimeProvider, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <summary>Takes the idle timeout source and starts its timeout, or creates one.</summary>

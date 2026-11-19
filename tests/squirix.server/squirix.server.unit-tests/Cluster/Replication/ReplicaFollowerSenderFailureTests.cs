@@ -19,6 +19,31 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
 {
+    /// <summary>Backpressure retries the same live batch before allowing a later entry to reach the follower.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BackpressureRetriesBeforeNextAppend(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway { ObservesCancellation = true };
+        await using var sender = CreateSender(gateway);
+        var first = EnqueueAsync(sender, 1);
+        var original = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+        var later = EnqueueAsync(sender, 2);
+        original.Refuse(RefusalCodes.ApplyBacklog);
+
+        var retry = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
+        _ = await Assert.That((retry.PrevLogIndex, retry.FirstIndex, retry.Count, retry.Token))
+                        .IsEqualTo((original.PrevLogIndex, original.FirstIndex, original.Count, original.Token));
+        _ = await Assert.That(first.IsCompleted).IsFalse();
+        retry.Accept();
+
+        var next = await BoundedAsync(gateway.CallAsync(2), cancellationToken);
+        _ = await Assert.That(next.FirstIndex).IsEqualTo(2UL);
+        next.Accept();
+        _ = await Assert.That((await BoundedAsync(first, cancellationToken)).LogIndex).IsEqualTo(1UL);
+        _ = await Assert.That((await BoundedAsync(later, cancellationToken)).LogIndex).IsEqualTo(2UL);
+    }
+
     /// <summary>A request that waits for the follower longer than the append timeout is canceled and failed, and the next entry is then sent.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -269,6 +269,7 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         appliers,
         LeadOwnGroup(registry, appliers),
         ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+        OwnedLogTestKit.Durable(),
         events,
         new FakeTimeProvider());
 }

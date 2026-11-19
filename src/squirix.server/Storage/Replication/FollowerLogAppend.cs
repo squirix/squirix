@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -74,6 +76,7 @@ internal static class FollowerLogAppend
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         FollowerLogAppendRequest request,
+        bool backpressure,
         CancellationToken cancellationToken,
         Action? onScheduled = null)
     {
@@ -83,9 +86,28 @@ internal static class FollowerLogAppend
         if (entries.Length == 0)
             return CompleteAppend(owner, request.LeaderCommitIndex, lastVerifiedIndex);
 
-        var error = PrepareAppendBatch(journal, owner, in request, out var toAppend, out var truncateAtIndex);
+        (FollowerLogAppendResult? Error, List<FollowerLogEntry>? ToAppend, ulong? TruncateAt) prepared;
+        try
+        {
+            prepared = await PrepareAppendBatchAsync(journal, owner, request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidDataException)
+        {
+            owner.Readiness = FollowerLogReadiness.Failed;
+            return new FollowerLogAppendResult(false, FollowerLogRefusal.ChecksumMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex);
+        }
+        catch (IOException)
+        {
+            // The frame may still be intact. Leave the WAL unchanged and report the durable term so the request can be retried.
+            return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, owner.Meta.CurrentTerm, owner.LastLogIndex);
+        }
+
+        var (error, toAppend, truncateAtIndex) = prepared;
         if (error != null)
             return error.Value;
+
+        if (backpressure && toAppend != null && ShouldDeferAppend(journal, owner, request.LeaderCommitIndex, toAppend, truncateAtIndex))
+            return new FollowerLogAppendResult(false, FollowerLogRefusal.ApplyBacklog, owner.Meta.CurrentTerm, owner.LastLogIndex);
 
         if (truncateAtIndex != null)
         {
@@ -238,7 +260,7 @@ internal static class FollowerLogAppend
         }
 
         // A term conflict at or below the committed index violates the Leader Completeness property; fail readiness.
-        var termMatches = TermAt(journal, request.PrevLogIndex) == request.PrevLogTerm;
+        var termMatches = journal.TryGetEntryOffset(request.PrevLogIndex, out var previous) && previous.Term == request.PrevLogTerm;
         var belowCommitted = request.PrevLogIndex <= EffectiveCommitIndex(owner);
         return (termMatches, belowCommitted) switch
         {
@@ -246,11 +268,6 @@ internal static class FollowerLogAppend
             (false, true) => FailReadiness(owner),
             (false, false) => new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex),
         };
-
-        static ulong TermAt(FollowerLogJournal journal, ulong logIndex)
-        {
-            return journal.Entries.TryGetValue(logIndex, out var entry) ? entry.Term : 0UL;
-        }
 
         static ulong TermAtApplied(FollowerLogJournal journal, ulong logIndex)
         {
@@ -291,11 +308,61 @@ internal static class FollowerLogAppend
     /// </remarks>
     private static FollowerLogAppendResult CompleteAppend(IFollowerLogContext owner, ulong leaderCommitIndex, ulong lastVerifiedIndex)
     {
+        AdvanceCommitHint(owner, leaderCommitIndex, lastVerifiedIndex);
+        return new FollowerLogAppendResult(true, string.Empty, owner.Meta.CurrentTerm, owner.LastLogIndex);
+    }
+
+    private static void AdvanceCommitHint(IFollowerLogContext owner, ulong leaderCommitIndex, ulong lastVerifiedIndex)
+    {
         var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
         if (target > EffectiveCommitIndex(owner))
             owner.CommitHint = target;
+    }
 
-        return new FollowerLogAppendResult(true, string.Empty, owner.Meta.CurrentTerm, owner.LastLogIndex);
+    private static bool ShouldDeferAppend(
+        FollowerLogJournal journal, IFollowerLogContext owner, ulong leaderCommitIndex, List<FollowerLogEntry> entries, ulong? truncateAt)
+    {
+        if ((entries.Count == 1 && entries[0].Payload.Length > journal.MaxPayloadBytes) || CanRetainBatch(journal, entries, truncateAt))
+            return false;
+
+        // The refused suffix is not verified. Its matching prefix can still carry a commit that lets apply release payloads.
+        var verifiedThrough = entries[0].LogIndex - 1UL;
+        var commitIndex = Math.Max(EffectiveCommitIndex(owner), Math.Min(leaderCommitIndex, verifiedThrough));
+        foreach (var pair in journal.Entries)
+        {
+            if (pair.Key > commitIndex)
+                break;
+
+            if (pair.Key > owner.Meta.LastAppliedIndex && pair.Value.Payload.Length != 0)
+            {
+                AdvanceCommitHint(owner, leaderCommitIndex, verifiedThrough);
+                journal.FlushThrough = Math.Max(journal.FlushThrough, commitIndex);
+                return true;
+            }
+        }
+
+        // Waiting cannot free bytes held by the uncommitted tail. Write the frames so a
+        // leader can commit that tail; any payload that does not fit stays on disk.
+        return false;
+    }
+
+    private static bool CanRetainBatch(FollowerLogJournal journal, List<FollowerLogEntry> entries, ulong? truncateAt)
+    {
+        long addedBytes = 0;
+        foreach (var entry in CollectionsMarshal.AsSpan(entries))
+            addedBytes += entry.Payload.Length;
+
+        var available = journal.MaxPayloadBytes - journal.PayloadBytes;
+        if (addedBytes > available && truncateAt is { } firstRemoved)
+        {
+            foreach (var pair in journal.Entries)
+            {
+                if (pair.Key >= firstRemoved)
+                    available += pair.Value.Payload.Length;
+            }
+        }
+
+        return addedBytes <= available;
     }
 
     private static FollowerLogAppendResult FailReadiness(IFollowerLogContext owner)
@@ -304,37 +371,46 @@ internal static class FollowerLogAppend
         return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex);
     }
 
-    private static bool IsSatisfiedByLocalState(FollowerLogJournal journal, IFollowerLogContext owner, in FollowerLogEntry candidate)
+    private static async ValueTask<bool> IsSatisfiedByLocalStateAsync(
+        FollowerLogJournal journal, IFollowerLogContext owner, FollowerLogEntry candidate, CancellationToken cancellationToken)
     {
         // The term of an applied entry was released with its payload, so it is read back from the retained
         // frame metadata. Compaction removes the covered prefix from EntryOffsets, so a frame that is absent
         // there is correctly not acknowledged; a retained frame is verifiable by term alone because Leader
         // Completeness forbids a conflicting term at an applied index.
-        var localSatisfied = candidate.LogIndex <= owner.LastLogIndex && journal.TryGetEntry(candidate.LogIndex, out var existing) && existing.Term == candidate.Term &&
-                             existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan);
-        var appliedSatisfied = candidate.LogIndex <= owner.Meta.LastAppliedIndex && journal.TryGetEntryOffset(candidate.LogIndex, out var loc) && loc.Term == candidate.Term;
-        return localSatisfied || appliedSatisfied;
+        if (journal.TryGetEntry(candidate.LogIndex, out var existing))
+        {
+            return existing.Term == candidate.Term &&
+                   (candidate.LogIndex <= owner.Meta.LastAppliedIndex || existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan));
+        }
+
+        if (!journal.TryGetEntryOffset(candidate.LogIndex, out var location) || location.Term != candidate.Term)
+            return false;
+        if (candidate.LogIndex <= owner.Meta.LastAppliedIndex)
+            return true;
+
+        var frames = await FollowerLogRead.ReadPayloadsAsync(journal, owner, candidate.LogIndex, 1, long.MaxValue, cancellationToken).ConfigureAwait(false);
+        return frames[0].Term == candidate.Term && frames[0].PayloadSpan.SequenceEqual(candidate.PayloadSpan);
     }
 
-    private static FollowerLogAppendResult? PrepareAppendBatch(
+    private static async ValueTask<(FollowerLogAppendResult? Error, List<FollowerLogEntry>? ToAppend, ulong? TruncateAt)> PrepareAppendBatchAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
-        in FollowerLogAppendRequest request,
-        out List<FollowerLogEntry>? toAppend,
-        out ulong? truncateAtIndex)
+        FollowerLogAppendRequest request,
+        CancellationToken cancellationToken)
     {
-        toAppend = null;
-        truncateAtIndex = null;
+        List<FollowerLogEntry>? toAppend = null;
+        ulong? truncateAtIndex = null;
         var nextExpected = request.PrevLogIndex + 1;
-        var entries = request.Entries.Span;
+        var entries = request.Entries;
 
         for (var i = 0; i < entries.Length; i++)
         {
             // A leader never sends an entry of a term above its own: such a batch is malformed, and taking it would leave this
             // copy with a last log term above its current term.
-            var entry = entries[i];
+            var entry = entries.Span[i];
             if (entry.LogIndex != nextExpected || entry.Term > request.CurrentTerm)
-                return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex);
+                return (new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex), null, null);
 
             nextExpected++;
 
@@ -348,11 +424,11 @@ internal static class FollowerLogAppend
             // Entries already satisfied by local state need no durable writing: duplicates already present with
             // identical content, and applied entries whose payloads were released after application (Leader
             // Completeness guarantees a current-term leader cannot create a conflict at an applied index).
-            if (IsSatisfiedByLocalState(journal, owner, in entry))
+            if (entry.LogIndex <= owner.LastLogIndex && await IsSatisfiedByLocalStateAsync(journal, owner, entry, cancellationToken).ConfigureAwait(false))
                 continue;
 
             if (entry.LogIndex <= EffectiveCommitIndex(owner))
-                return FailReadiness(owner);
+                return (FailReadiness(owner), null, null);
 
             if (entry.LogIndex <= owner.LastLogIndex)
                 truncateAtIndex = entry.LogIndex;
@@ -361,6 +437,6 @@ internal static class FollowerLogAppend
             toAppend.Add(entry);
         }
 
-        return null;
+        return (null, toAppend, truncateAtIndex);
     }
 }

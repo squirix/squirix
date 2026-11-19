@@ -21,16 +21,25 @@ internal sealed class FollowerLogJournal
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
 
-    internal FollowerLogJournal(FollowerLogPaths paths, GroupSnapshotStore snapshot, GroupMetadataStore metadata)
+    internal FollowerLogJournal(FollowerLogPaths paths, GroupSnapshotStore snapshot, GroupMetadataStore metadata, long maxPayloadBytes = long.MaxValue)
     {
         Paths = paths;
         Snapshot = snapshot;
         Metadata = metadata;
         Entries = new ReadOnlyDictionary<ulong, FollowerLogEntry>(_entries);
         EntryOffsets = new ReadOnlyDictionary<ulong, (long Offset, ulong Term)>(_entryOffsets);
+        MaxPayloadBytes = maxPayloadBytes;
     }
 
     internal IReadOnlyDictionary<ulong, FollowerLogEntry> Entries { get; }
+
+    internal long PayloadBytes { get; private set; }
+
+    internal long MaxPayloadBytes { get; }
+
+    internal ulong FlushThrough { get; set; }
+
+    internal long TailRevision { get; private set; }
 
     internal IReadOnlyDictionary<ulong, (long Offset, ulong Term)> EntryOffsets { get; }
 
@@ -82,7 +91,12 @@ internal sealed class FollowerLogJournal
     {
         // Callers hold _gate; the entry and its offset are written as one paired mutation.
         _entryOffsets[entry.LogIndex] = (offset, term);
+        RemovePayload(entry.LogIndex);
+        if (entry.Payload.Length > MaxPayloadBytes - PayloadBytes)
+            return;
+
         _entries[entry.LogIndex] = entry;
+        PayloadBytes += entry.Payload.Length;
     }
 
     internal void AddEntryOffset(ulong index, long offset, ulong term) => _entryOffsets[index] = (offset, term);
@@ -110,6 +124,9 @@ internal sealed class FollowerLogJournal
         // Caller hold _gate; both indexes reset together before a rebuild repopulates them.
         _entries.Clear();
         _entryOffsets.Clear();
+        PayloadBytes = 0;
+        FlushThrough = 0;
+        TailRevision++;
     }
 
     /// <summary>Collects the committed entries in the exclusive <paramref name="appliedIndex" /> to inclusive <paramref name="commitIndex" /> range.</summary>
@@ -136,16 +153,16 @@ internal sealed class FollowerLogJournal
         return result;
     }
 
-    /// <summary>Collects the committed entries that follow <paramref name="afterIndex" /> densely, up to <paramref name="commitIndex" /> and <paramref name="maxCount" />.</summary>
+    /// <summary>Collects the cached entries that follow <paramref name="afterIndex" /> densely, up to <paramref name="throughIndex" /> and <paramref name="maxCount" />.</summary>
     /// <remarks>Callers hold the owning log's gate; the walk stops at the first index that is not retained in memory.</remarks>
     /// <param name="afterIndex">The exclusive index to collect after.</param>
-    /// <param name="commitIndex">The inclusive committed index.</param>
+    /// <param name="throughIndex">The inclusive upper boundary.</param>
     /// <param name="maxCount">The largest number of entries to collect.</param>
-    /// <returns>The consecutive committed entries from <c language="csharp">afterIndex + 1</c>.</returns>
-    internal List<FollowerLogEntry> CollectCommittedRange(ulong afterIndex, ulong commitIndex, int maxCount)
+    /// <returns>The consecutive cached entries from <c language="csharp">afterIndex + 1</c>.</returns>
+    internal List<FollowerLogEntry> CollectCachedRange(ulong afterIndex, ulong throughIndex, int maxCount)
     {
-        var result = new List<FollowerLogEntry>(afterIndex >= commitIndex ? 0 : int.CreateTruncating(Math.Min(ulong.CreateChecked(maxCount), commitIndex - afterIndex)));
-        for (var index = afterIndex + 1; index <= commitIndex && result.Count < maxCount; index++)
+        var result = new List<FollowerLogEntry>(afterIndex >= throughIndex ? 0 : int.CreateTruncating(Math.Min(ulong.CreateChecked(maxCount), throughIndex - afterIndex)));
+        for (var index = afterIndex + 1; index <= throughIndex && result.Count < maxCount; index++)
         {
             if (!_entries.TryGetValue(index, out var entry))
                 break;
@@ -158,13 +175,14 @@ internal sealed class FollowerLogJournal
 
     /// <summary>Checks for an uncommitted entry of a term without copying its payload or the tail list.</summary>
     /// <param name="commitIndex">The durable committed boundary.</param>
+    /// <param name="lastLogIndex">The last entry held by the log.</param>
     /// <param name="term">The leader term to find.</param>
     /// <returns>Whether an entry above the boundary has the requested term.</returns>
-    internal bool HasUncommittedTerm(ulong commitIndex, ulong term)
+    internal bool HasUncommittedTerm(ulong commitIndex, ulong lastLogIndex, ulong term)
     {
-        foreach (var pair in _entries)
+        for (var index = lastLogIndex; index > commitIndex; index--)
         {
-            if (pair.Key > commitIndex && pair.Value.Term == term)
+            if (_entryOffsets.TryGetValue(index, out var location) && location.Term == term)
                 return true;
         }
 
@@ -202,7 +220,7 @@ internal sealed class FollowerLogJournal
         }
 
         for (var i = 0; i < released.Count; i++)
-            _ = _entries.Remove(released[i]);
+            RemovePayload(released[i]);
     }
 
     /// <summary>Makes a group log file the active one. Callers hold the owning log's gate.</summary>
@@ -214,7 +232,11 @@ internal sealed class FollowerLogJournal
         LogGeneration = generation;
     }
 
-    internal void RemoveEntriesAbove(ulong index) => RemoveEntriesAboveCore(index);
+    internal void RemoveEntriesAbove(ulong index)
+    {
+        TailRevision++;
+        RemoveEntriesAboveCore(index);
+    }
 
     /// <summary>
     /// Installs the snapshot baseline without pruning the retained indexes. Reserved for paths whose index
@@ -278,7 +300,7 @@ internal sealed class FollowerLogJournal
 
         for (var i = 0; i < truncated.Count; i++)
         {
-            _ = _entries.Remove(truncated[i]);
+            RemovePayload(truncated[i]);
             _ = _entryOffsets.Remove(truncated[i]);
         }
     }
@@ -308,8 +330,14 @@ internal sealed class FollowerLogJournal
 
         for (var i = 0; i < expired.Count; i++)
         {
-            _ = _entries.Remove(expired[i]);
+            RemovePayload(expired[i]);
             _ = _entryOffsets.Remove(expired[i]);
         }
+    }
+
+    private void RemovePayload(ulong index)
+    {
+        if (_entries.Remove(index, out var removed))
+            PayloadBytes -= removed.Payload.Length;
     }
 }

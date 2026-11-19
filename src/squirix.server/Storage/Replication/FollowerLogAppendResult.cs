@@ -17,11 +17,11 @@ internal readonly record struct FollowerLogAppendResult(bool Success, string Ref
     /// <summary>Tells whether the reply shows that the sender is the current leader of the copy.</summary>
     /// <param name="requestTerm">The term of the append request.</param>
     /// <returns>
-    /// <see langword="true" /> for an accepted append, a log mismatch, and an incomplete copy that refuses a request whose term is not stale: the
-    /// leader only lacks entries or waits for a state transfer.
+    /// <see langword="true" /> for an accepted append, a log mismatch, a current-term apply backlog, or an incomplete copy that refuses a request whose term is not stale.
     /// </returns>
     internal bool ShowsLeader(ulong requestTerm) =>
         Success ||
         string.Equals(RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
+        (CurrentTerm == requestTerm && string.Equals(RefusalCode, FollowerLogRefusal.ApplyBacklog, StringComparison.Ordinal)) ||
         (string.Equals(RefusalCode, FollowerLogRefusal.Incomplete, StringComparison.Ordinal) && CurrentTerm <= requestTerm);
 }

@@ -64,6 +64,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
         var applied = WhenAppliedAsync(cache, 3);
@@ -106,6 +107,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             NullLogger<ReplicaApplyService>.Instance,
             fallback);
         var first = WhenAppliedAsync(cache, 1);
@@ -153,6 +155,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             log,
             new FakeTimeProvider());
         var other = WhenAppliedAsync(cache, 1);
@@ -195,6 +198,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
         var first = WhenAppliedAsync(cache, 1);
@@ -236,6 +240,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             events,
             new FakeTimeProvider());
         var first = WhenAppliedAsync(cache, 1);
@@ -278,6 +283,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
         var first = WhenAppliedAsync(cache, 1);
@@ -322,6 +328,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
 
@@ -369,6 +376,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             events,
             new FakeTimeProvider());
 
@@ -412,6 +420,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             appliers,
             LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             NullLogger<ReplicaApplyService>.Instance,
             new FakeTimeProvider());
 

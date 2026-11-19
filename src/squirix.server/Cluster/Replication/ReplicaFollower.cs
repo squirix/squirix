@@ -115,12 +115,14 @@ internal sealed class ReplicaFollower
             batch.LeaderCommitIndex,
             new ReadOnlyMemory<FollowerLogEntry>(entries));
         var result = await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
-        NotifyApplyWhen(result.Success, groupId);
+        NotifyApplyWhen(result.Success || string.Equals(result.RefusalCode, RefusalCodes.ApplyBacklog, StringComparison.Ordinal), groupId);
 
         // A log mismatch still comes from the current leader: the follower only lacks entries, which the leader repairs. So does the
         // refusal of an incomplete copy, which waits for the leader's state transfer.
         if (result.ShowsLeader(batch.LeaderTerm))
             ObserveLeader(groupId, batch.LeaderNodeId, result.CurrentTerm);
+        else if (_groups.TryGetState(groupId, out var state))
+            state.ObserveHigherTerm(result.CurrentTerm);
 
         return result;
     }

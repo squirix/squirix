@@ -33,6 +33,7 @@ internal sealed class ReplicaApplyService : BackgroundService
     private readonly ReplicaGroupCommitters _committers;
     private readonly ILogger<ReplicaApplyService> _log;
     private readonly IJournalCoordinatorLifecycle _recovery;
+    private readonly IJournalDurabilityCoordinator _durability;
     private readonly ReplicaGroupRegistry _registry;
     private readonly TimeProvider _timeProvider;
 
@@ -41,6 +42,7 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// <param name="appliers">The appliers of the served groups.</param>
     /// <param name="committers">The committers of the led groups, whose appliers they drive themselves.</param>
     /// <param name="recovery">The journal lifecycle whose startup gate opens once local recovery has replayed the journal into memory.</param>
+    /// <param name="durability">Durability barrier for pressure-triggered applied checkpoints.</param>
     /// <param name="log">Logger reporting stopped groups and retried passes.</param>
     /// <param name="timeProvider">Time source of the fallback interval.</param>
     internal ReplicaApplyService(
@@ -48,6 +50,7 @@ internal sealed class ReplicaApplyService : BackgroundService
         ReplicaGroupAppliers appliers,
         ReplicaGroupCommitters committers,
         IJournalCoordinatorLifecycle recovery,
+        IJournalDurabilityCoordinator durability,
         ILogger<ReplicaApplyService> log,
         TimeProvider timeProvider)
     {
@@ -60,6 +63,8 @@ internal sealed class ReplicaApplyService : BackgroundService
         _registry = registry;
         _appliers = appliers;
         _committers = committers;
+        ArgumentNullException.ThrowIfNull(durability);
+        _durability = durability;
         _recovery = recovery;
         _log = log;
         _timeProvider = timeProvider;
@@ -276,6 +281,8 @@ internal sealed class ReplicaApplyService : BackgroundService
         {
             status = await MakeCommitDurableAsync(log, status, stoppingToken).ConfigureAwait(false);
             await applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, stoppingToken).ConfigureAwait(false);
+            if (status.NeedsPayloadFlush)
+                await applier.FlushAsync(log, _durability, stoppingToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {

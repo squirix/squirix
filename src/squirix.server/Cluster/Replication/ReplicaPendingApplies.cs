@@ -28,6 +28,8 @@ internal sealed class ReplicaPendingApplies
     private readonly ReplicaRecoveredCommitBoundary _recoveredBoundary;
     private readonly Action<PreparedReplicaMutation> _resolved;
     private readonly Lock _sync = new();
+    private ReplicaRecoveredTail.WalPages? _walPages;
+    private ulong _walApplied;
     private int _activeApplies;
     private int _activeExecutions;
     private bool _closed;
@@ -57,20 +59,12 @@ internal sealed class ReplicaPendingApplies
         if (recovered == null)
             return;
 
-        // A same-identity retry must find the recovered entry pinned, never re-execute it: its outcome is unknown until a commit covers it.
+        _walPages = recovered.Pages;
+        _walApplied = _walPages == null ? _recoveredBoundary.LastIndex : recovered.FirstIndex - 1UL;
         foreach (var entry in recovered.Mutations)
         {
-            var kind = GroupRecordKinds.FromScope(entry.OperationScope);
-            var reserved = idempotency.Reserve(
-                entry.OperationScope,
-                entry.OperationId,
-                entry.OperationFingerprint.Span,
-                kind,
-                entry.LogIndex,
-                entry.Term,
-                new GroupReserveOptions(true, entry.OutcomePayload.Length));
-            if (reserved != GroupIdempotencyReserveResult.Success)
-                throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
+            if (!recovered.PinsInstalled)
+                ReplicaRecoveredTail.Pin(idempotency, entry);
 
             _ = _entries.Add(entry);
         }
@@ -82,7 +76,7 @@ internal sealed class ReplicaPendingApplies
         get
         {
             lock (_sync)
-                return _entries.Count == 0;
+                return _entries.Count == 0 && _walApplied == _recoveredBoundary.LastIndex;
         }
     }
 
@@ -92,7 +86,7 @@ internal sealed class ReplicaPendingApplies
         get
         {
             lock (_sync)
-                return _entries.Max?.LogIndex ?? 0;
+                return _entries.Max?.LogIndex ?? (_walApplied < _recoveredBoundary.LastIndex ? _recoveredBoundary.LastIndex : 0);
         }
     }
 
@@ -118,6 +112,9 @@ internal sealed class ReplicaPendingApplies
     /// </remarks>
     internal async Task ApplyThroughAsync(ulong commitIndex, ulong ownFirst, ulong ownLast, bool resolveOwn)
     {
+        if (_walPages is { } pages && _walApplied < commitIndex)
+            await ApplyWalThroughAsync(pages, Math.Min(commitIndex, _recoveredBoundary.LastIndex)).ConfigureAwait(false);
+
         while (TryPeekDue(commitIndex, out var pending))
         {
             var foreign = pending.LogIndex < ownFirst || pending.LogIndex > ownLast;
@@ -171,7 +168,7 @@ internal sealed class ReplicaPendingApplies
     internal bool Covers(ulong commitIndex)
     {
         lock (_sync)
-            return _entries.Min is { } first && first.LogIndex <= commitIndex;
+            return (_walApplied < _recoveredBoundary.LastIndex && _walApplied < commitIndex) || (_entries.Min is { } first && first.LogIndex <= commitIndex);
     }
 
     /// <summary>Counts a drive of the committed entries that stopped running.</summary>
@@ -222,6 +219,28 @@ internal sealed class ReplicaPendingApplies
             _activeApplies++;
             return true;
         }
+    }
+
+    private async Task ApplyWalThroughAsync(ReplicaRecoveredTail.WalPages pages, ulong through)
+    {
+        // The commit gate serializes writers. Publish progress after each successful apply so a retry resumes at the failed entry.
+        while (_walApplied < through)
+        {
+            var entries = await pages.ReadCommittedAsync(_walApplied, through).ConfigureAwait(false);
+            foreach (var entry in entries)
+            {
+                var mutation = pages.Rebuilder.Rebuild(entry);
+                await ApplyForeignAsync(mutation).ConfigureAwait(false);
+                lock (_sync)
+                    _walApplied = entry.LogIndex;
+
+                if (_idempotency.TryResolve(mutation.OperationScope, mutation.OperationId, mutation.OutcomePayload, mutation.LogIndex, mutation.Term))
+                    _resolved(mutation);
+            }
+        }
+
+        if (_walApplied == _recoveredBoundary.LastIndex)
+            _walPages = null;
     }
 
     /// <summary>Applies an entry whose outcome belongs to no caller of the current execution.</summary>

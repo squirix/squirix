@@ -17,18 +17,20 @@ internal static class ReplicaGroupCommitterStarts
         /// <param name="slots">The number of replicas of the group and the slot of this node, the leader.</param>
         /// <param name="launch">The pipeline, mutation factory, leader tail read, led term, and eligibility of the start.</param>
         /// <param name="log">The owned group log.</param>
+        /// <param name="cancellationToken">Cancels reading the recovered WAL.</param>
         /// <returns>The coordinator.</returns>
         /// <exception cref="InvalidDataException">A tail record is undecodable or inconsistent, so the committer must not start.</exception>
         /// <remarks>The pipeline is not yet published, so a failure leaves the committer as it was before the attempt, with nothing left open.</remarks>
         internal async Task<ReplicaCommitCoordinator> CreateCoordinatorAsync(
             (int ReplicaCount, int LeaderReplicaIndex) slots,
             (ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility) launch,
-            IFollowerLog log)
+            IFollowerLog log,
+            CancellationToken cancellationToken)
         {
             try
             {
                 var status = launch.Read.Status;
-                var tail = committer.Applier.RecoverTail(ReplicaLeaderTail.From(launch.Read), launch.Term, launch.Factory);
+                var tail = await committer.Applier.RecoverTailAsync(log, launch.Read, launch.Term, launch.Factory, cancellationToken).ConfigureAwait(false);
                 return committer.CreateCoordinator(slots, launch.Pipeline, log, in status, launch.Eligibility, tail);
             }
             catch

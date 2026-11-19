@@ -33,6 +33,9 @@ internal readonly record struct FollowerLogStatus(
     /// <remarks>Status, metrics, and eligibility report <see cref="CommitIndex" />; only the checks that must not go below a committed entry, and the apply loop, read this.</remarks>
     internal ulong CommitHint { get; init; }
 
+    /// <summary>Gets or initializes a value indicating whether the follower should persist applied progress to release cached log payloads.</summary>
+    internal bool NeedsPayloadFlush { get; init; }
+
     /// <summary>Gets the highest commit index this copy knows: the durable one, or the announced one when it is higher.</summary>
     internal ulong EffectiveCommitIndex => Math.Max(CommitIndex, CommitHint);
 

@@ -41,6 +41,9 @@ internal static class RefusalCodes
     /// <summary>The copy of the group on this node is marked incomplete and awaits a state transfer, so it takes no entries and adopts no term from a leader; it still answers ballots.</summary>
     internal const string Incomplete = "incomplete";
 
+    /// <summary>The follower temporarily refuses more entries while its applied progress can free retained log payloads.</summary>
+    internal const string ApplyBacklog = "apply-backlog";
+
     /// <summary>The voter heard from a live leader of the group within the election timeout, so it refuses the pre-vote.</summary>
     /// <remarks>Decided by the election state before the log is reached, so it has no storage twin.</remarks>
     internal const string LeaderContact = "leader-contact";

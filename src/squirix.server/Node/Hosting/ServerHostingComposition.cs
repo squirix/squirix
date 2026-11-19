@@ -198,6 +198,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupAppliers>(),
             sp.GetRequiredService<ReplicaGroupCommitters>(),
             sp.GetRequiredService<IJournalCoordinator>(),
+            sp.GetRequiredService<IJournalCoordinator>(),
             sp.GetRequiredService<ILogger<ReplicaApplyService>>(),
             sp.GetRequiredService<TimeProvider>()));
         _ = services.AddSingleton(new ReplicaLogCompactionOptions());

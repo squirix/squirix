@@ -17,4 +17,8 @@ internal readonly record struct FollowerLogEntriesRead(
     ulong PrevLogTerm,
     ulong LastLogIndex,
     ulong CommitIndex,
-    IReadOnlyList<FollowerLogEntry> Entries);
+    IReadOnlyList<FollowerLogEntry> Entries)
+{
+    /// <summary>Gets the suffix revision observed with the frame offsets.</summary>
+    internal long TailRevision { get; init; }
+}

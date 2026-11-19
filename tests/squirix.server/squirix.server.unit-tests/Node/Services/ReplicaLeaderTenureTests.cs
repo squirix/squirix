@@ -49,7 +49,7 @@ public sealed class ReplicaLeaderTenureTests : ServerUnitTestBase
     private static Task<FollowerLogTail> AppendNoopAsync(ReplicaLeaderTenure tenure, IFollowerLog log, CancellationToken cancellationToken)
     {
         var factory = new ReplicaMutationFactory(new StubCache(), GroupId, Term, TimeProvider.System, NullLogger.Instance);
-        var read = new FollowerLogTail(default, 0UL, []);
+        var read = new FollowerLogTail(default, 0L);
         return tenure.AppendNoopAsync(log, read, factory, GroupId, cancellationToken);
     }
 

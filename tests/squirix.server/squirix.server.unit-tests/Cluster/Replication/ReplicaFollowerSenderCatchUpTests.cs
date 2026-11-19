@@ -17,6 +17,28 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
 {
+    /// <summary>A retry on apply backpressure retains the catch-up request slot and resends the same entries.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BackpressureRetriesUnderCatchUpLease(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway { ObservesCancellation = true };
+        await using var sender = CreateSender(gateway);
+        using var lease = await sender.BeginCatchUpAsync(cancellationToken);
+        var batch = Probe(0) with { Entries = [new(1UL, 1UL, new byte[] { 1 })] };
+        var send = lease.SendAsync(in batch, cancellationToken);
+        var first = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+        first.Refuse(RefusalCodes.ApplyBacklog);
+
+        var retry = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
+        _ = await Assert.That((retry.PrevLogIndex, retry.FirstIndex, retry.Count, retry.Token))
+                        .IsEqualTo((first.PrevLogIndex, first.FirstIndex, first.Count, first.Token));
+        _ = await Assert.That(send.IsCompleted).IsFalse();
+        retry.Accept();
+
+        _ = await Assert.That((await BoundedAsync(send, cancellationToken)).Success).IsTrue();
+    }
+
     /// <summary>A lease is granted only once the request in flight is answered, and that request's entry is still acknowledged.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

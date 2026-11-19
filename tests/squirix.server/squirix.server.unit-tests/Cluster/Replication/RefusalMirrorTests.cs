@@ -21,6 +21,10 @@ public sealed class RefusalMirrorTests : ServerUnitTestBase
     [Test]
     public async Task AlreadyVotedMirrors() => _ = await Assert.That(FollowerLogRefusal.AlreadyVoted).IsEqualTo(RefusalCodes.AlreadyVoted);
 
+    /// <summary>Apply-backlog marker matches across both namespaces.</summary>
+    [Test]
+    public async Task ApplyBacklogMirrors() => _ = await Assert.That(FollowerLogRefusal.ApplyBacklog).IsEqualTo(RefusalCodes.ApplyBacklog);
+
     /// <summary>Checksum-mismatch marker matches across both namespaces.</summary>
     [Test]
     public async Task ChecksumMismatchMirrors() => _ = await Assert.That(FollowerLogRefusal.ChecksumMismatch).IsEqualTo(RefusalCodes.ChecksumMismatch);

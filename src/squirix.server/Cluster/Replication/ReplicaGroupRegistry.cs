@@ -275,28 +275,42 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// </remarks>
     private async Task PinRecoveredTailAsync(FollowerLog log, string groupId, CancellationToken cancellationToken)
     {
-        var tail = await log.GetUncommittedTailAsync(cancellationToken).ConfigureAwait(false);
-        for (var i = 0; i < tail.Count; i++)
+        var afterIndex = 0UL;
+        while (true)
         {
-            var entry = tail[i];
-            if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
+            var batch = await log.ReadRecoveredTailBatchAsync(afterIndex, cancellationToken).ConfigureAwait(false);
+            if (batch.Count == 0)
+                return;
+
+            for (var i = 0; i < batch.Count; i++)
             {
-                ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, "its record cannot be read");
-                continue;
+                var entry = batch[i];
+                PinRecoveredEntry(log, groupId, in entry);
             }
 
-            var kind = GroupRecordKinds.FromScope(record.OperationScope);
-            var reserved = log.Idempotency.Reserve(
-                record.OperationScope,
-                record.OperationId,
-                record.OperationFingerprint.Span,
-                kind,
-                entry.LogIndex,
-                entry.Term,
-                new GroupReserveOptions(true, record.OutcomePayload.Length));
-            if (reserved != GroupIdempotencyReserveResult.Success)
-                ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, reserved == GroupIdempotencyReserveResult.FingerprintMismatch ? "its identity is held with another fingerprint" : "the idempotency state refused it");
+            afterIndex = batch[^1].LogIndex;
         }
+    }
+
+    private void PinRecoveredEntry(FollowerLog log, string groupId, in FollowerLogEntry entry)
+    {
+        if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
+        {
+            ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, "its record cannot be read");
+            return;
+        }
+
+        var kind = GroupRecordKinds.FromScope(record.OperationScope);
+        var reserved = log.Idempotency.Reserve(
+            record.OperationScope,
+            record.OperationId,
+            record.OperationFingerprint.Span,
+            kind,
+            entry.LogIndex,
+            entry.Term,
+            new GroupReserveOptions(true, record.OutcomePayload.Length));
+        if (reserved != GroupIdempotencyReserveResult.Success)
+            ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, reserved == GroupIdempotencyReserveResult.FingerprintMismatch ? "its identity is held with another fingerprint" : "the idempotency state refused it");
     }
 
     [Immutable]

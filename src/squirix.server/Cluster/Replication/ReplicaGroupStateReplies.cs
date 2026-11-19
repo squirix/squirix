@@ -15,9 +15,8 @@ internal static class ReplicaGroupStateReplies
         /// Only an answer from the follower's log is a contact: accepted, a log mismatch the leader repairs, a log not ready yet, or a copy that
         /// is incomplete and awaits a state transfer, which is alive; its reply carries the durable term of the copy, and a higher term is
         /// observed like in any other reply. A refusal before the log (another topology, another membership) proves nothing, and its term is
-        /// still observed. A contact never counts toward a commit or a read index confirmation. An accepted append, a log mismatch, or an
-        /// incomplete copy also counts as an electable contact, because such a log votes; only the first two can stand for election, and a log
-        /// that is not ready refuses every ballot.
+        /// still observed. A contact never counts toward a commit or a read index confirmation. An accepted append, a log mismatch, an apply backlog, or an
+        /// incomplete copy also counts as a voting contact. An incomplete copy cannot stand for election, and a log that is not ready refuses every ballot.
         /// </remarks>
         internal void RecordFollowerReply(int replicaIndex, in FollowerLogAppendResult reply)
         {
@@ -34,10 +33,10 @@ internal static class ReplicaGroupStateReplies
                 state.ElectableContacts.Record(replicaIndex, ready);
             return;
 
-            // Only an accepted append or a log mismatch comes from a log that can stand for election.
             static bool IsReadyLog(in FollowerLogAppendResult reply)
             {
-                return reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal);
+                return reply.Success || string.Equals(reply.RefusalCode, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal) ||
+                       string.Equals(reply.RefusalCode, FollowerLogRefusal.ApplyBacklog, StringComparison.Ordinal);
             }
         }
     }

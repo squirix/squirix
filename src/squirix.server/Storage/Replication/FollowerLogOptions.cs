@@ -54,6 +54,18 @@ internal sealed class FollowerLogOptions
     /// <summary>Gets the maximum accepted snapshot size in bytes.</summary>
     internal int MaxSnapshotBytes { get; init; } = GroupSnapshotStore.DefaultMaxSnapshotBytes;
 
+    /// <summary>Gets the maximum canonical payload bytes cached by one group log, 64 MiB by default.</summary>
+    internal long MaxRetainedPayloadBytes
+    {
+        get;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+
+            field = value;
+        }
+    } = 64L * 1024 * 1024;
+
     /// <summary>Gets the longest wait for an in-flight durable operation on dispose; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget

@@ -106,18 +106,20 @@ internal sealed class ReplicaGroupApplier
         ApplyCoreAsync(logIndex, canonicalPayload, null, cancellationToken);
 
     /// <summary>Rebuilds the uncommitted leader tail, logging and counting an inconsistent record before it refuses the tail.</summary>
+    /// <param name="log">The owned group log.</param>
     /// <param name="tail">The leader tail read from the owned log.</param>
     /// <param name="term">The leader's current term.</param>
     /// <param name="rebuilder">Rebuilds the prepared form of each entry from its record.</param>
+    /// <param name="cancellationToken">Cancels recovery between WAL pages.</param>
     /// <returns>The recovered tail, or <see langword="null" /> when the log tail is fully committed.</returns>
     /// <exception cref="InvalidDataException">A tail record is undecodable or inconsistent, so the committer must not start.</exception>
     /// <remarks>Leader-only: a follower group has no coordinator and recovers no tail.</remarks>
-    internal ReplicaRecoveredTail? RecoverTail(ReplicaLeaderTail tail, ulong term, IReplicaTailRebuilder rebuilder)
+    internal async Task<ReplicaRecoveredTail?> RecoverTailAsync(IFollowerLog log, FollowerLogTail tail, ulong term, IReplicaTailRebuilder rebuilder, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tail);
         try
         {
-            return tail.IsEmpty ? null : new ReplicaRecoveredTail(tail.Entries, term, rebuilder);
+            return await ReplicaRecoveredTail.ReadAsync(log, tail, term, rebuilder, cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidDataException error)
         {

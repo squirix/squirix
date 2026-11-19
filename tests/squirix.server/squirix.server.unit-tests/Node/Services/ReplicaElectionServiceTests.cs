@@ -237,6 +237,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
             appliers,
             ReplicaApplyServiceTests.LeadOwnGroup(registry, appliers),
             ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
+            OwnedLogTestKit.Durable(),
             log,
             new FakeTimeProvider());
 
