@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics.Metrics;
 using System.Net.Http;
+using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,6 +15,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -175,6 +178,23 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
+    /// <summary>A socket failure during peer connection is reported to replication as an unavailable peer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SocketFailureIsReportedAsUnavailable(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var handler = new DisconnectedHandler();
+        await using var pool = CreatePool(handler, meter);
+        var gateway = new ReplicaRpcGateway(pool);
+
+        var call = gateway.RequestVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(error.InnerException).IsTypeOf<SocketException>();
+    }
+
     private static FollowerBatch Batch() => new([], PeerNodeId, 1, 0, 0, 0);
 
     private static ServerClientPool CreatePool(HttpMessageHandler handler, Meter meter)
@@ -190,6 +210,12 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     }
 
     private static ReplicaRpcHeader Header() => new(PeerNodeId, ReadOnlyMemory<byte>.Empty, 1, 1, PeerNodeId, PeerNodeId);
+
+    private sealed class DisconnectedHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromException<HttpResponseMessage>(new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.NotConnected)));
+    }
 
     /// <summary>Parks every request until its token is cancelled, then fails it as the transport would.</summary>
     private sealed class ParkingHandler : HttpMessageHandler

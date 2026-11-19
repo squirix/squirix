@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -97,7 +98,7 @@ internal static class PeerProtocol
         {
             return await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         }
-        catch (HttpRequestException error)
+        catch (Exception error) when (error is HttpRequestException or SocketException)
         {
             // A lost response may follow a committed mutation. Only failures before writing the body may prove a failed dial.
             var cause = message.Content is RequestContent { Started: false } ? error : null;

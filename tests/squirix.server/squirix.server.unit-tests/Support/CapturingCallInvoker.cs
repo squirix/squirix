@@ -31,7 +31,7 @@ internal sealed class CapturingCallInvoker : IPeerClient
     public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
         where T : IMessage<T>
     {
-        var name = path[(path.LastIndexOf('/') + 1)..];
+        var name = path[(path.AsSpan().LastIndexOf('/') + 1)..];
         Methods.Add(name);
         Requests.Add(request);
         var error = _failure?.Invoke();
