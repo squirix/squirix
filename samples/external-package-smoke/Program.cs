@@ -1,13 +1,16 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.IdentityModel.Tokens.Jwt;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 using Squirix.Client;
 using Squirix.Server;
 
@@ -33,11 +36,15 @@ internal static class Program
             Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot.FullName);
 
             var endpoint = await LoadConfiguredEndpointAsync(CancellationToken.None).ConfigureAwait(false);
-            _ = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
-            var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
+            var server = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
+            await using (server.ConfigureAwait(false))
+            {
+                var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
+                await using var clientLifetime = client.ConfigureAwait(false);
+                await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
+                await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
+            }
 
-            await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
-            await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
             await RunDistributedAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
 
             return 0;
@@ -50,11 +57,14 @@ internal static class Program
 
     private static async Task RunDistributedAsync(Uri endpoint, CancellationToken cancellationToken)
     {
+        var bearerToken = ConfigureJwtAuthentication();
+        var server = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
+        await using var serverLifetime = server.ConfigureAwait(false);
         var services = new ServiceCollection();
         _ = services.AddSquirixCache(options =>
         {
             options.ClientOptions.Endpoints.Add(endpoint);
-            options.ClientOptions.BearerTokenProvider = GetTokenAsync;
+            options.ClientOptions.BearerTokenProvider = ct => GetTokenAsync(bearerToken, ct);
         });
         _ = services.AddHybridCache();
         var first = services.BuildServiceProvider();
@@ -87,11 +97,27 @@ internal static class Program
             throw new InvalidOperationException("A fresh HybridCache instance did not read the value from Squirix.");
     }
 
-    private static async ValueTask<string> GetTokenAsync(CancellationToken cancellationToken)
+    private static string ConfigureJwtAuthentication()
+    {
+        const string issuer = "external-package-smoke";
+        const string audience = "squirix-cache";
+        var key = RandomNumberGenerator.GetBytes(32);
+        Environment.SetEnvironmentVariable("SQUIRIX_JWT_AUTHORITY", null);
+        Environment.SetEnvironmentVariable("SQUIRIX_JWT_ISSUER", issuer);
+        Environment.SetEnvironmentVariable("SQUIRIX_JWT_AUDIENCE", audience);
+        Environment.SetEnvironmentVariable("SQUIRIX_JWT_SIGNING_KEY", Convert.ToBase64String(key));
+
+        var credentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256);
+        var now = DateTime.UtcNow;
+        var token = new JwtSecurityToken(issuer, audience, notBefore: now, expires: now.AddMinutes(5), signingCredentials: credentials);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static async ValueTask<string> GetTokenAsync(string bearerToken, CancellationToken cancellationToken)
     {
         await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding | ConfigureAwaitOptions.ContinueOnCapturedContext);
         cancellationToken.ThrowIfCancellationRequested();
-        return "smoke-token";
+        return bearerToken;
     }
 
     [SuppressMessage("Usage", "MA0045", Justification = "The smoke test exercises the synchronous IDistributedCache contract.")]
