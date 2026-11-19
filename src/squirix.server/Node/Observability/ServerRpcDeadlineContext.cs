@@ -11,17 +11,6 @@ internal static class ServerRpcDeadlineContext
     /// <summary>Gets the budget of the current deadline with the clock it counts down on, or <see langword="null" /> when no deadline is set.</summary>
     internal static ServerDeadlineBudget? CurrentBudget => Current.Value?.Budget;
 
-    private static DateTime? ForwardDeadlineUtc => Current.Value?.Budget?.ForwardDeadlineUtc;
-
-    internal static DateTime? EffectiveDeadline(DateTime? existingDeadlineUtc)
-    {
-        var existing = Normalize(existingDeadlineUtc);
-        var current = ForwardDeadlineUtc;
-        var deadline = existing <= current ? existing : current;
-        var time = current == null ? existing : deadline;
-        return existing == null ? current : time;
-    }
-
     /// <summary>Pushes an absolute deadline and converts it once into a budget that counts down on monotonic time.</summary>
     /// <param name="deadlineUtc">The absolute deadline, or <see langword="null" /> for none.</param>
     /// <param name="clock">

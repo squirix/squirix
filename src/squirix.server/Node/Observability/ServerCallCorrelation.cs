@@ -5,7 +5,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>Opens the inbound trace activity, logging scope and deadline scope of a server call.</summary>
+/// <summary>Opens the inbound trace activity and logging scope of a server call.</summary>
 [Immutable]
 internal sealed class ServerCallCorrelation
 {

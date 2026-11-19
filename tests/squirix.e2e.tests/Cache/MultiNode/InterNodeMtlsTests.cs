@@ -31,10 +31,10 @@ public sealed class InterNodeMtlsTests
         _ = await Assert.That((await cluster.CacheB.GetValueAsync("mtls-startup", cancellationToken)).Value).IsEqualTo("ok");
     }
 
-    /// <summary>Verifies an external client cannot spoof internal owner-routing metadata on the primary listener.</summary>
+    /// <summary>Verifies an public listener does not serve peer reads.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ExternalClientCannotSpoofOwnerHeader(CancellationToken cancellationToken)
+    public async Task PublicListenerRejectsPeerReads(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);

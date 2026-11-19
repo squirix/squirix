@@ -12,7 +12,6 @@ internal static class ConnectionAuthenticationProtocol
     internal const byte InvalidCredentials = 1;
     internal const byte Busy = 2;
     internal const byte UnsupportedVersion = 3;
-    internal const string RenewalRequired = "connection-authentication-renewal-required";
 
     private const byte Version = 1;
 

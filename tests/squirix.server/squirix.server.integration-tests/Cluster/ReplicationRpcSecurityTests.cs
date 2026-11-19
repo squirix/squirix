@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
@@ -14,6 +15,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -159,14 +161,13 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         using var handler = new ForgedHostHandler(forgedHost, inner);
         using var channel = new HttpClient(handler, false) { BaseAddress = nodeA.Uri };
         var client = channel;
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), headers, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
-    /// <summary>Leader-authorized RPCs accept a trusted peer whose LeaderNodeId matches its certificate identity.</summary>
+    /// <summary>Append accepts a matching peer identity and continues the caller trace.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task MatchingLeaderNodeIdIsAccepted(CancellationToken cancellationToken)
@@ -181,8 +182,32 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         var client = channel;
 
-        // Certificate identity is node-b; claim leader_node_id node-b for matching identity.
-        var response = await client.AppendReplicaEntriesAsync(CreateAppendRequest("node-b", "node-b"), cancellationToken: cancellationToken);
+        var traceId = ActivityTraceId.CreateRandom();
+        var parentSpanId = ActivitySpanId.CreateRandom();
+        const string traceState = "replication=append";
+        const string operation = PeerProtocol.Prefix + "replication/AppendReplicaEntries";
+        var captured = new TaskCompletionSource<Activity>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.Ordinal),
+            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.TraceId == traceId && activity.Kind == ActivityKind.Server && string.Equals(activity.OperationName, operation, StringComparison.Ordinal))
+                    _ = captured.TrySetResult(activity);
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { Correlation.TraceParentHeader, $"00-{traceId}-{parentSpanId}-01" },
+            { Correlation.TraceStateHeader, traceState },
+        };
+        var response = await client.AppendReplicaEntriesAsync(CreateAppendRequest("node-b", "node-b"), headers, cancellationToken);
+        var span = await captured.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(span.ParentSpanId).IsEqualTo(parentSpanId);
+        _ = await Assert.That(span.TraceStateString).IsEqualTo(traceState);
 
         _ = await Assert.That(response).IsNotNull();
         _ = await Assert.That(response.Success).IsFalse();

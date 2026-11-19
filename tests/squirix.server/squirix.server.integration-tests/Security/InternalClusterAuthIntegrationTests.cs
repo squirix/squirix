@@ -27,10 +27,10 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// <summary>Verifies external JWT auth and internal cluster mTLS auth remain separated.</summary>
 public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBase
 {
-    /// <summary>Verifies an external caller cannot spoof internal owner-routing metadata without trusted cluster mTLS.</summary>
+    /// <summary>Verifies the public listener does not expose peer forwarding.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ExternalClientCannotSpoofOwnerHeader(CancellationToken cancellationToken)
+    public async Task PublicListenerRejectsPeerReads(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
 
@@ -39,16 +39,11 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         using var channelHandler = LoopbackHttp.CreateHandler();
         using var channel = new HttpClient(channelHandler, false) { BaseAddress = cluster["node-a"].Uri };
         var client = channel;
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "squirix-internal-owner-rpc", "true" },
-        };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(
             client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" },
-                headers,
-                cancellationToken),
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
@@ -102,9 +97,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         using var handler = await CreateCaTrustingHandlerAsync("node-b", peers, cancellationToken);
         using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUrl };
         var client = channel;
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, headers, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsNull();
     }
@@ -123,7 +117,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(response.Found).IsFalse();
         await AssertReadyAsync(cluster["node-a"], cancellationToken);
 
-        var spoofed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "squirix-internal-owner-rpc", "true" }, { "squirix-ring-fingerprint", "garbage" } };
+        var spoofed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "squirix-ring-fingerprint", "garbage" } };
         using var legacyHandler = LoopbackHttp.CreateHandler();
         using var legacy = new HttpClient(legacyHandler, false) { BaseAddress = cluster["node-a"].Uri };
         var legacyClient = legacy;
@@ -250,10 +244,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(expiration.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
     }
 
-    /// <summary>Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.</summary>
+    /// <summary>Verifies the public listener rejects peer forwarding even with JWT auth.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SpoofedInternalOwnerHeaderRejected(CancellationToken cancellationToken)
+    public async Task PublicListenerRejectsPeerWritesWithJwt(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         await using var cluster = await StartClusterAsync(
@@ -265,10 +259,6 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         using var channelHandler = LoopbackHttp.CreateHandler();
         using var channel = new HttpClient(channelHandler, false) { BaseAddress = cluster["node-b"].Uri };
         var client = channel;
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "squirix-internal-owner-rpc", "true" },
-        };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(
             client.SetEntryAsync(
@@ -279,8 +269,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     Key = "spoofed-owner-write",
                     Entry = new NodeCacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
                 },
-                headers,
-                cancellationToken),
+                cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
@@ -290,7 +279,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
     private static Dictionary<string, string> CreateOwnerHeaders(string? ringFingerprint)
     {
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "squirix-internal-owner-rpc", "true" } };
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (ringFingerprint != null)
             headers.Add("squirix-ring-fingerprint", ringFingerprint);
 

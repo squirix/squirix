@@ -53,13 +53,14 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     public async Task HostingDependenciesMatchApprovedBaseline()
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
+        _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain(static package => package.StartsWith("Grpc.", StringComparison.OrdinalIgnoreCase));
         var frameworkIncludes = index.GetIncludes("FrameworkReference");
         _ = await Assert.That(frameworkIncludes).IsNotNull();
 
         _ = await Assert.That(
             ServerArchitectureFixtures.CollectUnexpectedMatches(
                 index.GetIncludes("PackageReference"),
-                static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal),
+                static include => include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal),
                 ServerArchitectureFixtures.KnownServerPackageDependencyBaseline,
                 StringComparer.Ordinal)).IsEmpty();
 

@@ -210,18 +210,6 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         _ = await Assert.That(sink.HasEvent("squirix_call_policy_busy_rejects_total", ("peer", "peer-f"), ("scope", "policy"))).IsFalse();
     }
 
-    /// <summary>Ensures outbound call options inherit the ambient deadline budget.</summary>
-    [Test]
-    public async Task DeadlineContextComputesCallDeadline()
-    {
-        using var scope = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(2), TimeProvider.System);
-
-        var effective = ServerRpcDeadlineContext.EffectiveDeadline(DateTime.UtcNow.AddSeconds(5));
-
-        _ = await Assert.That(effective).IsNotNull();
-        _ = await Assert.That(effective <= DateTime.UtcNow.AddSeconds(2.5)).IsTrue();
-    }
-
     /// <summary>Ensures disposing the policy during an active execution does not fail the in-flight operation.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

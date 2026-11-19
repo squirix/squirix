@@ -6,6 +6,7 @@ using Google.Protobuf;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Node.Observability;
 using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Grpc.Replication;
@@ -16,6 +17,10 @@ internal static class PeerDispatch
 
     private static async Task<BinaryResponse> DispatchAsync(HttpContext http, ReadOnlyMemory<byte> body, string peer)
     {
+        var path = http.Request.Path.Value!;
+        var correlation = http.RequestServices.GetRequiredService<ServerCallCorrelation>();
+        using var activity = ServerCallCorrelation.StartActivity(path, http.Request.Headers[Correlation.TraceParentHeader], http.Request.Headers[Correlation.TraceStateHeader]);
+        using var logScope = correlation.BeginLogScope(path);
         var service = http.RequestServices.GetRequiredService<SquirixReplicationServiceAdapter>();
         IMessage? response = http.Request.RouteValues["operation"] switch
         {

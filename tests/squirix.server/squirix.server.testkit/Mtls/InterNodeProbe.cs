@@ -20,7 +20,6 @@ internal static class InterNodeProbe
             VersionPolicy = HttpVersionPolicy.RequestVersionExact,
             Content = new ByteArrayContent([]),
         };
-        request.Headers.Add("squirix-internal-owner-rpc", "true");
         request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(PeerProtocol.MediaType);
         using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         return response.StatusCode;

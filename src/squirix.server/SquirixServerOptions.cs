@@ -99,7 +99,7 @@ public sealed class SquirixServerOptions
     /// </summary>
     public bool ReplicationEnabled { get; set; }
 
-    /// <summary>Gets or sets the primary HTTPS URI used for gRPC and node traffic.</summary>
+    /// <summary>Gets or sets the primary HTTPS URI used for cache clients and operational endpoints.</summary>
     public Uri Uri { get; set; } = new("https://localhost:5001");
 
     /// <summary>Gets or sets the number of consistent-hash virtual nodes.</summary>
