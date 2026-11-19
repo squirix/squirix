@@ -130,6 +130,32 @@ public sealed class ReplicaRecoveredTailTests : ServerUnitTestBase
         GC.KeepAlive(coordinator);
     }
 
+    /// <summary>A leader start must recapture the uncommitted range when another commit advances its lower bound.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdvancedCommitInvalidatesCapturedTail(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-advanced-tail-commit");
+        const string group = "group-a";
+        await using var log = new FollowerLog(dir, group, GroupComposition.Create(group), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        FollowerLogEntry[] entries = [new(1, 1, new byte[] { 1 }), new(2, 1, new byte[] { 2 })];
+        var append = await log.AppendAsync(new FollowerLogAppendRequest(group, 1, 0, 0, 0, entries), cancellationToken);
+        _ = await Assert.That(append.Success).IsTrue();
+        var captured = await log.GetLeaderTailAsync(cancellationToken);
+        _ = await Assert.That((await log.AdvanceCommitAsync(1, cancellationToken)).Success).IsTrue();
+
+        var visited = false;
+        var stale = log.VisitLeaderTailBatchAsync(captured, 0, _ => visited = true, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stale, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(visited).IsFalse();
+
+        var fresh = await log.GetLeaderTailAsync(cancellationToken);
+        ulong firstIndex = 0;
+        await log.VisitLeaderTailBatchAsync(fresh, fresh.Status.CommitIndex, page => firstIndex = page[0].LogIndex, cancellationToken);
+        _ = await Assert.That(firstIndex).IsEqualTo(2UL);
+    }
+
     /// <summary>A suffix replaced at the same indexes cannot be visited or pinned under an earlier leader snapshot.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

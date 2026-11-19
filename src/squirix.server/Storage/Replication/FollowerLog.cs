@@ -489,7 +489,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         FollowerLogTail tail, ulong afterIndex, Action<IReadOnlyList<FollowerLogEntry>> visit, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (tail.Revision != _journal.TailRevision || tail.Status.CurrentTerm != _meta.CurrentTerm || Refuses)
+        if (tail.Revision != _journal.TailRevision || tail.Status.CurrentTerm != _meta.CurrentTerm || tail.Status.CommitIndex != _meta.CommitIndex || Refuses)
             throw new InvalidOperationException($"Replica group '{GroupId}' changed during leader tail recovery.");
 
         ArgumentOutOfRangeException.ThrowIfLessThan(afterIndex, tail.Status.CommitIndex);
