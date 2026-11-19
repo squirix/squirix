@@ -13,10 +13,10 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix;
 using Squirix.Client;
 using Squirix.Server;
+using Squirix.Transport;
 
 var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
@@ -162,7 +162,7 @@ static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken canc
                 _ = await cache.RemoveAsync(key, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception ex) when (ex is RpcException or IOException)
+        catch (Exception ex) when (ex is SquirixTransportException or IOException)
         {
             // Demo load ignores transient failures while the runtime is being exercised.
         }
