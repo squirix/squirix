@@ -113,17 +113,17 @@ internal sealed class ServerClientPool : IServerClientPool
 
     public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken)
     {
-        var channel = _channels[nodeId].Lease;
+        var channels = _channels[nodeId];
         if (!_calls.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and leases no channel.");
 
         try
         {
             if (!cancellationToken.CanBeCanceled)
-                return new ServerChannelLease(channel, null, _calls, _closing.Token);
+                return new ServerChannelLease(channels.Lease, channels.Replication, null, _calls, _closing.Token);
 
             var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _closing.Token);
-            return new ServerChannelLease(channel, linked, _calls, linked.Token);
+            return new ServerChannelLease(channels.Lease, channels.Replication, linked, _calls, linked.Token);
         }
         catch
         {

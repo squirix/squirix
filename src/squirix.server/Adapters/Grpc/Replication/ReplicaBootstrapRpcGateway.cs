@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -27,23 +26,15 @@ internal sealed class ReplicaBootstrapRpcGateway : IReplicaBootstrapGateway
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
         var request = new GetReplicaStatusRequest { Header = ReplicaRpcGateway.MapHeader(in header) };
-        try
-        {
-            var response = await client.GetReplicaStatusAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-            return new ReplicaMemberStatus(
-                GroupMemberStateNames.Parse(response.MemberState),
-                string.Equals(response.Readiness, ReplicaReadinessNames.Ready, StringComparison.Ordinal),
-                response.TopologyFingerprint.ToByteArray(),
-                response.ConfigurationGeneration,
-                response.RefusalCode,
-                response.Term);
-        }
-        catch (RpcException failure)
-        {
-            throw CallErrors.FromGrpc(failure);
-        }
+        var response = await lease.Client.SendAsync("replication/GetReplicaStatus", request, GetReplicaStatusResponse.Parser, lease.Token).ConfigureAwait(false);
+        return new ReplicaMemberStatus(
+            GroupMemberStateNames.Parse(response.MemberState),
+            string.Equals(response.Readiness, ReplicaReadinessNames.Ready, StringComparison.Ordinal),
+            response.TopologyFingerprint.ToByteArray(),
+            response.ConfigurationGeneration,
+            response.RefusalCode,
+            response.Term);
     }
 
     /// <inheritdoc />
@@ -51,16 +42,8 @@ internal sealed class ReplicaBootstrapRpcGateway : IReplicaBootstrapGateway
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
         var request = new OfferReplicaBootstrapRequest { Header = ReplicaRpcGateway.MapHeader(in header) };
-        try
-        {
-            var response = await client.OfferReplicaBootstrapAsync(request, cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-            return new ReplicaBootstrapOfferResult(response.Accepted, GroupMemberStateNames.Parse(response.MemberState), response.RefusalCode);
-        }
-        catch (RpcException failure)
-        {
-            throw CallErrors.FromGrpc(failure);
-        }
+        var response = await lease.Client.SendAsync("replication/OfferReplicaBootstrap", request, OfferReplicaBootstrapResponse.Parser, lease.Token).ConfigureAwait(false);
+        return new ReplicaBootstrapOfferResult(response.Accepted, GroupMemberStateNames.Parse(response.MemberState), response.RefusalCode);
     }
 }

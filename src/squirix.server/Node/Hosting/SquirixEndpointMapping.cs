@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -50,7 +51,10 @@ internal static class SquirixEndpointMapping
         // Closed replication service: internal listener only, for foundation transport tests
         // and on network-replication-activated hosts.
         if (featureState.FoundationOnly || featureState.NetworkReplicationEnabled)
+        {
+            _ = app.MapPost(PeerProtocol.Prefix + "replication/{operation}", PeerDispatch.HandleAsync).WithMetadata(internalListener).AllowAnonymous();
             _ = app.MapGrpcService<ReplicationServiceAdapter>().WithMetadata(internalListener).AllowAnonymous();
+        }
 
         return app;
     }

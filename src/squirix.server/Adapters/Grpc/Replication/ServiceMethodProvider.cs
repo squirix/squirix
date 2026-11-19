@@ -25,38 +25,38 @@ internal sealed class ServiceMethodProvider : IServiceMethodProvider<SquirixRepl
             nameof(SquirixReplicationService.SquirixReplicationServiceBase.AppendReplicaEntries),
             AppendReplicaEntriesRequest.Parser,
             AppendReplicaEntriesResponse.Parser,
-            static (service, request, call) => service.AppendReplicaEntriesAsync(request, call));
+            static (service, request, call) => service.AppendReplicaEntriesAsync(request, call.GetHttpContext()));
         Add(
             context,
             nameof(SquirixReplicationService.SquirixReplicationServiceBase.GetReplicaStatus),
             GetReplicaStatusRequest.Parser,
             GetReplicaStatusResponse.Parser,
-            static (service, request, call) => service.GetReplicaStatusAsync(request, call));
+            static (service, request, call) => service.GetReplicaStatusAsync(request, call.GetHttpContext()));
         Add(
             context,
             nameof(SquirixReplicationService.SquirixReplicationServiceBase.OfferReplicaBootstrap),
             OfferReplicaBootstrapRequest.Parser,
             OfferReplicaBootstrapResponse.Parser,
-            static (service, request, call) => service.OfferReplicaBootstrapAsync(request, call));
+            static (service, request, call) => service.OfferReplicaBootstrapAsync(request, call.GetHttpContext()));
         Add(
             context,
             nameof(SquirixReplicationService.SquirixReplicationServiceBase.PreVote),
             ReplicaVoteRequest.Parser,
             ReplicaVoteResponse.Parser,
-            static (service, request, call) => service.PreVoteAsync(request, call));
+            static (service, request, call) => service.PreVoteAsync(request, call.GetHttpContext()));
         Add(
             context,
             nameof(SquirixReplicationService.SquirixReplicationServiceBase.RequestVote),
             ReplicaVoteRequest.Parser,
             ReplicaVoteResponse.Parser,
-            static (service, request, call) => service.RequestVoteAsync(request, call));
+            static (service, request, call) => service.RequestVoteAsync(request, call.GetHttpContext()));
         var transfer = new Method<TransferReplicaStateRequest, TransferReplicaStateResponse>(
             MethodType.Unary,
             ServiceName,
             nameof(SquirixReplicationService.SquirixReplicationServiceBase.TransferReplicaState),
             new Marshaller<TransferReplicaStateRequest>(Serialize, _transfers.Deserialize),
             Marshaller(TransferReplicaStateResponse.Parser));
-        context.AddUnaryMethod(transfer, Metadata(), static (service, request, call) => service.TransferReplicaStateAsync(request, call));
+        context.AddUnaryMethod(transfer, Metadata(), static (service, request, call) => service.TransferReplicaStateAsync(request, call.GetHttpContext()));
     }
 
     private static void Add<TRequest, TResponse>(

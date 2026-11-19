@@ -35,7 +35,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = new AppendReplicaEntriesRequest { Header = follower.Header, PrevLogIndex = 0, PrevLogTerm = 0, LeaderCommitIndex = 0 };
 
-        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.HttpContext);
 
         _ = await Assert.That(response.Success).IsTrue();
         _ = await Assert.That(response.Term).IsEqualTo(7UL);
@@ -52,9 +52,9 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync("node-a", false, null, pressure, cancellationToken);
         var request = new AppendReplicaEntriesRequest { Header = follower.Header, PrevLogIndex = 0, PrevLogTerm = 0, LeaderCommitIndex = 0 };
 
-        var calm = await follower.Adapter.AppendReplicaEntriesAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var calm = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.HttpContext);
         pressure.Set(true);
-        var critical = await follower.Adapter.AppendReplicaEntriesAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var critical = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.HttpContext);
 
         _ = await Assert.That((calm.Success, calm.MemoryPressure)).IsEqualTo((true, false));
         _ = await Assert.That((critical.Success, critical.MemoryPressure)).IsEqualTo((true, true));
@@ -68,7 +68,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = new GetReplicaStatusRequest { Header = follower.Header };
 
-        var response = await follower.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var response = await follower.Adapter.GetReplicaStatusAsync(request, follower.HttpContext);
 
         _ = await Assert.That(response.Readiness).IsEqualTo("ready");
         _ = await Assert.That(response.MemberState).IsEqualTo("complete");
@@ -86,7 +86,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var current = await GroupStatusAsync(follower, cancellationToken);
         var request = new GetReplicaStatusRequest { Header = follower.Header };
 
-        var response = await follower.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var response = await follower.Adapter.GetReplicaStatusAsync(request, follower.HttpContext);
 
         _ = await Assert.That(current.TopologyFingerprint.IsEmpty).IsFalse();
         await SequenceAssert.EqualAsync(current.TopologyFingerprint.ToArray(), response.TopologyFingerprint.ToByteArray());
@@ -104,8 +104,8 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var request = new ReplicaVoteRequest { Header = follower.Header };
         var before = await GroupMetadataFile.ReadBytesAsync(MetaPath(follower), cancellationToken);
 
-        var vote = await follower.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
-        var preVote = await follower.Adapter.PreVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var vote = await follower.Adapter.RequestVoteAsync(request, follower.HttpContext);
+        var preVote = await follower.Adapter.PreVoteAsync(request, follower.HttpContext);
 
         _ = await Assert.That(vote.Granted).IsFalse();
         _ = await Assert.That(vote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
@@ -126,7 +126,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         follower.Registry.StateFor(follower.Header.GroupId).SetElectionDriven(true);
         follower.Header.Term = 2;
 
-        var vote = await follower.Adapter.RequestVoteAsync(new ReplicaVoteRequest { Header = follower.Header }, new TestServerCallContext(null, follower.HttpContext));
+        var vote = await follower.Adapter.RequestVoteAsync(new ReplicaVoteRequest { Header = follower.Header }, follower.HttpContext);
 
         _ = await Assert.That((vote.Granted, vote.Term)).IsEqualTo((true, 2UL));
         var status = await GroupStatusAsync(follower, cancellationToken);
@@ -141,13 +141,13 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync("node-a", true, null, cancellationToken);
         var state = follower.Registry.StateFor(follower.Header.GroupId);
         var request = new GetReplicaStatusRequest { Header = follower.Header };
-        var before = await follower.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var before = await follower.Adapter.GetReplicaStatusAsync(request, follower.HttpContext);
         state.SetElectionDriven(true);
         _ = state.BecomeLeader(2UL);
-        var promoting = await follower.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var promoting = await follower.Adapter.GetReplicaStatusAsync(request, follower.HttpContext);
         _ = state.GrantAuthority(2UL);
 
-        var leading = await follower.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var leading = await follower.Adapter.GetReplicaStatusAsync(request, follower.HttpContext);
 
         _ = await Assert.That((before.Role, promoting.Role, leading.Role)).IsEqualTo(("follower", "candidate", "leader"));
     }
@@ -160,7 +160,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync("node-a", true, null, cancellationToken);
         var request = new ReplicaVoteRequest { Header = follower.Header };
 
-        var response = await follower.Adapter.PreVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var response = await follower.Adapter.PreVoteAsync(request, follower.HttpContext);
 
         _ = await Assert.That(response.Granted).IsTrue();
         _ = await Assert.That(response.Term).IsEqualTo(0UL);
@@ -178,7 +178,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         follower.Header.Term = 1;
         var request = new ReplicaVoteRequest { Header = follower.Header };
 
-        var response = await follower.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var response = await follower.Adapter.RequestVoteAsync(request, follower.HttpContext);
 
         _ = await Assert.That(response.Granted).IsFalse();
         _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.StaleTerm);
@@ -201,7 +201,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
         var request = new GetReplicaStatusRequest { Header = follower.Header };
 
-        var response = await follower.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var response = await follower.Adapter.GetReplicaStatusAsync(request, follower.HttpContext);
 
         _ = await Assert.That(response.LastLogIndex).IsEqualTo(2UL);
         _ = await Assert.That(response.LastLogTerm).IsEqualTo(7UL);
@@ -219,8 +219,8 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         follower.Header.Term = 2;
         var request = new ReplicaVoteRequest { Header = follower.Header };
 
-        var vote = await follower.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
-        var preVote = await follower.Adapter.PreVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var vote = await follower.Adapter.RequestVoteAsync(request, follower.HttpContext);
+        var preVote = await follower.Adapter.PreVoteAsync(request, follower.HttpContext);
 
         _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.Term)).IsEqualTo((false, RefusalCodes.NotMember, 0UL));
         _ = await Assert.That((preVote.Granted, preVote.RefusalCode, preVote.Term)).IsEqualTo((false, RefusalCodes.NotMember, 0UL));
@@ -237,7 +237,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         follower.Header.Term = 2;
         var request = new ReplicaVoteRequest { Header = follower.Header };
 
-        var response = await follower.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var response = await follower.Adapter.RequestVoteAsync(request, follower.HttpContext);
 
         _ = await Assert.That(response.Granted).IsTrue();
         _ = await Assert.That(response.Term).IsEqualTo(2UL);
@@ -256,8 +256,8 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var request = new ReplicaVoteRequest { Header = follower.Header };
         var before = await GroupMetadataFile.ReadBytesAsync(MetaPath(follower), cancellationToken);
 
-        var vote = await follower.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
-        var preVote = await follower.Adapter.PreVoteAsync(request, new TestServerCallContext(null, follower.HttpContext));
+        var vote = await follower.Adapter.RequestVoteAsync(request, follower.HttpContext);
+        var preVote = await follower.Adapter.PreVoteAsync(request, follower.HttpContext);
 
         _ = await Assert.That(vote.Granted).IsFalse();
         _ = await Assert.That(vote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);

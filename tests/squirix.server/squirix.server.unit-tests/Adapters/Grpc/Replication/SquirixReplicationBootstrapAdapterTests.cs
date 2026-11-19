@@ -149,7 +149,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         {
             Adapter = adapter,
             Bundle = bundle,
-            Context = new TestServerCallContext(null, httpContext),
+            Context = httpContext,
             Dir = dir,
             Header = header,
             Material = material,
@@ -165,7 +165,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
 
         internal required MtlsTestCertificateBundle Bundle { get; init; }
 
-        internal required TestServerCallContext Context { get; init; }
+        internal required HttpContext Context { get; init; }
 
         internal required TempDirectory Dir { get; init; }
 

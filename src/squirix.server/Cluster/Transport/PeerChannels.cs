@@ -56,9 +56,10 @@ internal sealed class PeerChannels
     /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
-    private PeerChannels(HttpClient forward, GrpcChannel lease)
+    private PeerChannels(HttpClient forward, HttpClient replication, GrpcChannel lease)
     {
         Forward = forward;
+        Replication = new PeerClient(replication, null);
         Lease = lease;
     }
 
@@ -67,6 +68,8 @@ internal sealed class PeerChannels
 
     /// <summary>Gets the channel of every other internode call: replication, elections and probes.</summary>
     internal GrpcChannel Lease { get; }
+
+    internal IPeerClient Replication { get; }
 
     /// <summary>Creates both channels of a peer; when the second fails, the first is disposed before the failure propagates.</summary>
     /// <param name="nodeId">The peer node identifier.</param>
@@ -85,17 +88,27 @@ internal sealed class PeerChannels
         TimeSpan forwardConnectTimeout)
     {
         HttpClient? forward = null;
+        HttpClient? replication = null;
         try
         {
-            var options = CreateChannelOptions(nodeId, args, verifier, connections, forwardConnectTimeout);
-            forward = new HttpClient(options.HttpHandler!, options.DisposeHttpClient) { BaseAddress = address, Timeout = Timeout.InfiniteTimeSpan };
-            var created = new PeerChannels(forward, GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, verifier, connections, null)));
+            forward = CreateClient(address, nodeId, args, verifier, connections, forwardConnectTimeout);
+            replication = CreateClient(address, nodeId, args, verifier, connections, null);
+            var transfer = GrpcChannel.ForAddress(address, new GrpcChannelOptions
+            {
+                HttpClient = replication,
+                DisposeHttpClient = true,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+            var created = new PeerChannels(forward, replication, transfer);
             forward = null;
+            replication = null;
             return created;
         }
         finally
         {
             forward?.Dispose();
+            replication?.Dispose();
         }
     }
 
@@ -139,7 +152,8 @@ internal sealed class PeerChannels
         socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
     }
 
-    private static GrpcChannelOptions CreateChannelOptions(
+    private static HttpClient CreateClient(
+        Uri address,
         string nodeId,
         ServerClientPoolArgs args,
         PeerHandshakeVerifier? verifier,
@@ -176,18 +190,9 @@ internal sealed class PeerChannels
             }
 
             BoundConnect(peerHandler, ownedHandler != null, dialTimeout, args.TimeProvider);
-            var options = new GrpcChannelOptions
-            {
-                HttpHandler = peerHandler,
-
-                // The channel disposes the handler the pool created; a peerHandlerFactory handler stays owned by the factory's
-                // caller. The certificates an owned handler presents stay loaded through the pool's material hold until its connections are gone.
-                DisposeHttpClient = ownedHandler != null,
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            };
+            var client = new HttpClient(peerHandler, ownedHandler != null) { BaseAddress = address, Timeout = Timeout.InfiniteTimeSpan };
             ownedHandler = null;
-            return options;
+            return client;
         }
         finally
         {

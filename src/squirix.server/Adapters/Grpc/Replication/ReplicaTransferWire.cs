@@ -3,8 +3,8 @@ using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
@@ -34,7 +34,7 @@ internal static class ReplicaTransferWire
     /// <param name="request">The request whose envelope the caller verified.</param>
     /// <param name="cancellationToken">Cancellation token of the call.</param>
     /// <returns>The reply of the receiver, or a refusal when a value of the step is out of range.</returns>
-    /// <exception cref="RpcException">The request carries no step.</exception>
+    /// <exception cref="ServerCallException">The request carries no step.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The step is not supported.</exception>
     internal static async Task<TransferReplicaStateResponse> ApplyAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
@@ -46,7 +46,7 @@ internal static class ReplicaTransferWire
             TransferReplicaStateRequest.StepOneofCase.Entries => await EntriesAsync(receiver, request, cancellationToken).ConfigureAwait(false),
             TransferReplicaStateRequest.StepOneofCase.End => await EndAsync(receiver, request, cancellationToken).ConfigureAwait(false),
             TransferReplicaStateRequest.StepOneofCase.Abort => await receiver.AbortAsync(SenderOf(request), cancellationToken).ConfigureAwait(false),
-            TransferReplicaStateRequest.StepOneofCase.None => throw new RpcException(new Status(StatusCode.InvalidArgument, "A state transfer request with a step is required.")),
+            TransferReplicaStateRequest.StepOneofCase.None => throw new ServerCallException(FrameStatus.InvalidArgument, "A state transfer request with a step is required."),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.StepCase, "Unsupported transfer step."),
         };
         return new TransferReplicaStateResponse { Term = reply.Term, Success = reply.Success, RefusalCode = reply.RefusalCode, More = reply.More };

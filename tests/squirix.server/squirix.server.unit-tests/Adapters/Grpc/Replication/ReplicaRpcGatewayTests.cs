@@ -13,7 +13,6 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -94,7 +93,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         await pool.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await parking.Cancelled.WaitAsync(cancellationToken);
         _ = await Assert.That(parking.Disposed).IsTrue();
         _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
@@ -131,7 +130,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         await pool.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await parking.Cancelled.WaitAsync(cancellationToken);
         _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
     }
@@ -173,7 +172,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         _ = await Assert.That(first).IsSameReferenceAs(parking.Arrived).Because("The vote must reach the transport instead of failing while it is built.");
         await pool.DisposeAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static FollowerBatch Batch() => new([], PeerNodeId, 1, 0, 0, 0);

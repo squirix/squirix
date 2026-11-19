@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -29,16 +28,8 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
-        try
-        {
-            var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-            return MapAppendResponse(response);
-        }
-        catch (RpcException failure)
-        {
-            throw CallErrors.FromGrpc(failure);
-        }
+        var response = await lease.Client.SendAsync("replication/AppendReplicaEntries", MapRequest(in header, in batch), AppendReplicaEntriesResponse.Parser, lease.Token).ConfigureAwait(false);
+        return MapAppendResponse(response);
     }
 
     /// <inheritdoc />
@@ -46,16 +37,8 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
-        try
-        {
-            var response = await client.PreVoteAsync(MapVoteRequest(in header, lastLogIndex, lastLogTerm), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-            return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
-        }
-        catch (RpcException failure)
-        {
-            throw CallErrors.FromGrpc(failure);
-        }
+        var response = await lease.Client.SendAsync("replication/PreVote", MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
+        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 
     /// <inheritdoc />
@@ -63,16 +46,8 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
-        try
-        {
-            var response = await client.RequestVoteAsync(MapVoteRequest(in header, lastLogIndex, lastLogTerm), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-            return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
-        }
-        catch (RpcException failure)
-        {
-            throw CallErrors.FromGrpc(failure);
-        }
+        var response = await lease.Client.SendAsync("replication/RequestVote", MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
+        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 
     /// <summary>Maps the replication envelope identity to its wire message.</summary>

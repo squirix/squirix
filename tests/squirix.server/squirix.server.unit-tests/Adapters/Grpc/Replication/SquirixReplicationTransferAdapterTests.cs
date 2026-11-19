@@ -5,7 +5,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -20,6 +19,7 @@ using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -157,9 +157,9 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(Request(scope, 0U, static _ => { }), scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scope.Adapter.TransferReplicaStateAsync(Request(scope, 0U, static _ => { }), scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
 
     /// <summary>A sender that does not match the peer certificate is rejected as unauthenticated.</summary>
@@ -172,9 +172,9 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         request.Header.SenderNodeId = "n9";
         request.Header.LeaderNodeId = "n9";
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.Unauthenticated);
     }
 
     /// <summary>A sender that names another node as the leader is rejected as forbidden.</summary>
@@ -186,9 +186,9 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var request = BeginRequest(scope, TransferFixtures.Image());
         request.Header.LeaderNodeId = "n9";
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.PermissionDenied);
     }
 
     /// <summary>An adapter without a receiver refuses a transfer message as not ready.</summary>
@@ -295,7 +295,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
             Bundle = bundle,
             Certificate = certificate,
             Clock = clock,
-            Context = new TestServerCallContext(null, httpContext),
+            Context = httpContext,
             Dir = dir,
             Header = header,
             Log = logger,
@@ -368,7 +368,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
 
         internal required FakeTimeProvider Clock { get; init; }
 
-        internal required TestServerCallContext Context { get; init; }
+        internal required HttpContext Context { get; init; }
 
         internal required TempDirectory Dir { get; init; }
 

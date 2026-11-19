@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -12,6 +11,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
@@ -85,14 +85,14 @@ internal sealed class SquirixReplicationServiceAdapter
     }
 
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.AppendReplicaEntries" />
-    internal async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, ServerCallContext context)
+    internal async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, HttpContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
         if (_follower == null)
             return StubAppendRefusal(header);
 
         var batch = BuildFollowerBatch(request, header);
-        var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, batch, context.CancellationToken)
+        var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, batch, context.RequestAborted)
                                     .ConfigureAwait(false);
         return new AppendReplicaEntriesResponse
         {
@@ -105,11 +105,11 @@ internal sealed class SquirixReplicationServiceAdapter
     }
 
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.GetReplicaStatus" />
-    internal async Task<GetReplicaStatusResponse> GetReplicaStatusAsync(GetReplicaStatusRequest request, ServerCallContext context)
+    internal async Task<GetReplicaStatusResponse> GetReplicaStatusAsync(GetReplicaStatusRequest request, HttpContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(header.SenderNodeId);
-        var status = _follower == null ? null : await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
+        var status = _follower == null ? null : await _follower.GetStatusAsync(header.GroupId, context.RequestAborted).ConfigureAwait(false);
         if (status == null)
         {
             return new GetReplicaStatusResponse
@@ -146,13 +146,13 @@ internal sealed class SquirixReplicationServiceAdapter
     }
 
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.OfferReplicaBootstrap" />
-    internal async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrapAsync(OfferReplicaBootstrapRequest request, ServerCallContext context)
+    internal async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrapAsync(OfferReplicaBootstrapRequest request, HttpContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(h.SenderNodeId);
         var result = _follower == null
             ? new ReplicaBootstrapOfferResult(false, null, RefusalCodes.NotReady)
-            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, context.CancellationToken).ConfigureAwait(false);
+            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, context.RequestAborted).ConfigureAwait(false);
         return new OfferReplicaBootstrapResponse
         {
             Accepted = result.Accepted,
@@ -162,36 +162,36 @@ internal sealed class SquirixReplicationServiceAdapter
     }
 
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.PreVote" />
-    internal async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, ServerCallContext context)
+    internal async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, HttpContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(h.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, Ballot(h, request), context.CancellationToken)
+        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, Ballot(h, request), context.RequestAborted)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }
 
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.RequestVote" />
-    internal async Task<ReplicaVoteResponse> RequestVoteAsync(ReplicaVoteRequest request, ServerCallContext context)
+    internal async Task<ReplicaVoteResponse> RequestVoteAsync(ReplicaVoteRequest request, HttpContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(header.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
+        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, Ballot(header, request), context.RequestAborted)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }
 
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.TransferReplicaState" />
-    internal async Task<TransferReplicaStateResponse> TransferReplicaStateAsync(TransferReplicaStateRequest request, ServerCallContext context)
+    internal async Task<TransferReplicaStateResponse> TransferReplicaStateAsync(TransferReplicaStateRequest request, HttpContext context)
     {
         _ = EnsureHeader(request.Header, context, true);
         return _transfers == null
             ? new TransferReplicaStateResponse { Term = 0, Success = false, RefusalCode = RefusalCodes.NotReady }
-            : await ReplicaTransferWire.ApplyAsync(_transfers, request, context.CancellationToken).ConfigureAwait(false);
+            : await ReplicaTransferWire.ApplyAsync(_transfers, request, context.RequestAborted).ConfigureAwait(false);
     }
 
     /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
@@ -238,18 +238,18 @@ internal sealed class SquirixReplicationServiceAdapter
     private bool RefusesVotes(string groupId) =>
         _follower == null || !_votesEnabled || (string.Equals(groupId, _nodeId, StringComparison.Ordinal) && !_follower.IsElectionDriven(groupId));
 
-    private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context, bool requireLeader)
+    private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, HttpContext context, bool requireLeader)
     {
         if (header == null || string.IsNullOrWhiteSpace(header.SenderNodeId))
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with sender_node_id is required."));
+            throw new ServerCallException(FrameStatus.InvalidArgument, "Replication envelope header with sender_node_id is required.");
 
         if (requireLeader && string.IsNullOrWhiteSpace(header.LeaderNodeId))
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with leader_node_id is required."));
+            throw new ServerCallException(FrameStatus.InvalidArgument, "Replication envelope header with leader_node_id is required.");
 
         _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _peers, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
 
         const string m = "Unsupported replication envelope schema version.";
-        return header.SchemaVersion != EnvelopeSchema.Version ? throw new RpcException(new Status(StatusCode.InvalidArgument, m)) : header;
+        return header.SchemaVersion != EnvelopeSchema.Version ? throw new ServerCallException(FrameStatus.InvalidArgument, m) : header;
     }
 
     /// <summary>Enforces internal-listener + mTLS NodeId binding for closed replication RPCs.</summary>
@@ -270,9 +270,9 @@ internal sealed class SquirixReplicationServiceAdapter
         /// <param name="claimedSenderNodeId">Sender node id claimed by the request envelope.</param>
         /// <param name="claimedLeaderNodeId">Leader node id claimed by the request envelope; null when the operation is not leader-authorized.</param>
         /// <returns>Validated peer node id from the client certificate.</returns>
-        /// <exception cref="RpcException">Thrown when the call is not a trusted internal replication peer.</exception>
+        /// <exception cref="ServerCallException">Thrown when the call is not a trusted internal replication peer.</exception>
         internal static string EnsureTrustedPeer(
-            ServerCallContext context,
+            HttpContext context,
             MtlsOptions options,
             VerifiedPeerCertificates? peers,
             string claimedSenderNodeId,
@@ -283,25 +283,25 @@ internal sealed class SquirixReplicationServiceAdapter
             ArgumentException.ThrowIfNullOrWhiteSpace(claimedSenderNodeId);
 
             if (peers == null || options.InternalListenPort <= 0)
-                throw new RpcException(new Status(StatusCode.Unavailable, "Internal replication listener is not configured."));
+                throw new ServerCallException(FrameStatus.Unavailable, "Internal replication listener is not configured.");
 
-            var httpContext = context.GetHttpContext();
+            var httpContext = context;
             if (!InternalListenerConnection.ArrivedOnInternalPort(httpContext, options.InternalListenPort))
-                throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication service is bound to the internal mTLS listener only."));
+                throw new ServerCallException(FrameStatus.PermissionDenied, "Replication service is bound to the internal mTLS listener only.");
 
             var certificate = httpContext.Connection.ClientCertificate ?? ThrowHelper.Throw<X509Certificate2>(
-                new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate.")));
+                new ServerCallException(FrameStatus.Unauthenticated, "Replication requires a trusted peer client certificate."));
 
             // The chain is built on the first call of a connection only; later calls reuse its verdict while the certificate stays valid.
             if (!peers.TryVerify(certificate, out var certificateNodeId))
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is not a configured cluster member."));
+                throw new ServerCallException(FrameStatus.Unauthenticated, "Replication peer certificate is not a configured cluster member.");
 
             var senderMatches = string.Equals(certificateNodeId, claimedSenderNodeId, StringComparison.Ordinal);
             var leaderMatches = claimedLeaderNodeId == null || string.Equals(certificateNodeId, claimedLeaderNodeId, StringComparison.Ordinal);
             return (senderMatches, leaderMatches) switch
             {
-                (false, _) => throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication sender_node_id does not match the peer certificate NodeId.")),
-                (true, false) => throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication leader_node_id does not match the peer certificate NodeId.")),
+                (false, _) => throw new ServerCallException(FrameStatus.Unauthenticated, "Replication sender_node_id does not match the peer certificate NodeId."),
+                (true, false) => throw new ServerCallException(FrameStatus.PermissionDenied, "Replication leader_node_id does not match the peer certificate NodeId."),
                 (true, true) => certificateNodeId,
             };
         }
