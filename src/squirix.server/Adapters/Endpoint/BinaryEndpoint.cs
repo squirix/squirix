@@ -145,17 +145,16 @@ internal static class BinaryEndpoint
         var operations = services.GetRequiredService<BinaryDispatch>();
         var state = new CallState(connection, services, identity, policy, accessor, operations, graceful);
         var log = services.GetRequiredService<ILogger<BinaryConnectionPump>>();
-        var pump = new BinaryConnectionPump(connection, (frame, bytes) => ProcessAsync(state, frame, bytes), log, TimeProvider.System);
+        var pump = new BinaryConnectionPump(connection, (frame, bytes, elapsed, predecessor) => ProcessAsync(state, frame, bytes, elapsed, predecessor), log, TimeProvider.System);
         await pump.RunAsync(stop).ConfigureAwait(false);
     }
 
-    private static async ValueTask<BinaryResponse> ProcessAsync(CallState state, (int Id, int Size, int Control) frame, ReadOnlyMemory<byte> body)
+    private static async ValueTask<BinaryResponse> ProcessAsync(CallState state, (int Id, int Size, int Control) frame, ReadOnlyMemory<byte> body, TimeSpan elapsed, Task predecessor)
     {
         var budget = frame.Control & 0xffff;
-        if (budget == 0)
+        var timeout = TimeSpan.FromMilliseconds(Math.Min(budget, RpcAttemptTimeout.OperationDeadline.TotalMilliseconds)) - elapsed;
+        if (timeout <= TimeSpan.Zero)
             return new BinaryResponse(FrameStatus.DeadlineExceeded);
-
-        var timeout = TimeSpan.FromMilliseconds(Math.Min(budget, RpcAttemptTimeout.OperationDeadline.TotalMilliseconds));
         var operationId = Frames.ReadOperationId(frame.Control);
         var operation = Unsafe.BitCast<int, BinaryOperation>(operationId);
         var deadlineUtc = (TimeProvider.System.GetUtcNow() + timeout).UtcDateTime;
@@ -184,7 +183,7 @@ internal static class BinaryEndpoint
                 body = traced.Payload.Memory;
             }
 
-            var callContext = new BinaryDispatch.Request(http, deadlineUtc, traceParent, traceState);
+            var callContext = new BinaryDispatch.Request(http, deadlineUtc, traceParent, traceState, predecessor);
             return await state.Operations.ExecuteAsync(operation, body, in callContext).ConfigureAwait(false);
         }
         catch (RpcException error)

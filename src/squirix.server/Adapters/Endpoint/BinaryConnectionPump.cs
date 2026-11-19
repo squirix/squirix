@@ -22,24 +22,24 @@ internal sealed partial class BinaryConnectionPump
     private const int MaxPending = 16;
     private const int DispatchBatchLimit = 4;
 
-    /// <summary>The maximum number of ready replies staged before publishing a group.</summary>
-    /// <remarks>Ready replies can wait for synchronous work on later buffered calls. The reader publishes before waiting for input or a slot.</remarks>
+    private const int InlineRequestBytes = 4 * 1024;
     private const int ReadyBatchLimit = 8;
 
     private readonly ConnectionContext _connection;
     private readonly ILogger _log;
     private readonly TimeProvider _timeProvider;
-    private readonly Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, ValueTask<BinaryResponse>> _process;
+    private readonly Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> _process;
     private readonly Task[] _jobs = new Task[MaxPending];
     private readonly Channel<int> _slots = Channel.CreateBounded<int>(MaxPending);
     private readonly Channel<ResponseBatch> _outgoing = Channel.CreateBounded<ResponseBatch>(
         new BoundedChannelOptions(MaxPending) { SingleReader = true });
 
     private ResponseBatch _ready;
+    private Task _previousOrdered = Task.CompletedTask;
 
     internal BinaryConnectionPump(
         ConnectionContext connection,
-        Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, ValueTask<BinaryResponse>> process,
+        Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> process,
         ILogger log,
         TimeProvider timeProvider)
     {
@@ -127,14 +127,14 @@ internal sealed partial class BinaryConnectionPump
             while (!stop.IsCancellationRequested)
             {
                 var slots = _slots.Reader.WaitToReadAsync(stop);
-                PublishBeforeWait(slots.IsCompletedSuccessfully, ref _ready);
+                PublishBeforeWait(slots.IsCompletedSuccessfully);
                 if (!await slots.ConfigureAwait(false))
                     return;
 
                 var read = input.ReadAsync(stop);
-                PublishBeforeWait(read.IsCompletedSuccessfully, ref _ready);
+                PublishBeforeWait(read.IsCompletedSuccessfully);
                 var result = await read.ConfigureAwait(false);
-                var partial = await ConsumeBufferedAsync(input, result, stop).ConfigureAwait(false);
+                var partial = ConsumeBuffered(input, result, stop);
                 if (partial is { } frame && !await ReadPartialAsync(input, frame, stop).ConfigureAwait(false))
                     return;
             }
@@ -153,7 +153,7 @@ internal sealed partial class BinaryConnectionPump
         }
     }
 
-    private async ValueTask<PartialFrame?> ConsumeBufferedAsync(PipeReader input, ReadResult result, CancellationToken stop)
+    private PartialFrame? ConsumeBuffered(PipeReader input, ReadResult result, CancellationToken stop)
     {
         var buffer = result.Buffer;
         var consumed = buffer.Start;
@@ -191,7 +191,7 @@ internal sealed partial class BinaryConnectionPump
                     break;
                 }
 
-                await DispatchBufferedAsync(new QueuedCall(slot, frame, body), ref queued, ref queuedCount).ConfigureAwait(false);
+                Dispatch(slot, frame, body, ref queued, ref queuedCount);
             }
 
             examined = buffer.End;
@@ -207,21 +207,52 @@ internal sealed partial class BinaryConnectionPump
         }
     }
 
-    private ValueTask DispatchBufferedAsync(in QueuedCall call, ref QueuedCall[]? queued, ref int queuedCount)
+    private void Dispatch(int slot, (int Id, int Size, int Control) frame, byte[] body, ref QueuedCall[]? batch, ref int count)
     {
-        var operation = Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(call.Frame.Control));
+        var operation = Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(frame.Control));
+        var predecessor = _previousOrdered;
+        TaskCompletionSource? completion = null;
         if (operation is not (BinaryOperation.GetDistributed or BinaryOperation.GetValue))
         {
-            QueueExecution(ref queued, ref queuedCount);
-            return DispatchAsync(call.Slot, call.Frame, call.Body);
+            if (frame.Size <= InlineRequestBytes && predecessor.IsCompletedSuccessfully)
+            {
+                QueueExecution(ref batch, ref count);
+                DispatchInline(new QueuedCall(slot, frame, body, _timeProvider.GetTimestamp(), predecessor, null));
+                return;
+            }
+
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _previousOrdered = completion.Task;
         }
 
-        queued ??= ArrayPool<QueuedCall>.Shared.Rent(DispatchBatchLimit);
-        queued[queuedCount++] = call;
-        if (queuedCount == DispatchBatchLimit)
-            QueueExecution(ref queued, ref queuedCount);
+        batch ??= ArrayPool<QueuedCall>.Shared.Rent(DispatchBatchLimit);
+        batch[count++] = new QueuedCall(slot, frame, body, _timeProvider.GetTimestamp(), predecessor, completion);
+        if (count == DispatchBatchLimit)
+            QueueExecution(ref batch, ref count);
+    }
 
-        return ValueTask.CompletedTask;
+    private void DispatchInline(in QueuedCall call)
+    {
+        var pending = ExecuteCallAsync(call);
+        if (pending.IsCompletedSuccessfully)
+        {
+            _jobs[call.Slot] = Task.CompletedTask;
+#pragma warning disable MA0045 // Completion was checked before taking the synchronous result.
+            if (pending.Result is { } response)
+#pragma warning restore MA0045
+                Stage(in response, ref _ready);
+        }
+        else
+        {
+            Publish(ref _ready);
+            _previousOrdered = _jobs[call.Slot] = PublishOnCompletionAsync(pending);
+        }
+    }
+
+    private void PublishBeforeWait(bool completed)
+    {
+        if (!completed)
+            Publish(ref _ready);
     }
 
     private void QueueExecution(ref QueuedCall[]? queued, ref int queuedCount)
@@ -257,13 +288,7 @@ internal sealed partial class BinaryConnectionPump
             for (var i = 0; i < count; i++)
             {
                 var call = batch[i];
-                if (_connection.ConnectionClosed.IsCancellationRequested)
-                {
-                    ArrayPool<byte>.Shared.Return(call.Body);
-                    continue;
-                }
-
-                var pending = ExecuteCallAsync(call.Slot, call.Frame, call.Body);
+                var pending = ExecuteCallAsync(call);
                 if (!pending.IsCompletedSuccessfully)
                     (incomplete ??= []).Add(PublishOnCompletionAsync(pending));
                 else if (await pending.ConfigureAwait(false) is { } response)
@@ -290,9 +315,9 @@ internal sealed partial class BinaryConnectionPump
         {
             try
             {
-                var bodyRead = ReadBodyAsync(stream, partial.Frame.Size, deadline.Token);
-                PublishBeforeWait(bodyRead.IsCompletedSuccessfully, ref _ready);
-                body = await bodyRead.ConfigureAwait(false);
+                var read = ReadBodyAsync(stream, partial.Frame.Size, deadline.Token);
+                PublishBeforeWait(read.IsCompletedSuccessfully);
+                body = await read.ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (deadline.IsCancellationRequested && !stop.IsCancellationRequested)
             {
@@ -302,22 +327,11 @@ internal sealed partial class BinaryConnectionPump
             }
         }
 
-        await DispatchAsync(partial.Slot, partial.Frame, body).ConfigureAwait(false);
+        QueuedCall[]? batch = null;
+        var count = 0;
+        Dispatch(partial.Slot, partial.Frame, body, ref batch, ref count);
+        QueueExecution(ref batch, ref count);
         return true;
-    }
-
-    private async ValueTask DispatchAsync(int slot, (int Id, int Size, int Control) frame, byte[] body)
-    {
-        var pending = ExecuteCallAsync(slot, frame, body);
-        if (!pending.IsCompletedSuccessfully)
-        {
-            _jobs[slot] = PublishOnCompletionAsync(pending);
-            return;
-        }
-
-        _jobs[slot] = Task.CompletedTask;
-        if (await pending.ConfigureAwait(false) is { } response)
-            Stage(in response, ref _ready);
     }
 
     private bool TryReadResponse(ref ResponseBatch current, ref int index, out PendingResponse response)
@@ -342,12 +356,6 @@ internal sealed partial class BinaryConnectionPump
     {
         ready.Add(in response);
         if (ready.Count == ReadyBatchLimit)
-            Publish(ref ready);
-    }
-
-    private void PublishBeforeWait(bool completed, ref ResponseBatch ready)
-    {
-        if (!completed)
             Publish(ref ready);
     }
 
@@ -429,12 +437,16 @@ internal sealed partial class BinaryConnectionPump
         }
     }
 
-    private async ValueTask<PendingResponse?> ExecuteCallAsync(int slot, (int Id, int Size, int Control) frame, byte[] body)
+    private async ValueTask<PendingResponse?> ExecuteCallAsync(QueuedCall call)
     {
         try
         {
-            var response = await _process(frame, body.AsMemory(0, frame.Size)).ConfigureAwait(false);
-            return new PendingResponse(slot, frame.Id, response);
+            if (_connection.ConnectionClosed.IsCancellationRequested)
+                return null;
+
+            var elapsed = _timeProvider.GetElapsedTime(call.Received);
+            var response = await _process(call.Frame, call.Body.AsMemory(0, call.Frame.Size), elapsed, call.Predecessor).ConfigureAwait(false);
+            return new PendingResponse(call.Slot, call.Frame.Id, response);
         }
         catch (OperationCanceledException) when (_connection.ConnectionClosed.IsCancellationRequested)
         {
@@ -445,19 +457,31 @@ internal sealed partial class BinaryConnectionPump
         catch (Exception error)
 #pragma warning restore CA1031
         {
-            LogCallFailure(_log, frame.Id, error);
-            return new PendingResponse(slot, frame.Id, new BinaryResponse(FrameStatus.Unknown));
+            LogCallFailure(_log, call.Frame.Id, error);
+            return new PendingResponse(call.Slot, call.Frame.Id, new BinaryResponse(FrameStatus.Unknown));
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(body);
+            ArrayPool<byte>.Shared.Return(call.Body);
+            if (call.Completion is { } completion)
+            {
+                // A rejected or expired request still links its successor to older mutations.
+                await call.Predecessor.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                completion.SetResult();
+            }
         }
     }
 
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct PartialFrame(int Slot, (int Id, int Size, int Control) Frame);
 
-    private readonly record struct QueuedCall(int Slot, (int Id, int Size, int Control) Frame, byte[] Body);
+    private readonly record struct QueuedCall(
+        int Slot,
+        (int Id, int Size, int Control) Frame,
+        byte[] Body,
+        long Received,
+        Task Predecessor,
+        TaskCompletionSource? Completion);
 
     private readonly record struct PendingResponse(int Slot, int Id, BinaryResponse Response);
 

@@ -58,6 +58,12 @@ internal sealed class BinaryDispatch
     {
         var request = parser.ParseFrom(body.Span);
         var http = context.Http;
+
+        // Preparation can overlap, but admission and execution must observe earlier mutations.
+        if (!context.Predecessor.IsCompletedSuccessfully)
+            await context.Predecessor.WaitAsync(http.RequestAborted).ConfigureAwait(false);
+        http.RequestAborted.ThrowIfCancellationRequested();
+
         var path = http.Request.Path.Value!;
         try
         {
@@ -95,5 +101,5 @@ internal sealed class BinaryDispatch
         }
     }
 
-    internal readonly record struct Request(HttpContext Http, DateTime Deadline, string? TraceParent, string? TraceState);
+    internal readonly record struct Request(HttpContext Http, DateTime Deadline, string? TraceParent, string? TraceState, Task Predecessor);
 }
