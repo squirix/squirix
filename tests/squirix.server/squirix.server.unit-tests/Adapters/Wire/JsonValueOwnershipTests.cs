@@ -26,10 +26,10 @@ public sealed class JsonValueOwnershipTests : IsolatedStorageTestBase
         var harness = new FusedWriteHarness(Dir, journal);
         var request = FusedWriteHarness.Set(FusedWriteHarness.OpId(1));
         request.Entry.Value = JsonValueKit.Wire(ObjectText);
-        _ = await harness.Adapter.SetEntryAsync(request, CancellationToken.None);
+        _ = await harness.Adapter.Mutations.SetEntryAsync(request, CancellationToken.None);
 
         var stored = harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
-        var response = await harness.Adapter.GetValueAsync(new GetValueAsyncRequest { CacheName = FusedWriteHarness.CacheName, Key = FusedWriteHarness.Key }, CancellationToken.None);
+        var response = await harness.Adapter.Reads.GetValueAsync(new GetValueAsyncRequest { CacheName = FusedWriteHarness.CacheName, Key = FusedWriteHarness.Key }, CancellationToken.None);
 
         var value = (await Assert.That(stored.Value).IsTypeOf<JsonUtf8Value>())!;
         _ = await Assert.That(value.Bytes.Span.Overlaps(request.Entry.Value.JsonUtf8.Memory.Span, out var storedOffset)).IsTrue();
@@ -48,9 +48,9 @@ public sealed class JsonValueOwnershipTests : IsolatedStorageTestBase
         var harness = new FusedWriteHarness(Dir, journal);
         var request = FusedWriteHarness.Set(FusedWriteHarness.OpId(1));
         request.Entry.Value = JsonValueKit.Wire(ObjectText);
-        _ = await harness.Adapter.SetEntryAsync(request, CancellationToken.None);
+        _ = await harness.Adapter.Mutations.SetEntryAsync(request, CancellationToken.None);
 
-        var response = await harness.Adapter.GetEntryAsync(new GetEntryAsyncRequest { CacheName = FusedWriteHarness.CacheName, Key = FusedWriteHarness.Key }, CancellationToken.None);
+        var response = await harness.Adapter.Reads.GetEntryAsync(new GetEntryAsyncRequest { CacheName = FusedWriteHarness.CacheName, Key = FusedWriteHarness.Key }, CancellationToken.None);
 
         _ = await Assert.That(response.Found).IsTrue();
         _ = await Assert.That(response.Entry.Value.JsonUtf8.ToStringUtf8()).IsEqualTo(ObjectText);
@@ -67,8 +67,8 @@ public sealed class JsonValueOwnershipTests : IsolatedStorageTestBase
         adding.Entry.Value = JsonValueKit.Wire(ObjectText);
         var existing = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(2), "second");
 
-        var added = await harness.Adapter.GetOrAddAsync(adding, CancellationToken.None);
-        var found = await harness.Adapter.GetOrAddAsync(existing, CancellationToken.None);
+        var added = await harness.Adapter.Mutations.GetOrAddAsync(adding, CancellationToken.None);
+        var found = await harness.Adapter.Mutations.GetOrAddAsync(existing, CancellationToken.None);
 
         _ = await Assert.That(added.Added).IsTrue();
         _ = await Assert.That(added.Found).IsTrue();

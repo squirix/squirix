@@ -41,7 +41,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(true, default)));
 
-        var response = await CreateAdapter(api.Instance()).GetOrAddAsync(CreateRequest(), CancellationToken.None);
+        var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsTrue();
         _ = await Assert.That(response.Found).IsTrue();
@@ -55,7 +55,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
                .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(false, new NodeCacheValueResult<object?>(true, "existing"))));
 
-        var response = await CreateAdapter(api.Instance()).GetOrAddAsync(CreateRequest(), CancellationToken.None);
+        var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsFalse();
         _ = await Assert.That(response.Found).IsTrue();

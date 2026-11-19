@@ -85,7 +85,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(true);
             });
 
-        var response = await CreateAdapter(api.Instance()).TouchAsync(
+        var response = await CreateAdapter(api.Instance()).Mutations.TouchAsync(
             new TouchAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Expiration = new Duration { Seconds = seconds, Nanos = nanos } },
             CancellationToken.None);
 
@@ -111,7 +111,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 return ValueTask.CompletedTask;
             });
 
-        _ = await CreateAdapter(api.Instance()).SetEntryAsync(
+        _ = await CreateAdapter(api.Instance()).Mutations.SetEntryAsync(
             new SetEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(new Duration { Seconds = seconds, Nanos = nanos }) },
             CancellationToken.None);
 
@@ -136,7 +136,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(true);
             });
 
-        var response = await CreateAdapter(api.Instance()).AddEntryIfAbsentAsync(
+        var response = await CreateAdapter(api.Instance()).Mutations.AddEntryIfAbsentAsync(
             new TryAddEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(new Duration { Seconds = seconds, Nanos = nanos }) },
             CancellationToken.None);
 
