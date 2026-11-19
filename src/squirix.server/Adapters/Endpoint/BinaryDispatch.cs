@@ -31,32 +31,46 @@ internal sealed class BinaryDispatch
 
     internal ValueTask<BinaryResponse> ExecuteAsync(BinaryOperation operation, ReadOnlyMemory<byte> body, in Request context) => operation switch
     {
-        BinaryOperation.SetEntry => InvokeAsync(SetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.SetEntryAsync(request, token), body, context),
-        BinaryOperation.GetEntry => InvokeAsync(GetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetEntryAsync(request, token), body, context),
-        BinaryOperation.GetValue => InvokeAsync(GetValueAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetValueAsync(request, token), body, context),
-        BinaryOperation.Remove => InvokeAsync(RemoveAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveAsync(request, token), body, context),
-        BinaryOperation.TryAddEntry => InvokeAsync(TryAddEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.AddEntryIfAbsentAsync(request, token), body, context),
-        BinaryOperation.Touch => InvokeAsync(TouchAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.TouchAsync(request, token), body, context),
-        BinaryOperation.RemoveExpiration => InvokeAsync(RemoveExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveExpirationAsync(request, token), body, context),
-        BinaryOperation.Update => InvokeAsync(UpdateAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.UpdateAsync(request, token), body, context),
-        BinaryOperation.GetExpiration => InvokeAsync(GetExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetExpirationAsync(request, token), body, context),
-        BinaryOperation.GetOrAdd => InvokeAsync(GetOrAddAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.GetOrAddAsync(request, token), body, context),
-        BinaryOperation.SetDistributed => InvokeAsync(SetDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.SetDistributedAsync(request, token), body, context),
-        BinaryOperation.GetDistributed => InvokeAsync(GetDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetDistributedAsync(request, token), body, context),
-        BinaryOperation.RefreshDistributed => InvokeAsync(RefreshDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.RefreshDistributedAsync(request, token), body, context),
+        BinaryOperation.SetEntry => InvokeAsync(SetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.SetEntryAsync(request, token), body, in context),
+        BinaryOperation.GetEntry => InvokeAsync(GetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetEntryAsync(request, token), body, in context),
+        BinaryOperation.GetValue => InvokeAsync(GetValueAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetValueAsync(request, token), body, in context),
+        BinaryOperation.Remove => InvokeAsync(RemoveAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveAsync(request, token), body, in context),
+        BinaryOperation.TryAddEntry => InvokeAsync(TryAddEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.AddEntryIfAbsentAsync(request, token), body, in context),
+        BinaryOperation.Touch => InvokeAsync(TouchAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.TouchAsync(request, token), body, in context),
+        BinaryOperation.RemoveExpiration => InvokeAsync(RemoveExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveExpirationAsync(request, token), body, in context),
+        BinaryOperation.Update => InvokeAsync(UpdateAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.UpdateAsync(request, token), body, in context),
+        BinaryOperation.GetExpiration => InvokeAsync(GetExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetExpirationAsync(request, token), body, in context),
+        BinaryOperation.GetOrAdd => InvokeAsync(GetOrAddAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.GetOrAddAsync(request, token), body, in context),
+        BinaryOperation.SetDistributed => InvokeDistributedSetAsync(body, in context),
+        BinaryOperation.GetDistributed => InvokeAsync(GetDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetDistributedAsync(request, token), body, in context),
+        BinaryOperation.RefreshDistributed => InvokeAsync(RefreshDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.RefreshDistributedAsync(request, token), body, in context),
         _ => ValueTask.FromResult(new BinaryResponse(FrameStatus.Unimplemented, new BinaryCallError { Detail = "Unknown binary cache operation." })),
     };
 
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    private async ValueTask<BinaryResponse> InvokeAsync<TRequest, TResponse>(
+    private ValueTask<BinaryResponse> InvokeDistributedSetAsync(ReadOnlyMemory<byte> body, in Request context) =>
+        LargeDistributedSet.TryParse(body, out var metadata, out var value)
+            ? DispatchAsync(
+                (Metadata: metadata, Value: value),
+                static (ops, state, token) => ops.Mutations.SetDistributedAsync(state.Metadata, state.Value, token),
+                context)
+            : InvokeAsync(SetDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.SetDistributedAsync(request, token), body, in context);
+
+    private ValueTask<BinaryResponse> InvokeAsync<TRequest, TResponse>(
         MessageParser<TRequest> parser,
         Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
         ReadOnlyMemory<byte> body,
-        Request context)
+        in Request context)
         where TRequest : class, IMessage<TRequest>
+        where TResponse : class, IMessage<TResponse> =>
+        DispatchAsync(parser.ParseFrom(body.Span), method, context);
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<BinaryResponse> DispatchAsync<TRequest, TResponse>(
+        TRequest request,
+        Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
+        Request context)
         where TResponse : class, IMessage<TResponse>
     {
-        var request = parser.ParseFrom(body.Span);
         var http = context.Http;
 
         // Preparation can overlap, but admission and execution must observe earlier mutations.

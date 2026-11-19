@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
@@ -201,13 +202,23 @@ internal sealed class RoutedCacheOperations<T>
             static (s, ct) => s.Adapter._handlers.RemoveExpirationAsyncCoreAsync(s.Request, ct),
             cancellationToken);
 
-        internal Task<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
-            request.CacheName,
-            request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.SetDistributedAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.SetDistributedAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+        internal Task<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken) =>
+            SetDistributedAsync(request, request.Value.Memory, cancellationToken);
+
+        internal Task<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken) =>
+            _router.ExecuteAsync(
+                request.CacheName,
+                request.Key,
+                (Adapter: this, Request: request, Payload: payload),
+                static (s, owner, ct) =>
+                {
+                    // Only the local handler borrows the connection buffer. A forwarding request owns its bytes.
+                    if (s.Request.Value.IsEmpty && !s.Payload.IsEmpty)
+                        s.Request.Value = ByteString.CopyFrom(s.Payload.Span);
+                    return s.Adapter._forwarder.SetDistributedAsync(owner, s.Request, ct);
+                },
+                static (s, ct) => s.Adapter._handlers.SetDistributedAsyncCoreAsync(s.Request, s.Payload, ct),
+                cancellationToken);
 
         internal Task<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
             request.CacheName,
@@ -329,7 +340,7 @@ internal sealed class RoutedCacheOperations<T>
                 return new RemoveExpirationAsyncResponse { Found = found };
             }
 
-            internal async Task<SetAsyncResponse> SetDistributedAsyncCoreAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken)
+            internal async Task<SetAsyncResponse> SetDistributedAsyncCoreAsync(SetDistributedAsyncRequest request, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
@@ -342,10 +353,10 @@ internal sealed class RoutedCacheOperations<T>
                 if (!policy.IsValid() || ttl is <= 0)
                     throw new ServerCallException(FrameStatus.InvalidArgument, "The distributed cache expiration policy is invalid.");
 
-                if (request.Value.Length > EntryLimits.MaxEntrySizeBytes - DistributedCachePolicy.HeaderLength)
+                if (payload.Length > EntryLimits.MaxEntrySizeBytes - DistributedCachePolicy.HeaderLength)
                     throw ServerOpContract.PayloadTooLarge().ToServerCallException();
 
-                var write = new DistributedCacheWrite(in policy, request.Value.Span, ttl);
+                var write = new DistributedCacheWrite(in policy, payload.Span, ttl);
                 if (write is not T value)
                     throw new ServerCallException(FrameStatus.Internal, "The node cannot store distributed cache values.");
 
