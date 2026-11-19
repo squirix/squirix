@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Transport;
 using Squirix.Transport.Wire;
 
 namespace Squirix.Internal.Cluster.Transport;
