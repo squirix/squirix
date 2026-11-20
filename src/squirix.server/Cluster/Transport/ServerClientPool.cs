@@ -271,7 +271,7 @@ internal sealed class ServerClientPool : IServerClientPool
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
         var channels = args.ChannelsOverride == null
             ? PeerChannels.Create(peer.NodeId, address, args, _peerVerifier, _connections, _forwardConnectTimeout)
-            : args.ChannelsOverride(peer.NodeId, address, _peerVerifier, _connections, _forwardConnectTimeout);
+            : args.ChannelsOverride(peer.NodeId, _connections);
         _channels[peer.NodeId] = channels;
         _cacheClients[peer.NodeId] = channels.Forward;
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);

@@ -1,10 +1,11 @@
 using System;
 using System.Diagnostics.Metrics;
-using System.Net.Http;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
@@ -14,7 +15,6 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Transport;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Binary;
 using TUnit.Assertions;
@@ -83,13 +83,13 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = await Assert.That(request.Header.TopologyFingerprint.Memory.Equals(fingerprint)).IsTrue().Because("The fingerprint must be wrapped, not copied.");
     }
 
-    /// <summary>Disposing the pool cancels a replication call in flight, which fails, and disposes the call's handler only after that.</summary>
+    /// <summary>Disposing the pool cancels a replication call in flight, which fails, and disposes the call's client only after that.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task PoolDisposeCancelsInFlightCall(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var parking = new ParkingHandler();
+        using var parking = new ParkingClient();
         var pool = CreatePool(parking, meter);
         var gateway = new ReplicaRpcGateway(pool);
         var call = gateway.AppendEntriesAsync(PeerNodeId, Header(), Batch(), cancellationToken);
@@ -100,7 +100,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await parking.Cancelled.WaitAsync(cancellationToken);
         _ = await Assert.That(parking.Disposed).IsTrue();
-        _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
+        _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The client must outlive the call it was cancelled under.");
     }
 
     /// <summary>A call issued after the pool started to dispose is refused without reaching the transport.</summary>
@@ -109,7 +109,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     public async Task CallAfterPoolDisposeIsRefused(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var parking = new ParkingHandler();
+        using var parking = new ParkingClient();
         var pool = CreatePool(parking, meter);
         var gateway = new ReplicaRpcGateway(pool);
         await pool.DisposeAsync();
@@ -120,13 +120,13 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = await Assert.That(parking.Arrived.IsCompleted).IsFalse();
     }
 
-    /// <summary>Disposing the pool fails a vote in flight instead of reporting an answer, and disposes the handler only after that.</summary>
+    /// <summary>Disposing the pool fails a vote in flight instead of reporting an answer, and disposes the client only after that.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task PoolDisposeCancelsInFlightVote(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var parking = new ParkingHandler();
+        using var parking = new ParkingClient();
         var pool = CreatePool(parking, meter);
         var gateway = new ReplicaRpcGateway(pool);
         var call = gateway.RequestVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
@@ -136,7 +136,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await parking.Cancelled.WaitAsync(cancellationToken);
-        _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The handler must outlive the call it was cancelled under.");
+        _ = await Assert.That(parking.DisposedAfterCancel).IsTrue().Because("The client must outlive the call it was cancelled under.");
     }
 
     /// <summary>Vote and pre-vote calls issued after the pool started to dispose are refused without reaching the transport.</summary>
@@ -145,7 +145,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     public async Task VoteCallAfterPoolDisposeIsRefused(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var parking = new ParkingHandler();
+        using var parking = new ParkingClient();
         var pool = CreatePool(parking, meter);
         var gateway = new ReplicaRpcGateway(pool);
         await pool.DisposeAsync();
@@ -164,7 +164,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     public async Task VoteWithoutLeaderIdReachesTransport(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var parking = new ParkingHandler();
+        using var parking = new ParkingClient();
         var pool = CreatePool(parking, meter);
         var gateway = new ReplicaRpcGateway(pool);
 
@@ -184,48 +184,41 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
     [Test]
     public async Task SocketFailureIsReportedAsUnavailable(CancellationToken cancellationToken)
     {
-        using var meter = new Meter("Squirix");
-        using var handler = new DisconnectedHandler();
-        await using var pool = CreatePool(handler, meter);
+        using var peer = new NativePeerFixture();
+        await using var pool = peer.CreatePool(resolve: static _ => ValueTask.FromException<EndPoint>(new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.NotConnected))));
         var gateway = new ReplicaRpcGateway(pool);
 
-        var call = gateway.RequestVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
+        var call = gateway.RequestVoteAsync(NativePeerFixture.Node, Header(), 0, 0, cancellationToken);
         var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
-        _ = await Assert.That(error.InnerException).IsTypeOf<SocketException>();
+        _ = await Assert.That(error.InnerException?.InnerException).IsTypeOf<SocketException>();
     }
 
     private static FollowerBatch Batch() => new([], PeerNodeId, 1, 0, 0, 0);
 
-    private static ServerClientPool CreatePool(HttpMessageHandler handler, Meter meter)
+    private static ServerClientPool CreatePool(ParkingClient client, Meter meter)
     {
         var args = new ServerClientPoolArgs
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new IdleCallPolicy(),
+            ChannelsOverride = (_, _) => new PeerChannels(client, client, null, client),
         };
-        args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => handler);
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = new Uri("https://localhost:6500") };
         return new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }
 
     private static ReplicaRpcHeader Header() => new(PeerNodeId, ReadOnlyMemory<byte>.Empty, 1, 1, PeerNodeId, PeerNodeId);
 
-    private sealed class DisconnectedHandler : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromException<HttpResponseMessage>(new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.NotConnected)));
-    }
-
     /// <summary>Parks every request until its token is cancelled, then fails it as the transport would.</summary>
-    private sealed class ParkingHandler : HttpMessageHandler
+    private sealed class ParkingClient : IPeerClient, IDisposable
     {
         private readonly TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private readonly TaskCompletionSource _cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        /// <summary>Gets a task that completes once a request reached the handler.</summary>
+        /// <summary>Gets a task that completes once a request reached the client.</summary>
         internal Task Arrived => _arrived.Task;
 
         /// <summary>Gets a task that completes once the parked request observed its cancellation.</summary>
@@ -233,21 +226,17 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         internal bool Disposed { get; private set; }
 
-        /// <summary>Gets a value indicating whether the parked request had already observed its cancellation when the handler was disposed.</summary>
+        /// <summary>Gets a value indicating whether the parked request had already observed its cancellation when the client was disposed.</summary>
         internal bool DisposedAfterCancel { get; private set; }
 
-        protected override void Dispose(bool disposing)
+        public void Dispose()
         {
-            if (disposing)
-            {
-                DisposedAfterCancel = _cancelled.Task.IsCompleted;
-                Disposed = true;
-            }
-
-            base.Dispose(disposing);
+            DisposedAfterCancel = _cancelled.Task.IsCompleted;
+            Disposed = true;
         }
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public async Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+            where T : IMessage<T>
         {
             _ = _arrived.TrySetResult();
             var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

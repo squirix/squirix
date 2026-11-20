@@ -10,11 +10,11 @@ internal sealed record ServerClientPoolArgs
 
     /// <summary>
     /// Gets the longest time the dial of a forward channel, before any TLS handshake, may take; <see cref="TopologyOptions.DefaultForwardConnectTimeout" />
-    /// when <see langword="null" />. The lease channel gets no dial bound; both keep a long bound of the whole connect.
+    /// when <see langword="null" />. The replication channel always uses the default bound.
     /// </summary>
     internal TimeSpan? ForwardConnectTimeout { get; init; }
 
-    internal Func<string, Uri, PeerHandshakeVerifier?, TrackedConnections, TimeSpan, PeerChannels>? ChannelsOverride { get; init; }
+    internal Func<string, TrackedConnections, PeerChannels>? ChannelsOverride { get; init; }
 
     internal bool InterNodeMtlsEnabled { get; init; }
 

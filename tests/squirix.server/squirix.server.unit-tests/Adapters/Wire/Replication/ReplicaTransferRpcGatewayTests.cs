@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,7 +14,6 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Transport;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -47,7 +43,7 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
     public async Task BeginMapsEnvelopeAndBaseline(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var transport = new ScriptedHandler { Reply = new TransferReplicaStateResponse { Term = 5UL, Success = false, RefusalCode = RefusalCodes.TransferBusy } };
+        var transport = new ScriptedClient { Reply = new TransferReplicaStateResponse { Term = 5UL, Success = false, RefusalCode = RefusalCodes.TransferBusy } };
         var pool = CreatePool(transport, meter);
         var gateway = new ReplicaTransferRpcGateway(pool);
         var baseline = new ReplicaTransferBaseline(7UL, 3UL, 1024, 99U, new byte[] { 1, 2 }, 4UL, true);
@@ -71,7 +67,7 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
     public async Task MessagesAndAbortMapToTheirSteps(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var transport = new ScriptedHandler { Reply = new TransferReplicaStateResponse { Term = 2UL, Success = true, More = true } };
+        var transport = new ScriptedClient { Reply = new TransferReplicaStateResponse { Term = 2UL, Success = true, More = true } };
         var pool = CreatePool(transport, meter);
         var gateway = new ReplicaTransferRpcGateway(pool);
         var entries = new[]
@@ -106,7 +102,7 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
     public async Task NegativeSequenceOrOffsetIsRejected()
     {
         using var meter = new Meter("Squirix");
-        using var transport = new ScriptedHandler();
+        var transport = new ScriptedClient();
         var pool = CreatePool(transport, meter);
         var gateway = new ReplicaTransferRpcGateway(pool);
 
@@ -118,9 +114,9 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         _ = await Assert.That(transport.Received.Count).IsEqualTo(0);
     }
 
-    /// <summary>A snapshot chunk of the whole message budget and a batch of the smallest entries counted at the budget both stay within the gRPC message limit.</summary>
+    /// <summary>A snapshot chunk of the whole message budget and a batch of the smallest entries counted at the budget both stay within the native peer message limit.</summary>
     [Test]
-    public async Task MessageBudgetFitsTheGrpcLimit()
+    public async Task MessageBudgetFitsThePeerFrameLimit()
     {
         var chunk = new byte[ReplicaTransferOptions.MessageBudgetBytes];
         var snapshot = ReplicaTransferWire.MessageRequest(Header(), Message(ReplicaTransferStep.Snapshot, 1, long.MaxValue, chunk));
@@ -133,14 +129,14 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         _ = await Assert.That(batch.CalculateSize()).IsLessThanOrEqualTo(EntryLimits.MaxSendMessageSizeBytes);
     }
 
-    private static ServerClientPool CreatePool(HttpMessageHandler handler, Meter meter)
+    private static ServerClientPool CreatePool(IPeerClient client, Meter meter)
     {
         var args = new ServerClientPoolArgs
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new IdleCallPolicy(),
+            ChannelsOverride = (_, _) => new PeerChannels(client, client, null, null),
         };
-        args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => handler);
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = new Uri("https://localhost:6500") };
         return new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }
@@ -170,22 +166,20 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         };
     }
 
-    /// <summary>Answers every call with a scripted gRPC reply and keeps the requests it received.</summary>
-    private sealed class ScriptedHandler : HttpMessageHandler
+    /// <summary>Records the transfer envelope and returns its programmed reply.</summary>
+    private sealed class ScriptedClient : IPeerClient
     {
         internal List<TransferReplicaStateRequest> Received { get; } = [];
 
         internal TransferReplicaStateResponse Reply { get; init; } = new();
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+            where T : IMessage<T>
         {
-            var body = await request.Content!.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            Received.Add(TransferReplicaStateRequest.Parser.ParseFrom(body));
-            var payload = Reply.ToByteArray();
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { Version = HttpVersion.Version20, Content = new ByteArrayContent(payload) };
-            response.Content.Headers.ContentType = new MediaTypeHeaderValue(HttpPeerTestProtocol.MediaType);
-            response.Headers.Add(HttpPeerTestProtocol.StatusHeader, "0");
-            return response;
+            if (!string.Equals(path, "replication/TransferReplicaState", StringComparison.Ordinal) || request is not TransferReplicaStateRequest transfer || Reply is not T response)
+                throw new InvalidOperationException("Unexpected transfer RPC.");
+            Received.Add(transfer);
+            return Task.FromResult(response);
         }
     }
 }

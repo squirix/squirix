@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.TestKit.Transport;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 
@@ -54,7 +53,7 @@ internal static class PeerWireCalls
             VersionPolicy = HttpVersionPolicy.RequestVersionExact,
             Content = new ByteArrayContent(payload.ToByteArray()),
         };
-        request.Content.Headers.ContentType = new MediaTypeHeaderValue(HttpPeerTestProtocol.MediaType);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-protobuf");
         if (headers != null)
         {
             foreach (var header in headers)
@@ -64,7 +63,7 @@ internal static class PeerWireCalls
         using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         _ = response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        using var statuses = response.Headers.GetValues(HttpPeerTestProtocol.StatusHeader).GetEnumerator();
+        using var statuses = response.Headers.GetValues("squirix-status").GetEnumerator();
         if (!statuses.MoveNext())
             throw new InvalidOperationException("Missing peer status.");
         var code = int.Parse(statuses.Current, CultureInfo.InvariantCulture);
