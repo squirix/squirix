@@ -137,9 +137,6 @@ internal sealed class NativePeerEndpoint
         var path = PeerFrames.Text.GetString(meta, 0, frame.Path);
         if (string.Equals(path, "ping", StringComparison.Ordinal))
             return new BinaryResponse(body.IsEmpty ? FrameStatus.Ok : FrameStatus.InvalidArgument);
-        var scope = _services.CreateAsyncScope();
-        await using var lifetime = scope.ConfigureAwait(false);
-        var services = scope.ServiceProvider;
         var offset = frame.Path;
         var fingerprint = frame.Fingerprint == 0 ? null : PeerFrames.Text.GetString(meta, offset, frame.Fingerprint);
         offset += frame.Fingerprint;
@@ -152,17 +149,17 @@ internal sealed class NativePeerEndpoint
             var name = path["owner/".Length..];
             if (!Enum.TryParse<BinaryOperation>(name, out var operation) || !string.Equals(Enum.GetName(operation), name, StringComparison.Ordinal) || operation == BinaryOperation.Unspecified)
                 return new BinaryResponse(FrameStatus.Unimplemented);
-            services.GetRequiredService<RingAgreement>().EnsureInboundAgreement(fingerprint, peer);
-            var call = new BinaryRequestContext { Path = fullPath, RequestAborted = cancellationToken, RequestServices = services, TraceParent = parent, TraceState = state };
+            _services.GetRequiredService<RingAgreement>().EnsureInboundAgreement(fingerprint, peer);
+            var call = new BinaryRequestContext { Path = fullPath, RequestAborted = cancellationToken, TraceParent = parent, TraceState = state };
             var request = new BinaryDispatch.Request(call, DateTime.MaxValue, Task.CompletedTask, true);
-            return await services.GetRequiredService<BinaryDispatch>().ExecuteAsync(operation, body, in request).ConfigureAwait(false);
+            return await _services.GetRequiredService<BinaryDispatch>().ExecuteAsync(operation, body, in request).ConfigureAwait(false);
         }
 
         if (!_replication || !path.StartsWith("replication/", StringComparison.Ordinal))
             return new BinaryResponse(FrameStatus.Unimplemented);
         var context = new PeerCallContext { ClientCertificate = certificate, InternalListener = true, LocalPort = _port, RequestAborted = cancellationToken };
         using var activity = ServerCallCorrelation.StartActivity(fullPath, parent, state);
-        using var log = services.GetRequiredService<ServerCallCorrelation>().BeginLogScope(fullPath);
-        return await PeerDispatch.DispatchAsync(path["replication/".Length..], body, context, services.GetRequiredService<SquirixReplicationServiceAdapter>()).ConfigureAwait(false);
+        using var log = _services.GetRequiredService<ServerCallCorrelation>().BeginLogScope(fullPath);
+        return await PeerDispatch.DispatchAsync(path["replication/".Length..], body, context, _services.GetRequiredService<SquirixReplicationServiceAdapter>()).ConfigureAwait(false);
     }
 }
