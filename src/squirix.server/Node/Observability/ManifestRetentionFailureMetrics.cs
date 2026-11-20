@@ -9,15 +9,16 @@ namespace Squirix.Server.Node.Observability;
 [Immutable]
 internal sealed class ManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics
 {
-    private readonly StorageRetentionMetrics _storageRetentionMetrics;
+    private readonly StorageRetentionMetrics? _storageRetentionMetrics;
 
-    internal ManifestRetentionFailureMetrics(Meter meter)
+    internal ManifestRetentionFailureMetrics(Meter? meter)
     {
-        _storageRetentionMetrics = new StorageRetentionMetrics(meter);
+        if (meter != null)
+            _storageRetentionMetrics = new StorageRetentionMetrics(meter);
     }
 
     /// <inheritdoc />
-    public void RecordDeleteFailure(string artifactKind, string outcome) => _storageRetentionMetrics.IncrementDeleteFailuresTotal(artifactKind, outcome);
+    public void RecordDeleteFailure(string artifactKind, string outcome) => _storageRetentionMetrics?.IncrementDeleteFailuresTotal(artifactKind, outcome);
 
     /// <summary>Low-cardinality manifest retention cleanup metrics on the host-scoped <see cref="Meter" />.</summary>
     [Immutable]

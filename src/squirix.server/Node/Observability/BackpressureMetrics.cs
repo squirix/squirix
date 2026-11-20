@@ -9,20 +9,22 @@ namespace Squirix.Server.Node.Observability;
 [Mutable]
 internal sealed class BackpressureMetrics
 {
-    private readonly Counter<long> _bypassTotalCtr;
-    private readonly Counter<long> _queueCancellationsTotalCtr;
-    private readonly Counter<long> _queueTimeoutsTotalCtr;
-    private readonly Histogram<double> _queueWaitHist;
-    private readonly Counter<long> _rateLimitRejectTotalCtr;
-    private readonly Counter<long> _rejectTotalCtr;
-    private readonly Counter<long> _slowdownTotalCtr;
+    private readonly Counter<long>? _bypassTotalCtr;
+    private readonly Counter<long>? _queueCancellationsTotalCtr;
+    private readonly Counter<long>? _queueTimeoutsTotalCtr;
+    private readonly Histogram<double>? _queueWaitHist;
+    private readonly Counter<long>? _rateLimitRejectTotalCtr;
+    private readonly Counter<long>? _rejectTotalCtr;
+    private readonly Counter<long>? _slowdownTotalCtr;
 
     /// <summary>Holds the admission gate the gauges read, so every field of this type stays readonly.</summary>
     private readonly ObserverSlot _slot = new();
 
-    internal BackpressureMetrics(Meter meter)
+    internal BackpressureMetrics(Meter? meter)
     {
-        ArgumentNullException.ThrowIfNull(meter);
+        if (meter == null)
+            return;
+
         _bypassTotalCtr = meter.CreateCounter<long>("squirix_backpressure_bypass_total");
         _queueCancellationsTotalCtr = meter.CreateCounter<long>("squirix_backpressure_queue_cancellations_total");
         _queueTimeoutsTotalCtr = meter.CreateCounter<long>("squirix_backpressure_queue_timeouts_total");
@@ -45,44 +47,67 @@ internal sealed class BackpressureMetrics
             description: "Current number of client buckets tracked for backpressure state; zero unless a per-client limit is set");
     }
 
+    internal bool Enabled => _bypassTotalCtr != null;
+
     internal void AddBypass(string transport, string operation)
     {
+        if (_bypassTotalCtr == null)
+            return;
+
         var tags = CreateTags(transport, operation);
         _bypassTotalCtr.Add(1, in tags);
     }
 
     internal void AddQueueCancellation(string transport, string operation)
     {
+        if (_queueCancellationsTotalCtr == null)
+            return;
+
         var tags = CreateTags(transport, operation);
         _queueCancellationsTotalCtr.Add(1, in tags);
     }
 
     internal void AddQueueTimeout(string transport, string operation)
     {
+        if (_queueTimeoutsTotalCtr == null)
+            return;
+
         var tags = CreateTags(transport, operation);
         _queueTimeoutsTotalCtr.Add(1, in tags);
     }
 
     internal void AddRateLimitReject(string transport, string operation, string scope)
     {
+        if (_rateLimitRejectTotalCtr == null)
+            return;
+
         var tags = CreateTags(transport, operation, ("scope", scope));
         _rateLimitRejectTotalCtr.Add(1, in tags);
     }
 
     internal void AddReject(string transport, string operation, string reason)
     {
+        if (_rejectTotalCtr == null)
+            return;
+
         var tags = CreateTags(transport, operation, ("reason", reason));
         _rejectTotalCtr.Add(1, in tags);
     }
 
     internal void AddSlowdown(string transport, string operation)
     {
+        if (_slowdownTotalCtr == null)
+            return;
+
         var tags = CreateTags(transport, operation);
         _slowdownTotalCtr.Add(1, in tags);
     }
 
     internal void RecordQueueWait(TimeSpan duration, string transport, string operation)
     {
+        if (_queueWaitHist == null)
+            return;
+
         var tags = CreateTags(transport, operation);
         _queueWaitHist.Record(duration.TotalSeconds, in tags);
     }

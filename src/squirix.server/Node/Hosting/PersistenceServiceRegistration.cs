@@ -26,17 +26,19 @@ internal static class PersistenceServiceRegistration
 {
     private static readonly string[] ReadyHealthCheckTags = ["ready"];
 
-    internal static IServiceCollection AddPersistenceServices(this IServiceCollection services, PersistenceOptions options, Meter meter, bool waitForRecovery)
+    internal static IServiceCollection AddPersistenceServices(this IServiceCollection services, PersistenceOptions options, bool waitForRecovery, bool metricsEnabled = false)
     {
         ArgumentNullException.ThrowIfNull(options);
         _ = services.AddSingleton(options);
 
-        var failureMetrics = new ManifestRetentionFailureMetrics(meter);
-
         // The runtime is created without I/O so the container owns it from the first resolve; OpenPersistenceAsync opens it after the host is built.
-        _ = services.AddSingleton(sp => new PersistenceRuntime(options, failureMetrics, sp.GetRequiredService<ILoggerFactory>(), ResolveClock(sp)));
+        _ = services.AddSingleton(sp => new PersistenceRuntime(
+            options,
+            new ManifestRetentionFailureMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)),
+            sp.GetRequiredService<ILoggerFactory>(),
+            ResolveClock(sp)));
 
-        RegisterPersistenceHostedServices(services, waitForRecovery);
+        RegisterPersistenceHostedServices(services, waitForRecovery, metricsEnabled);
         RegisterPersistenceRuntime(services);
 
         return services;
@@ -59,7 +61,7 @@ internal static class PersistenceServiceRegistration
         _ = services.GetRequiredService<JournalCoordinatorHost>();
     }
 
-    private static void RegisterPersistenceHostedServices(IServiceCollection services, bool blockOnStart)
+    private static void RegisterPersistenceHostedServices(IServiceCollection services, bool blockOnStart, bool metricsEnabled)
     {
         var recoveryOptions = new RecoveryOptions
         {
@@ -95,11 +97,14 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<ISnapshotReadinessStatus>(static sp => sp.GetRequiredService<SnapshotTriggerService>());
         _ = services.AddHostedService(static sp => sp.GetRequiredService<SnapshotTriggerService>());
 
-        _ = services.AddHostedService(static sp => new JournalMetricsExporterService(
-            sp.GetRequiredService<PersistenceOptions>(),
-            sp.GetRequiredService<TopologyOptions>(),
-            sp.GetRequiredService<ILogger<JournalMetricsExporterService>>(),
-            sp.GetRequiredService<Meter>()));
+        if (metricsEnabled)
+        {
+            _ = services.AddHostedService(static sp => new JournalMetricsExporterService(
+                sp.GetRequiredService<PersistenceOptions>(),
+                sp.GetRequiredService<TopologyOptions>(),
+                sp.GetRequiredService<ILogger<JournalMetricsExporterService>>(),
+                sp.GetRequiredKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+        }
 
         // Stops the journal once every other hosted service has stopped, so their final appends reach it.
         _ = services.AddHostedService(static sp => new JournalStopService(sp.GetRequiredService<JournalCoordinatorHost>().StopAsync));
@@ -133,7 +138,7 @@ internal static class PersistenceServiceRegistration
         RegisterRuntimeHealthChecks(services);
 
         _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
-        _ = services.AddSingleton(static sp => new OpenTelemetrySnapshotTelemetry(sp.GetRequiredService<Meter>()));
+        _ = services.AddSingleton(static sp => new OpenTelemetrySnapshotTelemetry(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
         _ = services.AddSingleton<ISnapshotTelemetry>(static sp => sp.GetRequiredService<OpenTelemetrySnapshotTelemetry>());
 
         _ = services.AddSingleton(static sp =>

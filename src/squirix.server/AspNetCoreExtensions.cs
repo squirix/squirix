@@ -86,6 +86,7 @@ public static class AspNetCoreExtensions
                 args.WaitForRecovery = options.WaitForRecovery;
                 args.PersistenceOptions = persistenceOptions;
                 args.BackpressureOptions = options.Backpressure.ToAdmissionOptions();
+                args.MetricsEnabled = options.MetricsEnabled;
                 args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions
                 {
                     Enabled = options.PrometheusMetricsEnabled,

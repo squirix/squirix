@@ -90,6 +90,7 @@ internal static class NodeHost
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
+            args.MetricsEnabled = _options.MetricsEnabled;
             args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions { Enabled = _options.PrometheusMetricsEnabled };
             args.PeerHandlerFactory = _options.PeerHandlerFactory;
             args.BackpressureOptions = _options.BackpressureOptions;

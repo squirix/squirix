@@ -68,6 +68,10 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.</summary>
     public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = Array.Empty<SquirixServerPeerOptions>();
 
+    /// <summary>Gets or sets a value indicating whether this host collects Squirix metrics. Defaults to disabled.</summary>
+    [JsonIgnore]
+    public bool MetricsEnabled { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the built-in Prometheus endpoint is enabled. Defaults to <see langword="false" />.</summary>
     [JsonIgnore]
     public bool PrometheusMetricsEnabled { get; set; }

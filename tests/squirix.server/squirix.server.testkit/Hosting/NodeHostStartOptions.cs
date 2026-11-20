@@ -36,6 +36,8 @@ internal sealed class NodeHostStartOptions
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
 
+    internal bool MetricsEnabled { get; init; }
+
     internal bool PrometheusMetricsEnabled { get; init; }
 
     internal SecurityOptions? SecurityOptions { get; init; }

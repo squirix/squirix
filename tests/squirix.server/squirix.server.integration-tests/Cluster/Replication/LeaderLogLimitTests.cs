@@ -168,6 +168,7 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         CleanTestDir = clean,
         ExtraScope = scope,
         PersistenceOptions = Persistence,
+        MetricsEnabled = true,
         PrometheusMetricsEnabled = true,
         ServicesConfigure = SetManualMaintenance,
     };

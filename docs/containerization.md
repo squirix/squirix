@@ -161,8 +161,12 @@ Check health from the host.
 curl -k https://localhost:5001/health
 ```
 
-Set `Squirix:PrometheusMetrics:enabled` to `true` in the mounted node settings before starting the container to enable
-the following scrape.
+To enable the scrape, set `Squirix:PrometheusMetrics:enabled` to `true` in the mounted node settings and add
+`--metrics` to that node's Compose `command` before starting it.
+
+```yaml
+command: ["run", "--persist", "--data-dir", "/data", "--metrics"]
+```
 
 ```bash
 curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics

@@ -26,14 +26,14 @@ internal sealed class PressureGate
     private readonly IMemoryUsageAccounting _accounting;
     private readonly IMemoryPressureStateEvaluator _evaluator;
     private readonly string _nodeId;
-    private readonly Counter<long> _rejectionsTotal;
+    private readonly Counter<long>? _rejectionsTotal;
 
     /// <summary>Initializes a new instance of the <see cref="PressureGate" /> class.</summary>
     /// <param name="evaluator">Pressure state evaluator.</param>
     /// <param name="accounting">Approximate global accounting snapshot input.</param>
     /// <param name="nodeId">This node's id for low-cardinality metrics only.</param>
     /// <param name="meter">Server-wide meter used to create the rejection counter.</param>
-    internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId, Meter meter)
+    internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId, Meter? meter)
     {
         ArgumentNullException.ThrowIfNull(evaluator);
         ArgumentNullException.ThrowIfNull(accounting);
@@ -41,8 +41,7 @@ internal sealed class PressureGate
         _evaluator = evaluator;
         _accounting = accounting;
         _nodeId = nodeId;
-        ArgumentNullException.ThrowIfNull(meter);
-        _rejectionsTotal = meter.CreateCounter<long>("squirix_memory_rejections_total", "{rejection}", "Memory admission rejections by operation and reason");
+        _rejectionsTotal = meter?.CreateCounter<long>("squirix_memory_rejections_total", "{rejection}", "Memory admission rejections by operation and reason");
     }
 
     /// <summary>Tells, without counting a rejection, whether memory pressure policy would refuse a memory-growing write now.</summary>
@@ -88,6 +87,9 @@ internal sealed class PressureGate
     private ResourceExhaustedException Reject(string operation, string reason)
     {
         _accounting.RecordAdmissionRejection();
+        if (_rejectionsTotal == null)
+            return new ResourceExhaustedException();
+
         var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
         var tags = new TagList
         {

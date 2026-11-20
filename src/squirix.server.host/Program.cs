@@ -25,7 +25,7 @@ internal static class Program
         private const string DoctorReplicaMismatch =
             "Durable replica state in the data directory does not match the configured topology; see the MISMATCH, UNREADABLE, or MISSING lines above.";
 
-        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--prometheus-metrics] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
+        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
                                         "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" + "  version\n" + "  help\n";
 
@@ -117,8 +117,8 @@ internal static class Program
             var options = await Configurator.CreateHostingOptionsAsync(
                 options =>
                 {
-                    if (command.EnablePrometheusMetrics)
-                        options.PrometheusMetricsEnabled = true;
+                    if (command.EnableMetrics)
+                        options.MetricsEnabled = true;
 
                     Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist, command.EnableReplication);
                 },
@@ -242,7 +242,7 @@ internal static class Program
             await WriteConsoleLineAsync(Console.Out, "[Squirix.Server] Server is ready.").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  URL: {options.Uri}").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Health endpoint: {new Uri(options.Uri, "/health")}").ConfigureAwait(false);
-            if (options.PrometheusMetricsEnabled)
+            if (options.MetricsEnabled && options.PrometheusMetricsEnabled)
                 await WriteConsoleLineAsync(Console.Out, $"  Metrics endpoint: {new Uri(options.Uri, options.PrometheusMetricsPath)}").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Node ID: {options.NodeId}").ConfigureAwait(false);
             _ = await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
@@ -261,10 +261,10 @@ internal static class Program
         /// <param name="DataDirectory">Optional data directory override from <c language="csharp">--data-dir</c>.</param>
         /// <param name="Persist">Whether persistence was requested via <c language="csharp">--persist</c>.</param>
         /// <param name="EnableReplication">Whether replication was requested via <c language="csharp">--enable-replication</c>.</param>
-        /// <param name="EnablePrometheusMetrics">Whether the built-in Prometheus endpoint was requested via <c language="csharp">--prometheus-metrics</c>.</param>
+        /// <param name="EnableMetrics">Whether server metrics collection was requested via <c language="csharp">--metrics</c>.</param>
         /// <param name="SettingsPath">Optional settings file path from <c language="csharp">--settings</c>.</param>
         [Immutable]
-        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, bool EnableReplication, bool EnablePrometheusMetrics, string? SettingsPath)
+        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, bool EnableReplication, bool EnableMetrics, string? SettingsPath)
         {
             internal static SquirixServerCommand Parse(string[] args)
             {
@@ -281,7 +281,7 @@ internal static class Program
                         return HelpCommand();
                 }
 
-                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnablePrometheusMetrics, state.SettingsPath);
+                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnableMetrics, state.SettingsPath);
             }
 
             private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, false, false, null);
@@ -304,7 +304,7 @@ internal static class Program
 
             private static string ResolveName(string[] args) => args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
-            /// <summary>Applies no-value switches: <c language="csharp">--strict</c>, <c language="csharp">--persist</c>, <c language="csharp">--enable-replication</c>, and <c language="csharp">--prometheus-metrics</c>.</summary>
+            /// <summary>Applies no-value switches: <c language="csharp">--strict</c>, <c language="csharp">--persist</c>, <c language="csharp">--enable-replication</c>, and <c language="csharp">--metrics</c>.</summary>
             /// <param name="flag">The raw command-line argument.</param>
             /// <param name="state">The accumulated flag state.</param>
             /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
@@ -321,8 +321,8 @@ internal static class Program
                     case "--enable-replication":
                         state.SetEnableReplication();
                         return true;
-                    case "--prometheus-metrics":
-                        state.SetEnablePrometheusMetrics();
+                    case "--metrics":
+                        state.SetEnableMetrics();
                         return true;
                     default:
                         return false;
@@ -369,7 +369,7 @@ internal static class Program
             {
                 internal string? DataDirectory { get; private set; }
 
-                internal bool EnablePrometheusMetrics { get; private set; }
+                internal bool EnableMetrics { get; private set; }
 
                 internal bool EnableReplication { get; private set; }
 
@@ -383,7 +383,7 @@ internal static class Program
 
                 internal void SetDataDirectory(string value) => DataDirectory = value;
 
-                internal void SetEnablePrometheusMetrics() => EnablePrometheusMetrics = true;
+                internal void SetEnableMetrics() => EnableMetrics = true;
 
                 internal void SetEnableReplication() => EnableReplication = true;
 

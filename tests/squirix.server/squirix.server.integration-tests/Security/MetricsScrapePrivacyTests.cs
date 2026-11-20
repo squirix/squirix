@@ -31,7 +31,7 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { PrometheusMetricsEnabled = true, Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            new IntegrationStartOptions { MetricsEnabled = true, PrometheusMetricsEnabled = true, Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var cache = cluster[NodeId].GetCache<object?>(secretCacheName);

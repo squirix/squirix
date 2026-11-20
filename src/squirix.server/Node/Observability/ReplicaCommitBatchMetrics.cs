@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Squirix.Server.Attributes;
@@ -9,12 +8,11 @@ namespace Squirix.Server.Node.Observability;
 [ThreadSafe]
 internal sealed class ReplicaCommitBatchMetrics
 {
-    private readonly Histogram<long> _size;
+    private readonly Histogram<long>? _size;
 
-    internal ReplicaCommitBatchMetrics(Meter meter)
+    internal ReplicaCommitBatchMetrics(Meter? meter)
     {
-        ArgumentNullException.ThrowIfNull(meter);
-        _size = meter.CreateHistogram<long>(
+        _size = meter?.CreateHistogram<long>(
             "squirix_replication_commit_batch_size",
             "{write}",
             "Writes one commit round of a led replica group carried: the writes that queued while the previous commit ran, submitted with one append and one majority; a round refused before its append is counted too");
@@ -26,6 +24,9 @@ internal sealed class ReplicaCommitBatchMetrics
     /// <param name="writes">The number of writes the round carried; one for a write that committed alone.</param>
     internal void Record(string nodeId, string groupId, int writes)
     {
+        if (_size == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },

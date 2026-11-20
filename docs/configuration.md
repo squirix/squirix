@@ -26,12 +26,12 @@ Keep all sections in `Squirix.settings.json` in the working directory to apply t
 
 Relative settings and data paths are resolved against the process working directory, not the settings file directory.
 Use paths without `.` or `..` segments, for example `config/node.json` and `data`; paths such as `./data` are rejected.
-CLI listen, persistence, data-directory, replication, and Prometheus overrides apply after loading settings.
+CLI listen, persistence, data-directory, replication, and metrics flags apply after loading settings.
 In custom hosts, the configuration callback runs after file settings have been loaded.
 
 In a custom ASP.NET Core host, `AddSquirixServerAsync` configures the public TLS listener for binary cache connections.
 Configure cluster topology and optional persistence in its `SquirixServerOptions` callback. After building the app,
-call `await app.MapSquirixServerAsync()` to open node storage and map health, metrics, and any configured internode endpoints.
+call `await app.MapSquirixServerAsync()` to open node storage and map health and any configured metrics or internode endpoints.
 
 ## Remote client (`SquirixClientOptions`)
 
@@ -392,7 +392,7 @@ The following optional settings are available at startup.
 | --- | --- | --- |
 | `MemoryPressure` | Yes | Merged when present |
 | `Snapshot` | Yes | Merged when present |
-| `PrometheusMetrics` | Yes | Merged when present. Disabled by default |
+| `PrometheusMetrics` | Yes | Enables HTTP export when metrics collection is on. Disabled by default |
 | Persistence knobs (`PersistenceOptions`) | No | Host defaults when `--persist` / `UsePersistence()`; not a JSON section today |
 | Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
 | Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
@@ -588,7 +588,8 @@ never queued. Forwarded owner calls are never queued on the owner (see above). A
 
 ### Journal metrics exporter
 
-When persistence is enabled, the journal segment count and size gauges are refreshed from disk every 5 seconds. The interval
+When persistence and metrics collection are enabled, the journal segment count and size gauges are refreshed from disk
+every 5 seconds. The interval
 is fixed and not loaded from `Squirix.settings.json`.
 
 <!-- markdownlint-disable-next-line MD033 -->
@@ -596,10 +597,12 @@ is fixed and not loaded from `Squirix.settings.json`.
 
 ### Prometheus metrics (`PrometheusMetrics`)
 
-The built-in Prometheus-compatible scrape endpoint is disabled by default. Enable it at startup with
-`squirix-server run --prometheus-metrics` or `Squirix:PrometheusMetrics:enabled` in the settings file. The CLI flag
-enables the endpoint and uses the configured path, if present. In an embedded host, set
-`SquirixServerOptions.PrometheusMetricsEnabled` and optionally `PrometheusMetricsPath` in the hosting configuration callback.
+Squirix server metrics collection is disabled by default. Enable it at startup with `squirix-server run --metrics`,
+or set `SquirixServerOptions.MetricsEnabled` in the embedded hosting configuration callback.
+
+Prometheus HTTP export is a separate opt-in. Set `Squirix:PrometheusMetrics:enabled` to `true` in the settings file
+or set `SquirixServerOptions.PrometheusMetricsEnabled` in the callback. The server exposes the scrape endpoint
+when both collection and export are enabled. Use `PrometheusMetricsPath` in the callback to customize the path.
 
 | Field     | Type   | Default in node host | Validation                                              |
 | --------- | ------ | -------------------- | ------------------------------------------------------- |
@@ -626,8 +629,8 @@ the same JWT bearer token used for cache routes (see
 **Loopback trust assumption:** anonymous loopback scrapes assume the host is **single-tenant** and that any local
 process reaching `127.0.0.1` / `::1` is trusted. On **shared or multi-tenant** hosts, another tenant's process can
 scrape `/metrics` without JWT and read operational data. Mitigations: bind the primary listener to loopback only when
-appropriate, disable the HTTP scrape (omit `--prometheus-metrics` and leave `PrometheusMetrics.enabled` set to `false`) and export through OpenTelemetry /
-`MeterListener` instead, or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
+appropriate, leave `PrometheusMetrics.enabled` set to `false` and export through OpenTelemetry or `MeterListener`,
+or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
 scrapes — the tradeoff is intentional for same-host Prometheus ergonomics.
 
 Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`

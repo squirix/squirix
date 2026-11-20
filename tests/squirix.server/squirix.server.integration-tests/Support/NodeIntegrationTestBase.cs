@@ -456,6 +456,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             {
                 PeerHandlerFactory = peerHandlerFactory,
                 WaitForRecovery = options.WaitForRecovery,
+                MetricsEnabled = options.MetricsEnabled,
                 PrometheusMetricsEnabled = options.PrometheusMetricsEnabled,
                 ServicesConfigure = options.ServicesConfigure,
                 Extensions = options.Extensions,

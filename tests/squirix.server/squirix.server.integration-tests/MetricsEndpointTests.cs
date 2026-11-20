@@ -19,7 +19,7 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
     public async Task MetricsEndpointServesReplicationGauges(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster([new ClusterNode("node-metrics-a", GetNextHttpUri()), new ClusterNode("node-metrics-b", GetNextHttpUri())]);
-        var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, PrometheusMetricsEnabled = true, ExtraScope = "replication-gauges" };
+        var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, MetricsEnabled = true, PrometheusMetricsEnabled = true, ExtraScope = "replication-gauges" };
         var owner = await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken);
         var uri = owner.Uri;
 

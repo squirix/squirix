@@ -63,8 +63,6 @@ try
             await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
             await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
 
-            await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics".AsMemory(), CancellationToken.None).ConfigureAwait(false);
-
             if (runLoad)
             {
                 await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.".AsMemory(), CancellationToken.None).ConfigureAwait(false);
@@ -214,7 +212,6 @@ static Task WriteSettingsFileAsync(string directory, string endpoint, Cancellati
         ["Squirix"] = new JsonObject
         {
             ["Cluster"] = cluster,
-            ["PrometheusMetrics"] = new JsonObject { ["enabled"] = true },
         },
     };
 

@@ -27,6 +27,7 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Node.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
@@ -39,6 +40,8 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class ServerHostingComposition
 {
+    internal const string MetricsMeterName = "Squirix";
+
     /// <summary>Configures the node web host builder from cluster topology and optional composition overrides.</summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -283,29 +286,17 @@ internal static class ServerHostingComposition
             },
             cancellationToken).ConfigureAwait(false);
 
-        // Per-host Meter. A single instance is created here, then both the runtime and the persistence composition
-        // resolve this same singleton. It is registered through the factory overload, so the DI container takes
-        // ownership and disposes of it when the owning host shuts down: AddSingleton(instance) does not transfer
-        // disposal ownership in Microsoft DI, which would leak the meter.
-        Meter? ownedMeter = null;
-        Meter serverMeter;
-        try
+        if (args.MetricsEnabled)
         {
-            ownedMeter = new Meter("Squirix");
-            serverMeter = ownedMeter;
-            _ = builder.Services.AddSingleton(_ => serverMeter);
-            ownedMeter = null;
-        }
-        finally
-        {
-            ownedMeter?.Dispose();
+            _ = builder.Services.AddKeyedSingleton<Meter>(MetricsMeterName, static (_, _) => new Meter(MetricsMeterName));
+            _ = builder.Services.AddSingleton(static sp => new PrometheusMetricsScraper(sp.GetRequiredKeyedService<Meter>(MetricsMeterName)));
         }
 
-        _ = builder.Services.AddSquirixRuntimeServices();
+        _ = builder.Services.AddSquirixRuntimeServices(args.MetricsEnabled);
         AddSquirixClusterStack(builder.Services, cluster, args);
-        RegisterPersistenceAndReplication(builder.Services, cluster, persistence, serverMeter, mtlsOptions, args);
+        RegisterPersistenceAndReplication(builder.Services, cluster, persistence, mtlsOptions, args);
 
-        _ = builder.Services.AddSquirixCachePipeline(persistenceEnabled);
+        _ = builder.Services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
         var authEnabled = builder.Services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
@@ -562,14 +553,12 @@ internal static class ServerHostingComposition
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="persistence">Resolved persistence options; <see langword="null" /> when persistence is disabled.</param>
-    /// <param name="serverMeter">The per-host Meter singleton owned by the container.</param>
     /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
     /// <param name="args">Composition arguments.</param>
     private static void RegisterPersistenceAndReplication(
         IServiceCollection services,
         TopologyOptions cluster,
         PersistenceOptions? persistence,
-        Meter serverMeter,
         MtlsOptions mtlsOptions,
         CompositionArgs args)
     {
@@ -578,7 +567,7 @@ internal static class ServerHostingComposition
 
         // Registered before every storage component: the container disposes in reverse order of creation, so the lock is released last.
         _ = services.AddSingleton(sp => AcquireDataDirectoryLock(sp, persistence.DataDir));
-        _ = services.AddPersistenceServices(persistence, serverMeter, args.WaitForRecovery);
+        _ = services.AddPersistenceServices(persistence, args.WaitForRecovery, args.MetricsEnabled);
 
         if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
             AddReplicaGroupRegistry(services, cluster, persistence, mtlsOptions);

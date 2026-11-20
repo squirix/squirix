@@ -13,13 +13,12 @@ internal static class EndpointExtensions
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="path">The request path to expose metrics on. Defaults to <c language="csharp">/metrics</c>.</param>
-    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = PrometheusMetricsEndpointOptions.DefaultPath)
+    /// <param name="scraper">The metrics scraper for the server's meter.</param>
+    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path, PrometheusMetricsScraper scraper)
     {
-        _ = PrometheusMetricsScraper.Instance;
-
         _ = endpoints.MapGet(
             path,
-            static async ctx =>
+            async ctx =>
             {
                 if (!await ConnectionSecurity.IsRequestAuthorizedAsync(ctx).ConfigureAwait(false))
                 {
@@ -28,7 +27,7 @@ internal static class EndpointExtensions
                 }
 
                 ctx.Response.ContentType = "text/plain; version=0.0.4";
-                var text = PrometheusMetricsScraper.Instance.Scrape();
+                var text = scraper.Scrape();
                 await ctx.Response.WriteAsync(text, ctx.RequestAborted).ConfigureAwait(false);
             });
     }
