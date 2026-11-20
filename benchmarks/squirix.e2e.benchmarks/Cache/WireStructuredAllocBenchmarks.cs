@@ -5,7 +5,7 @@ using Squirix.E2EBenchmarks.Support.Harness;
 namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>
-/// End-to-end allocation baselines for structured cache values on the gRPC wire path.
+/// End-to-end allocation baselines for structured cache values on the binary cache protocol.
 /// Re-run with the same filter after changing wire encoding to compare allocated bytes.
 /// </summary>
 public class WireStructuredAllocBenchmarks : WireAllocBenchmarkBase<BenchmarkUserProfile>
