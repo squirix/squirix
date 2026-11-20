@@ -56,6 +56,7 @@ Console.WriteLine(result.Found ? result.Value : "<missing>");
 
 Run `dotnet run --project SquirixHost`. Use a certificate trusted by the client, and stop other processes using
 the same ports first. Call `options.UsePersistence("data")` before startup to keep data across restarts.
+Read `server.ManagementUri` after startup to get the bound origin for health and metrics requests.
 
 To supply settings from a specific file, use `Configurator.LoadAsync(path, cancellationToken)` to create the options
 and pass them to `SquirixServer.StartAsync(options, cancellationToken)`. The parameterless startup overload discovers
