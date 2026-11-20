@@ -372,7 +372,7 @@ public sealed class ClusterIdentity : IDisposable
         /// <exception cref="InvalidOperationException">Thrown if no internal listener port can be allocated within the attempt budget.</exception>
         /// <remarks>
         /// The port stays bound (with exclusive address use) until the caller releases it just before
-        /// Kestrel binds, mirroring the primary listen port discipline. A bare probe-and-release
+        /// the native listener binds, mirroring the primary listen port discipline. A bare probe-and-release
         /// leaves a TOCTOU window across certificate generation and sequential node startup where a
         /// parallel test can grab the same internal port.
         /// </remarks>

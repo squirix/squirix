@@ -58,13 +58,11 @@ public sealed class HostLoggingTests
         for (var index = 0; index < names.Count; index++)
         {
             var name = names[index];
-            if (name.StartsWith("Logging__", StringComparison.OrdinalIgnoreCase) || name.StartsWith("DOTNET_Logging__", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("ASPNETCORE_Logging__", StringComparison.OrdinalIgnoreCase))
+            if (name.StartsWith("Logging__", StringComparison.OrdinalIgnoreCase) || name.StartsWith("DOTNET_Logging__", StringComparison.OrdinalIgnoreCase))
                 _ = start.Environment.Remove(name);
         }
 
         start.Environment["DOTNET_ENVIRONMENT"] = "Production";
-        start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
         if (configuration is FileConfig or EnvironmentOverFileConfig)
         {
             await File.WriteAllTextAsync(

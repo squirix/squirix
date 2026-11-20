@@ -4,8 +4,8 @@
 
   Intended layer stack (outer → inner, dependencies flow downward only):
 
-    Adapters (REST/gRPC transport)
-      → Node.Hosting (DI composition, Kestrel, options)
+    Adapters (binary and management transport)
+      → Node.Hosting (DI composition, native listeners, options)
         → Node.Services / Node.App / Node.Bootstrap / Node.Context (runtime orchestration & decorators)
           → Cluster (routing, membership, internode transport)
           → LocalCache (in-memory owner cache)
@@ -146,7 +146,7 @@
   <!-- Persistence must not know REST/gRPC adapters. -->
   <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Adapters.*" />
 
-  <!-- Persistence must not depend on DI composition / Kestrel wiring. -->
+  <!-- Persistence must not depend on DI composition or listener wiring. -->
   <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Hosting.*" />
 
   <!-- Snapshot/journal code must not depend on cluster topology types (today: SnapshotCoordinator → Cluster.Membership). -->
