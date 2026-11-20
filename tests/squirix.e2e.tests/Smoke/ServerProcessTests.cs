@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Net;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
@@ -22,7 +24,14 @@ public sealed class ServerProcessTests
     [Timeout(60_000)]
     public async Task ServerServesCacheAndOperationalEndpoints(CancellationToken cancellationToken)
     {
-        await using var server = await ServerProcess.StartAsync(false, cancellationToken);
+        await using var server = await ServerProcess.StartAsync(
+            false,
+            cancellationToken,
+            static (start, _) =>
+            {
+                start.ArgumentList.Add("--prometheus-metrics");
+                return Task.CompletedTask;
+            });
         await using var client = await SquirixClient.ConnectAsync(server.Uri, cancellationToken);
         var cache = await client.GetCacheAsync<string>("process-smoke", cancellationToken);
         await cache.SetAsync("key", "value", cancellationToken: cancellationToken);
@@ -40,6 +49,53 @@ public sealed class ServerProcessTests
         _ = await Assert.That(metrics.StatusCode).IsEqualTo(HttpStatusCode.OK);
         var body = await metrics.Content.ReadAsStringAsync(cancellationToken);
         _ = await Assert.That(ContainsSuccessfulSet(body)).IsTrue();
+    }
+
+    /// <summary>Verifies that a server started with no Prometheus opt-in does not expose the scrape endpoint.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(60_000)]
+    public async Task PrometheusEndpointIsDisabledByDefault(CancellationToken cancellationToken)
+    {
+        await using var server = await ServerProcess.StartAsync(false, cancellationToken);
+        using var metrics = await server.HttpClient.GetAsync(new Uri(server.Uri, "/metrics"), cancellationToken);
+
+        _ = await Assert.That(metrics.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>Verifies that the selected settings file supplies the path and the flag can override its enablement.</summary>
+    /// <param name="enabledInSettings">Whether the settings file enables the endpoint.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    [Timeout(60_000)]
+    public async Task PrometheusUsesSelectedSettingsPath(bool enabledInSettings, CancellationToken cancellationToken)
+    {
+        await using var server = await ServerProcess.StartAsync(
+            false,
+            cancellationToken,
+            async (start, token) =>
+            {
+                var settingsIndex = start.ArgumentList.IndexOf("--settings") + 1;
+                var settings = JsonNode.Parse(await File.ReadAllTextAsync(start.ArgumentList[settingsIndex], token))!;
+                settings["Squirix"]!["PrometheusMetrics"] = new JsonObject
+                {
+                    ["enabled"] = enabledInSettings,
+                    ["path"] = "/custom-metrics",
+                };
+                var customPath = Path.Join(start.WorkingDirectory, "custom.settings.json");
+                await File.WriteAllTextAsync(customPath, settings.ToJsonString(), token);
+                start.ArgumentList[settingsIndex] = customPath;
+
+                if (!enabledInSettings)
+                    start.ArgumentList.Add("--prometheus-metrics");
+            });
+
+        using var customMetrics = await server.HttpClient.GetAsync(new Uri(server.Uri, "/custom-metrics"), cancellationToken);
+        _ = await Assert.That(customMetrics.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        using var defaultMetrics = await server.HttpClient.GetAsync(new Uri(server.Uri, "/metrics"), cancellationToken);
+        _ = await Assert.That(defaultMetrics.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
     /// <summary>Verifies that the process requires JWT for cache access while its health probes remain public.</summary>

@@ -164,7 +164,7 @@ class Cluster:
                 arguments += ["-e", f"{key}={value}"]
             self.created.append(name)
             command(*arguments, self.args.image, "dotnet", "/app/server/Squirix.Server.Host.dll", "run",
-                    "--settings", "/config/settings.json", "--persist", "--enable-replication")
+                    "--settings", "/config/settings.json", "--persist", "--enable-replication", "--prometheus-metrics")
         self.ips = [command("docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", n).strip() for n in self.nodes]
         self.record("nodes-started", addresses=self.ips)
         time.sleep(10)

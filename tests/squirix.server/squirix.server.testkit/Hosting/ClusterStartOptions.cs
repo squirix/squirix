@@ -65,6 +65,9 @@ public class ClusterStartOptions
     /// <summary>Gets the optional package extensions of the node, such as a decorator of the cache pipeline.</summary>
     public ExtensionOptions? Extensions { get; init; }
 
+    /// <summary>Gets or initializes a value indicating whether the node exposes the built-in Prometheus endpoint.</summary>
+    public bool PrometheusMetricsEnabled { get; init; }
+
     /// <summary>Gets optional per-node security settings.</summary>
     public TestNodeSecurityOptions? Security { get; init; }
 

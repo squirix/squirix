@@ -14,6 +14,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -89,6 +90,7 @@ internal static class NodeHost
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
+            args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions { Enabled = _options.PrometheusMetricsEnabled };
             args.PeerHandlerFactory = _options.PeerHandlerFactory;
             args.BackpressureOptions = _options.BackpressureOptions;
             args.MemoryPressureOptions = _options.MemoryPressureOptions;

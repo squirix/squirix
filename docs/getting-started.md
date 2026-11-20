@@ -43,6 +43,11 @@ Health probes use the same HTTPS listener (local tool default port **5001**):
 
 ```bash
 curl https://localhost:5001/health
+```
+
+To expose the Prometheus endpoint, start the server with `squirix-server run --prometheus-metrics`.
+
+```bash
 curl https://localhost:5001/metrics
 ```
 
@@ -173,7 +178,8 @@ Square brackets in the command synopsis mark optional arguments; omit the bracke
 `init` creates a settings file once and refuses to overwrite an existing file. `--strict` performs optional-section
 validation on `validate-config`; it does not add that validation to `doctor` or `run`.
 
-`run` supports `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, and `--enable-replication`.
+`run` supports `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, `--enable-replication`,
+and `--prometheus-metrics`.
 Run `validate-config --settings Squirix.settings.json --strict` before starting the server; passing `--strict` to
 `run` does not perform that validation. Without `--settings`, the host discovers `Squirix.settings.json` or
 `squirix.settings.json` in the working directory and application directory.

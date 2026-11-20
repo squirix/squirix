@@ -214,6 +214,7 @@ static Task WriteSettingsFileAsync(string directory, string endpoint, Cancellati
         ["Squirix"] = new JsonObject
         {
             ["Cluster"] = cluster,
+            ["PrometheusMetrics"] = new JsonObject { ["enabled"] = true },
         },
     };
 

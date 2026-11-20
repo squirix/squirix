@@ -5,6 +5,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage;
 
 namespace Squirix.Server.Node.Hosting;
@@ -28,6 +29,8 @@ internal sealed class CompositionArgs
     internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; set; }
 
     internal PersistenceOptions? PersistenceOptions { get; set; }
+
+    internal PrometheusMetricsEndpointOptions? PrometheusMetricsOptions { get; set; }
 
     internal SecurityOptions? SecurityOptions { get; set; }
 

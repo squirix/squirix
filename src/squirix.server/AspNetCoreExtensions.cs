@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage;
 using Squirix.Server.Utils;
 
@@ -85,6 +86,11 @@ public static class AspNetCoreExtensions
                 args.WaitForRecovery = options.WaitForRecovery;
                 args.PersistenceOptions = persistenceOptions;
                 args.BackpressureOptions = options.Backpressure.ToAdmissionOptions();
+                args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions
+                {
+                    Enabled = options.PrometheusMetricsEnabled,
+                    Path = options.PrometheusMetricsPath,
+                };
                 args.Extensions = extensions;
                 configureComposition?.Invoke(args);
             },

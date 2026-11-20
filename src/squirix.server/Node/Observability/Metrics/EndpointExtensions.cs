@@ -13,7 +13,7 @@ internal static class EndpointExtensions
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="path">The request path to expose metrics on. Defaults to <c language="csharp">/metrics</c>.</param>
-    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics")
+    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = PrometheusMetricsEndpointOptions.DefaultPath)
     {
         _ = PrometheusMetricsScraper.Instance;
 

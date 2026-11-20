@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server;
@@ -79,6 +80,8 @@ public static class Configurator
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
+        target.PrometheusMetricsEnabled = source.PrometheusMetricsEnabled;
+        target.PrometheusMetricsPath = source.PrometheusMetricsPath;
         target.DataDirectory = source.DataDirectory;
         target.ForwardConnectTimeout = source.ForwardConnectTimeout;
         ArgumentNullException.ThrowIfNull(source.Backpressure);
@@ -124,7 +127,7 @@ public static class Configurator
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path != null ? await LoadAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
+            options = path != null ? await LoadHostingSettingsAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
         }
         else
         {
@@ -303,7 +306,7 @@ public static class Configurator
     internal static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken)
     {
         if (discoveredPath != null)
-            return await LoadAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
+            return await LoadHostingSettingsAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
 
         var port = NextFreePort();
         return new SquirixServerOptions
@@ -320,6 +323,15 @@ public static class Configurator
     {
         options.Validate();
         return SquirixServerOptions.BuildTopology(options);
+    }
+
+    private static async Task<SquirixServerOptions> LoadHostingSettingsAsync(string path, CancellationToken cancellationToken)
+    {
+        var options = await LoadAsync(path, cancellationToken).ConfigureAwait(false);
+        var (_, metrics) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(path, new PrometheusMetricsEndpointOptions(), cancellationToken).ConfigureAwait(false);
+        options.PrometheusMetricsEnabled = metrics.Enabled;
+        options.PrometheusMetricsPath = metrics.Path;
+        return options;
     }
 
     /// <summary>Aligns the local peer URI with the node URI after command-line overrides.</summary>

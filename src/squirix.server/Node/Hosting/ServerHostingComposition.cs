@@ -277,6 +277,7 @@ internal static class ServerHostingComposition
                 BackpressureOptions = args.BackpressureOptions,
                 PersistenceOptions = persistence,
                 MemoryPressureOptions = args.MemoryPressureOptions,
+                PrometheusMetricsOptions = args.PrometheusMetricsOptions,
                 MtlsOptions = mtlsOptions,
                 Certificate = mtlsMaterial,
             },

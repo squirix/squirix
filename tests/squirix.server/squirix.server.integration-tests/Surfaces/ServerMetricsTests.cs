@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
@@ -19,7 +20,7 @@ public sealed class ServerMetricsTests : ServerSurfaceTestBase
     [Test]
     public async Task MetricsExposeCountersAfterOperations(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("node_A", cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync("node_A", static _ => new BlackBoxStartOptions { PrometheusMetricsEnabled = true }, cancellationToken);
         var node = cluster["node_A"];
         using var channel = CreateBinaryChannel(node.Uri);
         var client = new CacheWireClient(channel);

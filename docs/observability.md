@@ -25,7 +25,8 @@ Full field reference: [diagnostics.md](diagnostics.md).
 
 ## Metrics
 
-`GET /metrics` — Prometheus text exposition (enabled by default; configurable in settings).
+The Prometheus scrape endpoint is disabled by default. Enable it with `squirix-server run --prometheus-metrics` or
+[configure it in the settings file](configuration.md#prometheus-metrics-squirixsettingsjson). The default path is `/metrics`.
 
 Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must authenticate with a valid
 JWT bearer token. An unauthenticated remote request receives `401`, even if JWT authentication is not configured.

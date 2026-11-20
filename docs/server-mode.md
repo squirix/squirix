@@ -81,8 +81,8 @@ _ = await builder.AddSquirixServerAsync(settingsPath: "Squirix.settings.json");
 ```
 
 The file must exist and contain valid cluster settings. Keep file loading enabled; `loadDiscoveredSettings: false`
-skips even an explicit `settingsPath`. Optional runtime sections still use standard discovery as described in
-[Configuration](configuration.md#file-discovery).
+skips even an explicit `settingsPath`. The host loads `PrometheusMetrics` from the selected file. `MemoryPressure` and
+`Snapshot` use [standard file discovery](configuration.md#file-discovery).
 
 ## Tests and samples
 

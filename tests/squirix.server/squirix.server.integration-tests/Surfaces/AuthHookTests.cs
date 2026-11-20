@@ -111,6 +111,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
     private static BlackBoxStartOptions CreateOptions(TestJwtCredentials credentials, HookProbe probe) => new()
     {
+        PrometheusMetricsEnabled = true,
         Security = TestNodeSecurityOptions.FromJwtCredentials(credentials),
         ServicesConfigure = services =>
         {

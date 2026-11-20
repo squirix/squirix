@@ -142,6 +142,10 @@ P:Squirix.Server.SquirixServerOptions::Peers:System.Collections.Generic.IReadOnl
 P:Squirix.Server.SquirixServerOptions::Peers:System.Collections.Generic.IReadOnlyList<Squirix.Server.SquirixServerPeerOptions>.set
 P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.get
 P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.set
+P:Squirix.Server.SquirixServerOptions::PrometheusMetricsEnabled:System.Boolean.get
+P:Squirix.Server.SquirixServerOptions::PrometheusMetricsEnabled:System.Boolean.set
+P:Squirix.Server.SquirixServerOptions::PrometheusMetricsPath:System.String.get
+P:Squirix.Server.SquirixServerOptions::PrometheusMetricsPath:System.String.set
 P:Squirix.Server.SquirixServerOptions::QuorumReadsEnabled:System.Boolean.get
 P:Squirix.Server.SquirixServerOptions::QuorumReadsEnabled:System.Boolean.set
 P:Squirix.Server.SquirixServerOptions::ReplicaCount:System.Int32.get

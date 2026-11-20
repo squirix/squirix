@@ -16,9 +16,8 @@ namespace Squirix.Server.Node.Observability.Metrics;
 [Immutable]
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
-    internal static readonly PrometheusMetricsScraper Instance = new(false);
-
     private const int ExpectedLineLength = 64;
+    private static readonly Lazy<PrometheusMetricsScraper> Shared = new(static () => new PrometheusMetricsScraper(false));
     private readonly Lock _creationLock = new();
     private readonly MeterListener _listener;
     private readonly ConcurrentDictionary<string, MetricSeries> _metrics = new(StringComparer.Ordinal);
@@ -30,6 +29,8 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         if (!isolated)
             _listener.Start();
     }
+
+    internal static PrometheusMetricsScraper Instance => Shared.Value;
 
     public void Dispose() => _listener.Dispose();
 
