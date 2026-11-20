@@ -10,6 +10,7 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -91,11 +92,21 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         };
     }
 
-    private static async Task<T> ReadReplyAsync<T>(SslStream stream, MessageParser<T> parser, Memory<byte> header, CancellationToken cancellationToken)
+    internal static async Task<T> ReadReplyAsync<T>(Stream stream, MessageParser<T> parser, Memory<byte> header, CancellationToken cancellationToken)
         where T : IMessage<T>
     {
         await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
-        var (status, size) = PeerFrames.ReadReply(header.Span);
+        (int Status, int Size) dimensions;
+        try
+        {
+            dimensions = PeerFrames.ReadReply(header.Span);
+        }
+        catch (InvalidDataException error)
+        {
+            throw new ServerCallException(FrameStatus.DataLoss, "Malformed peer response header.", error);
+        }
+
+        var (status, size) = dimensions;
         var buffer = ArrayPool<byte>.Shared.Rent(size);
         try
         {
@@ -112,9 +123,31 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
+    internal static string TraceText(string? value, int limit)
+    {
+        if (value == null || value.Length > limit)
+            return string.Empty;
+
+        try
+        {
+            return PeerFrames.Text.GetByteCount(value) <= limit ? value : string.Empty;
+        }
+        catch (EncoderFallbackException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static long? RemainingBudget()
+    {
+        var ticks = ServerRpcDeadlineContext.CurrentBudget?.Remaining.Ticks;
+        return ticks <= 0 ? throw new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.") : ticks;
+    }
+
     private async Task<T> TransferAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
         where T : IMessage<T>
     {
+        _ = RemainingBudget();
         await _transfers.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -129,24 +162,21 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     private async Task<T> ExchangeAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
         where T : IMessage<T>
     {
+        _ = RemainingBudget();
         var size = request.CalculateSize();
         if (size > EntryLimits.MaxSendMessageSizeBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The request exceeds the peer message limit.");
 
-        var parent = Activity.Current?.Id ?? string.Empty;
-        var state = Activity.Current?.TraceStateString ?? string.Empty;
+        var parent = TraceText(Activity.Current?.Id, Frames.MaxTraceParentLength);
+        var state = TraceText(Activity.Current?.TraceStateString, Frames.MaxTraceStateLength);
         var sent = false;
         PeerSession? stream = null;
         try
         {
             stream = await RentAsync(cancellationToken).ConfigureAwait(false);
-            var budget = ServerRpcDeadlineContext.CurrentBudget?.Remaining.Ticks;
-            if (budget <= 0)
-                throw new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.");
-
+            var budget = RemainingBudget();
             var frame = new PeerFrames.Request(size, budget ?? -1, PeerFrames.Text.GetByteCount(path), PeerFrames.Text.GetByteCount(_fingerprint), PeerFrames.Text.GetByteCount(parent), PeerFrames.Text.GetByteCount(state));
             var length = checked(PeerFrames.RequestBytes + frame.Metadata + size);
-            T reply;
             var packet = ArrayPool<byte>.Shared.Rent(length);
             try
             {
@@ -161,13 +191,13 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
                 stream.RequestStarted = Stopwatch.GetTimestamp();
                 sent = true;
                 await stream.WriteAsync(packet.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
-                reply = await ReadReplyAsync(stream, parser, packet.AsMemory(0, PeerFrames.ReplyBytes), cancellationToken).ConfigureAwait(false);
             }
             finally
             {
                 ArrayPool<byte>.Shared.Return(packet, true);
             }
 
+            var reply = await ReadReplyAsync(stream, parser, stream.ReplyHeader, cancellationToken).ConfigureAwait(false);
             await ReturnAsync(stream).ConfigureAwait(false);
             stream = null;
             return reply;
@@ -318,6 +348,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             : base(network)
         {
         }
+
+        internal Memory<byte> ReplyHeader { get; } = new byte[PeerFrames.ReplyBytes];
 
         /// <summary>Gets or sets the timestamp before the last request was sent, a lower bound for when the peer started its idle timer.</summary>
         internal long RequestStarted { get; set; }
