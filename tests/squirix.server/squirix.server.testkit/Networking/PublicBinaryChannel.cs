@@ -122,12 +122,8 @@ public sealed class PublicBinaryChannel : IDisposable
             await socket.ConnectAsync(_uri.IdnHost, _uri.Port, cancellationToken).ConfigureAwait(false);
             network = new NetworkStream(socket, true);
             stream = new SslStream(network);
-            using var handler = LoopbackHttp.CreateHandler();
-            var tlsOptions = new SslClientAuthenticationOptions
-            {
-                TargetHost = _uri.IdnHost,
-                RemoteCertificateValidationCallback = handler.SslOptions.RemoteCertificateValidationCallback,
-            };
+            var tlsOptions = LoopbackHttp.CreateTlsOptions();
+            tlsOptions.TargetHost = _uri.IdnHost;
             await stream.AuthenticateAsClientAsync(tlsOptions, cancellationToken).ConfigureAwait(false);
             await NegotiateAsync(stream, cancellationToken).ConfigureAwait(false);
             return stream;

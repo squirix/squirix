@@ -22,7 +22,7 @@ public sealed class PeerTlsOptionsTests : ServerUnitTestBase
     /// <summary>Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MtlsHandlerAttachesLocalNodeCert(CancellationToken cancellationToken)
+    public async Task MtlsTlsAttachesLocalNodeCert(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var material = MtlsCertificate.Load(
@@ -36,18 +36,18 @@ public sealed class PeerTlsOptionsTests : ServerUnitTestBase
             true,
             "node-a");
 
-        using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+        var tlsOptions = TestCertificates.CreatePeerTlsOptions([material.NodeCertificate!], material.TrustAnchor!, "node-b");
 
-        var certificates = await Assert.That(handler.SslOptions.ClientCertificates).IsNotNull();
+        var certificates = await Assert.That(tlsOptions.ClientCertificates).IsNotNull();
         _ = await Assert.That(certificates.Count).IsEqualTo(1);
         var clientCertificate = await Assert.That(certificates[0]).IsNotNull();
         _ = await Assert.That(clientCertificate).IsEqualTo(material.NodeCertificate);
     }
 
-    /// <summary>Ensures the outbound handlers prebuild the client certificate context on Unix and leave it unset on Windows.</summary>
+    /// <summary>Ensures the outbound TLS options prebuild the client certificate context on Unix and leave it unset on Windows.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MtlsHandlerPrebuildsClientContext(CancellationToken cancellationToken)
+    public async Task MtlsTlsPrebuildsClientContext(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var material = MtlsCertificate.Load(
@@ -61,18 +61,18 @@ public sealed class PeerTlsOptionsTests : ServerUnitTestBase
             true,
             "node-a");
 
-        using var testKitHandler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+        var testKitTls = TestCertificates.CreatePeerTlsOptions([material.NodeCertificate!], material.TrustAnchor!, "node-b");
         var productTls = NativePeerClient.CreateTlsOptions("localhost", "node-b", material, new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, new EventRecordingLogger()));
 
-        await AssertClientContextAsync(testKitHandler.SslOptions, material.NodeCertificate!);
+        await AssertClientContextAsync(testKitTls, material.NodeCertificate!);
         await AssertClientContextAsync(productTls, material.NodeCertificate!);
     }
 
-    /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
+    /// <summary>Ensures outbound TLS rejects missing peer server certificates.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
     [Test]
-    public async Task MtlsHandlerRejectsUntrustedPeerCert(CancellationToken cancellationToken)
+    public async Task MtlsTlsRejectsUntrustedPeerCert(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var material = MtlsCertificate.Load(
@@ -85,17 +85,17 @@ public sealed class PeerTlsOptionsTests : ServerUnitTestBase
             6001,
             true,
             "node-a");
-        using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
-        var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
+        var tlsOptions = TestCertificates.CreatePeerTlsOptions([material.NodeCertificate!], material.TrustAnchor!, "node-b");
+        var callback = ThrowHelper.Required(tlsOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
 
         _ = await Assert.That(callback(this, null, null, SslPolicyErrors.None)).IsFalse();
     }
 
-    /// <summary>Ensures the product handler refuses a certificate of the wrong node on every handshake and logs the refusal once.</summary>
+    /// <summary>Ensures product TLS refuses a certificate of the wrong node on every handshake and logs the refusal once.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
     [Test]
-    public async Task MtlsHandlerLogsWrongPeerOnce(CancellationToken cancellationToken)
+    public async Task MtlsTlsLogsWrongPeerOnce(CancellationToken cancellationToken)
     {
         const int refusedLogEventId = 5010;
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);

@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -32,11 +31,9 @@ internal sealed class NodeHostStartOptions
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
-    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
+    internal Func<string, PeerSocketOptions>? PeerOptionsFactory { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
-
-    internal Squirix.Server.TestKit.Networking.PartitionFabric? PartitionFabric { get; init; }
 
     internal Uri? ManagementUri { get; init; }
 

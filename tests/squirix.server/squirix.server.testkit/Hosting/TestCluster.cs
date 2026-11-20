@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -421,7 +420,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     private static NodeHostStartOptions CreateOptions(
         ClusterStartOptions? startOptions,
         PersistenceOptions? persistenceOptions,
-        Func<string, HttpMessageHandler>? peerHandlerFactory,
+        Func<string, PeerSocketOptions>? peerOptionsFactory,
         MtlsOptions? mtlsOptions,
         MtlsCertificate? mtlsMaterial)
     {
@@ -434,7 +433,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
                 _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
             PersistenceOptions = persistenceOptions,
-            PeerHandlerFactory = peerHandlerFactory,
+            PeerOptionsFactory = peerOptionsFactory,
             SecurityOptions = startOptions?.Security?.ToServerOptions(),
             MtlsOptions = mtlsOptions,
             Certificate = mtlsMaterial,
@@ -442,7 +441,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             ElectionTiming = startOptions?.ElectionTiming,
             ServicesConfigure = WithCompactionInterval(startOptions?.ServicesConfigure, startOptions?.ReplicaLogCompactionInterval),
             TrackRequests = startOptions?.TrackRequests ?? false,
-            PartitionFabric = startOptions?.PartitionFabric,
             ManagementUri = startOptions?.ManagementUri,
             MetricsEnabled = startOptions?.MetricsEnabled ?? false,
             PrometheusMetricsEnabled = startOptions?.PrometheusMetricsEnabled ?? false,
@@ -495,13 +493,13 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
                 ? new NodeMtlsStartup(null, null, null)
                 : await identity.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, options?.PartitionFabric, cancellationToken).ConfigureAwait(false);
 
-            var nodeHostStartOptions = CreateOptions(options, persistenceOptions, startup.PeerHandlerFactory, startup.Options, startup.Certificate);
+            var nodeHostStartOptions = CreateOptions(options, persistenceOptions, startup.PeerOptionsFactory, startup.Options, startup.Certificate);
             ListenPortPool.ReleaseHeldPrimary(self.Uri);
             var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);
 
             IDisposable? scope = identity;
             if (callerOwnedIdentity)
-                scope = startup.Owner == null ? null : identity?.NodeHandlers.CreateScope(startup.Owner);
+                scope = startup.Owner == null ? null : identity?.PeerOptionLifetimes.CreateScope(startup.Owner);
 
             return new TestNodeHost(app, self.Uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null, scope);
         }

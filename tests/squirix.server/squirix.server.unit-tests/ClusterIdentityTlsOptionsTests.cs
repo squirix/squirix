@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
@@ -13,17 +12,17 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>The shared test identity owns the per-peer handlers its outbound handler factories create.</summary>
-public sealed class ClusterIdentityHandlerTests
+/// <summary>The shared test identity tracks the material for each startup's peer TLS options.</summary>
+public sealed class ClusterIdentityTlsOptionsTests
 {
-    /// <summary>A peer handler stays usable while the identity lives and is disposed together with the identity.</summary>
-    /// <param name="profile">A profile that wires a custom outbound handler factory.</param>
+    /// <summary>Peer options can be created while the identity lives. Disposing the identity ends their startup lifetime.</summary>
+    /// <param name="profile">A profile that configures outbound peer TLS options.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(TestNodeProfile.NoOutboundClientCertificate)]
     [Arguments(TestNodeProfile.UntrustedOutboundClientCertificate)]
     [Arguments(TestNodeProfile.ExpiredPeerCertificate)]
-    public async Task DisposeReleasesPeerHandlers(TestNodeProfile profile, CancellationToken cancellationToken)
+    public async Task DisposeReleasesPeerOptions(TestNodeProfile profile, CancellationToken cancellationToken)
     {
         using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
         using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
@@ -37,16 +36,12 @@ public sealed class ClusterIdentityHandlerTests
             var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaryA.HttpUri };
             var startup = await identity.ResolveNodeStartupForBindAsync(cluster, profile, cancellationToken);
             using var material = startup.Certificate;
-            var created = await Assert.That(startup.PeerHandlerFactory?.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>();
-            var handler = ThrowHelper.Required(created, "Expected the custom outbound handler factory to create a handler.");
-
-            // A handler that has not sent a request still accepts configuration until it is disposed.
-            handler.MaxConnectionsPerServer = 2;
+            var factory = ThrowHelper.Required(startup.PeerOptionsFactory, "Expected outbound socket options.");
+            _ = await Assert.That(factory("nodeB").Tls.RemoteCertificateValidationCallback).IsNotNull();
 
             identity.Dispose();
 
-            var ex = NodeExceptionAssert.For<ObjectDisposedException>().Throws(handler, static h => h.MaxConnectionsPerServer = 3);
-            _ = await Assert.That(ex.ObjectName).Contains(nameof(SocketsHttpHandler), StringComparison.Ordinal);
+            _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(factory, static create => _ = create("nodeB"));
         }
         finally
         {
@@ -54,10 +49,10 @@ public sealed class ClusterIdentityHandlerTests
         }
     }
 
-    /// <summary>Releasing a node disposes its handlers and their hold on the shared material while the identity lives, and the next startup creates fresh ones.</summary>
+    /// <summary>Releasing a node ends its options lifetime and releases its material hold. The next startup can issue fresh options.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReleaseDisposesNodeHandlers(CancellationToken cancellationToken)
+    public async Task ReleaseDisposesNodePeerOptions(CancellationToken cancellationToken)
     {
         using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
         using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
@@ -69,29 +64,30 @@ public sealed class ClusterIdentityHandlerTests
         var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaryA.HttpUri };
         var startup = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
         var material = ThrowHelper.Required(startup.Certificate, "Expected loaded mTLS material.");
-        var factory = ThrowHelper.Required(startup.PeerHandlerFactory, "Expected the custom outbound handler factory.");
-        var handler = ThrowHelper.Required(await Assert.That(factory.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>(), "Expected a sockets handler.");
+        var factory = ThrowHelper.Required(startup.PeerOptionsFactory, "Expected outbound socket options.");
+        var firstOptions = factory("nodeB");
+        _ = await Assert.That(firstOptions.Tls.RemoteCertificateValidationCallback).IsNotNull();
 
-        // The loader's release leaves the material loaded while the handlers still hold it.
+        // The loader release leaves the material available until the startup releases its hold.
         IDisposable loader = material;
         loader.Dispose();
         _ = await Assert.That(material.IsReleased).IsFalse();
 
-        identity.NodeHandlers.Release(ThrowHelper.Required(startup.Owner, "Expected the startup to own its handlers."));
+        identity.PeerOptionLifetimes.Release(ThrowHelper.Required(startup.Owner, "Expected the startup to own its options."));
 
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(handler, static h => h.MaxConnectionsPerServer = 3);
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(factory, static create => _ = create("nodeB"));
         _ = await Assert.That(material.IsReleased).IsTrue();
 
         var next = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
         using var nextMaterial = next.Certificate;
-        var fresh = ThrowHelper.Required(await Assert.That(next.PeerHandlerFactory?.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>(), "Expected a fresh sockets handler.");
-        fresh.MaxConnectionsPerServer = 2;
+        var nextFactory = ThrowHelper.Required(next.PeerOptionsFactory, "Expected fresh outbound socket options.");
+        _ = await Assert.That(nextFactory("nodeB").Tls).IsNotSameReferenceAs(firstOptions.Tls);
     }
 
-    /// <summary>A second startup or a material lookup for a running node's identifier leaves the running node's handlers and material hold usable, and only releasing its own startup disposes them.</summary>
+    /// <summary>A second startup or material lookup leaves the running startup's options and material usable until its own release.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SecondStartupLeavesRunningNodeHandlers(CancellationToken cancellationToken)
+    public async Task SecondStartupLeavesRunningPeerOptions(CancellationToken cancellationToken)
     {
         using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
         using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
@@ -102,22 +98,23 @@ public sealed class ClusterIdentityHandlerTests
             ref shared);
         var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaryA.HttpUri };
         var running = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
-        var factory = ThrowHelper.Required(running.PeerHandlerFactory, "Expected the custom outbound handler factory.");
-        var handler = ThrowHelper.Required(await Assert.That(factory.Invoke("nodeB")).IsTypeOf<SocketsHttpHandler>(), "Expected a sockets handler.");
+        var factory = ThrowHelper.Required(running.PeerOptionsFactory, "Expected outbound socket options.");
+        var firstOptions = factory("nodeB");
+        _ = await Assert.That(firstOptions.Tls.RemoteCertificateValidationCallback).IsNotNull();
 
         var (_, _, lookupMaterial) = await ClusterIdentity.ResolveForNodeAsync(identity, cluster, cancellationToken);
         using var lookupHold = lookupMaterial;
         var second = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.NoOutboundClientCertificate, cancellationToken);
         using var secondMaterial = second.Certificate;
 
-        handler.MaxConnectionsPerServer = 2;
+        _ = await Assert.That(factory("nodeB").Tls.RemoteCertificateValidationCallback).IsNotNull();
 
-        identity.NodeHandlers.Release(ThrowHelper.Required(second.Owner, "Expected the second startup to own its handlers."));
+        identity.PeerOptionLifetimes.Release(ThrowHelper.Required(second.Owner, "Expected the second startup to own its options."));
 
-        handler.MaxConnectionsPerServer = 3;
+        _ = await Assert.That(factory("nodeB").Tls.RemoteCertificateValidationCallback).IsNotNull();
 
-        identity.NodeHandlers.Release(ThrowHelper.Required(running.Owner, "Expected the startup to own its handlers."));
+        identity.PeerOptionLifetimes.Release(ThrowHelper.Required(running.Owner, "Expected the startup to own its options."));
 
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(handler, static h => h.MaxConnectionsPerServer = 4);
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(factory, static create => _ = create("nodeB"));
     }
 }

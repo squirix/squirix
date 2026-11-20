@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,11 +8,9 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.Networking;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -26,17 +23,8 @@ internal static class NodeHost
         var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
-        if (options.PeerHandlerFactory is { } factory)
-        {
-            _ = builder.Services.AddSingleton<Func<string, PeerSocketOptions>>(peer =>
-            {
-                var handler = ThrowHelper.Required(factory(peer) as SocketsHttpHandler, "The peer TLS fixture requires a sockets handler.");
-                Func<CancellationToken, ValueTask<System.Net.EndPoint>>? resolve = options.PartitionFabric is { } fabric && !string.Equals(peer, cluster.NodeId, StringComparison.Ordinal)
-                    ? token => fabric.ResolveEndpointAsync(cluster.NodeId, peer, token)
-                    : null;
-                return new PeerSocketOptions(handler.SslOptions, resolve);
-            });
-        }
+        if (options.PeerOptionsFactory is { } createPeerOptions)
+            _ = builder.Services.AddSingleton(createPeerOptions);
 
         if (options.TrackRequests)
             InFlightRequestTracker.AddTo(builder.Services);

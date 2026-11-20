@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
-using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -119,18 +118,22 @@ public sealed class PartitionFabricTests
 
         _ = await Assert.That(fabric["a", "c"].ActiveConnections).IsEqualTo(0);
         _ = await Assert.That(await ProxyTestSockets.IsClosedAsync(live, cancellationToken)).IsTrue();
-        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(timedOut.InnerException).IsTypeOf<TimeoutException>();
+        await AssertDialTimesOutAsync(fabric, "a", "c", cancellationToken);
         _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(1);
 
         fabric.HealAll();
 
-        // The echo answers the request with its own bytes, which no HTTP response parses, so the dial fails once it was bridged.
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(DialAsync(fabric, "a", "c", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var endpoint = await fabric.ResolveEndpointAsync("a", "c", cancellationToken);
+        var proxyEndpoint = fabric["a", "c"].ListenEndPoint;
+        _ = await Assert.That(endpoint).IsEqualTo(proxyEndpoint);
+        using var healed = await ProxyTestSockets.ConnectAsync(proxyEndpoint, cancellationToken);
+        _ = await healed.SendAsync(Payload, SocketFlags.None, cancellationToken);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(healed, Payload.Length, cancellationToken);
+        await SequenceAssert.EqualAsync(Payload, echoed);
         _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(2);
     }
 
-    /// <summary>Healing ends a dial that hangs towards a black-holed node as a failed connect, without waiting for the connect timeout of the dialing handler.</summary>
+    /// <summary>Healing ends a dial that hangs towards a black-holed node as a failed connect, without waiting for the native dial timeout.</summary>
     /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
     [Test]
     public async Task HealAllFailsAHungDial(CancellationToken cancellationToken)
@@ -138,12 +141,15 @@ public sealed class PartitionFabricTests
         await using var echo = EchoUpstream.Start();
         await using var fabric = await CreateTriangleAsync(echo.EndPoint, cancellationToken);
         await fabric.BlackHoleAsync("c");
-        var dial = DialAsync(fabric, "a", "c", cancellationToken, TimeSpan.FromMinutes(5));
-        await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
+        using var dialDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        dialDeadline.CancelAfter(TimeSpan.FromMinutes(5));
+        var dial = fabric.ResolveEndpointAsync("a", "c", dialDeadline.Token).AsTask();
+        _ = await Assert.That(dial.IsCompleted).IsFalse();
 
         fabric.HealAll();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(dial, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAnyAsync<SocketException>(dial, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(refused.SocketErrorCode).IsEqualTo(SocketError.ConnectionRefused);
     }
 
     /// <summary>
@@ -165,8 +171,7 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.ClientToUpstream)).IsTrue();
         _ = await Assert.That(fabric["a", "c"].IsHeld(ProxyDirection.UpstreamToClient)).IsTrue();
         _ = await Assert.That(fabric["a", "b"].IsHeld(ProxyDirection.ClientToUpstream)).IsFalse();
-        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(DialAsync(fabric, "a", "c", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(timedOut.InnerException).IsTypeOf<TimeoutException>();
+        await AssertDialTimesOutAsync(fabric, "a", "c", cancellationToken);
 
         fabric.HealAll();
 
@@ -211,21 +216,13 @@ public sealed class PartitionFabricTests
         _ = NodeExceptionAssert.For<KeyNotFoundException>().Throws(fabric, static f => _ = f["b", "a"]);
     }
 
-    /// <summary>Sends one HTTP request from <paramref name="from" /> towards <paramref name="to" /> through the fabric.</summary>
-    /// <param name="fabric">The fabric.</param>
-    /// <param name="from">The dialing node.</param>
-    /// <param name="to">The dialed node.</param>
-    /// <param name="cancellationToken">The request token.</param>
-    /// <param name="connectTimeout">The connect timeout of the dialing handler; 100 milliseconds when <see langword="null" />.</param>
-    /// <returns>A task that ends as the request does.</returns>
-    private static async Task DialAsync(PartitionFabric fabric, string from, string to, CancellationToken cancellationToken, TimeSpan? connectTimeout = null)
+    private static async Task AssertDialTimesOutAsync(PartitionFabric fabric, string from, string to, CancellationToken cancellationToken)
     {
-        using var handler = new SocketsHttpHandler();
-        handler.ConnectCallback = fabric.CreateConnectCallback(from, to);
-        handler.ConnectTimeout = connectTimeout ?? TimeSpan.FromMilliseconds(100);
-        using var invoker = new HttpMessageInvoker(handler, false);
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("http://localhost:6500/"));
-        using var response = await invoker.SendAsync(request, cancellationToken);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMilliseconds(100));
+        var pending = fabric.ResolveEndpointAsync(from, to, deadline.Token).AsTask();
+        var timedOut = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(timedOut.CancellationToken).IsEqualTo(deadline.Token);
     }
 
     private static async Task<PartitionFabric> CreateTriangleAsync(IPEndPoint upstream, CancellationToken cancellationToken)

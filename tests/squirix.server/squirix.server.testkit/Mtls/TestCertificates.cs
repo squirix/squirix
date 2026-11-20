@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -14,71 +12,6 @@ namespace Squirix.Server.TestKit.Mtls;
 public static class TestCertificates
 {
     private const int RsaKeySizeBits = 2048;
-
-    private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
-
-    /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
-    /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler for negative internode mTLS client-auth tests.</returns>
-    public static SocketsHttpHandler CreateCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
-    {
-        ArgumentNullException.ThrowIfNull(trustAnchor);
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-
-        var validator = new PeerCertificateValidator(trustAnchor, expectedPeerNodeId);
-        return new SocketsHttpHandler
-        {
-            UseProxy = false,
-            EnableMultipleHttp2Connections = true,
-            SslOptions = new SslClientAuthenticationOptions
-            {
-                ApplicationProtocols = Http2PreferredProtocols,
-                RemoteCertificateValidationCallback = validator.Validate,
-            },
-        };
-    }
-
-    /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
-    /// <remarks>On Unix the first collection entry must carry a private key (context creation throws otherwise); other entries are ignored.</remarks>
-    /// <param name="clientCertificates">Client certificates presented to the peer.</param>
-    /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler configured for internode mutual TLS.</returns>
-    public static SocketsHttpHandler CreateMtlsHandler(X509CertificateCollection clientCertificates, X509Certificate2 trustAnchor, string expectedPeerNodeId)
-    {
-        ArgumentNullException.ThrowIfNull(clientCertificates);
-        ArgumentNullException.ThrowIfNull(trustAnchor);
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-
-        var validator = new PeerCertificateValidator(trustAnchor, expectedPeerNodeId);
-
-        // Mirrors the product handler: on Unix a prebuilt offline context removes the per-handshake chain build; Windows needs none and fails for ephemeral keys.
-        var clientCertificateContext = !OperatingSystem.IsWindows() && clientCertificates is [X509Certificate2 first, ..] ? SslStreamCertificateContext.Create(first, null, true) : null;
-        return new SocketsHttpHandler
-        {
-            UseProxy = false,
-            EnableMultipleHttp2Connections = true,
-            SslOptions = new SslClientAuthenticationOptions
-            {
-                ClientCertificates = clientCertificates,
-                ClientCertificateContext = clientCertificateContext,
-                ApplicationProtocols = Http2PreferredProtocols,
-                RemoteCertificateValidationCallback = validator.Validate,
-            },
-        };
-    }
-
-    /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
-    /// <param name="clientCertificate">Client certificate presented to the peer.</param>
-    /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler configured for internode mutual TLS.</returns>
-    public static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
-    {
-        ArgumentNullException.ThrowIfNull(clientCertificate);
-        return CreateMtlsHandler([clientCertificate], trustAnchor, expectedPeerNodeId);
-    }
 
     /// <summary>Creates a peer certificate signed by the provided test CA.</summary>
     /// <param name="issuer">Issuing test certificate authority.</param>
@@ -137,6 +70,25 @@ public static class TestCertificates
     /// <returns>Exportable certificate copy.</returns>
     internal static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>
         X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
+
+    internal static SslClientAuthenticationOptions CreatePeerTlsOptions(X509CertificateCollection? clientCertificates, X509Certificate2 trustAnchor, string expectedPeerNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(trustAnchor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
+
+        var validator = new PeerCertificateValidator(trustAnchor, expectedPeerNodeId);
+
+        // Match the product's offline client certificate context on Unix and Schannel client authentication on Windows.
+        var clientCertificateContext = !OperatingSystem.IsWindows() && clientCertificates is [X509Certificate2 first, ..]
+            ? SslStreamCertificateContext.Create(first, null, true)
+            : null;
+        return new SslClientAuthenticationOptions
+        {
+            ClientCertificates = clientCertificates,
+            ClientCertificateContext = clientCertificateContext,
+            RemoteCertificateValidationCallback = validator.Validate,
+        };
+    }
 
     [ThreadSafe]
     private sealed class PeerCertificateValidator

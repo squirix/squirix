@@ -31,8 +31,8 @@ public sealed class PeerRequestCompressionTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("A", "B", cancellationToken: cancellationToken);
         var peer = cluster.Peers[0];
         var identity = cluster["B"].GetRequiredService<MtlsCertificate>();
-        using var handler = TestCertificates.CreateMtlsHandler(identity.NodeCertificate!, identity.TrustAnchor!, peer.NodeId);
-        var client = new PeerSocketProbe(peer.InterNodeUri!, handler.SslOptions);
+        var tlsOptions = TestCertificates.CreatePeerTlsOptions([identity.NodeCertificate!], identity.TrustAnchor!, peer.NodeId);
+        var client = new PeerSocketProbe(peer.InterNodeUri!, tlsOptions);
         var payload = new SetEntryAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),

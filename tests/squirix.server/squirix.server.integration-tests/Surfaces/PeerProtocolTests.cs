@@ -25,8 +25,8 @@ public sealed class PeerProtocolTests : ServerSurfaceTestBase
         await using var cluster = await StartClusterAsync("A", "B", static _ => new BlackBoxStartOptions(), cancellationToken);
         var identity = cluster["B"].GetRequiredService<MtlsCertificate>();
         var peer = cluster.Peers[0];
-        using var handler = TestCertificates.CreateMtlsHandler(identity.NodeCertificate!, identity.TrustAnchor!, peer.NodeId);
-        var client = new PeerSocketProbe(peer.InterNodeUri!, handler.SslOptions);
+        var tlsOptions = TestCertificates.CreatePeerTlsOptions([identity.NodeCertificate!], identity.TrustAnchor!, peer.NodeId);
+        var client = new PeerSocketProbe(peer.InterNodeUri!, tlsOptions);
 
         var result = await client.SendAsync("ping", new Empty(), Empty.Parser, null, cancellationToken);
 
@@ -41,8 +41,8 @@ public sealed class PeerProtocolTests : ServerSurfaceTestBase
         await using var cluster = await StartClusterAsync("A", "B", static _ => new BlackBoxStartOptions(), cancellationToken);
         var identity = cluster["B"].GetRequiredService<MtlsCertificate>();
         var peer = cluster.Peers[0];
-        using var handler = TestCertificates.CreateMtlsHandler(identity.NodeCertificate!, identity.TrustAnchor!, peer.NodeId);
-        var client = new PeerSocketProbe(peer.InterNodeUri!, handler.SslOptions);
+        var tlsOptions = TestCertificates.CreatePeerTlsOptions([identity.NodeCertificate!], identity.TrustAnchor!, peer.NodeId);
+        var client = new PeerSocketProbe(peer.InterNodeUri!, tlsOptions);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync("ping", [], null, -1, true, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync("ping", [], null, -2, false, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync("ping", [], null, long.MaxValue, false, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
