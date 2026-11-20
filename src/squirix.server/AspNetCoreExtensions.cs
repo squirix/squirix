@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage;
@@ -77,6 +78,17 @@ public static class AspNetCoreExtensions
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
         var extensions = new ExtensionOptions();
         configureExtensions?.Invoke(extensions);
+        await ConfigureNodeAsync(builder, options, extensions, configureComposition, cancellationToken).ConfigureAwait(false);
+        return builder;
+    }
+
+    internal static async Task ConfigureNodeAsync(
+        IHostApplicationBuilder builder,
+        SquirixServerOptions options,
+        ExtensionOptions? extensions,
+        Action<CompositionArgs>? configureComposition,
+        CancellationToken cancellationToken)
+    {
         var persistenceOptions = ResolvePersistenceOptions(options);
         await ServerHostingComposition.ConfigureBuilderAsync(
             builder,
@@ -96,7 +108,6 @@ public static class AspNetCoreExtensions
                 configureComposition?.Invoke(args);
             },
             cancellationToken).ConfigureAwait(false);
-        return builder;
     }
 
     private static PersistenceOptions? ResolvePersistenceOptions(SquirixServerOptions options)

@@ -54,20 +54,20 @@ internal sealed class PeerChannels
     /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
-    private PeerChannels(HttpClient forward, HttpClient replication)
+    private readonly IDisposable _forward;
+    private readonly IDisposable _replication;
+
+    private PeerChannels(IPeerClient forward, IPeerClient replication, IDisposable forwardOwner, IDisposable replicationOwner)
     {
         Forward = forward;
-        Replication = new PeerClient(replication, null);
-        Lease = replication;
+        Replication = replication;
+        _forward = forwardOwner;
+        _replication = replicationOwner;
     }
 
-    /// <summary>Gets the channel of client calls forwarded to the peer.</summary>
-    internal HttpClient Forward { get; }
+    internal IPeerClient Forward { get; }
 
     internal IPeerClient Replication { get; }
-
-    /// <summary>Gets the channel of every other internode call: replication, elections and probes.</summary>
-    private HttpClient Lease { get; }
 
     /// <summary>Creates both channels of a peer; when the second fails, the first is disposed before the failure propagates.</summary>
     /// <param name="nodeId">The peer node identifier.</param>
@@ -85,13 +85,20 @@ internal sealed class PeerChannels
         TrackedConnections connections,
         TimeSpan forwardConnectTimeout)
     {
+        if (args.NativeProtocol && args.Certificate is { Enabled: true } material && verifier != null)
+        {
+            var owner = new NativePeerClient(address, nodeId, material, verifier, connections, forwardConnectTimeout, args.RingFingerprint);
+            var internode = new NativePeerClient(address, nodeId, material, verifier, connections, ConnectTimeout, null);
+            return new PeerChannels(owner, internode, owner, internode);
+        }
+
         HttpClient? forward = null;
         HttpClient? replication = null;
         try
         {
             forward = CreateClient(address, nodeId, args, verifier, connections, forwardConnectTimeout);
             replication = CreateClient(address, nodeId, args, verifier, connections, null);
-            var created = new PeerChannels(forward, replication);
+            var created = new PeerChannels(new PeerClient(forward, args.RingFingerprint), new PeerClient(replication, null), forward, replication);
             forward = null;
             replication = null;
             return created;
@@ -107,8 +114,8 @@ internal sealed class PeerChannels
     /// <returns>The first failure, or <see langword="null" /> when both channels were disposed.</returns>
     internal Exception? Close()
     {
-        var forward = Isolated.Run(Forward, static channel => channel.Dispose());
-        var lease = Isolated.Run(Lease, static channel => channel.Dispose());
+        var forward = Isolated.Run(_forward, static channel => channel.Dispose());
+        var lease = Isolated.Run(_replication, static channel => channel.Dispose());
         return forward ?? lease;
     }
 

@@ -49,7 +49,7 @@ internal static class ServerHostingComposition
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when builder configuration finishes.</returns>
     internal static Task ConfigureBuilderAsync(
-        WebApplicationBuilder builder,
+        IHostApplicationBuilder builder,
         TopologyOptions cluster,
         Action<CompositionArgs>? configure = null,
         CancellationToken cancellationToken = default)
@@ -100,6 +100,45 @@ internal static class ServerHostingComposition
         _ = app.UseAuthorization();
 
         return SquirixEndpointMapping.MapEndpoints(app, options.AuthEnabled);
+    }
+
+    /// <summary>Locks the data directory, checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
+    /// <param name="services">The built service provider.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when every storage component is open.</returns>
+    /// <remarks>
+    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the only things changed before the stamp check are the directory, its lock file, and the modes of the node's own entries in it.
+    /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
+    /// The lock is resolved first so the container disposes it last, after the registry, the journal host and the ledger.
+    /// The registry is resolved next so the container disposes it after the journal host and the ledger.
+    /// Nothing here is undone on failure: the registry closes the logs it opened partially, and the container disposes every component it created, including the registry, when the application is disposed.
+    /// </remarks>
+    internal static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
+    {
+        var persistence = services.GetService<PersistenceOptions>();
+        if (persistence == null)
+            return;
+
+        // Resolved first so the container disposes the lock last, and so no other process touches the directory from here on.
+        _ = services.GetRequiredService<DataDirectoryLock>();
+        var registry = services.GetService<ReplicaGroupRegistry>();
+        var cluster = services.GetRequiredService<TopologyOptions>();
+        if (cluster.ReplicaCount <= 1)
+        {
+            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
+        }
+        else if (registry != null)
+        {
+            var activation = services.GetRequiredService<ReplicaGroupActivation>();
+            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.FingerprintBytes.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
+               .ConfigureAwait(false);
+        }
+
+        await PersistenceServiceRegistration.OpenPersistenceAsync(services, cancellationToken).ConfigureAwait(false);
+        if (registry == null)
+            return;
+
+        await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
@@ -228,12 +267,13 @@ internal static class ServerHostingComposition
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
-    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args)
+    /// <param name="nativeProtocol">Use the native peer transport.</param>
+    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args, bool nativeProtocol)
     {
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddHealthChecks().Add(
             new HealthCheckRegistration("ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()), HealthStatus.Unhealthy, ["ready"]));
-        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
+        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight, nativeProtocol);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
 
         // Activated hosts expire entries through committed records and the replica sweep; every other host expires by its local clock.
@@ -262,7 +302,7 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton<IReplicaTransferGateway>(static sp => new ReplicaTransferRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
-    private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
+    private static async Task ConfigureBuilderCoreAsync(IHostApplicationBuilder builder, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
@@ -293,7 +333,7 @@ internal static class ServerHostingComposition
         }
 
         _ = builder.Services.AddSquirixRuntimeServices(args.MetricsEnabled);
-        AddSquirixClusterStack(builder.Services, cluster, args);
+        AddSquirixClusterStack(builder.Services, cluster, args, builder is not WebApplicationBuilder);
         RegisterPersistenceAndReplication(builder.Services, cluster, persistence, mtlsOptions, args);
 
         _ = builder.Services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled);
@@ -306,6 +346,8 @@ internal static class ServerHostingComposition
         if (args.Extensions != null)
             _ = builder.Services.AddSingleton(args.Extensions);
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
+        if (builder is not WebApplicationBuilder)
+            _ = builder.Services.AddHostedService(sp => new NativeClientService(sp, cluster, FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled, args.ManagementUri));
     }
 
     /// <summary>Creates the committer of a group this node leads.</summary>
@@ -510,45 +552,6 @@ internal static class ServerHostingComposition
     /// <returns><see langword="true" /> when an election driver leads every group; otherwise the owner leads its group statically.</returns>
     private static bool LeadsByElection(TopologyOptions cluster) => cluster is { AutomaticFailoverEnabled: true, ReplicaCount: >= 3 };
 
-    /// <summary>Locks the data directory, checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
-    /// <param name="services">The built service provider.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when every storage component is open.</returns>
-    /// <remarks>
-    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the only things changed before the stamp check are the directory, its lock file, and the modes of the node's own entries in it.
-    /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
-    /// The lock is resolved first so the container disposes it last, after the registry, the journal host and the ledger.
-    /// The registry is resolved next so the container disposes it after the journal host and the ledger.
-    /// Nothing here is undone on failure: the registry closes the logs it opened partially, and the container disposes every component it created, including the registry, when the application is disposed.
-    /// </remarks>
-    private static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
-    {
-        var persistence = services.GetService<PersistenceOptions>();
-        if (persistence == null)
-            return;
-
-        // Resolved first so the container disposes the lock last, and so no other process touches the directory from here on.
-        _ = services.GetRequiredService<DataDirectoryLock>();
-        var registry = services.GetService<ReplicaGroupRegistry>();
-        var cluster = services.GetRequiredService<TopologyOptions>();
-        if (cluster.ReplicaCount <= 1)
-        {
-            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
-        }
-        else if (registry != null)
-        {
-            var activation = services.GetRequiredService<ReplicaGroupActivation>();
-            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.FingerprintBytes.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
-               .ConfigureAwait(false);
-        }
-
-        await PersistenceServiceRegistration.OpenPersistenceAsync(services, cancellationToken).ConfigureAwait(false);
-        if (registry == null)
-            return;
-
-        await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>Registers persistence, follower-group storage, and the replica group registry on the service collection.</summary>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -590,13 +593,14 @@ internal static class ServerHostingComposition
     };
 
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
-        WebApplicationBuilder builder,
+        IHostApplicationBuilder builder,
         TopologyOptions cluster,
         CompositionArgs args,
         bool persistenceEnabled)
     {
         var uri = cluster.Uri;
-        _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
+        if (builder is WebApplicationBuilder web)
+            _ = web.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         KestrelConfiguration.EnsureHttpsTransport(cluster);
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
@@ -612,7 +616,9 @@ internal static class ServerHostingComposition
 
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
 
-        var certificate = KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, args.Certificate, requiresInterNodeMtls);
+        var certificate = builder is WebApplicationBuilder kestrel
+            ? KestrelConfiguration.ConfigureKestrel(kestrel, uri, cluster, mtlsOptions, args.Certificate, requiresInterNodeMtls)
+            : args.Certificate ?? MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
         return (mtlsOptions, certificate);
     }
 

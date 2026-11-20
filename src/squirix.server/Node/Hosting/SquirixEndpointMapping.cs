@@ -1,4 +1,3 @@
-using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -15,9 +14,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Diagnostics;
-using Squirix.Server.Runtime.Invocation;
-using Squirix.Transport.Binary;
-using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -64,16 +60,7 @@ internal static class SquirixEndpointMapping
     internal static HealthReadyDetailsResponse BuildReadyDetailsResponse(HealthReadyDetailsSnapshot snapshot) =>
         HealthDetailsResponseMapper.Build(snapshot);
 
-    private static Task ForwardAsync(HttpContext http) => PeerEndpoint.HandleAsync(http, static (context, body, peer) =>
-    {
-        if (context.Request.RouteValues["operation"] is not string name || !Enum.TryParse<BinaryOperation>(name, out var operation) || !string.Equals(Enum.GetName(operation), name, StringComparison.Ordinal) || operation == BinaryOperation.Unspecified)
-            return Task.FromResult(new BinaryResponse(FrameStatus.Unimplemented));
-
-        var fingerprint = context.Request.Headers[RemoteInvocationContract.RingFingerprintHeaderName];
-        context.RequestServices.GetRequiredService<RingAgreement>().EnsureInboundAgreement(fingerprint.Count == 1 ? fingerprint[0] : null, peer);
-        var request = new BinaryDispatch.Request(context, DateTime.MaxValue, context.Request.Headers["traceparent"], context.Request.Headers["tracestate"], Task.CompletedTask, true);
-        return context.RequestServices.GetRequiredService<BinaryDispatch>().ExecuteAsync(operation, body, in request).AsTask();
-    });
+    private static Task ForwardAsync(HttpContext http) => PeerEndpoint.HandleAsync(http, NativePeerEndpoint.ForwardAsync);
 
     private static void MapHealthEndpoints(IEndpointRouteBuilder app)
     {

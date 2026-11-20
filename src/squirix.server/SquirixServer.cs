@@ -1,9 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -25,11 +27,42 @@ public sealed class SquirixServer : IAsyncDisposable
         _handle = handle;
     }
 
+    /// <summary>Gets the signal raised when the host receives a shutdown request.</summary>
+    public CancellationToken ApplicationStopping => _handle.ApplicationStopping;
+
     /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
     /// <returns>A server host lifetime handle.</returns>
     /// <exception cref="PlatformNotSupportedException">Thrown on Linux or macOS when the .NET 10 runtime is older than 10.0.15.</exception>
-    public static ValueTask<SquirixServer> StartAsync(CancellationToken cancellationToken = default) => StartAsync(null, cancellationToken);
+    public static ValueTask<SquirixServer> StartAsync(CancellationToken cancellationToken = default) => StartAsync(configure: null, cancellationToken);
+
+    /// <summary>Starts a node with an explicitly configured topology and persistence settings.</summary>
+    /// <param name="options">Node settings for this instance.</param>
+    /// <param name="cancellationToken">Cancels startup.</param>
+    /// <returns>The running node.</returns>
+    /// <exception cref="PlatformNotSupportedException">The runtime does not provide the required flush guarantees.</exception>
+    public static async ValueTask<SquirixServer> StartAsync(SquirixServerOptions options, CancellationToken cancellationToken = default)
+    {
+        if ((OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) && Environment.Version is { Major: 10, Build: < 15 })
+            throw new PlatformNotSupportedException($"Squirix.Server requires .NET 10.0.15 or later on Linux and macOS to report disk flush failures. The current runtime is {Environment.Version}.");
+        Configurator.ApplyRuntimeDefaults(options);
+        options.Validate();
+
+        var applicationOptions = new HostApplicationBuilderSettings
+        {
+            Args = [],
+            ApplicationName = ApplicationAssemblyName,
+        };
+        var builder = Host.CreateApplicationBuilder(applicationOptions);
+        _ = builder.Logging.ClearProviders();
+        _ = builder.Logging.AddConsole();
+        _ = builder.Logging.AddDebug();
+        _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
+
+        await AspNetCoreExtensions.ConfigureNodeAsync(builder, options, null, null, cancellationToken).ConfigureAwait(false);
+        var handle = await ApplicationHandle.StartApplicationAsync(builder.Build(), static (application, token) => ServerHostingComposition.OpenStorageAsync(application.Services, token), cancellationToken).ConfigureAwait(false);
+        return new SquirixServer(handle);
+    }
 
     /// <summary>
     /// Ends this server host handle and releases the owned server application. The host is stopped gracefully within the host shutdown timeout,
@@ -44,50 +77,25 @@ public sealed class SquirixServer : IAsyncDisposable
     /// <returns>A server host lifetime handle.</returns>
     internal static async ValueTask<SquirixServer> StartAsync(Action<SquirixServerOptions>? configure, CancellationToken cancellationToken = default)
     {
-        var handle = await BuildAppHandleAsync(configure, cancellationToken).ConfigureAwait(false);
-        return new SquirixServer(handle);
-    }
-
-    /// <summary>Starts the squirix node server application with default production logging and cluster settings resolution.</summary>
-    /// <param name="configure">Optional callback applied to server options before startup.</param>
-    /// <param name="cancellationToken">Cancellation token for server startup.</param>
-    /// <returns>A lifetime handle for the started application.</returns>
-    private static async ValueTask<ApplicationHandle> BuildAppHandleAsync(Action<SquirixServerOptions>? configure = null, CancellationToken cancellationToken = default)
-    {
         var options = await Configurator.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
         configure?.Invoke(options);
-        Configurator.ApplyRuntimeDefaults(options);
-        options.Validate();
-
-        var applicationOptions = new WebApplicationOptions
-        {
-            Args = [],
-            ApplicationName = ApplicationAssemblyName,
-        };
-        var builder = WebApplication.CreateBuilder(applicationOptions);
-        _ = builder.Logging.ClearProviders();
-        _ = builder.Logging.AddConsole();
-        _ = builder.Logging.AddDebug();
-        _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
-
-        _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken)
-                         .ConfigureAwait(false);
-        var app = builder.Build();
-        return await ApplicationHandle.StartApplicationAsync(app, static async (application, token) => _ = await application.MapSquirixServerAsync(token).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        return await StartAsync(options, cancellationToken).ConfigureAwait(false);
     }
 
     [ThreadSafe]
     internal sealed class ApplicationHandle : IAsyncDisposable
     {
-        private readonly WebApplication _app;
+        private readonly IHost _app;
         private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _disposeStarted;
 
-        internal ApplicationHandle(WebApplication app)
+        internal ApplicationHandle(IHost app)
         {
             ArgumentNullException.ThrowIfNull(app);
             _app = app;
         }
+
+        internal CancellationToken ApplicationStopping => _app.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
 
         /// <summary>Stops the server application, then releases the owned ASP.NET Core host; repeated and concurrent calls share one disposal.</summary>
         /// <returns>A task that completes when the application is disposed.</returns>
@@ -103,16 +111,18 @@ public sealed class SquirixServer : IAsyncDisposable
         /// Configures and starts a built application. When configuration or startup fails, whatever already started is stopped and the application is
         /// released, then the original exception is rethrown; a cleanup failure is logged and never replaces it.
         /// </summary>
+        /// <typeparam name="THost">The type of host being started.</typeparam>
         /// <param name="app">The built application; ownership transfers to the returned handle or is released on failure.</param>
         /// <param name="configure">Callback applied to the built application before it starts.</param>
         /// <param name="cancellationToken">Cancellation token for startup only; cleanup does not observe it.</param>
         /// <returns>A handle owning the started application.</returns>
-        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(WebApplication app, Func<WebApplication, CancellationToken, Task> configure, CancellationToken cancellationToken)
+        internal static async ValueTask<ApplicationHandle> StartApplicationAsync<THost>(THost app, Func<THost, CancellationToken, Task> configure, CancellationToken cancellationToken)
+            where THost : IHost
         {
             ArgumentNullException.ThrowIfNull(app);
             ArgumentNullException.ThrowIfNull(configure);
             var handle = new ApplicationHandle(app);
-            var logger = app.Logger;
+            var logger = app.Services.GetRequiredService<ILogger<SquirixServer>>();
 #pragma warning disable CA1031 // The original startup failure is rethrown; cleanup and its logging must never replace it.
             try
             {
@@ -150,7 +160,7 @@ public sealed class SquirixServer : IAsyncDisposable
 #pragma warning disable CA1031 // A failed stop is logged and disposal continues; any other failure is delivered to every caller through the shared task.
             try
             {
-                var logger = _app.Logger;
+                var logger = _app.Services.GetRequiredService<ILogger<SquirixServer>>();
                 try
                 {
                     // Host.StopAsync cancels this token after HostOptions.ShutdownTimeout; most hosted services honour it, but the journal stop
@@ -164,7 +174,10 @@ public sealed class SquirixServer : IAsyncDisposable
                 }
                 finally
                 {
-                    await _app.DisposeAsync().ConfigureAwait(false);
+                    if (_app is IAsyncDisposable disposable)
+                        await disposable.DisposeAsync().ConfigureAwait(false);
+                    else
+                        _app.Dispose();
                 }
 
                 _disposed.SetResult();

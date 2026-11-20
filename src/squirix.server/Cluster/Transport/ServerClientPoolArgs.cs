@@ -15,6 +15,8 @@ internal sealed class ServerClientPoolArgs
     /// </summary>
     internal TimeSpan? ForwardConnectTimeout { get; init; }
 
+    internal bool NativeProtocol { get; init; }
+
     internal bool InterNodeMtlsEnabled { get; init; }
 
     internal string? RingFingerprint { get; init; }

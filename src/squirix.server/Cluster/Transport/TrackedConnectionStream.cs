@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
@@ -38,10 +39,15 @@ internal sealed class TrackedConnectionStream : NetworkStream
     /// <returns>The tracked connection stream, which owns the socket.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="connections" /> or <paramref name="context" /> is null.</exception>
     /// <exception cref="ObjectDisposedException">The pool started to dispose and admits no new connection.</exception>
-    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+    internal static ValueTask<Stream> ConnectAsync(TrackedConnections connections, SocketsHttpConnectionContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(connections);
         ArgumentNullException.ThrowIfNull(context);
+        return ConnectAsync(connections, context.DnsEndPoint, cancellationToken);
+    }
+
+    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, DnsEndPoint endpoint, CancellationToken cancellationToken)
+    {
         if (!connections.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and admits no new connection.");
 
@@ -51,7 +57,7 @@ internal sealed class TrackedConnectionStream : NetworkStream
         {
             socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             connections.Register(socket);
-            await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
+            await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
             var stream = new TrackedConnectionStream(socket, connections);
             created = true;
             return stream;

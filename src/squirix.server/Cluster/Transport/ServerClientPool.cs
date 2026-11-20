@@ -296,7 +296,7 @@ internal sealed class ServerClientPool : IServerClientPool
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
         var channels = PeerChannels.Create(peer.NodeId, address, args, _peerVerifier, _connections, _forwardConnectTimeout);
         _channels[peer.NodeId] = channels;
-        _cacheClients[peer.NodeId] = new PeerClient(channels.Forward, args.RingFingerprint);
+        _cacheClients[peer.NodeId] = channels.Forward;
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);
     }
 

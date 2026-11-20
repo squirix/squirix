@@ -3,9 +3,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.Configuration.Json;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Host;
@@ -125,26 +122,11 @@ internal static class Program
                 command.SettingsPath,
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
-            var builder = WebApplication.CreateBuilder(["--hostBuilder:reloadConfigOnChange=false"]);
-            var defaults = new JsonConfigurationSource
-            {
-                Path = Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"),
-                Optional = false,
-                ReloadOnChange = false,
-            };
-            defaults.ResolveFileProvider();
-            builder.Configuration.Sources.Insert(0, defaults);
-            _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: CancellationToken.None)
-                             .ConfigureAwait(false);
-            var app = builder.Build();
-            await using (app.ConfigureAwait(false))
-            {
-                _ = await app.MapSquirixServerAsync(CancellationToken.None).ConfigureAwait(false);
-                await app.StartAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
-                await WriteRunServerStatusAsync(command, options, CancellationToken.None).ConfigureAwait(false);
-                await app.WaitForShutdownAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
-                return 0;
-            }
+            var server = await SquirixServer.StartAsync(options, CancellationToken.None).ConfigureAwait(false);
+            await using var lifetime = server.ConfigureAwait(false);
+            await WriteRunServerStatusAsync(command, options, CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, server.ApplicationStopping).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return 0;
         }
 
         private static async Task<int> ValidateConfigAsync(SquirixServerCommand command)

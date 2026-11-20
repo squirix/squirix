@@ -15,7 +15,7 @@ internal static class PeerDispatch
 {
     internal static Task HandleAsync(HttpContext http) => PeerEndpoint.HandleAsync(http, DispatchAsync);
 
-    private static async Task<BinaryResponse> DispatchAsync(HttpContext http, ReadOnlyMemory<byte> body, string peer)
+    internal static async Task<BinaryResponse> DispatchAsync(HttpContext http, ReadOnlyMemory<byte> body, string peer)
     {
         var path = http.Request.Path.Value!;
         var correlation = http.RequestServices.GetRequiredService<ServerCallCorrelation>();

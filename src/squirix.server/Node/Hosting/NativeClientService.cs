@@ -1,0 +1,217 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Observability.Metrics;
+using Squirix.Server.Utils;
+
+namespace Squirix.Server.Node.Hosting;
+
+/// <summary>Owns the node's public TLS socket and drains it before the storage services stop.</summary>
+internal sealed class NativeClientService : IHostedService, IDisposable
+{
+    private readonly IServiceProvider _services;
+    private readonly TopologyOptions _topology;
+    private readonly bool _mutationReplay;
+    private readonly Uri? _managementUri;
+    private readonly CancellationTokenSource _graceful = new();
+    private readonly CancellationTokenSource _abort = new();
+    private Task _run = Task.CompletedTask;
+    private X509Certificate2? _certificate;
+
+    internal NativeClientService(IServiceProvider services, TopologyOptions topology, bool mutationReplay, Uri? managementUri)
+    {
+        _services = services;
+        _topology = topology;
+        _mutationReplay = mutationReplay;
+        _managementUri = managementUri;
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _certificate = LoadCertificate();
+        var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, null, true) };
+        var managementUri = _managementUri ?? ResolveManagementUri(_topology.Uri);
+        var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync);
+        var listeners = new List<(Socket Socket, NativeTlsListener Listener)>();
+        var sessions = new List<Task>();
+
+        try
+        {
+            AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024), listeners);
+            AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 64), listeners);
+            var material = _services.GetRequiredService<MtlsCertificate>();
+            if (material.Enabled)
+            {
+                var port = _services.GetRequiredService<MtlsOptions>().InternalListenPort;
+                var internalUri = new UriBuilder(_topology.Uri) { Port = port }.Uri;
+                var feature = _services.GetRequiredService<FeatureState>();
+                var peer = new NativePeerEndpoint(_services, port, feature.NetworkReplicationEnabled || feature.FoundationOnly);
+                var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.GetRequiredService<ILogger<PeerHandshakeVerifier>>());
+                var handshake = new InboundPeerHandshake(verifier, material.NodeCertificate!, MtlsTopology.GetRemotePeerNodeIds(_topology));
+                var peerTls = handshake.CreateServerOptions(null);
+                peerTls.ApplicationProtocols = [PeerFrames.Protocol];
+                AddListeners(internalUri, socket => new NativeTlsListener(socket, peerTls, peer.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 256), listeners);
+            }
+
+            foreach (var (_, listener) in listeners)
+                sessions.Add(listener.RunAsync(_graceful.Token, _abort.Token));
+            _run = Task.WhenAll(sessions);
+            foreach (var session in sessions)
+            {
+                if (session.IsCompleted)
+                    await session.ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            await _abort.CancelAsync().ConfigureAwait(false);
+            foreach (var (socket, _) in listeners)
+                socket.Dispose();
+            await Task.WhenAll(sessions).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await _graceful.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await _run.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await _abort.CancelAsync().ConfigureAwait(false);
+            await _run.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public void Dispose()
+    {
+        _certificate?.Dispose();
+        _graceful.Dispose();
+        _abort.Dispose();
+    }
+
+    private static Uri ResolveManagementUri(Uri primary)
+    {
+        var configured = EnvVariables.ReadString("SQUIRIX_MANAGEMENT_URI");
+        var defaultPort = primary.Port <= 65533 ? primary.Port + 2 : primary.Port - 2;
+        return configured == null
+            ? new UriBuilder(Uri.UriSchemeHttps, IPAddress.Loopback.ToString(), defaultPort).Uri
+            : ParseManagementUri(configured);
+    }
+
+    private static Uri ParseManagementUri(string configured)
+    {
+        var valid = Uri.TryCreate(configured, UriKind.Absolute, out var uri) && string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(uri.AbsolutePath, "/", StringComparison.Ordinal) && uri.UserInfo.Length == 0 && uri.Query.Length == 0 && uri.Fragment.Length == 0;
+        return valid ? uri! : throw new InvalidOperationException("SQUIRIX_MANAGEMENT_URI requires an HTTPS origin.");
+    }
+
+    private static void AddListeners(Uri uri, Func<Socket, NativeTlsListener> create, List<(Socket Socket, NativeTlsListener Listener)> listeners)
+    {
+        var host = uri.DnsSafeHost;
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            Add(IPAddress.Loopback);
+            if (Socket.OSSupportsIPv6)
+                Add(IPAddress.IPv6Loopback);
+            return;
+        }
+
+        if (!IPAddress.TryParse(host, out var address))
+            address = Socket.OSSupportsIPv6 ? IPAddress.IPv6Any : IPAddress.Any;
+        Add(address);
+
+        void Add(IPAddress listenAddress)
+        {
+            var bound = Bind(listenAddress, uri);
+            try
+            {
+                listeners.Add((bound, create(bound)));
+            }
+            catch
+            {
+                bound.Dispose();
+                throw;
+            }
+        }
+    }
+
+    private static Socket Bind(IPAddress address, Uri uri)
+    {
+        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            if (address.Equals(IPAddress.IPv6Any))
+                socket.DualMode = true;
+            socket.Bind(new IPEndPoint(address, uri.Port));
+            socket.Listen();
+            return socket;
+        }
+        catch (SocketException exception)
+        {
+            socket.Dispose();
+            throw new IOException($"Cannot bind the Squirix listener at {uri}.", exception);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
+
+    private static X509Certificate2 LoadCertificate()
+    {
+        var path = EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PATH");
+        if (!string.IsNullOrWhiteSpace(path))
+            return X509CertificateLoader.LoadPkcs12FromFile(path, EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PASSWORD"));
+
+        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.OpenExistingOnly);
+        X509Certificate2? selected = null;
+        var now = TimeProvider.System.GetUtcNow().UtcDateTime;
+        foreach (var candidate in store.Certificates)
+        {
+            if (candidate.HasPrivateKey && candidate.NotBefore.ToUniversalTime() <= now && now < candidate.NotAfter.ToUniversalTime() &&
+                candidate.Extensions["1.3.6.1.4.1.311.84.1.1"] != null && (selected == null || candidate.NotAfter > selected.NotAfter))
+            {
+                selected?.Dispose();
+                selected = candidate;
+            }
+            else
+            {
+                candidate.Dispose();
+            }
+        }
+
+        return selected ?? ThrowMissingCertificate();
+    }
+
+    private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
+
+    private async ValueTask<bool> AuthenticateManagementAsync(string bearer, CancellationToken cancellationToken)
+    {
+        var scope = _services.CreateAsyncScope();
+        await using var lifetime = scope.ConfigureAwait(false);
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider, RequestAborted = cancellationToken };
+        context.Request.Headers.Authorization = $"Bearer {bearer}";
+        return await ConnectionSecurity.IsRequestAuthorizedAsync(context).ConfigureAwait(false);
+    }
+}

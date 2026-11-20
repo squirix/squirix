@@ -16,12 +16,14 @@ internal static class ServiceRegistration
         /// <param name="callPolicyFactory">Optional per-endpoint call policy factory.</param>
         /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory.</param>
         /// <param name="maxInFlight">Entry node maximum in-flight operations that sizes the per-owner forwarding permits.</param>
+        /// <param name="nativeProtocol">Use versioned binary peer channels.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixClusterTransport(
             TopologyOptions cluster,
             Func<string, ServerCallPolicy>? callPolicyFactory,
             Func<string, HttpMessageHandler>? peerHandlerFactory,
-            int maxInFlight)
+            int maxInFlight,
+            bool nativeProtocol = false)
         {
             _ = services.AddSingleton(sp => new ServerCallCorrelation(sp.GetRequiredService<ILogger<ServerCallCorrelation>>(), cluster.NodeId));
 
@@ -48,6 +50,7 @@ internal static class ServiceRegistration
                         MtlsOptions = mtlsOptions,
                         Certificate = certificate,
                         InterNodeMtlsEnabled = interNodeMtlsEnabled,
+                        NativeProtocol = nativeProtocol,
                     },
                     sp.GetRequiredService<ServerClientPoolMetrics>(),
                     sp.GetRequiredService<ILogger<ServerClientPool>>(),

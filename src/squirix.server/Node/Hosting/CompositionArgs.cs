@@ -24,6 +24,8 @@ internal sealed class CompositionArgs
 
     internal PressureOptions? MemoryPressureOptions { get; set; }
 
+    internal Uri? ManagementUri { get; set; }
+
     internal bool MetricsEnabled { get; set; }
 
     internal MtlsOptions? MtlsOptions { get; set; }
