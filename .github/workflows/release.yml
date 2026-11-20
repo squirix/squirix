@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       packageVersion:
-        description: "Package version to validate, for example 0.1.0-preview."
+        description: "Package version to validate, for example 0.2.0-preview.1"
         required: true
         type: string
       includeIntegrationTests:
