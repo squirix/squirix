@@ -1,9 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
@@ -13,18 +13,18 @@ using Squirix.Server.TestKit.IO;
 namespace Squirix.Server.TestKit.Hosting;
 
 /// <summary>
-/// Lightweight wrapper that hosts an node <see cref="IHost" /> for integration tests.
+/// Lightweight wrapper that hosts a node <see cref="ServerApplication" /> for integration tests.
 /// Provides access to the service provider, test binding address, and temporary data directory,
 /// and disposes the underlying app when the host is disposed.
 /// </summary>
 /// <remarks>
-/// The instance owns the lifetime of the supplied <see cref="IHost" /> and will shut it down via
+/// The instance owns the lifetime of the supplied <see cref="ServerApplication" /> and will shut it down via
 /// <see cref="ITestNodeHost.ShutdownAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
 /// </remarks>
 [Immutable]
 internal sealed class TestNodeHost : ITestNodeHost
 {
-    private readonly IHost _app;
+    private readonly ServerApplication _app;
     private readonly string _dataDir;
     private readonly bool _persistenceEnabled;
     private readonly IDisposable? _scope;
@@ -34,12 +34,12 @@ internal sealed class TestNodeHost : ITestNodeHost
     private NodeStopPhases? _lastStop;
 
     /// <summary>Initializes a new instance of the <see cref="TestNodeHost" /> class.</summary>
-    /// <param name="app">The preconfigured <see cref="IHost" /> to run inside the test host.</param>
+    /// <param name="app">The preconfigured <see cref="ServerApplication" /> to run inside the test host.</param>
     /// <param name="uri">The listening address (scheme/host/port) used by the test node.</param>
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
     /// <param name="persistenceEnabled">Whether persistence is enabled for the hosted node.</param>
     /// <param name="scope">Optional disposable scope that will be disposed of alongside the host.</param>
-    internal TestNodeHost(IHost app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
+    internal TestNodeHost(ServerApplication app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
     {
         _app = app;
         _uri = uri;
@@ -88,7 +88,7 @@ internal sealed class TestNodeHost : ITestNodeHost
             }
 
             var disposeStarted = Stopwatch.GetTimestamp();
-            await SuppressObjectDisposedAsync(DisposeAppAsync()).ConfigureAwait(false);
+            await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
             disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
             _scope?.Dispose();
 
@@ -104,7 +104,7 @@ internal sealed class TestNodeHost : ITestNodeHost
         }
     }
 
-    /// <summary>Asynchronously disposes the underlying <see cref="IHost" /> and releases resources.</summary>
+    /// <summary>Asynchronously disposes the underlying <see cref="ServerApplication" /> and releases resources.</summary>
     ValueTask IAsyncDisposable.DisposeAsync() => ShutdownCoreAsync();
 
     /// <inheritdoc />
@@ -148,7 +148,7 @@ internal sealed class TestNodeHost : ITestNodeHost
             try
             {
                 var disposeStarted = Stopwatch.GetTimestamp();
-                await SuppressObjectDisposedAsync(DisposeAppAsync()).ConfigureAwait(false);
+                await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
                 disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
                 var releaseStarted = Stopwatch.GetTimestamp();
                 await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
@@ -181,18 +181,18 @@ internal sealed class TestNodeHost : ITestNodeHost
         return native == null ? ValueTask.CompletedTask : new ValueTask(native.StopAsync(abort));
     }
 
-    private ValueTask DisposeAppAsync()
-    {
-        if (_app is IAsyncDisposable disposable)
-            return disposable.DisposeAsync();
-        _app.Dispose();
-        return ValueTask.CompletedTask;
-    }
-
     private async ValueTask StopAppAsync()
     {
         using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        await _app.StopAsync(stopCts.Token).ConfigureAwait(false);
+        try
+        {
+            await _app.StopAsync(stopCts.Token).ConfigureAwait(false);
+        }
+        catch (AggregateException ex) when (ex.InnerExceptions.Count == 1)
+        {
+            // The fixture exposes the original stop failure, including a latched storage error.
+            ExceptionDispatchInfo.Throw(ex.InnerExceptions[0]);
+        }
     }
 
     private async ValueTask WaitForPersistenceReleaseBestEffortAsync()

@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
@@ -12,6 +13,8 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -28,18 +31,25 @@ public sealed class JournalStopOrderTests : NodeIntegrationTestBase
     [Test]
     public async Task HostedServiceAppendsPrecedeJournalStop(CancellationToken cancellationToken)
     {
+        using var directory = new TempDirectory("squirix-journal-stop-order");
+        var uri = GetNextHttpUri();
+        ListenPortPool.ReleaseHeldPrimary(uri);
         var probe = new StopProbe();
-        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = true, ServicesConfigure = probe.Register }, cancellationToken);
-        var node = cluster[NodeId];
-        var dataDir = node.GetRequiredService<PersistenceOptions>().DataDir;
+        var options = new NodeHostStartOptions
+        {
+            PersistenceOptions = new PersistenceOptions { DataDir = directory },
+            ServicesConfigure = probe.Register,
+        };
+        await using var node = await NodeHost.StartAsync(new TopologyOptions(new ServerPeer { NodeId = NodeId, Uri = uri }) { NodeId = NodeId, Uri = uri }, options, cancellationToken);
+        var journal = node.Services.GetRequiredService<IJournalCoordinator>();
 
-        await cluster.StopNodeAsync(NodeId);
+        await node.StopAsync(cancellationToken);
 
-        // The observer registered before the persistence services stops last: the host has stopped the journal by then, and is not yet disposed.
         _ = await Assert.That(probe.AppendedWhileStopping).IsEqualTo(2);
-        _ = await Assert.That(probe.RefusedAfterJournalStopped).IsTrue();
-        _ = await Assert.That(ReadPutKeys(dataDir, cancellationToken)).Contains(StopProbe.StopPhaseKey.ToString());
-        _ = await Assert.That(ReadPutKeys(dataDir, cancellationToken)).Contains(StopProbe.StoppedPhaseKey.ToString());
+        var rejected = journal.AppendPutUnderGateAsync(CacheKey.Default("after-stop"), StopProbe.Payload, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsOneOfAsync<InvalidOperationException, ObjectDisposedException>(rejected.AsTask(), TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(ReadPutKeys(directory, cancellationToken)).Contains(StopProbe.StopPhaseKey.ToString());
+        _ = await Assert.That(ReadPutKeys(directory, cancellationToken)).Contains(StopProbe.StoppedPhaseKey.ToString());
     }
 
     private static List<string> ReadPutKeys(string dataDir, CancellationToken cancellationToken)
@@ -55,7 +65,7 @@ public sealed class JournalStopOrderTests : NodeIntegrationTestBase
         return keys;
     }
 
-    /// <summary>Registers a hosted service that appends while the host stops, and one that observes the journal once the host stopped it.</summary>
+    /// <summary>Registers a hosted service that appends while the host stops, and another at the opposite end of the stop order.</summary>
     [ThreadSafe]
     private sealed class StopProbe
     {
@@ -63,91 +73,42 @@ public sealed class JournalStopOrderTests : NodeIntegrationTestBase
 
         internal static readonly CacheKey StoppedPhaseKey = CacheKey.Default("stopped-phase");
 
-        private static readonly byte[] Payload = JournalEntryPayloadKit.EncodePut("v");
+        internal static readonly byte[] Payload = JournalEntryPayloadKit.EncodePut("v");
 
         private int _appended;
-        private int _refused;
 
         /// <summary>Gets how many appends the late hosted service made while the host was stopping.</summary>
         internal int AppendedWhileStopping => Volatile.Read(ref _appended);
 
-        /// <summary>Gets a value indicating whether the journal refused an append at the very end of the host stop.</summary>
-        internal bool RefusedAfterJournalStopped => Volatile.Read(ref _refused) == 1;
-
-        /// <summary>Adds the late appender after every registration and the observer before all of them.</summary>
+        /// <summary>Adds the late appender after every registration and the other writer before all of them.</summary>
         /// <param name="services">The node service collection.</param>
         internal void Register(IServiceCollection services)
         {
-            services.Insert(0, ServiceDescriptor.Singleton<IHostedService>(sp => new Observer(sp.GetRequiredService<IJournalCoordinator>(), this)));
-            _ = services.AddSingleton<IHostedService>(sp => new LateAppender(sp.GetRequiredService<IJournalCoordinator>(), this));
+            services.Insert(0, ServiceDescriptor.Singleton<INodeService>(sp => new LateAppender(sp.GetRequiredService<IJournalCoordinator>(), this, StoppedPhaseKey)));
+            _ = services.AddSingleton<INodeService>(sp => new LateAppender(sp.GetRequiredService<IJournalCoordinator>(), this, StopPhaseKey));
         }
 
-        /// <summary>Appends in the stop phase and in the stopped phase, which run before the journal stops.</summary>
-        private sealed class LateAppender : IHostedLifecycleService
+        /// <summary>Appends while the node stops its services, before the final journal drain.</summary>
+        private sealed class LateAppender : INodeService
         {
             private readonly IJournalCoordinator _journal;
             private readonly StopProbe _probe;
+            private readonly CacheKey _key;
 
-            internal LateAppender(IJournalCoordinator journal, StopProbe probe)
+            internal LateAppender(IJournalCoordinator journal, StopProbe probe, CacheKey key)
             {
                 _journal = journal;
                 _probe = probe;
+                _key = key;
             }
 
             public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-            public Task StartedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-            public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
             public async Task StopAsync(CancellationToken cancellationToken)
             {
-                await _journal.AppendPutUnderGateAsync(StopPhaseKey, Payload, CancellationToken.None);
+                await _journal.AppendPutUnderGateAsync(_key, Payload, CancellationToken.None);
                 _ = Interlocked.Increment(ref _probe._appended);
             }
-
-            public async Task StoppedAsync(CancellationToken cancellationToken)
-            {
-                await _journal.AppendPutUnderGateAsync(StoppedPhaseKey, Payload, CancellationToken.None);
-                _ = Interlocked.Increment(ref _probe._appended);
-            }
-
-            public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        }
-
-        /// <summary>Tries to append in the last stopped phase of the host, after the journal stopped.</summary>
-        private sealed class Observer : IHostedLifecycleService
-        {
-            private readonly IJournalCoordinator _journal;
-            private readonly StopProbe _probe;
-
-            internal Observer(IJournalCoordinator journal, StopProbe probe)
-            {
-                _journal = journal;
-                _probe = probe;
-            }
-
-            public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-            public Task StartedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-            public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-            public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-            public async Task StoppedAsync(CancellationToken cancellationToken)
-            {
-                try
-                {
-                    await _journal.AppendPutUnderGateAsync(CacheKey.Default("after-stop"), Payload, CancellationToken.None);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
-                {
-                    Volatile.Write(ref _probe._refused, 1);
-                }
-            }
-
-            public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         }
     }
 }

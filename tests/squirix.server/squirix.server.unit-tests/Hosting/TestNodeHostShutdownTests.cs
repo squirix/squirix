@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Squirix.Server.Composition;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -104,10 +104,10 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task ShutdownDisposesAppWhenStopThrows(CancellationToken cancellationToken)
     {
-        var builder = Host.CreateApplicationBuilder();
-        _ = builder.Services.AddSingleton<DisposalProbe>();
-        _ = builder.Services.AddHostedService(static _ => new FailingStopService());
-        var app = builder.Build();
+        var services = TestNodeBuilder.CreateServices();
+        _ = services.AddSingleton<DisposalProbe>();
+        _ = services.AddSingleton<INodeService>(static _ => new FailingStopService());
+        var app = services.BuildNode();
         var appProbe = app.Services.GetRequiredService<DisposalProbe>();
         await app.StartAsync(cancellationToken);
 
@@ -147,9 +147,9 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task AbruptShutdownReportsStopPhases(CancellationToken cancellationToken)
     {
-        var builder = Host.CreateApplicationBuilder();
-        InFlightRequestTracker.AddTo(builder.Services);
-        var app = builder.Build();
+        var services = TestNodeBuilder.CreateServices();
+        InFlightRequestTracker.AddTo(services);
+        var app = services.BuildNode();
         await app.StartAsync(cancellationToken);
 
         await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
@@ -168,8 +168,8 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task UntrackedNodeReportsNoInFlightCount(CancellationToken cancellationToken)
     {
-        var builder = Host.CreateApplicationBuilder();
-        var app = builder.Build();
+        var services = TestNodeBuilder.CreateServices();
+        var app = services.BuildNode();
         await app.StartAsync(cancellationToken);
 
         await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
@@ -220,9 +220,9 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task ShutdownOfIdleNodeReportsNoRequests(CancellationToken cancellationToken)
     {
-        var builder = Host.CreateApplicationBuilder();
-        InFlightRequestTracker.AddTo(builder.Services);
-        var app = builder.Build();
+        var services = TestNodeBuilder.CreateServices();
+        InFlightRequestTracker.AddTo(services);
+        var app = services.BuildNode();
         await app.StartAsync(cancellationToken);
 
         await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
@@ -257,7 +257,7 @@ public sealed class TestNodeHostShutdownTests
         public void Dispose() => _ = _disposed.TrySetResult();
     }
 
-    private sealed class FailingStopService : IHostedService
+    private sealed class FailingStopService : INodeService
     {
         public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
