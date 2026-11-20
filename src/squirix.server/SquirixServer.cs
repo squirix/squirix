@@ -119,13 +119,11 @@ public sealed class SquirixServer : IAsyncDisposable
         /// Configures and starts a built application. When configuration or startup fails, whatever already started is stopped and the application is
         /// released, then the original exception is rethrown; a cleanup failure is logged and never replaces it.
         /// </summary>
-        /// <typeparam name="THost">The type of host being started.</typeparam>
         /// <param name="app">The built application; ownership transfers to the returned handle or is released on failure.</param>
         /// <param name="configure">Callback applied to the built application before it starts.</param>
         /// <param name="cancellationToken">Cancellation token for startup only; cleanup does not observe it.</param>
         /// <returns>A handle owning the started application.</returns>
-        internal static async ValueTask<ApplicationHandle> StartApplicationAsync<THost>(THost app, Func<THost, CancellationToken, Task> configure, CancellationToken cancellationToken)
-            where THost : IHost
+        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(IHost app, Func<IHost, CancellationToken, Task> configure, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(app);
             ArgumentNullException.ThrowIfNull(configure);
