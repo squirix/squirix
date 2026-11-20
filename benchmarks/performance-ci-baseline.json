@@ -1,6 +1,6 @@
 {
-  "baselineTag": "develop@e71f8975f519",
-  "baselineCommit": "e71f8975f5190cde997b9d4a2cd067ae8dc57144",
+  "baselineTag": "develop@bd4369b0221e",
+  "baselineCommit": "bd4369b0221e124ab17724a79b6dfa59be3f8b22",
   "timeTolerance": 0.2,
   "allocationTolerance": 0.05,
   "maxRelativeStandardError": 0.05,
@@ -15,7 +15,6 @@
         "ReplicatedCacheValueReadBenchmarks.cs",
         "CacheWriteSizingBenchmarks.cs",
         "CacheMetricsListenerBenchmarks.cs",
-        "IdempotencyResponseBufferBenchmarks.cs",
         "JournalFrameEncodeBenchmarks.cs",
         "ReplicaLogCodecEncodeBenchmarks.cs",
         "ReplicaLogDecodeBenchmarks.cs",
@@ -27,7 +26,6 @@
         "*ReplicatedCacheValueReadBenchmarks.*",
         "*CacheWriteSizingBenchmarks.*",
         "*CacheMetricsListenerBenchmarks.*",
-        "*IdempotencyResponseBufferBenchmarks.*",
         "*JournalFrameEncodeBenchmarks.*",
         "*ReplicaLogCodecEncodeBenchmarks.*",
         "*ReplicaLogDecodeBenchmarks.*",
@@ -110,14 +108,6 @@
         {
           "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=3)",
           "checkTime": true
-        },
-        {
-          "name": "IdempotencyResponseBufferBenchmarks.Empty",
-          "checkTime": false
-        },
-        {
-          "name": "IdempotencyResponseBufferBenchmarks.Nonempty",
-          "checkTime": false
         },
         {
           "name": "JournalFrameEncodeBenchmarks.EncodePutWithOperationId",
@@ -213,6 +203,7 @@
       "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
       "entryPoint": "tools/ci/performance-guard/Program.cs",
       "sources": [
+        "CachePipelineDecoratorBenchmarks.cs",
         "AdmissionGateBenchmarks.cs",
         "KeyedAsyncLockBenchmarks.cs",
         "ReplicaStateTransferApplyBenchmarks.cs",

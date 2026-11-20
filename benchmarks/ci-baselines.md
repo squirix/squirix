@@ -37,18 +37,17 @@ A zero-byte budget permits no allocation.
 ## Same-runner source comparison
 
 [performance-ci-baseline.json](performance-ci-baseline.json) pins the accepted develop revision to the full immutable commit
-e71f8975f5190cde997b9d4a2cd067ae8dc57144.
+bd4369b0221e124ab17724a79b6dfa59be3f8b22.
 The [runner](../tools/ci/run-performance-guard.py) creates a temporary checkout of that revision. The reference does not float with the branch.
 It rebuilds both versions with the current SDK and identical selected benchmark sources, then runs BenchmarkDotNet
 in native child processes: one launch, ten warmup iterations and ten measurement iterations at 500 ms.
 Upper outliers are retained. Server and client suites use opposite version order to reduce systematic order bias.
 
-The 53-case suite covers:
+The 51-case suite covers:
 
 - Physical and replicated reads, including the allocated entry control.
 - ASCII and Unicode writes at 16, 4096 and 65536 UTF-16 units.
 - Get/Set with no metrics listener, a counter, a histogram and both instruments.
-- Empty and nonempty idempotency response serialization.
 - Put/remove journal frame encoding.
 - Small/large replica record encoding and decoding at four payload sizes.
 - Public, forwarded and nested invocation scopes.
@@ -56,13 +55,13 @@ The 53-case suite covers:
 - Client call policy alone and combined with bootstrap failover.
 - Cache decorator chains for synchronous reads, GetOrAdd hits and asynchronously completing Set/TryAdd writes.
 - Admission gate acquire/release and single-worker keyed-lock reuse across distinct keys.
-- Pooled replica state-transfer parsing, including transport-buffer copying and clearing.
+- Replica state-transfer parsing with payloads borrowed from the receive buffer.
 - Loading 100k-entry snapshots containing strings or structured JSON, and scanning 100k journal frames at recovery.
 - Key validation at 16, 128 and 1024 characters and repeated cache API lookup by name.
 
-All 53 cases compare allocations with the simultaneously measured reference, with a 5% tolerance.
+All 51 cases compare allocations with the simultaneously measured reference, with a 5% tolerance.
 The 45 cases with meaningful timing compare medians, allowing at most a 20% slowdown.
-Eight cases guard allocations only: empty/nonempty response buffers, two asynchronously completing writes,
+Six cases guard allocations only: two asynchronously completing writes,
 keyed-lock churn, two snapshot loads and journal recovery scanning.
 Their timing depends on measurement resolution, thread scheduling or file-system behavior.
 A relative standard error above 5% fails a timing-enabled case as a noisy measurement requiring a rerun.
