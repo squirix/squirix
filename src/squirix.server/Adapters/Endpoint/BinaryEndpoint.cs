@@ -144,22 +144,10 @@ internal static class BinaryEndpoint
             if (failure != FrameStatus.Ok)
                 return new BinaryResponse(failure);
 
-            string? traceParent = null;
-            string? traceState = null;
-            if ((frame.Control & Frames.TracedRequest) != 0)
-            {
-                var traced = BinaryTracedRequest.Parser.ParseFrom(body.Span);
-                if (traced.TraceParent.Length > Frames.MaxTraceParentLength || traced.TraceState.Length > Frames.MaxTraceStateLength)
-                    return new BinaryResponse(FrameStatus.InvalidArgument);
+            if (!TryReadTrace(call, frame.Control, ref body))
+                return new BinaryResponse(FrameStatus.InvalidArgument);
 
-                traceParent = traced.TraceParent;
-                traceState = traced.TraceState.Length == 0 ? null : traced.TraceState;
-                body = traced.Payload.Memory;
-            }
-
-            call.TraceParent = traceParent;
-            call.TraceState = traceState;
-            var callContext = new BinaryDispatch.Request(call, deadlineUtc, traceParent, traceState, predecessor);
+            var callContext = new BinaryDispatch.Request(call, deadlineUtc, call.TraceParent, call.TraceState, predecessor);
             return await state.Operations.ExecuteAsync(operation, body, in callContext).ConfigureAwait(false);
         }
         catch (ServerCallException error)
@@ -178,6 +166,21 @@ internal static class BinaryEndpoint
         {
             state.Accessor.Current = null;
         }
+    }
+
+    private static bool TryReadTrace(BinaryRequestContext call, int control, ref ReadOnlyMemory<byte> body)
+    {
+        if ((control & Frames.TracedRequest) == 0)
+            return true;
+
+        var traced = BinaryTracedRequest.Parser.ParseFrom(body.Span);
+        if (traced.TraceParent.Length > Frames.MaxTraceParentLength || traced.TraceState.Length > Frames.MaxTraceStateLength)
+            return false;
+
+        call.TraceParent = traced.TraceParent;
+        call.TraceState = traced.TraceState.Length == 0 ? null : traced.TraceState;
+        body = traced.Payload.Memory;
+        return true;
     }
 
     private sealed record CallState(
