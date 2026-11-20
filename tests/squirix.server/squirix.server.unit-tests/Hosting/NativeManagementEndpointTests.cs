@@ -5,9 +5,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -38,7 +38,9 @@ public sealed class NativeManagementEndpointTests
     {
         var registrations = new ServiceCollection();
         _ = registrations.AddLogging();
-        _ = registrations.AddHealthChecks().AddCheck("not-ready", static () => HealthCheckResult.Unhealthy(), ["ready"]);
+        _ = registrations.AddSquirixFrameworkServices();
+        _ = registrations.AddSingleton(new ReadinessCheck(
+            "not-ready", static _ => new TestReadinessCheck(static () => ReadinessResult.Unhealthy("blocked"))));
         await using var services = registrations.BuildServiceProvider();
         var ready = await ExchangeAsync(services, "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
         var live = await ExchangeAsync(services, "GET /health/live HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
@@ -47,6 +49,44 @@ public sealed class NativeManagementEndpointTests
         _ = await Assert.That(ready.EndsWith("\r\n\r\nUnhealthy", StringComparison.Ordinal)).IsTrue();
         _ = await Assert.That(ready).Contains("Cache-Control: no-store, no-cache\r\n", StringComparison.Ordinal);
         _ = await Assert.That(live.StartsWith("HTTP/1.1 200 OK\r\n", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>A degraded node still answers its readiness probe successfully.</summary>
+    [Test]
+    public async Task ReadyReturnsOkWithDegradedStatus()
+    {
+        var registrations = new ServiceCollection();
+        _ = registrations.AddLogging();
+        _ = registrations.AddSquirixFrameworkServices();
+        _ = registrations.AddSingleton(new ReadinessCheck(
+            "degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
+        _ = registrations.AddSingleton(new ReadinessCheck(
+            "healthy", static _ => new TestReadinessCheck(static () => ReadinessResult.Healthy("ready"))));
+        await using var services = registrations.BuildServiceProvider();
+
+        var ready = await ExchangeAsync(services, "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
+
+        _ = await Assert.That(ready.StartsWith("HTTP/1.1 200 OK\r\n", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(ready.EndsWith("\r\n\r\nDegraded", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>A check that throws makes the node unhealthy even when another check is only degraded.</summary>
+    [Test]
+    public async Task ReadyReturns503WhenCheckThrows()
+    {
+        var registrations = new ServiceCollection();
+        _ = registrations.AddLogging();
+        _ = registrations.AddSquirixFrameworkServices();
+        _ = registrations.AddSingleton(new ReadinessCheck(
+            "throwing", static _ => new TestReadinessCheck(static () => throw new InvalidOperationException("probe failed"))));
+        _ = registrations.AddSingleton(new ReadinessCheck(
+            "degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
+        await using var services = registrations.BuildServiceProvider();
+
+        var ready = await ExchangeAsync(services, "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
+
+        _ = await Assert.That(ready.StartsWith("HTTP/1.1 503 Service Unavailable\r\n", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(ready.EndsWith("\r\n\r\nUnhealthy", StringComparison.Ordinal)).IsTrue();
     }
 
     /// <summary>Only the authenticated socket identity and one bearer header can grant protected access.</summary>
@@ -137,5 +177,17 @@ public sealed class NativeManagementEndpointTests
 
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             base.ReadAsync(buffer[..Math.Min(buffer.Length, _fragmentSize)], cancellationToken);
+    }
+
+    private sealed class TestReadinessCheck : IReadinessCheck
+    {
+        private readonly Func<ReadinessResult> _check;
+
+        internal TestReadinessCheck(Func<ReadinessResult> check)
+        {
+            _check = check;
+        }
+
+        public Task<ReadinessResult> CheckHealthAsync(CancellationToken cancellationToken) => Task.FromResult(_check());
     }
 }

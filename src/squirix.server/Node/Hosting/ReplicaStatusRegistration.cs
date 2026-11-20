@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
@@ -21,11 +20,8 @@ internal static class ReplicaStatusRegistration
             sp.GetRequiredService<IReplicaGroupLocator>(),
             sp.GetRequiredService<ReplicaGroupCommitters>().CoordinatorFor,
             sp.GetRequiredService<TopologyOptions>().NodeId));
-        _ = services.AddHealthChecks().Add(
-            new HealthCheckRegistration(
-                "replica_readiness",
-                static sp => new ReplicaReadinessHealthCheck(sp.GetRequiredService<IReplicaStatusSource>(), sp.GetRequiredService<ReplicationMetrics>()),
-                HealthStatus.Unhealthy,
-                ["ready"]));
+        _ = services.AddSingleton(new ReadinessCheck(
+            "replica_readiness",
+            static sp => new ReplicaReadinessHealthCheck(sp.GetRequiredService<IReplicaStatusSource>(), sp.GetRequiredService<ReplicationMetrics>())));
     }
 }

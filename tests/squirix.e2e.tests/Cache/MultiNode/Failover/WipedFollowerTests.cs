@@ -4,7 +4,6 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -48,7 +47,7 @@ public sealed class WipedFollowerTests
         await Eventually.SucceedsAsync((Cache: cache, Key: key), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), FailoverSteps.Bound, attempts, cancellationToken);
         var read = await Eventually.SucceedsAsync((Cache: cache, Key: key), static (s, token) => s.Cache.GetValueAsync(s.Key, token), FailoverSteps.Bound, attempts, cancellationToken);
         await cluster.Cluster[follower].WaitUntilValueAsync(
-            static async (host, token) => (await host.ReplicaGroupsAsync(token)).Status == HealthStatus.Healthy,
+            static (host, token) => host.ReplicaGroupsReadyAsync(token),
             FailoverSteps.Bound,
             cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();

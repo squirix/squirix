@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -12,6 +11,7 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -111,7 +111,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         await LedgerWrites.CommitAsync(lag.Ledger, lag.Cluster[lag.Survivor], CacheName, lag.Keys[^1], cancellationToken, ValueOf(lag.Keys.Length - 1));
 
         _ = await Assert.That(copy).IsNotEqualTo(GroupMemberState.Complete);
-        _ = await Assert.That(health).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(health).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(description).Contains("is incomplete on this node", StringComparison.Ordinal);
         _ = await Assert.That(admitted).IsNotEqualTo(ReplicaParticipantState.Ready);
         await AssertRepairedAsync(lag, cancellationToken);

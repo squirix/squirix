@@ -2,17 +2,17 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Reports readiness degradation when manifest retention cleanup fails persistently.</summary>
 [Immutable]
-internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
+internal sealed class RetentionCleanupReadinessCheck : IReadinessCheck
 {
-    private static readonly Task<HealthCheckResult> ReadyResult = Task.FromResult(HealthCheckResult.Healthy("storage retention cleanup is ready."));
+    private static readonly Task<ReadinessResult> ReadyResult = Task.FromResult(ReadinessResult.Healthy("storage retention cleanup is ready."));
 
     private readonly IRetentionCleanupReadinessStatus _cleanup;
 
@@ -23,11 +23,11 @@ internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
     }
 
     /// <inheritdoc />
-    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default) =>
+    public Task<ReadinessResult> CheckHealthAsync(CancellationToken cancellationToken) =>
         _cleanup.IsDegraded ? DegradedResultAsync() : ReadyResult;
 
-    private Task<HealthCheckResult> DegradedResultAsync() => Task.FromResult(
-        HealthCheckResult.Unhealthy(
+    private Task<ReadinessResult> DegradedResultAsync() => Task.FromResult(
+        ReadinessResult.Unhealthy(
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"storage retention cleanup is degraded after {_cleanup.ConsecutiveWriteFailures} consecutive write failures and {_cleanup.RecentFailureCount} failures in the recent window.")));

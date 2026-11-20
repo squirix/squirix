@@ -9,10 +9,10 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Diagnostics;
 
@@ -30,9 +30,9 @@ internal sealed partial class NativeManagementEndpoint
     private static readonly SearchValues<char> InvalidHostCharacters = SearchValues.Create(" \t\r\n/\\?#@");
 
     private static readonly ReadOnlyMemory<byte> CompatibilityHealthBody = Encoding.UTF8.GetBytes("\"OK\"");
-    private static readonly ReadOnlyMemory<byte> HealthyBody = Encoding.UTF8.GetBytes(nameof(HealthStatus.Healthy));
-    private static readonly ReadOnlyMemory<byte> DegradedBody = Encoding.UTF8.GetBytes(nameof(HealthStatus.Degraded));
-    private static readonly ReadOnlyMemory<byte> UnhealthyBody = Encoding.UTF8.GetBytes(nameof(HealthStatus.Unhealthy));
+    private static readonly ReadOnlyMemory<byte> HealthyBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Healthy));
+    private static readonly ReadOnlyMemory<byte> DegradedBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Degraded));
+    private static readonly ReadOnlyMemory<byte> UnhealthyBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Unhealthy));
 
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
@@ -228,9 +228,9 @@ internal sealed partial class NativeManagementEndpoint
             return new Response("200 OK", JsonContentType, CompatibilityHealthBody, false);
 
         if (string.Equals(probe, "/health/live", StringComparison.Ordinal))
-            return await CheckHealthAsync("live", cancellationToken).ConfigureAwait(false);
+            return new Response("200 OK", TextContentType, HealthyBody, true);
         if (string.Equals(probe, "/health/ready", StringComparison.Ordinal))
-            return await CheckHealthAsync("ready", cancellationToken).ConfigureAwait(false);
+            return await CheckReadinessAsync(cancellationToken).ConfigureAwait(false);
 
         if (string.Equals(probe, "/health/ready/details", StringComparison.Ordinal))
         {
@@ -257,14 +257,13 @@ internal sealed partial class NativeManagementEndpoint
         return response;
     }
 
-    private async ValueTask<Response> CheckHealthAsync(string tag, CancellationToken cancellationToken)
+    private async ValueTask<Response> CheckReadinessAsync(CancellationToken cancellationToken)
     {
-        var report = await _services.GetRequiredService<HealthCheckService>().CheckHealthAsync(
-            registration => registration.Tags.Contains(tag), cancellationToken).ConfigureAwait(false);
-        return report.Status switch
+        var status = await _services.GetRequiredService<ReadinessMonitor>().GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return status switch
         {
-            HealthStatus.Healthy => new Response("200 OK", TextContentType, HealthyBody, true),
-            HealthStatus.Degraded => new Response("200 OK", TextContentType, DegradedBody, true),
+            ReadinessStatus.Healthy => new Response("200 OK", TextContentType, HealthyBody, true),
+            ReadinessStatus.Degraded => new Response("200 OK", TextContentType, DegradedBody, true),
             _ => new Response("503 Service Unavailable", TextContentType, UnhealthyBody, true),
         };
     }

@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -222,8 +221,8 @@ internal static class ServerHostingComposition
     private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args)
     {
         _ = services.AddSquirixClusterLocator(cluster);
-        _ = services.AddHealthChecks().Add(
-            new HealthCheckRegistration("ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()), HealthStatus.Unhealthy, ["ready"]));
+        _ = services.AddSingleton(new ReadinessCheck(
+            "ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>())));
         _ = services.AddSquirixClusterTransport(cluster, null, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
 

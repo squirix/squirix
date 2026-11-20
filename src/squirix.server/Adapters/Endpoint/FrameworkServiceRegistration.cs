@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
@@ -23,7 +24,10 @@ internal static class FrameworkServiceRegistration
             sp.GetRequiredService<IRemoteInvocationScopeFactory>(),
             sp.GetService<BinaryCallObserver>()));
 
-        _ = services.AddHealthChecks();
+        _ = services.AddSingleton(static sp => new ReadinessMonitor(
+            sp.GetRequiredService<IEnumerable<ReadinessCheck>>(),
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ILogger<ReadinessMonitor>>()));
 
         // One verifier is shared by every inbound consumer so an expiry on an open connection is logged once; it resolves to null (GetService) when mTLS is disabled.
         _ = services.AddSingleton(static sp => VerifiedPeerCertificates.CreateIfEnabled(
