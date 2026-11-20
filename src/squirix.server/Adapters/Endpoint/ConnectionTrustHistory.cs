@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 
@@ -22,7 +21,7 @@ internal sealed class ConnectionTrustHistory
     }
 
     internal bool TryAuthorize(
-        JwtBearerOptions options,
+        JwtValidationOptions options,
         OpenIdConnectConfiguration? configuration,
         SecurityToken token,
         DateTime started,
@@ -99,7 +98,7 @@ internal sealed class ConnectionTrustHistory
     private static DateTime AddClamped(DateTime started, TimeSpan lifetime) =>
         lifetime.Ticks > DateTime.MaxValue.Ticks - started.Ticks ? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc) : started.Add(lifetime);
 
-    private void Record(BaseConfiguration configuration, JwtBearerOptions options, DateTime started, TimeSpan lifetime)
+    private void Record(BaseConfiguration configuration, JwtValidationOptions options, DateTime started, TimeSpan lifetime)
     {
         lock (_gate)
         {
@@ -118,7 +117,7 @@ internal sealed class ConnectionTrustHistory
         }
     }
 
-    private bool TryHistorical(JwtBearerOptions options, TimeSpan lifetime, SecurityToken token, DateTime now, ref DateTime expires, out DateTime? started)
+    private bool TryHistorical(JwtValidationOptions options, TimeSpan lifetime, SecurityToken token, DateTime now, ref DateTime expires, out DateTime? started)
     {
         var tokenExpiry = expires;
         var selectedExpiry = DateTime.MinValue;
@@ -147,5 +146,5 @@ internal sealed class ConnectionTrustHistory
         return true;
     }
 
-    private readonly record struct Entry(BaseConfiguration Configuration, JwtBearerOptions Options, DateTime Started, DateTime Expires);
+    private readonly record struct Entry(BaseConfiguration Configuration, JwtValidationOptions Options, DateTime Started, DateTime Expires);
 }

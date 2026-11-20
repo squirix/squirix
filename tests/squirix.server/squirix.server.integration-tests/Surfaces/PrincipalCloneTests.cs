@@ -2,8 +2,6 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
@@ -85,23 +83,38 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         {
             _ = services.AddSingleton(static provider => new BinaryCallObserver(new PolicyInterceptor(provider.GetRequiredService<PolicyProbe>()).Observe));
             _ = services.AddSingleton(probe);
-            _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options => options.Events.OnTokenValidated = context =>
-            {
-                if (!probe.AllowControl)
-                {
-                    var identity = new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin"), new Claim("permission", "grant")], "Bearer");
-                    context.Principal = mode switch
-                    {
-                        0 => new PolicyPrincipal(identity),
-                        1 => new UnsupportedPrincipal(identity),
-                        _ => new ChangingPrincipal(identity, true),
-                    };
-                }
-
-                return Task.CompletedTask;
-            });
+            _ = services.AddSingleton<IConnectionTokenObserver>(new PrincipalFactory(probe, mode));
         },
     };
+
+    private sealed class PrincipalFactory : IConnectionTokenObserver
+    {
+        private readonly PolicyProbe _probe;
+        private readonly int _mode;
+
+        internal PrincipalFactory(PolicyProbe probe, int mode)
+        {
+            _probe = probe;
+            _mode = mode;
+        }
+
+        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_probe.AllowControl)
+            {
+                var identity = new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin"), new Claim("permission", "grant")], "Bearer");
+                principal = _mode switch
+                {
+                    0 => new PolicyPrincipal(identity),
+                    1 => new UnsupportedPrincipal(identity),
+                    _ => new ChangingPrincipal(identity, true),
+                };
+            }
+
+            return ValueTask.FromResult<ClaimsPrincipal?>(principal);
+        }
+    }
 
     private sealed class PolicyPrincipal : ClaimsPrincipal
     {
@@ -178,10 +191,10 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
             _probe = probe;
         }
 
-        internal void Observe(HttpContext context)
+        internal void Observe(BinaryRequestContext context)
         {
             _probe.RecordEntry();
-            var principal = context.User;
+            var principal = context.User!;
             if (_probe.CheckPolicy && (principal.IsInRole("admin") || principal.HasClaim("permission", "grant") || !string.Equals(principal.FindFirst("permission")?.Value, "grant", StringComparison.Ordinal)))
                 _probe.RecordError();
         }

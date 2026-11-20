@@ -2,8 +2,6 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
@@ -23,20 +21,20 @@ public sealed class AuthenticatedConnectionTests
     {
         var lower = DateTime.UnixEpoch.AddMinutes(1);
         var upper = lower.AddMinutes(1);
-        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (lower, upper), new JwtBearerOptions(), null, null, new Lifetime())!;
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (lower, upper), new JwtValidationOptions(), null, null, static () => { })!;
         _ = await Assert.That(connection.IsWithinLifetime(lower.AddTicks(-1))).IsFalse();
         _ = await Assert.That(connection.IsWithinLifetime(lower)).IsTrue();
         _ = await Assert.That(connection.IsWithinLifetime(upper.AddTicks(-1))).IsTrue();
         _ = await Assert.That(connection.IsWithinLifetime(upper)).IsFalse();
     }
 
-    /// <summary>Expiry asks HTTP/2 to stop admitting work without aborting the connection.</summary>
+    /// <summary>Expiry asks the binary session to stop admitting work without aborting the connection.</summary>
     [Test]
     public async Task ExpiryRequestsGracefulClose()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var lifetime = new Lifetime();
-        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddMinutes(1)), new JwtBearerOptions(), null, null, lifetime)!;
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddMinutes(1)), new JwtValidationOptions(), null, null, lifetime.RequestClose)!;
         await using var timer = connection.CreateExpiryTimer(clock);
         clock.Advance(TimeSpan.FromSeconds(59));
         _ = await Assert.That(lifetime.Requests).IsEqualTo(0);
@@ -51,7 +49,7 @@ public sealed class AuthenticatedConnectionTests
     public async Task SnapshotOwnsIdentityClaims()
     {
         var identity = CreateIdentity();
-        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime())!;
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtValidationOptions(), null, null, static () => { })!;
         identity.FindFirst("seed")!.Properties["state"] = "changed";
         identity.AddClaim(new Claim("source-change", "unexpected"));
         var snapshot = connection.ClonePrincipal()!;
@@ -65,7 +63,7 @@ public sealed class AuthenticatedConnectionTests
     public async Task RequestIdentityCopiesAreIndependent()
     {
         var identity = CreateIdentity();
-        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime())!;
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(identity), (DateTime.UnixEpoch, DateTime.MaxValue), new JwtValidationOptions(), null, null, static () => { })!;
         var first = connection.ClonePrincipal()!;
         var second = connection.ClonePrincipal()!;
         first.FindFirst("seed")!.Properties["state"] = "changed";
@@ -91,12 +89,10 @@ public sealed class AuthenticatedConnectionTests
         return identity;
     }
 
-    private sealed class Lifetime : IConnectionLifetimeNotificationFeature
+    private sealed class Lifetime
     {
-        public CancellationToken ConnectionClosedRequested { get; set; }
-
         internal int Requests { get; private set; }
 
-        public void RequestClose() => Requests++;
+        internal void RequestClose() => Requests++;
     }
 }

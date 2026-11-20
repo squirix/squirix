@@ -5,9 +5,6 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
@@ -49,7 +46,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         _ = await Assert.That(string.IsNullOrWhiteSpace(localIp)).IsFalse();
         using var handler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
         using var http = new HttpClient(handler);
-        using var request = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, port.Port, "/metrics"));
+        using var request = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, cluster["hooks"].ManagementUri.Port, "/metrics"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
         using var response = await http.SendAsync(request, cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
@@ -111,18 +108,17 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
     private static BlackBoxStartOptions CreateOptions(TestJwtCredentials credentials, HookProbe probe) => new()
     {
+        ManagementUri = new Uri("https://0.0.0.0:0"),
         MetricsEnabled = true,
         PrometheusMetricsEnabled = true,
         Security = TestNodeSecurityOptions.FromJwtCredentials(credentials),
         ServicesConfigure = services =>
         {
             _ = services.AddSingleton(probe);
-            _ = services.AddHttpContextAccessor();
             _ = services.AddScoped(static provider => new EventScope(provider.GetRequiredService<HookProbe>()));
-            _ = services.AddScoped(static provider => new ScopedEvents(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<EventScope>(), provider.GetRequiredService<IHttpContextAccessor>()));
-            _ = services.AddTransient<IClaimsTransformation>(static provider => new RequestClaims(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<IHttpContextAccessor>()));
+            _ = services.AddScoped<IConnectionTokenObserver>(static provider => new ScopedEvents(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<EventScope>()));
+            _ = services.AddTransient<IBinaryAuthorizationHook>(static provider => new RequestClaims(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<BinaryRequestAccessor>()));
             _ = services.AddSingleton(static provider => new BinaryCallObserver(new ClaimProbeInterceptor(provider.GetRequiredService<HookProbe>()).Observe));
-            _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, static options => options.EventsType = typeof(ScopedEvents));
         },
     };
 
@@ -198,62 +194,58 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         internal void MarkValidated() => _validated = true;
     }
 
-    private sealed class ScopedEvents : JwtBearerEvents
+    private sealed class ScopedEvents : IConnectionTokenObserver
     {
         private readonly HookProbe _probe;
         private readonly EventScope _scope;
-        private readonly IHttpContextAccessor _accessor;
-
-        internal ScopedEvents(HookProbe probe, EventScope scope, IHttpContextAccessor accessor)
+        internal ScopedEvents(HookProbe probe, EventScope scope)
         {
             _probe = probe;
             _scope = scope;
-            _accessor = accessor;
         }
 
         /// <inheritdoc />
-        public override Task TokenValidated(TokenValidatedContext context)
+        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _scope.MarkValidated();
             _probe.RecordEvents();
-            if (!ReferenceEquals(context.HttpContext, _accessor.HttpContext) || !ReferenceEquals(_scope, context.HttpContext.RequestServices.GetRequiredService<EventScope>()))
+            if (!ReferenceEquals(_scope, services.GetRequiredService<EventScope>()) ||
+                (_probe.Events > 1 && connection != null))
                 _probe.RecordContextErrors();
             if (_probe.Reject)
-            {
-                context.Fail("Rejected by the configured scoped validation event.");
-            }
-            else
-            {
-                var identity = new ClaimsIdentity([new Claim("token-event", "retained")]);
-                identity.FindFirst("token-event")!.Properties["state"] = "original";
-                context.Principal!.AddIdentity(identity);
-            }
+                return ValueTask.FromResult<ClaimsPrincipal?>(null);
 
-            return Task.CompletedTask;
+            var identity = new ClaimsIdentity([new Claim("token-event", "retained")]);
+            identity.FindFirst("token-event")!.Properties["state"] = "original";
+            principal.AddIdentity(identity);
+            return ValueTask.FromResult<ClaimsPrincipal?>(principal);
         }
     }
 
-    private sealed class RequestClaims : IClaimsTransformation
+    private sealed class RequestClaims : IBinaryAuthorizationHook
     {
         private readonly HookProbe _probe;
-        private readonly IHttpContextAccessor _accessor;
+        private readonly BinaryRequestAccessor _accessor;
 
-        internal RequestClaims(HookProbe probe, IHttpContextAccessor accessor)
+        internal RequestClaims(HookProbe probe, BinaryRequestAccessor accessor)
         {
             _probe = probe;
             _accessor = accessor;
         }
 
-        public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+        public ValueTask<FrameStatus> AuthorizeAsync(BinaryRequestContext request)
         {
             _probe.RecordTransforms();
             if (_probe.TakeTransformFailure())
-                return Task.FromException<ClaimsPrincipal>(new InvalidOperationException("Scripted claims transformation failure."));
+                return ValueTask.FromException<FrameStatus>(new InvalidOperationException("Scripted claims transformation failure."));
 
-            var http = _accessor.HttpContext;
-            if (http == null || !string.Equals(http.Request.Method, "POST", StringComparison.Ordinal) ||
-                http.Connection.RemoteIpAddress is not { } remote || !IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote) ||
-                http.Connection.RemotePort <= 0 || http.Connection.LocalIpAddress == null || http.Connection.LocalPort <= 0)
+            var principal = request.User!;
+            var connection = request.Connection;
+            if (!ReferenceEquals(request, _accessor.Current) || !request.Path.StartsWith('/') ||
+                connection?.RemoteEndPoint is not { Port: > 0 } remote ||
+                !IPAddress.IsLoopback(remote.Address.IsIPv4MappedToIPv6 ? remote.Address.MapToIPv4() : remote.Address) ||
+                connection.LocalEndPoint is not { Port: > 0 })
                 _probe.RecordContextErrors();
             if (principal.HasClaim(static claim => string.Equals(claim.Type, "request-transform", StringComparison.Ordinal)) || !principal.HasClaim("token-event", "retained"))
                 _probe.RecordClaimErrors();
@@ -269,7 +261,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
                 break;
             }
 
-            return Task.FromResult(principal);
+            return ValueTask.FromResult(FrameStatus.Ok);
         }
     }
 
@@ -282,10 +274,10 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
             _probe = probe;
         }
 
-        internal void Observe(HttpContext context)
+        internal void Observe(BinaryRequestContext context)
         {
             _probe.RecordRpcEntries();
-            var principal = context.User;
+            var principal = context.User!;
             var count = 0;
             foreach (var claim in principal.Claims)
             {

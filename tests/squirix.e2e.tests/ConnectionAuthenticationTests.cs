@@ -2,11 +2,6 @@ using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Connections.Features;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
@@ -38,9 +33,7 @@ public sealed class ConnectionAuthenticationTests
             configure: (nodeId, services) =>
             {
                 ArgumentException.ThrowIfNullOrEmpty(nodeId);
-                _ = services.AddSingleton(probe);
-                _ = services.AddSingleton<IAuthorizationHandler>(probe);
-                _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options => options.Events.OnTokenValidated = probe.CaptureConnectionAsync);
+                TestConnectionAuthHooks.Add(services, probe.CaptureConnection, probe.AuthorizeAsync);
             },
             cancellationToken: cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();
@@ -66,7 +59,7 @@ public sealed class ConnectionAuthenticationTests
         {
             await probe.Entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
             var lifetime = await probe.Connection.Task.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
-            lifetime.RequestClose();
+            lifetime();
             _ = await Assert.That(admitted.IsCompleted).IsFalse();
         }
         finally
@@ -109,8 +102,7 @@ public sealed class ConnectionAuthenticationTests
             configure: (nodeId, services) =>
             {
                 ArgumentException.ThrowIfNullOrEmpty(nodeId);
-                _ = services.AddSingleton(secondaryProbe);
-                _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options => options.Events.OnMessageReceived = secondaryProbe.OnMessageReceivedAsync);
+                TestConnectionAuthHooks.Add(services, secondaryProbe.RecordHandshake);
             },
             cancellationToken: cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();
@@ -189,42 +181,33 @@ public sealed class ConnectionAuthenticationTests
 
         internal int Handshakes => Volatile.Read(ref _handshakes);
 
-        internal Task OnMessageReceivedAsync(MessageReceivedContext context)
+        internal void RecordHandshake(Action requestClose)
         {
-            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(requestClose);
             _ = Interlocked.Increment(ref _handshakes);
-            return Task.CompletedTask;
         }
     }
 
-    private sealed class ExpiryProbe : IAuthorizationHandler
+    private sealed class ExpiryProbe
     {
         private int _armed;
 
-        internal TaskCompletionSource<IConnectionLifetimeNotificationFeature> Connection { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<Action> Connection { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async Task HandleAsync(AuthorizationHandlerContext context)
+        internal async Task AuthorizeAsync(CancellationToken cancellationToken)
         {
-            if (context.Resource is not HttpContext request || Interlocked.Exchange(ref _armed, 0) == 0)
+            if (Interlocked.Exchange(ref _armed, 0) == 0)
                 return;
 
             _ = Entered.TrySetResult();
-            await Release.Task.WaitAsync(request.RequestAborted);
+            await Release.Task.WaitAsync(cancellationToken);
         }
 
-        internal Task CaptureConnectionAsync(TokenValidatedContext context)
-        {
-            ArgumentNullException.ThrowIfNull(context);
-            var lifetime = context.HttpContext.Features.Get<IConnectionLifetimeNotificationFeature>();
-            if (lifetime != null)
-                _ = Connection.TrySetResult(lifetime);
-
-            return Task.CompletedTask;
-        }
+        internal void CaptureConnection(Action requestClose) => _ = Connection.TrySetResult(requestClose);
 
         internal void Arm() => Volatile.Write(ref _armed, 1);
     }

@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
@@ -115,7 +113,7 @@ public sealed class PrincipalCloneTests
     }
 
     private static AuthenticatedConnection? CreateConnection(ClaimsPrincipal principal) =>
-        AuthenticatedConnection.Create(principal, (DateTime.UnixEpoch, DateTime.MaxValue), new JwtBearerOptions(), null, null, new Lifetime());
+        AuthenticatedConnection.Create(principal, (DateTime.UnixEpoch, DateTime.MaxValue), new JwtValidationOptions(), null, null, static () => { });
 
     private static ClaimsPrincipal? Copy(AuthenticatedConnection? connection) => connection?.ClonePrincipal();
 
@@ -218,12 +216,4 @@ public sealed class PrincipalCloneTests
         public override ClaimsPrincipal Clone() => _allowClone ? new ChangingPrincipal(false) : this;
     }
 
-    private sealed class Lifetime : IConnectionLifetimeNotificationFeature
-    {
-        public CancellationToken ConnectionClosedRequested { get; set; }
-
-        public void RequestClose()
-        {
-        }
-    }
 }

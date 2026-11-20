@@ -56,6 +56,14 @@ internal sealed class NativeManagementEndpoint
         await WriteAsync(stream, response, request.Head, token).ConfigureAwait(false);
     }
 
+    internal ValueTask<bool> CanAccessDetailsAsync(IPAddress? remote, string? bearer, CancellationToken cancellationToken)
+    {
+        if (remote?.IsIPv4MappedToIPv6 == true)
+            remote = remote.MapToIPv4();
+        var loopback = remote != null && IPAddress.IsLoopback(remote);
+        return !loopback && !string.IsNullOrEmpty(bearer) ? _authenticateBearer(bearer, cancellationToken) : ValueTask.FromResult(loopback);
+    }
+
     private static async Task<(Request? Request, Response? Error)> ReadRequestAsync(Stream stream, CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(MaxHeaderBytes);
@@ -202,14 +210,6 @@ internal sealed class NativeManagementEndpoint
             HealthStatus.Degraded => new Response("200 OK", TextContentType, DegradedBody, true),
             _ => new Response("503 Service Unavailable", TextContentType, UnhealthyBody, true),
         };
-    }
-
-    private ValueTask<bool> CanAccessDetailsAsync(IPAddress remote, string? bearer, CancellationToken cancellationToken)
-    {
-        if (remote.IsIPv4MappedToIPv6)
-            remote = remote.MapToIPv4();
-        var loopback = IPAddress.IsLoopback(remote);
-        return !loopback && !string.IsNullOrEmpty(bearer) ? _authenticateBearer(bearer, cancellationToken) : ValueTask.FromResult(loopback);
     }
 
     private readonly record struct Request(string Path, string? Bearer, bool Head);

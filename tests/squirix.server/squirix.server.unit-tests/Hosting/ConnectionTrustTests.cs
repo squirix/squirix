@@ -1,7 +1,6 @@
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
@@ -289,7 +288,7 @@ public sealed class ConnectionTrustTests
         _ = await Assert.That(started).IsNull();
     }
 
-    private static bool ObserveSnapshot(ConnectionTrustHistory history, JwtBearerOptions options, SecurityKey key, string issuer, int startSeconds)
+    private static bool ObserveSnapshot(ConnectionTrustHistory history, JwtValidationOptions options, SecurityKey key, string issuer, int startSeconds)
     {
         var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
         configuration.SigningKeys.Add(key);
@@ -306,9 +305,9 @@ public sealed class ConnectionTrustTests
             parameters.ValidIssuers = ["issuer"];
     }
 
-    private static JwtBearerOptions CreateOptions(out ConfigurationManager<OpenIdConnectConfiguration> manager)
+    private static JwtValidationOptions CreateOptions(out ConfigurationManager<OpenIdConnectConfiguration> manager)
     {
         manager = new ConfigurationManager<OpenIdConnectConfiguration>("https://issuer/.well-known/openid-configuration", new OpenIdConnectConfigurationRetriever());
-        return new JwtBearerOptions { ConfigurationManager = manager };
+        return new JwtValidationOptions { ConfigurationManager = manager };
     }
 }

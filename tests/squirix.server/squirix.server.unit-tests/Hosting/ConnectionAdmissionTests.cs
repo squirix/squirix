@@ -2,8 +2,6 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -44,15 +42,15 @@ public sealed class ConnectionAdmissionTests
         var services = new ServiceCollection();
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
-        var cache = provider.GetRequiredService<IOptionsMonitorCache<JwtBearerOptions>>();
-        var monitor = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>();
+        var cache = provider.GetRequiredService<IOptionsMonitorCache<JwtValidationOptions>>();
+        var monitor = provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>();
         var gate = new ConfigurationGate();
-        var options = new JwtBearerOptions { ConfigurationManager = gate };
-        _ = await Assert.That(cache.TryAdd(JwtBearerDefaults.AuthenticationScheme, options)).IsTrue();
+        var options = new JwtValidationOptions { ConfigurationManager = gate };
+        _ = await Assert.That(cache.TryAdd(Options.DefaultName, options)).IsTrue();
         var configuration = new OpenIdConnectConfiguration();
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddSeconds(10)), options, configuration, null, new Lifetime());
-        using var validator = new ConnectionAuthenticationValidator(monitor, clock, provider.GetRequiredService<IServiceScopeFactory>());
+        var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddSeconds(10)), options, configuration, null, static () => { });
+        using var validator = new NativeConnectionAuthenticationValidator(monitor, clock, provider.GetRequiredService<IServiceScopeFactory>());
         var pending = validator.IsCurrentAsync(connection!, cancellationToken);
         await gate.Requested.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(pending.IsCompleted).IsFalse();
@@ -62,8 +60,8 @@ public sealed class ConnectionAdmissionTests
         }
         else if (change == 1)
         {
-            _ = await Assert.That(cache.TryRemove(JwtBearerDefaults.AuthenticationScheme)).IsTrue();
-            _ = await Assert.That(cache.TryAdd(JwtBearerDefaults.AuthenticationScheme, new JwtBearerOptions { ConfigurationManager = gate })).IsTrue();
+            _ = await Assert.That(cache.TryRemove(Options.DefaultName)).IsTrue();
+            _ = await Assert.That(cache.TryAdd(Options.DefaultName, new JwtValidationOptions { ConfigurationManager = gate })).IsTrue();
         }
         else
         {
@@ -92,14 +90,5 @@ public sealed class ConnectionAdmissionTests
         }
 
         internal void Complete(OpenIdConnectConfiguration configuration) => _ = _result.TrySetResult(configuration);
-    }
-
-    private sealed class Lifetime : IConnectionLifetimeNotificationFeature
-    {
-        public CancellationToken ConnectionClosedRequested { get; set; }
-
-        public void RequestClose()
-        {
-        }
     }
 }

@@ -1,10 +1,12 @@
 using System;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Attributes;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
 using TUnit.Assertions;
@@ -57,11 +59,11 @@ public sealed class SecurityServiceRegistrationTests
 
         _ = services.AddLogging();
         await using var provider = services.BuildServiceProvider();
-        var options = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get(JwtBearerDefaults.AuthenticationScheme);
+        var options = provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue;
         var parameters = options.TokenValidationParameters;
         var hasAuthority = caseIndex is 2 or 4;
-        _ = await Assert.That(options.Authority).IsEqualTo(hasAuthority ? Authority : null);
-        _ = await Assert.That(options.Audience).IsEqualTo(Audience);
+        var metadataManager = options.ConfigurationManager as ConfigurationManager<OpenIdConnectConfiguration>;
+        _ = await Assert.That(metadataManager?.MetadataAddress).IsEqualTo(hasAuthority ? $"{Authority}/.well-known/openid-configuration" : null);
         _ = await Assert.That(options.RequireHttpsMetadata).IsEqualTo(hasAuthority);
         _ = await Assert.That(parameters.ValidAudience).IsEqualTo(Audience);
         _ = await Assert.That(parameters.ValidIssuer).IsEqualTo(caseIndex >= 3 ? Issuer : null);
