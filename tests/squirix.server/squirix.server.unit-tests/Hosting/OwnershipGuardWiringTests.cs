@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
@@ -59,13 +59,13 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
             new ILogicalNamespacedCacheCreateExpectations<object?>().Instance(),
             new IBackpressureGateCreateExpectations().Instance(),
             new IBackpressureClientIdResolverCreateExpectations().Instance());
-        var services = new ServiceCollection().AddSquirixCachePipeline()
-                                              .AddSingleton(new TopologyOptions(new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") }) { ClusterId = "c", NodeId = Self, Uri = new Uri("https://localhost:6001") })
-                                              .AddSingleton(locator.Instance())
-                                              .AddSingleton(leaders)
-                                              .AddSingleton(below);
-        await using var provider = services.BuildServiceProvider();
-        var guard = provider.GetRequiredService<OwnershipGuardCacheDecorator<object?>>();
+        var services = new NodeServices().AddSquirixCachePipeline()
+                                              .Use(new TopologyOptions(new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") }) { ClusterId = "c", NodeId = Self, Uri = new Uri("https://localhost:6001") })
+                                              .Use(locator.Instance())
+                                              .Use(leaders)
+                                              .Use(below);
+        await using var provider = new NodeProvider(services);
+        var guard = provider.Require<OwnershipGuardCacheDecorator<object?>>();
 
         return await NodeAsyncAssert.ThrowsAsync<ServerCallException>(SetAsync(guard, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 

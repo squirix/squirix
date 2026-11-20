@@ -2,11 +2,11 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -26,9 +26,9 @@ namespace Squirix.Server.Node.Services;
 /// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
 /// <typeparam name="T">The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).</typeparam>
-internal sealed class RecoveryService<T> : IHostedService
+internal sealed class RecoveryService<T> : INodeService
 {
-    private readonly IHostApplicationLifetime? _applicationLifetime;
+    private readonly INodeLifetime? _applicationLifetime;
     private readonly AsyncManualResetEvent _asyncManualResetEvent;
     private readonly CacheExpiryAuthority _expiry;
     private readonly ILocalCacheRecovery<T> _localCache;
@@ -40,7 +40,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly TimeProvider _timeProvider;
     private Task? _replayTask;
 
-    internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, IHostApplicationLifetime? applicationLifetime = null)
+    internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, INodeLifetime? applicationLifetime = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(log);
@@ -87,7 +87,7 @@ internal sealed class RecoveryService<T> : IHostedService
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Replay handles its own shutdown cancellation, so only the stop budget can end this wait early.
-            ServerLog.RecoveryReplayStopTimedOut(_log);
+            DiagnosticsLog.RecoveryReplayStopTimedOut(_log);
         }
     }
 
@@ -172,7 +172,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private void HandleSnapshotLoadFailure(ReplayContext context, string snapshotPath, out int fromSegment, out ulong lastAppliedSeq)
     {
-        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
+        RecoveryLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
         RequireFullJournalReplayRange(context.ManifestCurrentJournal);
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;
@@ -191,7 +191,7 @@ internal sealed class RecoveryService<T> : IHostedService
         return new ReplayContext(snapRef, manifestCurrentJournal, firstAvailableSegment, firstJournalSegmentOrDefault, fromSegment, lastAppliedSeq);
     }
 
-    private void LogReplayBoundary(ReplayContext context, int fromSegment) => ServerLog.RecoveryReplayBoundary(
+    private void LogReplayBoundary(ReplayContext context, int fromSegment) => RecoveryLog.RecoveryReplayBoundary(
         _log,
         context.SnapshotReference != null,
         context.ManifestCurrentJournal,
@@ -209,7 +209,7 @@ internal sealed class RecoveryService<T> : IHostedService
             LogReplayBoundary(context, replayState.FromSegment);
             await ReplayJournalSegmentsAsync(replayState.FromSegment, replayState.LastAppliedSequence, cancellationToken).ConfigureAwait(false);
 
-            ServerLog.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
+            RecoveryLog.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
 
             // Covered segments a crash left behind stop counting against the journal quota. Only a snapshot that loaded may let them go:
             // when it did not, they are the only copy of its state.
@@ -222,7 +222,7 @@ internal sealed class RecoveryService<T> : IHostedService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
-            ServerLog.JournalRecoveryFailed(_log, ex);
+            RecoveryLog.JournalRecoveryFailed(_log, ex);
             throw;
         }
     }
@@ -235,7 +235,7 @@ internal sealed class RecoveryService<T> : IHostedService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            ServerLog.RecoveryReplayInterrupted(_log);
+            DiagnosticsLog.RecoveryReplayInterrupted(_log);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
@@ -292,7 +292,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
             await ApplySnapshotEntriesAsync(snapshot, cancellationToken).ConfigureAwait(false);
             fromSegment = snapshotReference.ReplayFromJournalSegment > 0 ? snapshotReference.ReplayFromJournalSegment : 1;
-            ServerLog.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
+            RecoveryLog.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
             return new ReplayState(fromSegment, lastAppliedSeq, true);
         }
 

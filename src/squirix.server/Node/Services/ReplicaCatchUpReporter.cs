@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Utils;
 
@@ -51,14 +51,14 @@ internal sealed class ReplicaCatchUpReporter
             lock (_sync)
                 _ = _reported.Remove(replicaIndex);
 
-            ServerLog.ReplicaFollowerCaughtUp(_log, _groupId, nodeId, result.HeldThrough, result.EntriesSent);
+            ReplicaFollowerLog.ReplicaFollowerCaughtUp(_log, _groupId, nodeId, result.HeldThrough, result.EntriesSent);
             return;
         }
 
         // A caught-up follower that was not admitted lost a race with a resync or a probe: transient, like an unreachable one.
         if (outcome is ReplicaCatchUpOutcome.CaughtUp or ReplicaCatchUpOutcome.Unreachable or ReplicaCatchUpOutcome.Aborted)
         {
-            ServerLog.ReplicaCatchUpInterrupted(_log, _groupId, nodeId, name);
+            ReplicaFollowerLog.ReplicaCatchUpInterrupted(_log, _groupId, nodeId, name);
             return;
         }
 
@@ -71,10 +71,10 @@ internal sealed class ReplicaCatchUpReporter
         }
 
         if (outcome == ReplicaCatchUpOutcome.Compacted)
-            ServerLog.ReplicaCatchUpCompacted(_log, _groupId, nodeId);
+            ReplicaFollowerLog.ReplicaCatchUpCompacted(_log, _groupId, nodeId);
         else if (outcome == ReplicaCatchUpOutcome.Corrupt)
-            ServerLog.ReplicaCatchUpCorrupt(_log, _groupId, nodeId);
+            ReplicaFollowerLog.ReplicaCatchUpCorrupt(_log, _groupId, nodeId);
         else
-            ServerLog.ReplicaCatchUpStopped(_log, _groupId, nodeId, name);
+            ReplicaFollowerLog.ReplicaCatchUpStopped(_log, _groupId, nodeId, name);
     }
 }

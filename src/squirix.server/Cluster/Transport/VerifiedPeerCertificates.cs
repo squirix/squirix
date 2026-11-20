@@ -2,8 +2,8 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -83,7 +83,7 @@ internal sealed class VerifiedPeerCertificates
         var valid = verdict.Chain.IsValidAt(now);
         nodeId = valid ? verdict.Chain.NodeId : string.Empty;
         if (!valid && now > verdict.Chain.NotAfter && verdict.TryMarkExpiredLogged())
-            ServerLog.PeerCertificateExpiredOnOpenConnection(_logger, verdict.Chain.NodeId, verdict.Chain.NotAfter);
+            TransportLog.PeerCertificateExpiredOnOpenConnection(_logger, verdict.Chain.NodeId, verdict.Chain.NotAfter);
 
         return valid;
     }

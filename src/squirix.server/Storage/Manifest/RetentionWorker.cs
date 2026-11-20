@@ -109,14 +109,14 @@ internal sealed class RetentionWorker : IWorkPoolItem
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
 
-            ServerLog.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
+            StorageLog.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
         }
 
         private static void ReportRetentionDeleteFailure(RetentionContext context, string artifactKind, string path)
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
-            ServerLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
+            StorageLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
         private static bool TryCleanupObsoleteJournalSegments(RetentionContext context, State manifest, out int deletedSegments, out long deletedBytes)

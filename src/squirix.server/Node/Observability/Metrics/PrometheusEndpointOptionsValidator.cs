@@ -1,15 +1,16 @@
-using Microsoft.Extensions.Options;
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
 [Immutable]
-internal sealed class PrometheusEndpointOptionsValidator : IValidateOptions<PrometheusMetricsEndpointOptions>
+internal sealed class PrometheusEndpointOptionsValidator : ISettingsRule<PrometheusMetricsEndpointOptions>
 {
-    public ValidateOptionsResult Validate(string? name, PrometheusMetricsEndpointOptions options)
+    public IReadOnlyList<string> Check(PrometheusMetricsEndpointOptions options)
     {
         var failure = ValidatePath(options.Enabled, options.Path);
-        return failure == null ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failure);
+        return failure == null ? [] : [failure];
     }
 
     internal static string? ValidatePath(bool enabled, string? path) => enabled switch

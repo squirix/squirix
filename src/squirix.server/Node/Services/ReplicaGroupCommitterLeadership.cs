@@ -38,7 +38,7 @@ internal static class ReplicaGroupCommitterLeadership
             catch (ReplicaDriverLeaseHeldException exception)
             {
                 // A received state transfer or an earlier leadership still holds the applier; the promotion is retried on the next tick.
-                ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
+                ReplicaMaintenanceLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
                 return false;
             }
         }
@@ -123,9 +123,9 @@ internal static class ReplicaGroupCommitterLeadership
                 if (!tenure.ReportFault(exception.GetType()))
                     return false;
                 if (exception is IOException or InvalidDataException or JournalCapacityExceededException or ResourceExhaustedException)
-                    ServerLog.ReplicaPromotionStorageRetry(committer.Log, committer.GroupId, term, exception);
+                    ReplicaMaintenanceLog.ReplicaPromotionStorageRetry(committer.Log, committer.GroupId, term, exception);
                 else
-                    ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
+                    ReplicaMaintenanceLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
                 return false;
             }
         }

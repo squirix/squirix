@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling;

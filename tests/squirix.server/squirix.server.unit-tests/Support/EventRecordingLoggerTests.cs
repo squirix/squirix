@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

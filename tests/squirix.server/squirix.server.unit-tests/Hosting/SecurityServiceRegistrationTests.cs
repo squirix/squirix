@@ -2,9 +2,6 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Hosting;
@@ -60,25 +57,21 @@ public sealed class SecurityServiceRegistrationTests
         _ = services.AddLogging();
         await using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue;
-        var parameters = options.TokenValidationParameters;
         var hasAuthority = caseIndex is 2 or 4;
-        var metadataManager = options.ConfigurationManager as ConfigurationManager<OpenIdConnectConfiguration>;
+        var metadataManager = options.Metadata as JwtMetadataSource;
         _ = await Assert.That(metadataManager?.MetadataAddress).IsEqualTo(hasAuthority ? $"{Authority}/.well-known/openid-configuration" : null);
         _ = await Assert.That(options.RequireHttpsMetadata).IsEqualTo(hasAuthority);
-        _ = await Assert.That(parameters.ValidAudience).IsEqualTo(Audience);
-        _ = await Assert.That(parameters.ValidIssuer).IsEqualTo(caseIndex >= 3 ? Issuer : null);
-        _ = await Assert.That(parameters.ValidateAudience).IsTrue();
-        _ = await Assert.That(parameters.ValidateIssuer).IsTrue();
-        _ = await Assert.That(parameters.ValidateIssuerSigningKey).IsTrue();
-        _ = await Assert.That(parameters.ValidateLifetime).IsTrue();
+        _ = await Assert.That(options.Audience).IsEqualTo(Audience);
+        _ = await Assert.That(options.Issuer).IsEqualTo(caseIndex >= 3 ? Issuer : null);
         if (caseIndex >= 3)
         {
-            var key = await Assert.That(parameters.IssuerSigningKey).IsTypeOf<SymmetricSecurityKey>();
-            _ = await Assert.That(Convert.ToBase64String(key!.Key)).IsEqualTo(security.JwtSigningKey);
+            var credentials = new TestJwtCredentials(Convert.FromBase64String(security.JwtSigningKey!), Issuer, Audience);
+            var signed = TestJwtHelper.CreateBearerToken(credentials);
+            _ = await Assert.That(SignedConnectionToken.Verify(signed, options, null, DateTime.UtcNow, out _)).IsNotNull();
         }
         else
         {
-            _ = await Assert.That(parameters.IssuerSigningKey).IsNull();
+            _ = await Assert.That(options.SigningKey).IsNull();
         }
     }
 

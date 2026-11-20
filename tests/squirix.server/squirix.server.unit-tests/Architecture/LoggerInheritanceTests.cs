@@ -1,8 +1,8 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -59,7 +59,7 @@ public sealed class LoggerInheritanceTests
         int ProviderLeafMarker { get; }
     }
 
-    private interface IProviderRoot : ILoggerProvider
+    private interface IProviderRoot : Microsoft.Extensions.Logging.ILoggerProvider
     {
         int ProviderRootMarker { get; }
     }

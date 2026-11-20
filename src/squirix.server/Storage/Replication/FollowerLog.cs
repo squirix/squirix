@@ -5,8 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -520,13 +520,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     void IFollowerLogContext.LatchAppendUnconfirmed(Exception cause)
     {
         Readiness = FollowerLogReadiness.Failed;
-        ServerLog.FollowerLogAppendUnconfirmed(_log, cause, GroupId);
+        ReplicaFollowerLog.FollowerLogAppendUnconfirmed(_log, cause, GroupId);
     }
 
     void IFollowerLogContext.LatchTruncateUnconfirmed(Exception cause)
     {
         Readiness = FollowerLogReadiness.Failed;
-        ServerLog.FollowerLogTruncateUnconfirmed(_log, cause, GroupId);
+        ReplicaFollowerLog.FollowerLogTruncateUnconfirmed(_log, cause, GroupId);
     }
 
     /// <inheritdoc />
@@ -668,7 +668,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _journal.PreparedWal = default;
         await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
         if (_meta.MemberState != GroupMemberState.Complete)
-            ServerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
+            ReplicaFollowerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
     }
 
     private async Task<FollowerLogAppendResult> AppendCoreAsync(FollowerLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken)

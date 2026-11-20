@@ -160,7 +160,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
     /// <param name="host">The node.</param>
     /// <returns>The local cache chain.</returns>
     private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
-        host.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey);
+        host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     /// <summary>Writes distinct keys owned by node-a, one entry each.</summary>
     /// <param name="owner">The group owner.</param>

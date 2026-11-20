@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
@@ -59,9 +58,8 @@ internal static class UnifiedSettings
         if (snapshotFound)
         {
             var snapshotValidator = new TriggerOptionsValidator();
-            var snapshotResult = snapshotValidator.Validate(Options.DefaultName, snapshot);
-            if (snapshotResult.Failed)
-                failures.AddRange(snapshotResult.Failures);
+            var snapshotResult = snapshotValidator.Check(snapshot);
+            failures.AddRange(snapshotResult);
         }
 
         var options = new PrometheusMetricsEndpointOptions();
@@ -70,9 +68,8 @@ internal static class UnifiedSettings
             return;
 
         var validator = new PrometheusEndpointOptionsValidator();
-        var result = validator.Validate(Options.DefaultName, prometheus);
-        if (result.Failed)
-            failures.AddRange(result.Failures);
+        var result = validator.Check(prometheus);
+        failures.AddRange(result);
     }
 
     private static async Task<(bool Found, TriggerOptions Merged)> MergeAsync(string path, TriggerOptions baseline, CancellationToken cancellationToken = default)

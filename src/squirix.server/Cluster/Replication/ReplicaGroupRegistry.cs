@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;

@@ -1,6 +1,5 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
@@ -35,8 +34,6 @@ internal sealed class CompositionArgs
     internal PrometheusMetricsEndpointOptions? PrometheusMetricsOptions { get; set; }
 
     internal SecurityOptions? SecurityOptions { get; set; }
-
-    internal Action<IServiceCollection>? ServicesConfigure { get; set; }
 
     internal bool WaitForRecovery { get; set; } = true;
 }

@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -23,7 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// rest of the pass, so it holds back no other group; the next pass retries it.
 /// Activated hosts only: on other hosts the local clock decides expiry and <see cref="LocalExpirationSweepService" /> sweeps.
 /// </remarks>
-internal sealed class ReplicaExpirationSweepService : BackgroundService
+internal sealed class ReplicaExpirationSweepService : NodeWorker
 {
     /// <summary>The time between two passes.</summary>
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
@@ -99,7 +99,7 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
             var (done, failure) = await ExpireOwnerAsync(committer, ofOwner, cancellationToken).ConfigureAwait(false);
             expired += done;
             if (failure != null)
-                ServerLog.ReplicaExpirationSweepFailed(_log, owner, expired, failure);
+                ReplicaMaintenanceLog.ReplicaExpirationSweepFailed(_log, owner, expired, failure);
 
             appended |= committer.LocalAppends.Snapshot().Appended != appendedBefore;
         }
@@ -133,7 +133,7 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         }
 
         if (stoppingToken.IsCancellationRequested)
-            ServerLog.ReplicaExpirationSweepStopped(_log);
+            ReplicaMaintenanceLog.ReplicaExpirationSweepStopped(_log);
     }
 
     /// <summary>Expires a chunk of keys of one group together and waits for all of them.</summary>

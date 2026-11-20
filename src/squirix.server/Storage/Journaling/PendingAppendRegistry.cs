@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -85,7 +85,7 @@ internal sealed class PendingAppendRegistry
         }
 
         if (entries.Count != 0)
-            ServerLog.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
+            StorageLog.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
 
         return entries.Count;
     }

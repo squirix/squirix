@@ -8,10 +8,9 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Diagnostics;
@@ -19,7 +18,7 @@ using Squirix.Server.Runtime.Diagnostics;
 namespace Squirix.Server.Adapters.Endpoint;
 
 /// <summary>Serves health and metrics requests on the dedicated HTTPS management listener.</summary>
-internal sealed partial class NativeManagementEndpoint
+internal sealed class NativeManagementEndpoint
 {
     internal static readonly FrozenSet<string> Probes = new[] { "/health", "/health/live", "/health/ready", "/health/ready/details" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
@@ -74,8 +73,11 @@ internal sealed partial class NativeManagementEndpoint
         return !loopback && !string.IsNullOrEmpty(bearer) ? _authenticateBearer(bearer, cancellationToken) : ValueTask.FromResult(loopback);
     }
 
-    [LoggerMessage(EventId = 3035, Level = LogLevel.Information, Message = "Management request {Path}")]
-    private static partial void LogRequest(ILogger logger, string path);
+    private static void LogRequest(ILogger logger, string path)
+    {
+        if (logger.IsEnabled(LogLevel.Information))
+            Events.LogRequestEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(path));
+    }
 
     private static async Task<(Request? Request, Response? Error)> ReadRequestAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -237,17 +239,17 @@ internal sealed partial class NativeManagementEndpoint
             if (!await CanAccessDetailsAsync(remote, request.Bearer, cancellationToken).ConfigureAwait(false))
                 return Response.Empty("401 Unauthorized");
 
-            var provider = _services.GetRequiredService<IHealthReadyDetailsProvider>();
+            var provider = _services.Require<IHealthReadyDetailsProvider>();
             var snapshot = await provider.GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
             var details = HealthDetailsResponseMapper.Build(snapshot);
             var body = JsonSerializer.SerializeToUtf8Bytes(details, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
             return new Response("200 OK", JsonContentType, body, false);
         }
 
-        var metrics = _services.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
+        var metrics = _services.Require<PrometheusMetricsEndpointOptions>();
         var response = Response.Empty("404 Not Found");
         if (metrics.Enabled && MatchesMetricsPath(metrics.Path, request.Path) &&
-            _services.GetService<PrometheusMetricsScraper>() is { } scraper)
+            _services.Find<PrometheusMetricsScraper>() is { } scraper)
         {
             response = await CanAccessDetailsAsync(remote, request.Bearer, cancellationToken).ConfigureAwait(false)
                 ? new Response("200 OK", "text/plain; version=0.0.4", Encoding.UTF8.GetBytes(scraper.Scrape()), false)
@@ -259,7 +261,7 @@ internal sealed partial class NativeManagementEndpoint
 
     private async ValueTask<Response> CheckReadinessAsync(CancellationToken cancellationToken)
     {
-        var status = await _services.GetRequiredService<ReadinessMonitor>().GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        var status = await _services.Require<ReadinessMonitor>().GetStatusAsync(cancellationToken).ConfigureAwait(false);
         return status switch
         {
             ReadinessStatus.Healthy => new Response("200 OK", TextContentType, HealthyBody, true),
@@ -273,5 +275,10 @@ internal sealed partial class NativeManagementEndpoint
     private readonly record struct Response(string Status, string? ContentType, ReadOnlyMemory<byte> Body, bool NoCache)
     {
         internal static Response Empty(string status) => new(status, null, ReadOnlyMemory<byte>.Empty, false);
+    }
+
+    private static class Events
+    {
+        internal static readonly LogEvent LogRequestEvent = new(3035, nameof(NativeManagementEndpoint.LogRequest), "Management request {Path}");
     }
 }

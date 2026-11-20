@@ -122,7 +122,7 @@ public sealed class MetricsAuthOrLoopbackFilterTests
     {
         var validator = services.GetService<NativeConnectionAuthenticationValidator>();
         Func<string, CancellationToken, ValueTask<bool>> authenticate = validator == null ? static (_, _) => ValueTask.FromResult(false) : validator.ValidateBearerAsync;
-        return new NativeManagementEndpoint(services, authenticate, Microsoft.Extensions.Logging.Abstractions.NullLogger<NativeManagementEndpoint>.Instance);
+        return new NativeManagementEndpoint(services, authenticate, Squirix.Server.TestKit.Logging.NullLogger<NativeManagementEndpoint>.Instance);
     }
 
     private static IPAddress RemoteAddress() => IPAddress.Parse("203.0.113.10");

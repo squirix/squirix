@@ -49,6 +49,7 @@
        the only allowed client-side namespace; root facade, Core/Internal/Serialization all banned). -->
   <Disallowed From="Squirix.Server.*" To="/^Squirix(?:\.(?!(?:Transport\.(?:Wire|Binary)|Server)(?:\.|$)).*)?$/" />
 
+
   <!-- ═══ Kernel purity (inner shared types must stay free of outer layers) ═══ -->
 
   <!-- Error contracts are domain vocabulary; must not pull orchestration types (today: CacheOperationContract → Node.Services). -->

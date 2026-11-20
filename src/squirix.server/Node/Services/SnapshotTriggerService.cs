@@ -5,15 +5,15 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadinessStatus
+internal sealed class SnapshotTriggerService : NodeWorker, ISnapshotReadinessStatus
 {
     private const int MaxBackoffExponent = 10;
 
@@ -65,7 +65,7 @@ internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadi
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _journal.OnAppended += _onJournalAppended;
-        ServerLog.SnapshotTriggerStarted(_log, TickPeriodSeconds);
+        SnapshotLog.SnapshotTriggerStarted(_log, TickPeriodSeconds);
 
         try
         {
@@ -79,7 +79,7 @@ internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadi
         {
             _journal.OnAppended -= _onJournalAppended;
             _ = _snapshotRequests.Writer.TryComplete();
-            ServerLog.SnapshotTriggerStopped(_log);
+            SnapshotLog.SnapshotTriggerStopped(_log);
         }
     }
 
@@ -98,7 +98,7 @@ internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadi
     private void OnJournalAppended(object? sender, EventArgs e)
     {
         if (_log.IsEnabled(LogLevel.Trace))
-            ServerLog.SnapshotTriggerJournalAppended(_log);
+            SnapshotLog.SnapshotTriggerJournalAppended(_log);
 
         _ = _snapshotRequests.Writer.TryWrite(true);
     }
@@ -114,7 +114,7 @@ internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadi
     {
         _ = PublishFailure(ex);
         Volatile.Write(ref _fatalFailure, 1);
-        ServerLog.SnapshotTriggerCrashed(_log, ex);
+        SnapshotLog.SnapshotTriggerCrashed(_log, ex);
     }
 
     private void RecordSuccess()
@@ -156,7 +156,7 @@ internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadi
 
             var failure = PublishFailure(ex);
             var backoff = ComputeBackoff(failure.ConsecutiveFailures);
-            ServerLog.SnapshotFailedRetrying(_log, ex, failure.ConsecutiveFailures, Convert.ToInt32(backoff.TotalMilliseconds));
+            SnapshotLog.SnapshotFailedRetrying(_log, ex, failure.ConsecutiveFailures, Convert.ToInt32(backoff.TotalMilliseconds));
             await Task.Delay(backoff, _timeProvider, stoppingToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             return true;
         }
@@ -190,7 +190,7 @@ internal sealed class SnapshotTriggerService : BackgroundService, ISnapshotReadi
             }
 
             if (_log.IsEnabled(LogLevel.Trace))
-                ServerLog.SnapshotTriggerTick(_log);
+                SnapshotLog.SnapshotTriggerTick(_log);
 
             if (!await TrySnapshotAsync(stoppingToken).ConfigureAwait(false))
                 break;

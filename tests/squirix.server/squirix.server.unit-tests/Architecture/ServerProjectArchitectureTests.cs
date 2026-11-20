@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -57,7 +59,22 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain(static package => package.StartsWith("Microsoft.AspNetCore.", StringComparison.OrdinalIgnoreCase));
         var frameworks = index.GetIncludes("FrameworkReference") ?? [];
         _ = await Assert.That(frameworks).DoesNotContain("Microsoft.AspNetCore.App");
-        _ = await Assert.That(index.GetIncludes("PackageReference")).Contains("Microsoft.Extensions.Hosting");
+        string[] excluded =
+        [
+            "Microsoft.Extensions.Hosting",
+            "Microsoft.Extensions.Hosting.Abstractions",
+            "Microsoft.Extensions.DependencyInjection",
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            "Microsoft.Extensions.Caching.Abstractions",
+            "Microsoft.Extensions.Primitives",
+        ];
+        await using var stream = File.OpenRead(Path.Join(AppContext.BaseDirectory, "Squirix.Server.dll"));
+        using var pe = new PEReader(stream);
+        var metadata = pe.GetMetadataReader();
+        foreach (var handle in metadata.AssemblyReferences)
+            _ = await Assert.That(excluded).DoesNotContain(metadata.GetString(metadata.GetAssemblyReference(handle).Name));
+
+        _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain("Microsoft.Extensions.Hosting");
     }
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>

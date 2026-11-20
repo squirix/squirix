@@ -2,22 +2,22 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Runs the node's readiness checks independently and reports their worst status.</summary>
-internal sealed partial class ReadinessMonitor
+internal sealed class ReadinessMonitor
 {
     private readonly ReadinessCheck[] _checks;
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IServiceProvider _services;
     private readonly ILogger<ReadinessMonitor> _logger;
 
-    internal ReadinessMonitor(IEnumerable<ReadinessCheck> checks, IServiceScopeFactory scopeFactory, ILogger<ReadinessMonitor> logger)
+    internal ReadinessMonitor(IEnumerable<ReadinessCheck> checks, IServiceProvider services, ILogger<ReadinessMonitor> logger)
     {
         _checks = [.. checks];
-        _scopeFactory = scopeFactory;
+        _services = services;
         _logger = logger;
     }
 
@@ -43,18 +43,24 @@ internal sealed partial class ReadinessMonitor
         return Task.WhenAll(tasks);
     }
 
-    [LoggerMessage(EventId = 3038, Level = LogLevel.Error, Message = "Readiness check {CheckName} threw an exception")]
-    private static partial void LogCheckFailed(ILogger logger, string checkName, Exception exception);
+    private static void LogCheckFailed(ILogger logger, string checkName, Exception exception)
+    {
+        if (logger.IsEnabled(LogLevel.Error))
+            Events.LogCheckFailedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(checkName));
+    }
 
-    [LoggerMessage(EventId = 3039, Message = "Readiness check {CheckName} reported {Status}: {Description}")]
-    private static partial void LogNotReady(ILogger logger, LogLevel level, string checkName, ReadinessStatus status, string description);
+    private static void LogNotReady(ILogger logger, LogLevel level, string checkName, ReadinessStatus status, string description)
+    {
+        if (logger.IsEnabled(level))
+            Events.LogNotReadyEvent.Write(logger, level, null, (checkName, status, description));
+    }
 
     private async Task<(string Name, ReadinessResult Result)> RunAsync(ReadinessCheck registration, CancellationToken cancellationToken)
     {
         // Start checks independently, even when a check completes synchronously.
         await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
         cancellationToken.ThrowIfCancellationRequested();
-        var scope = _scopeFactory.CreateAsyncScope();
+        var scope = _services.Find<INodeRequestScopes>()?.Open() ?? new NodeRequestScope(_services, null);
         await using (scope.ConfigureAwait(false))
         {
             var check = registration.Create(scope.ServiceProvider);
@@ -72,5 +78,12 @@ internal sealed partial class ReadinessMonitor
                 return (registration.Name, ReadinessResult.Unhealthy(description));
             }
         }
+    }
+
+    private static class Events
+    {
+        internal static readonly LogEvent LogCheckFailedEvent = new(3038, nameof(ReadinessMonitor.LogCheckFailed), "Readiness check {CheckName} threw an exception");
+
+        internal static readonly LogEvent LogNotReadyEvent = new(3039, nameof(ReadinessMonitor.LogNotReady), "Readiness check {CheckName} reported {Status}: {Description}");
     }
 }

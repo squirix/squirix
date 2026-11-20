@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 
@@ -148,7 +148,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             return;
 
         _deadlineWaitFallbackReported = true;
-        ServerLog.JournalHighResolutionTimerUnavailable(Logger);
+        DiagnosticsLog.JournalHighResolutionTimerUnavailable(Logger);
     }
 
     public void SetActiveSegmentPath(string? value) => ActiveSegmentPath = value;
@@ -212,7 +212,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         catch (OperationCanceledException) when (BackgroundToken.IsCancellationRequested)
         {
             // journal I/O thread exits when background cancellation is requested during dispose.
-            ServerLog.JournalThreadExitOnCancel(Logger);
+            DiagnosticsLog.JournalThreadExitOnCancel(Logger);
         }
     }
 

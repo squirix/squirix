@@ -17,7 +17,7 @@ internal static class TestNodeBuilder
         CancellationToken cancellationToken = default)
     {
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
-        await NodeConfiguration.ConfigureNodeAsync(builder, options, configureComposition, cancellationToken).ConfigureAwait(false);
+        await TestNodeServices.ConfigureNodeAsync(builder.Services, options, configureComposition, cancellationToken).ConfigureAwait(false);
         return builder;
     }
 }

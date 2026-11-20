@@ -7,10 +7,10 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.Utils;
 

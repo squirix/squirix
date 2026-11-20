@@ -1,9 +1,9 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Binary;

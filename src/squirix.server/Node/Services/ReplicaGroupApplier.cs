@@ -2,10 +2,10 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -159,7 +159,7 @@ internal sealed class ReplicaGroupApplier
         {
             var from = AppliedIndex;
             _advanced.Notify(durableAppliedIndex);
-            ServerLog.ReplicaAppliedIndexReseeded(_log, GroupId, from, durableAppliedIndex);
+            ReplicaMaintenanceLog.ReplicaAppliedIndexReseeded(_log, GroupId, from, durableAppliedIndex);
         }
 
         if (AppliedIndex >= commitIndex)
@@ -309,7 +309,7 @@ internal sealed class ReplicaGroupApplier
         if (string.Equals(Interlocked.Exchange(ref _lastReported, error.Message), error.Message, StringComparison.Ordinal))
             return;
 
-        ServerLog.ReplicaInconsistentRecord(_log, GroupId, error);
+        ReplicaCommitLog.ReplicaInconsistentRecord(_log, GroupId, error);
         _metrics?.ReportInconsistentRecord(_nodeId, GroupId);
     }
 

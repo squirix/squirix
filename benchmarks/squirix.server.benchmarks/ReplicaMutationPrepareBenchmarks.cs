@@ -2,10 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;

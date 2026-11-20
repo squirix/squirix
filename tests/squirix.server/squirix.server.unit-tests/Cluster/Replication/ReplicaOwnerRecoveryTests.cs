@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;

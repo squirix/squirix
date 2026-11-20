@@ -1,6 +1,6 @@
 using System;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -17,9 +17,6 @@ internal sealed class FixedLoggerFactory : ILoggerFactory
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
     }
-
-    /// <inheritdoc />
-    public void AddProvider(ILoggerProvider provider) => throw new NotSupportedException();
 
     /// <inheritdoc />
     public ILogger CreateLogger(string categoryName) => _logger;

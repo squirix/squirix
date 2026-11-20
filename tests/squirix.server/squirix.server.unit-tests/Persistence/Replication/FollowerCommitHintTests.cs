@@ -192,7 +192,7 @@ public sealed class FollowerCommitHintTests : ServerUnitTestBase
     private static FollowerLogAppendRequest Heartbeat(ulong prevLogIndex, ulong leaderCommitIndex) =>
         new(LeaderId, Term, prevLogIndex, Term, leaderCommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty);
 
-    private static FollowerLog Open(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), Microsoft.Extensions.Logging.Abstractions.NullLogger<FollowerLog>.Instance, TimeProvider.System);
+    private static FollowerLog Open(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), Squirix.Server.TestKit.Logging.NullLogger<FollowerLog>.Instance, TimeProvider.System);
 
     private static async Task<FollowerLog> OpenWithEntriesAsync(TempDirectory dir, int count, CancellationToken cancellationToken)
     {

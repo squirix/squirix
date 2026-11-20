@@ -26,7 +26,7 @@ internal static class ReplicaGroupCommitterCommits
         internal async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
         {
             if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
-                ServerLog.ReplicaFollowerSenderCloseFailed(committer.Log, failure);
+                ReplicaFollowerLog.ReplicaFollowerSenderCloseFailed(committer.Log, failure);
         }
 
         /// <summary>Commits one write: queues it for a commit batch of the group, prepares it at its log index under the commit gate, commits it, and decodes its outcome.</summary>
@@ -203,8 +203,8 @@ internal static class ReplicaGroupCommitterCommits
                 ShutdownBudget = committer.ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? committer.ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget,
                 BudgetTimeProvider = committer.BudgetTimeProvider,
                 ObserveTimeProvider = TimeProvider.System,
-                ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(logger, budget),
-                AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(logger, error),
+                ShutdownLeakReporter = budget => ReplicaCommitLog.ReplicaCoordinatorLeakedOnShutdown(logger, budget),
+                AbandonedWorkFaultReporter = error => ReplicaCommitLog.ReplicaCoordinatorAbandonedWorkFaulted(logger, error),
             };
         }
 
@@ -221,7 +221,7 @@ internal static class ReplicaGroupCommitterCommits
                 committer.ReportLocalAppendFault(unconfirmed, failedBefore);
             }
 
-            ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+            ReplicaCommitLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
         }
 
         /// <summary>Maps a failure of the local appending of a run to the stable client contract; it returns <see langword="null" /> for a failure that has no mapping.</summary>
@@ -266,7 +266,7 @@ internal static class ReplicaGroupCommitterCommits
                 };
             }
 
-            ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+            ReplicaCommitLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
             if (reportUnknown)
                 committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
 

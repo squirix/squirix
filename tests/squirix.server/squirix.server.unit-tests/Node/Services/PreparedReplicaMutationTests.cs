@@ -1,11 +1,11 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;

@@ -3,9 +3,9 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -22,19 +22,19 @@ namespace Squirix.Server.Node.Services;
 /// drains the requests in flight: a led group stops heartbeating and loses its authority at once, so its followers elect a new leader
 /// while this node finishes those requests (#1092).
 /// </remarks>
-internal sealed class ReplicaElectionService : BackgroundService
+internal sealed class ReplicaElectionService : NodeWorker
 {
     /// <summary>The log of each election event that names only its group and term.</summary>
     private static readonly FrozenDictionary<ElectionEvent, Action<ILogger, string, ulong>> TermEventLogs = new Dictionary<ElectionEvent, Action<ILogger, string, ulong>>
     {
-        [ElectionEvent.PreVoteLost] = ServerLog.ReplicaElectionPreVoteLost,
-        [ElectionEvent.VoteLost] = ServerLog.ReplicaElectionVoteLost,
-        [ElectionEvent.Elected] = ServerLog.ReplicaElectionElected,
-        [ElectionEvent.Authorized] = ServerLog.ReplicaElectionAuthorized,
-        [ElectionEvent.PromotionPending] = ServerLog.ReplicaElectionPromotionPending,
-        [ElectionEvent.RetirePending] = ServerLog.ReplicaElectionRetirePending,
-        [ElectionEvent.TermObserved] = ServerLog.ReplicaElectionTermObserved,
-        [ElectionEvent.TermNotDurable] = ServerLog.ReplicaElectionTermNotDurable,
+        [ElectionEvent.PreVoteLost] = ReplicaElectionLog.ReplicaElectionPreVoteLost,
+        [ElectionEvent.VoteLost] = ReplicaElectionLog.ReplicaElectionVoteLost,
+        [ElectionEvent.Elected] = ReplicaElectionLog.ReplicaElectionElected,
+        [ElectionEvent.Authorized] = ReplicaElectionLog.ReplicaElectionAuthorized,
+        [ElectionEvent.PromotionPending] = ReplicaElectionLog.ReplicaElectionPromotionPending,
+        [ElectionEvent.RetirePending] = ReplicaElectionLog.ReplicaElectionRetirePending,
+        [ElectionEvent.TermObserved] = ReplicaElectionLog.ReplicaElectionTermObserved,
+        [ElectionEvent.TermNotDurable] = ReplicaElectionLog.ReplicaElectionTermNotDurable,
     }.ToFrozenDictionary();
 
     private readonly ReplicaRpcHeader _header;
@@ -90,12 +90,12 @@ internal sealed class ReplicaElectionService : BackgroundService
             if (_registry.TryGetLog(groupIds[i], out var log))
                 loops.Add(DriveAsync(CreateElection(groupIds[i], log), stopping.Token));
             else
-                ServerLog.ReplicaElectionNoLog(_log, groupIds[i]);
+                ReplicaElectionLog.ReplicaElectionNoLog(_log, groupIds[i]);
         }
 
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
         if (stoppingToken.IsCancellationRequested || HostStopping.IsCancellationRequested)
-            ServerLog.ReplicaElectionStopped(_log);
+            ReplicaElectionLog.ReplicaElectionStopped(_log);
     }
 
     /// <summary>Returns the stable name of a denial for the election log.</summary>
@@ -178,12 +178,12 @@ internal sealed class ReplicaElectionService : BackgroundService
 
         if (outcome is { Event: ElectionEvent.Denied, Denial: FailoverDenial.ApplyBlocked })
         {
-            ServerLog.ReplicaElectionApplyBlocked(_log, groupId, outcome.Term);
+            ReplicaElectionLog.ReplicaElectionApplyBlocked(_log, groupId, outcome.Term);
         }
         else if (outcome.Event == ElectionEvent.Denied)
         {
             var denial = DenialName(outcome.Denial);
-            ServerLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
+            ReplicaElectionLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
         }
         else if (outcome.Event == ElectionEvent.SteppedDown)
         {
@@ -191,11 +191,11 @@ internal sealed class ReplicaElectionService : BackgroundService
         }
         else if (outcome.Event == ElectionEvent.ApplyTimedOut)
         {
-            ServerLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+            ReplicaElectionLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
         }
         else if (outcome.Event == ElectionEvent.AppendTimedOut)
         {
-            ServerLog.ReplicaElectionAppendTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+            ReplicaElectionLog.ReplicaElectionAppendTimedOut(_log, groupId, outcome.Term, outcome.Waited);
         }
         else if (outcome.Event != ElectionEvent.None)
         {
@@ -209,8 +209,8 @@ internal sealed class ReplicaElectionService : BackgroundService
     private void ReportSteppedDown(string groupId, in ElectionOutcome outcome)
     {
         if (outcome.Waited > TimeSpan.Zero)
-            ServerLog.ReplicaElectionAuthorityTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+            ReplicaElectionLog.ReplicaElectionAuthorityTimedOut(_log, groupId, outcome.Term, outcome.Waited);
         else
-            ServerLog.ReplicaElectionSteppedDown(_log, groupId, outcome.Term);
+            ReplicaElectionLog.ReplicaElectionSteppedDown(_log, groupId, outcome.Term);
     }
 }

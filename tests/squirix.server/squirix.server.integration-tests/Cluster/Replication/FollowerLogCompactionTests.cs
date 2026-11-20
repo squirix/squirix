@@ -162,7 +162,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <param name="host">The node.</param>
     /// <returns>The local cache chain.</returns>
     private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
-        host.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey);
+        host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     /// <summary>Replaces the group log maintenance schedule.</summary>
     /// <param name="services">The node service collection.</param>

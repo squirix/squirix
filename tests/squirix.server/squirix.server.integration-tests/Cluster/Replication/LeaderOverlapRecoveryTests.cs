@@ -5,16 +5,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -333,13 +332,13 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         var returned = await cluster.StartNodeAsync(former, Options(false, null), token);
         await AwaitCommittedAsync(ledger, returned, index, operation, token);
         _ = await Assert.That(returned.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(Group, out _)).IsFalse();
-        var local = returned.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey);
+        var local = returned.Services.GetRequiredService<OwnerLocalCache>().Value;
         _ = await Assert.That((await local.GetEntryAsync(Cache, key, token))?.Value).IsEqualTo("unflushed");
     }
 
     private static async Task StopPeriodicCompactionAsync(ITestNodeHost node, CancellationToken token)
     {
-        foreach (var service in node.Services.GetServices<IHostedService>())
+        foreach (var service in node.Services.GetServices<INodeService>())
         {
             if (service is not ReplicaLogCompactionService compaction)
                 continue;

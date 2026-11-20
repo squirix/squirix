@@ -2,9 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;

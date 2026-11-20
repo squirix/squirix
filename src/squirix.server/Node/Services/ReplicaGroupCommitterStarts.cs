@@ -133,7 +133,7 @@ internal static class ReplicaGroupCommitterStarts
             try
             {
                 var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, committer.Clock, cancellationToken).ConfigureAwait(false);
-                ServerLog.ReplicaOutcomesRestored(committer.Log, committer.GroupId, restored);
+                ReplicaCommitLog.ReplicaOutcomesRestored(committer.Log, committer.GroupId, restored);
             }
             catch
             {
@@ -193,7 +193,7 @@ internal static class ReplicaGroupCommitterStarts
                 in status,
                 in header,
                 new ReplicaFollowerSenders.SenderTiming(committer.CommitBudget, committer.ShutdownBudget, committer.BudgetTimeProvider) { Replies = replies },
-                budget => ServerLog.ReplicaFollowerSenderLeakedOnShutdown(log, budget));
+                budget => ReplicaFollowerLog.ReplicaFollowerSenderLeakedOnShutdown(log, budget));
         }
     }
 

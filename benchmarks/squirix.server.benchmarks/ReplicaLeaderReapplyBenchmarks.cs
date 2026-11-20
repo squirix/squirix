@@ -5,7 +5,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -16,6 +15,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;

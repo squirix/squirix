@@ -1,24 +1,22 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
 internal static class NodeOptionsRegistration
 {
-    internal static async Task<IServiceCollection> AddSquirixValidatedOptionsAsync(
-        this IServiceCollection services,
+    internal static async Task<NodeServices> AddSquirixValidatedOptionsAsync(
+        this NodeServices services,
         TopologyOptions cluster,
         ValidatedOptionsArgs args,
         CancellationToken cancellationToken = default)
@@ -40,50 +38,33 @@ internal static class NodeOptionsRegistration
         return services;
     }
 
-    private static void AddValidatedInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions,
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TValidator>(IServiceCollection services, TOptions source)
+    private static void AddValidatedInstance<TOptions, TValidator>(NodeServices services, TOptions source)
         where TOptions : class
-        where TValidator : class, IValidateOptions<TOptions>
+        where TValidator : class, ISettingsRule<TOptions>, new()
     {
-        AddValidatedOptionsInstance(services, source);
-        _ = services.AddSingleton<IValidateOptions<TOptions>, TValidator>();
-        _ = services.AddHostedService(static sp => new StartupOptionsValidator<TOptions>(
-            sp.GetRequiredService<IOptions<TOptions>>(),
-            sp.GetRequiredService<IValidateOptions<TOptions>>()));
+        _ = services.Use(source);
+        _ = services.Own<ISettingsRule<TOptions>>(static _ => new TValidator());
+        _ = services.RunService(static sp => new StartupOptionsValidator<TOptions>(
+            sp.Require<TOptions>(),
+            sp.Require<ISettingsRule<TOptions>>()));
     }
 
-    private static void AddValidatedMtlsOptions(IServiceCollection services, ValidatedOptionsArgs args)
+    private static void AddValidatedMtlsOptions(NodeServices services, ValidatedOptionsArgs args)
     {
-        AddValidatedOptionsInstance(services, args.MtlsOptions);
+        _ = services.Use(args.MtlsOptions);
 
-        // Factory keeps the internal MtlsOptionsValidator constructor usable with MS.DI.
-        _ = services.AddSingleton<IValidateOptions<MtlsOptions>>(static sp => new MtlsOptionsValidator(sp.GetRequiredService<TopologyOptions>()));
-        _ = services.AddHostedService(static sp => new StartupOptionsValidator<MtlsOptions>(
-            sp.GetRequiredService<IOptions<MtlsOptions>>(),
-            sp.GetRequiredService<IValidateOptions<MtlsOptions>>()));
+        _ = services.Own<ISettingsRule<MtlsOptions>>(static sp => new MtlsOptionsValidator(sp.Require<TopologyOptions>()));
+        _ = services.RunService(static sp => new StartupOptionsValidator<MtlsOptions>(
+            sp.Require<MtlsOptions>(),
+            sp.Require<ISettingsRule<MtlsOptions>>()));
 
-        // Register through the factory overload so the DI container owns the loader's hold on the certificate material
-        // and releases it on host shutdown. AddSingleton(instance) does not transfer disposal ownership in Microsoft DI,
-        // which would leak the loaded X509 certificates. The material is shared: the internode client pool retains its
-        // own hold for its owned outbound handlers and releases it only once their connections are closed, so the
-        // certificates are freed by the last holder, whichever order the container disposes them in. The testkit peer
-        // handlers take a hold too. The native listener retains its own hold until its sessions have drained.
-        _ = services.AddSingleton(_ => args.Certificate);
-    }
-
-    private static void AddValidatedOptionsInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(
-        IServiceCollection services,
-        TOptions source)
-        where TOptions : class
-    {
-        // Register the pre-built instance directly. OptionsFactory would Activator.CreateInstance<TOptions>()
-        // (requires a parameterless ctor) and CopyFrom cannot assign init-only properties after construction.
-        _ = services.AddSingleton(source);
-        _ = services.AddSingleton(Options.Create(source));
+        // The node owns the loader's certificate hold. Outbound clients and listeners retain separate
+        // holds until their connections drain; the last holder releases the certificate material.
+        _ = services.Own(_ => args.Certificate);
     }
 
     private static async Task AddValidatedPersistenceOptionsAsync(
-        IServiceCollection services,
+        NodeServices services,
         PersistenceOptions persistence,
         CancellationToken cancellationToken)
     {
@@ -93,13 +74,13 @@ internal static class NodeOptionsRegistration
     }
 
     [Immutable]
-    private sealed class StartupOptionsValidator<TOptions> : IHostedService
+    private sealed class StartupOptionsValidator<TOptions> : INodeService
         where TOptions : class
     {
-        private readonly IOptions<TOptions> _options;
-        private readonly IValidateOptions<TOptions> _validator;
+        private readonly TOptions _options;
+        private readonly ISettingsRule<TOptions> _validator;
 
-        internal StartupOptionsValidator(IOptions<TOptions> options, IValidateOptions<TOptions> validator)
+        internal StartupOptionsValidator(TOptions options, ISettingsRule<TOptions> validator)
         {
             _options = options;
             _validator = validator;
@@ -107,8 +88,8 @@ internal static class NodeOptionsRegistration
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            var result = _validator.Validate(Options.DefaultName, _options.Value);
-            return result.Failed ? throw new OptionsValidationException(Options.DefaultName, typeof(TOptions), result.Failures) : Task.CompletedTask;
+            var failures = _validator.Check(_options);
+            return failures.Count == 0 ? Task.CompletedTask : throw new InvalidOperationException(string.Join("; ", failures));
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

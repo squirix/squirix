@@ -1,7 +1,6 @@
 using System;
 using System.Security.Claims;
 using System.Threading;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -15,7 +14,7 @@ internal sealed class AuthenticatedConnection
         ClaimsPrincipal principal,
         (DateTime NotBefore, DateTime Expires) bounds,
         JwtValidationOptions options,
-        OpenIdConnectConfiguration? configuration,
+        JwtMetadata? configuration,
         DateTime? historicalStarted,
         Action requestClose)
     {
@@ -34,7 +33,7 @@ internal sealed class AuthenticatedConnection
 
     internal JwtValidationOptions Options { get; }
 
-    internal OpenIdConnectConfiguration? Configuration { get; }
+    internal JwtMetadata? Configuration { get; }
 
     internal DateTime? HistoricalStarted { get; }
 
@@ -42,7 +41,7 @@ internal sealed class AuthenticatedConnection
         ClaimsPrincipal principal,
         (DateTime NotBefore, DateTime Expires) bounds,
         JwtValidationOptions options,
-        OpenIdConnectConfiguration? configuration,
+        JwtMetadata? configuration,
         DateTime? historicalStarted,
         Action requestClose)
     {

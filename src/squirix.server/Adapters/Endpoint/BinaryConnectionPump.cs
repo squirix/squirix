@@ -8,8 +8,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
@@ -17,7 +17,7 @@ using Squirix.Transport.Wire.Cache;
 namespace Squirix.Server.Adapters.Endpoint;
 
 /// <summary>Dispatches bounded concurrent requests and flushes ready responses from one writer.</summary>
-internal sealed partial class BinaryConnectionPump
+internal sealed class BinaryConnectionPump
 {
     private const int MaxPending = 16;
     private const int DispatchBatchLimit = 4;
@@ -73,8 +73,11 @@ internal sealed partial class BinaryConnectionPump
         }
     }
 
-    [LoggerMessage(EventId = 3032, Level = LogLevel.Error, Message = "Binary cache request {RequestId} failed")]
-    private static partial void LogCallFailure(ILogger logger, int requestId, Exception exception);
+    private static void LogCallFailure(ILogger logger, int requestId, Exception exception)
+    {
+        if (logger.IsEnabled(LogLevel.Error))
+            Events.LogCallFailureEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(requestId));
+    }
 
     private async Task ReadAsync(CancellationToken stop)
     {
@@ -547,4 +550,9 @@ internal sealed partial class BinaryConnectionPump
     }
 
     private sealed record QueuedDispatch(BinaryConnectionPump Pump, QueuedCall[] Batch, int Count);
+
+    private static class Events
+    {
+        internal static readonly LogEvent LogCallFailureEvent = new(3032, nameof(BinaryConnectionPump.LogCallFailure), "Binary cache request {RequestId} failed");
+    }
 }

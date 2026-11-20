@@ -21,7 +21,9 @@ internal static class NodeHost
         var builder = CreateBuilder(options.ConfigureLogging);
 
         var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
-        await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
+        await TestNodeServices.ConfigureBuilderAsync(builder.Services, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
+
+        configureArgs.ConfigureServices(builder.Services);
 
         if (options.PeerOptionsFactory is { } createPeerOptions)
             _ = builder.Services.AddSingleton(createPeerOptions);
@@ -76,7 +78,6 @@ internal static class NodeHost
             args.ManagementUri = _options.ManagementUri ?? new Uri("https://127.0.0.1:0");
             args.ServerCertificate = _options.ServerCertificate ?? DevelopmentCertificate.Shared;
             args.WaitForRecovery = _options.WaitForRecovery;
-            args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
             args.MetricsEnabled = _options.MetricsEnabled;
             args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions { Enabled = _options.PrometheusMetricsEnabled };
@@ -87,6 +88,8 @@ internal static class NodeHost
             args.Certificate = _options.Certificate;
             args.FoundationOnly = _options.FoundationOnly;
         }
+
+        internal void ConfigureServices(IServiceCollection services) => ComposeServices(_options, _nodeId)?.Invoke(services);
 
         private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
         {

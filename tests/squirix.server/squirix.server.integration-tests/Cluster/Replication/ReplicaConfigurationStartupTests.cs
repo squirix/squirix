@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -31,7 +30,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     public async Task FailoverPairRefusedAtStartup(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri()), new ClusterNode("n3", GetNextHttpUri())]);
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, ITestNodeHost>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
             cluster.StartNodeAsync(
                 "n1",
                 new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, AutomaticFailoverEnabled = true, ExtraScope = "failover-pair" },

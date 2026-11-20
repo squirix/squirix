@@ -45,14 +45,14 @@ cache-name permissions, identity-provider introspection or individual-token revo
 Static signing-key configuration is loaded at host startup. Restarting a host changes its configured trust and closes its connections.
 See [JWT signing keys](jwt-signing-keys.md) for symmetric cutover and OIDC rotation procedures.
 
-With an OIDC authority, the discovery issuer and explicitly configured issuers form the framework's accepted issuer set.
-An explicit `JwtIssuer` (or a custom host's `ValidIssuer` / `ValidIssuers`) adds trusted issuers; it does not restrict trust to only that issuer.
+With an OIDC authority, the discovery issuer and explicitly configured issuers form the accepted issuer set.
+An explicit `JwtIssuer` adds an issuer alongside the discovery issuer.
 Signing keys must still satisfy the configured signature validation. A configured static signing key can also validate tokens from the current metadata issuer.
 
-OIDC metadata is managed by the framework and can be cached or refreshed independently of a connection's token.
+The server caches OIDC discovery and signing keys. It refreshes them independently of each connection.
 Changes to supported validation options or active metadata require a new connection authentication.
-Custom hosts must publish replacement JWT options through the options monitor. Concurrent in-place mutation of validation options or configuration objects is unsupported.
-Framework last-known-good configuration is not an immediate token-revocation service.
+A host that replaces its JWT options must publish a new options instance. Concurrent in-place mutation of validation options or configuration objects is unsupported.
+The server can reuse a previously validated signing configuration for a bounded period after rotation.
 Connections accepted through historical signing configuration are bounded by the history that the server can verify;
 unverifiable or expired historical trust fails closed and requires current credentials or usable authority metadata.
 

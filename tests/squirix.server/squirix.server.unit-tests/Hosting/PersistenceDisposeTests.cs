@@ -4,9 +4,9 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -73,7 +73,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         var services = new ServiceCollection();
         _ = services.AddLogging();
         _ = services.AddSingleton(TimeProvider.System);
-        _ = services.AddKeyedSingleton(ServerHostingComposition.MetricsMeterName, meter);
+        _ = services.AddSingleton(meter);
         _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
         _ = services.AddSingleton(static sp => new ReplicaGroupRegistry(
             sp.GetRequiredService<PersistenceOptions>().DataDir,
@@ -214,15 +214,13 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
     private ServiceProvider BuildUnopenedProvider(Meter meter, EventRecordingLogger? log)
     {
         var services = new ServiceCollection();
-        _ = services.AddLogging(builder =>
-        {
-            if (log != null)
-                _ = builder.AddProvider(new RecordingLoggerProvider(log));
-        });
+        _ = services.AddLogging();
 
         _ = services.AddSingleton(TimeProvider.System);
-        _ = services.AddKeyedSingleton(ServerHostingComposition.MetricsMeterName, meter);
+        _ = services.AddSingleton(meter);
         _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
+        if (log != null)
+            _ = services.AddSingleton<ILoggerFactory>(_ => new FixedLoggerFactory(log));
         return services.BuildServiceProvider();
     }
 }

@@ -3,8 +3,8 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit.Logging;
 
 namespace Squirix.Server.TestKit.Replication;
 

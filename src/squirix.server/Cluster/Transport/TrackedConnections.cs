@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -98,11 +98,11 @@ internal sealed class TrackedConnections
         var failure = await _gate.WaitAsync(CancellationToken.None).AsTask().CaptureFailureAsync().ConfigureAwait(false);
         if (failure != null)
         {
-            ServerLog.ClientPoolLateMaterialReleaseFailed(logger, failure);
+            TransportLog.ClientPoolLateMaterialReleaseFailed(logger, failure);
             return;
         }
 
         hold.Dispose();
-        ServerLog.ClientPoolMaterialReleasedLate(logger);
+        TransportLog.ClientPoolMaterialReleasedLate(logger);
     }
 }

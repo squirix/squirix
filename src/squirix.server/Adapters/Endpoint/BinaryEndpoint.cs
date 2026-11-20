@@ -6,8 +6,8 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
@@ -38,7 +38,7 @@ internal static class BinaryEndpoint
 
     internal static Func<BinaryConnection, Task> Create(IServiceProvider services, bool mutationReplay)
     {
-        var validator = services.GetService<NativeConnectionAuthenticationValidator>();
+        var validator = services.Find<NativeConnectionAuthenticationValidator>();
         var auth = new ConnectionAuthenticationMiddleware(connection => ServeAsync(connection, services, validator), validator, TimeProvider.System);
         var accepted = mutationReplay ? Frames.AcceptedWithMutationReplay : Frames.Accepted;
         return connection => AcceptAsync(connection, auth, services, validator != null, accepted);
@@ -103,10 +103,10 @@ internal static class BinaryEndpoint
         }
 
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(connection.ConnectionClosed, connection.CloseRequested);
-        var accessor = services.GetRequiredService<BinaryRequestAccessor>();
-        var operations = services.GetRequiredService<BinaryDispatch>();
+        var accessor = services.Require<BinaryRequestAccessor>();
+        var operations = services.Require<BinaryDispatch>();
         var state = new CallState(connection, validator, accessor, operations);
-        var log = services.GetRequiredService<ILogger<BinaryConnectionPump>>();
+        var log = services.Require<ILoggerFactory>().CreateLogger<BinaryConnectionPump>();
         var pump = new BinaryConnectionPump(
             connection.Transport,
             connection.Abort,

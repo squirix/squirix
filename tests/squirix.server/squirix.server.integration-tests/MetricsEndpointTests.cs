@@ -3,7 +3,6 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit;
@@ -26,11 +25,11 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
         {
             MetricsEnabled = true,
             PrometheusMetricsEnabled = true,
-            ServicesConfigure = static services => services.AddSingleton(Options.Create(new PrometheusMetricsEndpointOptions
+            ServicesConfigure = static services => services.AddSingleton(new PrometheusMetricsEndpointOptions
             {
                 Enabled = true,
                 Path = "/team metrics",
-            })),
+            }),
         };
         await using var cluster = await StartClusterAsync(nodeId, options, cancellationToken);
         var management = cluster[nodeId].ManagementUri;

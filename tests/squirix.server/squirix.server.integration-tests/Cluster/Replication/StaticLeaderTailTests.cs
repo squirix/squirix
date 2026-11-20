@@ -71,7 +71,7 @@ public sealed class StaticLeaderTailTests : NodeIntegrationTestBase
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log) ? log : throw new InvalidOperationException($"The node does not serve group {OwnerId}.");
 
     private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
-        host.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey);
+        host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     private static string[] OwnedKeys(ITestNodeHost owner)
     {

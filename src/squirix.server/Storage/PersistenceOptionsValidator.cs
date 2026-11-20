@@ -1,15 +1,14 @@
 using System;
 using System.Collections.Generic;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage;
 
 [Immutable]
-internal sealed class PersistenceOptionsValidator : IValidateOptions<PersistenceOptions>
+internal sealed class PersistenceOptionsValidator : ISettingsRule<PersistenceOptions>
 {
-    public ValidateOptionsResult Validate(string? name, PersistenceOptions options)
+    public IReadOnlyList<string> Check(PersistenceOptions options)
     {
         var failures = new List<string>();
         if (string.IsNullOrWhiteSpace(options.DataDir))
@@ -24,6 +23,6 @@ internal sealed class PersistenceOptionsValidator : IValidateOptions<Persistence
             failures.Add(ex.Message);
         }
 
-        return OptionsValidator.ToResult(failures);
+        return failures;
     }
 }
