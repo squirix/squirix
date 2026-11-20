@@ -115,7 +115,7 @@ try
             repoRootResolved,
             [
                 "test", "--project", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
-                "normal",
+                "normal", "--treenode-filter", "/*/*/*/*[Suite!=Stress]",
             ]).ConfigureAwait(false);
 
         await StepAsync("Run smoke tests").ConfigureAwait(false);

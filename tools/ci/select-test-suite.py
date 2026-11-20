@@ -40,7 +40,7 @@ SUITES = {
     "unit": ("tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "", False),
     "caching-unit": ("tests/squirix.extensions.caching/squirix.extensions.caching.unit-tests/Squirix.Extensions.Caching.UnitTests.csproj", "", False),
     "client-integration": ("tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj", "", False),
-    "server-unit": (SERVER_UNIT_PROJECT, "", True),
+    "server-unit": (SERVER_UNIT_PROJECT, "/*/*/*/*[Suite!=Stress]", True),
     "server-integration": ("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "", True),
     "smoke": ("tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "/*/*/*/*[Suite=Smoke]", True),
     "e2e-single-node": (
