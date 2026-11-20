@@ -1,13 +1,13 @@
 name: Setup .NET SDK
 description: >-
   Put the SDK pinned in global.json on the path, restored from a cache of the installed SDK (3-6 s against 7-14 s for
-  actions/setup-dotnet). The folder holds that SDK alone unless net10-runtime adds the .NET 10 runtimes that net10.0 apps
+  actions/setup-dotnet). The folder holds that SDK alone unless net10-runtime adds the .NET 10 runtime that net10.0 apps
   (the tests, the samples, the benchmarks, the file-based tools) run on.
 
 inputs:
   net10-runtime:
     description: >-
-      When true, the folder also holds the .NET and ASP.NET Core 10.0.15 runtimes, for a job that runs net10.0 apps.
+      When true, the folder also holds the .NET 10.0.15 runtime, for a job that runs net10.0 apps.
       Linux and macOS only.
     required: false
     default: "false"
@@ -33,7 +33,7 @@ runs:
         global-json-file: global.json
 
     # actions/setup-dotnet installs whole SDKs only; the runtimes alone come from the official install script.
-    - name: Install .NET 10 Runtimes
+    - name: Install .NET 10 Runtime
       if: steps.sdk-cache.outputs.cache-hit != 'true' && inputs.net10-runtime == 'true'
       shell: bash
       run: |
@@ -44,9 +44,7 @@ runs:
         fi
         script="${RUNNER_TEMP}/dotnet-install.sh"
         curl -sSfL --proto '=https' --proto-redir '=https' --retry 3 https://dot.net/v1/dotnet-install.sh -o "$script"
-        for runtime in dotnet aspnetcore; do
-          bash "$script" --version 10.0.15 --runtime "$runtime" --install-dir "${RUNNER_TEMP}/dotnet-sdk" --no-path
-        done
+        bash "$script" --version 10.0.15 --runtime dotnet --install-dir "${RUNNER_TEMP}/dotnet-sdk" --no-path
 
     # Jobs that miss at the same time each try to save; the first one wins and the others only log that the key exists.
     - name: Save SDK Cache

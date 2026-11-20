@@ -3,7 +3,7 @@
 
 Prints two outputs on stdout, suitable for appending to $GITHUB_OUTPUT:
 
-- `https_cert=<true|false>`: whether any of the runs needs the ASP.NET Core HTTPS
+- `https_cert=<true|false>`: whether any of the runs needs the .NET SDK HTTPS
   development certificate;
 - `runs`: one line per test host run, `<name>\\t<csproj>\\t<treenode-filter or empty>`.
 
@@ -19,7 +19,7 @@ import sys
 
 SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"
 
-# Suite id -> (project, treenode-filter or "", needs the ASP.NET Core HTTPS development certificate).
+# Suite id -> (project, treenode-filter or "", needs the .NET SDK HTTPS development certificate).
 # The certificate flag is False only for projects that cannot host a server: the client
 # tests reference the client library alone and the protocol-model tests reference the
 # model alone, so nothing in them listens on HTTPS. Every suite that references

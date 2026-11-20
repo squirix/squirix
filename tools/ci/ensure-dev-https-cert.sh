@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure the ASP.NET Core HTTPS development certificate exists.
+# Ensure the .NET SDK HTTPS development certificate exists.
 dotnet dev-certs https >/dev/null
 
 os="$(uname -s)"

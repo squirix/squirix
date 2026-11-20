@@ -377,9 +377,22 @@ static async Task ValidatePackageMetadataAsync(string packagePath, string[] fram
             var prefix = isTool ? $"tools/{framework}/any/" : $"lib/{framework}/";
             if (!HasAssembly(names, prefix))
                 throw new InvalidOperationException($"Package has no assembly under {prefix}: {packagePath}");
-            if (isTool && (archive.GetEntry(prefix + "DotnetToolSettings.xml") == null || archive.GetEntry(prefix + "Squirix.Server.Host.dll") == null ||
-                           archive.GetEntry(prefix + "Squirix.Server.Host.runtimeconfig.json") == null))
+            if (!isTool)
+                continue;
+
+            var runtimeConfig = archive.GetEntry(prefix + "Squirix.Server.Host.runtimeconfig.json");
+            if (runtimeConfig == null || archive.GetEntry(prefix + "DotnetToolSettings.xml") == null ||
+                archive.GetEntry(prefix + "Squirix.Server.Host.dll") == null)
                 throw new InvalidOperationException($"Package has incomplete tool files under {prefix}: {packagePath}");
+
+            var configStream = await runtimeConfig.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using (configStream.ConfigureAwait(false))
+            {
+                using var configReader = new StreamReader(configStream, leaveOpen: true);
+                var json = await configReader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+                if (json.Contains("\"Microsoft.AspNetCore.App\"", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"The server tool under {prefix} requires the ASP.NET Core shared framework: {packagePath}");
+            }
         }
 
         var stream = await nuspecEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
