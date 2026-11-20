@@ -25,7 +25,8 @@ internal static class NodeEndpointServiceRegistration
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
-            _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
+            _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>>(static sp =>
+                new InboundEndpointCacheOperations<object?>(sp.GetRequiredService<ILogicalNamespacedCache<object?>>()));
             if (persistenceEnabled)
             {
                 _ = services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(

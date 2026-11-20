@@ -17,7 +17,7 @@ internal sealed class InboundEndpointCacheOperations<T> : IInboundEndpointCacheO
     private readonly Lock _creationLock = new();
     private int _cachedCount;
 
-    public InboundEndpointCacheOperations(ILogicalNamespacedCache<T> namespaced)
+    internal InboundEndpointCacheOperations(ILogicalNamespacedCache<T> namespaced)
     {
         ArgumentNullException.ThrowIfNull(namespaced);
         _namespaced = namespaced;

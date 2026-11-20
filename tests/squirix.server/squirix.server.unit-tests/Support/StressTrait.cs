@@ -4,8 +4,8 @@ namespace Squirix.Server.UnitTests.Support;
 internal static class StressTrait
 {
     /// <summary>Trait name applied to every stress test class.</summary>
-    public const string TraitName = "Suite";
+    internal const string TraitName = "Suite";
 
     /// <summary>Trait value applied to every stress test class.</summary>
-    public const string TraitValue = "Stress";
+    internal const string TraitValue = "Stress";
 }

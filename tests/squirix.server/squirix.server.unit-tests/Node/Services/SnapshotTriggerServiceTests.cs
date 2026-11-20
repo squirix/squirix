@@ -329,7 +329,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
     [Mutable]
     private sealed class MutableStatus
     {
-        public SnapshotFailure? Failure
+        internal SnapshotFailure? Failure
         {
             get => Volatile.Read(ref field);
             set => Volatile.Write(ref field, value);

@@ -232,15 +232,15 @@ public sealed class AsyncAssertTests
     {
         private ManualResetValueTaskSourceCore<int> _source;
 
-        public SingleUseSource(Exception failure)
+        internal SingleUseSource(Exception failure)
         {
             _source.RunContinuationsAsynchronously = true;
             _source.SetException(failure);
         }
 
-        public short Version => _source.Version;
+        internal short Version => _source.Version;
 
-        public int Reads { get; private set; }
+        internal int Reads { get; private set; }
 
         public int GetResult(short token)
         {

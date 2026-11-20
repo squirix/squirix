@@ -221,7 +221,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
 
         public int Count => 1;
 
-        public int Reads { get; private set; }
+        internal int Reads { get; private set; }
 
         public GroupIdempotencyRecord this[int index]
         {

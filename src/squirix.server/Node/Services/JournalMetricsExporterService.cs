@@ -36,7 +36,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
     private long _sizeBytes;
 
-    public JournalMetricsExporterService(
+    internal JournalMetricsExporterService(
         PersistenceOptions opt,
         TopologyOptions cluster,
         ILogger<JournalMetricsExporterService> log,

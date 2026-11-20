@@ -162,7 +162,7 @@ public sealed class ServerDisposeTests
     {
         private readonly ShutdownProbe _probe;
 
-        public ProbeDependency(ShutdownProbe probe)
+        internal ProbeDependency(ShutdownProbe probe)
         {
             _probe = probe;
         }
@@ -184,7 +184,7 @@ public sealed class ServerDisposeTests
         private readonly ProbeDependency _dependency;
         private readonly ShutdownProbe _probe;
 
-        public ProbeHostedService(ShutdownProbe probe, ProbeDependency dependency)
+        internal ProbeHostedService(ShutdownProbe probe, ProbeDependency dependency)
         {
             _probe = probe;
             _dependency = dependency;

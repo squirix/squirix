@@ -11,17 +11,17 @@ internal sealed class ConnectionRejectedException : IOException
     {
     }
 
-    public ConnectionRejectedException(string message)
+    internal ConnectionRejectedException(string message)
         : base(message)
     {
     }
 
-    public ConnectionRejectedException(string message, Exception innerException)
+    internal ConnectionRejectedException(string message, Exception innerException)
         : base(message, innerException)
     {
     }
 
-    public ConnectionRejectedException(string message, int hresult)
+    internal ConnectionRejectedException(string message, int hresult)
         : base(message, hresult)
     {
     }

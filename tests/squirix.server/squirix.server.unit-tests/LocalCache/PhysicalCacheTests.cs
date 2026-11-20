@@ -363,19 +363,19 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
     private sealed class RaceState
     {
-        public RaceState(PhysicalCache<string> cache, CacheKey key, CancellationToken ct)
+        internal RaceState(PhysicalCache<string> cache, CacheKey key, CancellationToken ct)
         {
             Cache = cache;
             Key = key;
             Ct = ct;
         }
 
-        public PhysicalCache<string> Cache { get; }
+        internal PhysicalCache<string> Cache { get; }
 
-        public CancellationToken Ct { get; }
+        internal CancellationToken Ct { get; }
 
-        public int FalsePositives { get; set; }
+        internal int FalsePositives { get; set; }
 
-        public CacheKey Key { get; }
+        internal CacheKey Key { get; }
     }
 }

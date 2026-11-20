@@ -19,7 +19,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 [Immutable]
 internal sealed class RoutedCacheOperations<T>
 {
-    public RoutedCacheOperations(
+    internal RoutedCacheOperations(
         IInboundEndpointCacheOperations<T> cacheOperations,
         OwnerRouter router,
         OwnerRpcForwarder forwarder,

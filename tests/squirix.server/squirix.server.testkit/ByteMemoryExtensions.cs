@@ -10,7 +10,7 @@ internal static class ByteMemoryExtensions
         /// <summary>Copies <paramref name="bytes" /> into a memory that outlives the call.</summary>
         /// <param name="bytes">The bytes in order.</param>
         /// <returns>A memory holding the bytes.</returns>
-        public static ReadOnlyMemory<byte> Of(params ReadOnlySpan<byte> bytes)
+        internal static ReadOnlyMemory<byte> Of(params ReadOnlySpan<byte> bytes)
         {
             var copy = new byte[bytes.Length];
             bytes.CopyTo(copy);

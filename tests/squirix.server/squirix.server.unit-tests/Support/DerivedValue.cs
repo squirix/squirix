@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using JetBrains.Annotations;
 using Squirix.Server.Attributes;
 
@@ -8,5 +9,6 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed record DerivedValue : IValueContract
 {
     [UsedImplicitly]
-    public string? DerivedField { get; init; }
+    [JsonInclude]
+    internal string? DerivedField { get; init; }
 }

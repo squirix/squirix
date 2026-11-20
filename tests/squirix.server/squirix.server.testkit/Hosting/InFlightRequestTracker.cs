@@ -26,7 +26,9 @@ internal sealed class InFlightRequestTracker
     internal static void AddTo(IServiceCollection services)
     {
         services.TryAddSingleton<InFlightRequestTracker>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter, TrackingStartupFilter>());
+        Func<IServiceProvider, TrackingStartupFilter> createFilter =
+            static sp => new TrackingStartupFilter(sp.GetRequiredService<InFlightRequestTracker>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter>(createFilter));
     }
 
     /// <summary>Marks the start of the stop and remembers how many requests are being served.</summary>
@@ -70,7 +72,7 @@ internal sealed class InFlightRequestTracker
     {
         private readonly InFlightRequestTracker _tracker;
 
-        public TrackingStartupFilter(InFlightRequestTracker tracker)
+        internal TrackingStartupFilter(InFlightRequestTracker tracker)
         {
             _tracker = tracker;
         }

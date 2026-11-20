@@ -16,7 +16,7 @@ internal static class E2EThrowHelper
     /// <param name="message">The exception message.</param>
     /// <returns><paramref name="value" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="value" /> is null.</exception>
-    public static T Required<T>(T? value, string message)
+    internal static T Required<T>(T? value, string message)
         where T : class
     {
         if (value == null)

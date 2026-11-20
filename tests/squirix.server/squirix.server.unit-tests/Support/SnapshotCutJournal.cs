@@ -29,12 +29,6 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
         remove => _ = value;
     }
 
-    /// <summary>Gets the reason the pipeline was failed with, or <see langword="null" /> when it was not failed.</summary>
-    public Exception? FailedWith { get; private set; }
-
-    /// <summary>Gets or sets the failure <see cref="GetJournalThreadFailure" /> reports, or <see langword="null" /> while the pipeline is not latched.</summary>
-    public Exception? LatchedFailure { get; set; }
-
     /// <inheritdoc />
     public long AppendedBytes { get; set; } = 1024;
 
@@ -67,6 +61,12 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
 
     /// <inheritdoc />
     public long UsedBytes => 0;
+
+    /// <summary>Gets the reason the pipeline was failed with, or <see langword="null" /> when it was not failed.</summary>
+    internal Exception? FailedWith { get; private set; }
+
+    /// <summary>Gets or sets the failure <see cref="GetJournalThreadFailure" /> reports, or <see langword="null" /> while the pipeline is not latched.</summary>
+    internal Exception? LatchedFailure { get; set; }
 
     /// <inheritdoc />
     public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;

@@ -184,7 +184,7 @@ public sealed class ServerStartFailureTests
     {
         private readonly StartProbe _probe;
 
-        public ProbeDependency(StartProbe probe)
+        internal ProbeDependency(StartProbe probe)
         {
             _probe = probe;
         }
@@ -203,7 +203,7 @@ public sealed class ServerStartFailureTests
     {
         private readonly StartProbe _probe;
 
-        public RunningService(StartProbe probe)
+        internal RunningService(StartProbe probe)
         {
             _probe = probe;
         }
@@ -221,7 +221,7 @@ public sealed class ServerStartFailureTests
     {
         private readonly Exception _failure;
 
-        public FailingService(Exception failure)
+        internal FailingService(Exception failure)
         {
             _failure = failure;
         }

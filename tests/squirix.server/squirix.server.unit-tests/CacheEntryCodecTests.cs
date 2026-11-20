@@ -252,8 +252,8 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     private sealed class DecodedCapture
     {
-        public NodeCacheEntry<object?>? Entry { get; set; }
+        internal NodeCacheEntry<object?>? Entry { get; set; }
 
-        public bool ReadOk { get; set; }
+        internal bool ReadOk { get; set; }
     }
 }

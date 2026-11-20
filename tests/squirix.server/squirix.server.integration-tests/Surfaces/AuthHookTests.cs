@@ -182,7 +182,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         private readonly HookProbe _probe;
         private bool _validated;
 
-        public EventScope(HookProbe probe)
+        internal EventScope(HookProbe probe)
         {
             _probe = probe;
         }
@@ -202,7 +202,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         private readonly EventScope _scope;
         private readonly IHttpContextAccessor _accessor;
 
-        public ScopedEvents(HookProbe probe, EventScope scope, IHttpContextAccessor accessor)
+        internal ScopedEvents(HookProbe probe, EventScope scope, IHttpContextAccessor accessor)
         {
             _probe = probe;
             _scope = scope;
@@ -236,7 +236,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
         private readonly HookProbe _probe;
         private readonly IHttpContextAccessor _accessor;
 
-        public RequestClaims(HookProbe probe, IHttpContextAccessor accessor)
+        internal RequestClaims(HookProbe probe, IHttpContextAccessor accessor)
         {
             _probe = probe;
             _accessor = accessor;
@@ -275,7 +275,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
     {
         private readonly HookProbe _probe;
 
-        public ClaimProbeInterceptor(HookProbe probe)
+        internal ClaimProbeInterceptor(HookProbe probe)
         {
             _probe = probe;
         }

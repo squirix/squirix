@@ -214,14 +214,14 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
     [Immutable]
     private readonly record struct QueuedItem
     {
-        public QueuedItem(TaskCompletionSource? completion, T item)
+        internal QueuedItem(TaskCompletionSource? completion, T item)
         {
             Completion = completion;
             Item = item;
         }
 
-        public TaskCompletionSource? Completion { get; }
+        internal TaskCompletionSource? Completion { get; }
 
-        public T Item { get; }
+        internal T Item { get; }
     }
 }

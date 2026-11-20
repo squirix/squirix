@@ -168,7 +168,7 @@ public sealed class ReplicaRecoveredTailTests : ServerUnitTestBase
 
         public int Count => _entries.Count;
 
-        public int IndexReads { get; private set; }
+        internal int IndexReads { get; private set; }
 
         public FollowerLogEntry this[int index]
         {

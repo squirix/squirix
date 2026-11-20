@@ -9,7 +9,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Uses the canonical JWT policy exclusively for operational HTTP requests.</summary>
 internal sealed class OperationalTokenHandler : JwtBearerHandler
 {
-    public OperationalTokenHandler(IOptionsMonitor<JwtBearerOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+    internal OperationalTokenHandler(IOptionsMonitor<JwtBearerOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : base(new CanonicalOptions(options), logger, encoder)
     {
     }
@@ -18,7 +18,7 @@ internal sealed class OperationalTokenHandler : JwtBearerHandler
     {
         private readonly IOptionsMonitor<JwtBearerOptions> _options;
 
-        public CanonicalOptions(IOptionsMonitor<JwtBearerOptions> options)
+        internal CanonicalOptions(IOptionsMonitor<JwtBearerOptions> options)
         {
             _options = options;
         }

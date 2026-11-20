@@ -14,12 +14,12 @@ internal sealed class ServerCallException : Exception
     {
     }
 
-    public ServerCallException(string message)
+    internal ServerCallException(string message)
         : this(FrameStatus.Unknown, message)
     {
     }
 
-    public ServerCallException(string message, Exception innerException)
+    internal ServerCallException(string message, Exception innerException)
         : this(FrameStatus.Unknown, message, innerException)
     {
     }

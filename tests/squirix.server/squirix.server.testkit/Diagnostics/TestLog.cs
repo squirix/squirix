@@ -8,7 +8,7 @@ internal static class TestLog
 {
     private static readonly Action<ILogger, string, Exception> LogSuppressed = LoggerMessage.Define<string>(LogLevel.Debug, new EventId(1, "TestSuppressed"), "{Context}");
 
-    public static void Suppressed(string context, Exception exception) => LogSuppressed(ConsoleErrorLogger.Instance, context, exception);
+    internal static void Suppressed(string context, Exception exception) => LogSuppressed(ConsoleErrorLogger.Instance, context, exception);
 
     private sealed class ConsoleErrorLogger : ILogger
     {
