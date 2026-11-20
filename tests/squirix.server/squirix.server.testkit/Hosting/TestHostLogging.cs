@@ -2,9 +2,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.TestKit.Hosting;
 
-/// <summary>
-/// Logging for test nodes keeps Squirix categories verbose and limits generic host categories to warnings.
-/// </summary>
+/// <summary>Logging for test nodes keeps Squirix categories verbose and limits generic host categories to warnings.</summary>
 internal static class TestHostLogging
 {
     private const string ExtensionsHostingCategory = "Microsoft.Extensions.Hosting";

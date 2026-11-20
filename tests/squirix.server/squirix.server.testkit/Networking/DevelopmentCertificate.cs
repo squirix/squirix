@@ -5,9 +5,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit.Networking;
 
-/// <summary>
-/// The .NET SDK development HTTPS certificate, loaded once and copied for each test node.
-/// </summary>
+/// <summary>The .NET SDK development HTTPS certificate, loaded once and copied for each test node.</summary>
 /// <remarks>
 /// Store queries serialize across threads. Sharing the lookup avoids delaying simultaneous node starts.
 /// Each node owns its own certificate instance so concurrent listeners do not share mutable certificate state.
