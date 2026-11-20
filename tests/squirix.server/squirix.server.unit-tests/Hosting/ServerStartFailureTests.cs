@@ -1,8 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -117,10 +115,10 @@ public sealed class ServerStartFailureTests
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
     }
 
-    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(WebApplication app, Func<WebApplication, CancellationToken, Task> configure, CancellationToken cancellationToken) =>
+    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(IHost app, Func<IHost, CancellationToken, Task> configure, CancellationToken cancellationToken) =>
         SquirixServer.ApplicationHandle.StartApplicationAsync(app, configure, cancellationToken).AsTask();
 
-    private static bool IsContainerDisposed(WebApplication app)
+    private static bool IsContainerDisposed(IHost app)
     {
         try
         {
@@ -133,10 +131,9 @@ public sealed class ServerStartFailureTests
         }
     }
 
-    private static WebApplication BuildApp(StartProbe probe, Exception? startFailure, EventRecordingLogger? log = null, bool throwingLogger = false, bool observeCancellation = false)
+    private static IHost BuildApp(StartProbe probe, Exception? startFailure, EventRecordingLogger? log = null, bool throwingLogger = false, bool observeCancellation = false)
     {
-        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
         _ = builder.Logging.ClearProviders();
         if (log != null)
             _ = builder.Services.AddSingleton<ILoggerProvider>(_ => new RecordingLoggerProvider(log));

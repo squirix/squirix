@@ -21,22 +21,26 @@ internal sealed class ServerProcess : IAsyncDisposable
     private readonly Task<string> _errors;
     private readonly SocketsHttpHandler _handler;
     private readonly ProcessPortReservation _port;
+    private readonly ProcessPortReservation _management;
 
-    private ServerProcess(Process process, DirectoryInfo directory, ProcessPortReservation port, string? bearerToken)
+    private ServerProcess(Process process, DirectoryInfo directory, ProcessPortReservation port, ProcessPortReservation management, string? bearerToken)
     {
         _process = process;
         _directory = directory;
         _port = port;
+        _management = management;
         Uri = port.Uri;
         BearerToken = bearerToken;
         _handler = new SocketsHttpHandler { UseProxy = false };
-        HttpClient = new HttpClient(_handler, false) { BaseAddress = Uri };
+        HttpClient = new HttpClient(_handler, false) { BaseAddress = management.Uri };
         _output = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
         _errors = process.StandardError.ReadToEndAsync(CancellationToken.None);
     }
 
     /// <summary>Gets the node's external HTTPS endpoint.</summary>
     internal Uri Uri { get; }
+
+    internal Uri ManagementUri => _management.Uri;
 
     /// <summary>Gets the token accepted by the authenticated node, or null when authentication is disabled.</summary>
     internal string? BearerToken { get; }
@@ -61,6 +65,7 @@ internal sealed class ServerProcess : IAsyncDisposable
             }
 
             _port.Dispose();
+            _management.Dispose();
             _ = await _output.ConfigureAwait(false);
             _ = await _errors.ConfigureAwait(false);
         }
@@ -96,18 +101,22 @@ internal sealed class ServerProcess : IAsyncDisposable
         var uri = port.Uri;
         var settingsPath = Path.Join(directory.FullName, "Squirix.settings.json");
         var settings = $$$$"""{"Squirix":{"Cluster":{"ClusterId":"process-smoke","NodeId":"node-a","Uri":"{{{{uri}}}}","PersistenceEnabled":false,"Peers":[{"NodeId":"node-a","Uri":"{{{{uri}}}}"}]}}}""";
+        ProcessPortReservation? management = null;
         Process? process = null;
         ServerProcess? server = null;
         try
         {
             await File.WriteAllTextAsync(settingsPath, settings, cancellationToken).ConfigureAwait(false);
+            management = ProcessPortReservation.Reserve();
             var start = CreateStartInfo(hostPath, directory.FullName, settingsPath);
+            start.Environment["SQUIRIX_MANAGEMENT_URI"] = management.Uri.AbsoluteUri;
             if (configure != null)
                 await configure(start, cancellationToken).ConfigureAwait(false);
             var bearerToken = authenticated ? ConfigureAuthentication(start) : null;
             port.ReleaseForStart();
+            management.ReleaseForStart();
             process = Process.Start(start) ?? ThrowStartFailed();
-            server = new ServerProcess(process, directory, port, bearerToken);
+            server = new ServerProcess(process, directory, port, management, bearerToken);
             await server.WaitUntilReadyAsync(cancellationToken).ConfigureAwait(false);
             return server;
         }
@@ -119,6 +128,7 @@ internal sealed class ServerProcess : IAsyncDisposable
             }
             else
             {
+                management?.Dispose();
                 process?.Dispose();
                 port.Dispose();
                 directory.Delete(true);
@@ -214,7 +224,7 @@ internal sealed class ServerProcess : IAsyncDisposable
 
             try
             {
-                using var response = await HttpClient.GetAsync(new Uri(Uri, "/health/ready"), timeout.Token).ConfigureAwait(false);
+                using var response = await HttpClient.GetAsync(new Uri(ManagementUri, "/health/ready"), timeout.Token).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                     return;
             }

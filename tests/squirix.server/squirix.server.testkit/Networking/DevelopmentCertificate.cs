@@ -1,6 +1,5 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 
@@ -24,6 +23,8 @@ internal static class DevelopmentCertificate
 
     private static readonly Lazy<X509Certificate2?> Certificate = new(Find);
 
+    internal static X509Certificate2? Shared => Certificate.Value;
+
     /// <summary>Makes the development certificate the default server certificate of the node's HTTPS endpoints.</summary>
     /// <param name="services">The services of the node; the configuration goes first, so it applies before the node configures its listeners.</param>
     /// <remarks>An endpoint that sets its own certificate keeps it. Without a development certificate Kestrel falls back to its own search.</remarks>
@@ -35,8 +36,6 @@ internal static class DevelopmentCertificate
             return;
 
         _ = services.AddSingleton(_ => new NodeCertificate(shared));
-        _ = services.AddOptions<KestrelServerOptions>()
-            .Configure<NodeCertificate>(static (kestrel, node) => kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate ??= node.Value));
     }
 
     /// <summary>Finds the valid development certificate with a private key and the highest version, as Kestrel does.</summary>

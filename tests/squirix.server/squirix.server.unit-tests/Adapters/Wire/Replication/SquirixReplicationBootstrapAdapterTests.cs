@@ -3,7 +3,6 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
@@ -128,15 +127,12 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, RocksDoubles.CreateReplicaMembers());
-        var httpContext = new DefaultHttpContext
+        var httpContext = new PeerCallContext
         {
-            Connection =
-            {
-                LocalPort = mtls.InternalListenPort,
-                ClientCertificate = peerCertificate,
-            },
+            LocalPort = mtls.InternalListenPort,
+            ClientCertificate = peerCertificate,
+            InternalListener = true,
         };
-        httpContext.Features.Set(InternalListenerMarker.Instance);
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
@@ -165,7 +161,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
 
         internal required MtlsTestCertificateBundle Bundle { get; init; }
 
-        internal required HttpContext Context { get; init; }
+        internal required PeerCallContext Context { get; init; }
 
         internal required TempDirectory Dir { get; init; }
 

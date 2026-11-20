@@ -1,11 +1,9 @@
 using System.IO;
 using System.IO.Compression;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -13,6 +11,7 @@ using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
@@ -33,7 +32,7 @@ public sealed class PeerRequestCompressionTests : NodeIntegrationTestBase
         var peer = cluster.Peers[0];
         var identity = cluster["B"].GetRequiredService<MtlsCertificate>();
         using var handler = TestCertificates.CreateMtlsHandler(identity.NodeCertificate!, identity.TrustAnchor!, peer.NodeId);
-        using var client = new HttpClient(handler, false) { BaseAddress = peer.InterNodeUri };
+        var client = new PeerSocketProbe(peer.InterNodeUri!, handler.SslOptions);
         var payload = new SetEntryAsyncRequest
         {
             OperationId = RpcOperationIdentity.New(),
@@ -44,17 +43,9 @@ public sealed class PeerRequestCompressionTests : NodeIntegrationTestBase
         await using var bytes = new MemoryStream();
         await using (var gzip = new GZipStream(bytes, CompressionLevel.Fastest, true))
             payload.WriteTo(gzip);
-        using var request = new HttpRequestMessage(HttpMethod.Post, PeerProtocol.Prefix + "owner/SetEntry")
-        {
-            Version = HttpVersion.Version20,
-            VersionPolicy = HttpVersionPolicy.RequestVersionExact,
-            Content = new ByteArrayContent(bytes.ToArray()),
-        };
-        request.Content.Headers.ContentType = new MediaTypeHeaderValue(PeerProtocol.MediaType);
-        request.Content.Headers.ContentEncoding.Add("gzip");
-        using var response = await client.SendAsync(request, cancellationToken);
-
-        _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.UnsupportedMediaType);
+        var ring = cluster["A"].GetRequiredService<RingFingerprint>().Value;
+        var (status, _) = await client.SendRawAsync("owner/SetEntry", bytes.ToArray(), new(System.StringComparer.OrdinalIgnoreCase) { ["squirix-ring-fingerprint"] = ring }, -1, false, cancellationToken);
+        _ = await Assert.That(status).IsEqualTo(FrameStatus.InvalidArgument);
         using var channel = CreateBinaryChannel(cluster["A"].Uri);
         var plain = new CacheWireClient(channel);
         var result = await plain.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = payload.Key }, cancellationToken: cancellationToken);

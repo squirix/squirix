@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.UnitTests.Support;
@@ -46,7 +45,7 @@ public sealed class ReadyDetailsContractTests : ServerUnitTestBase
             ],
         };
 
-        var response = SquirixEndpointMapping.BuildReadyDetailsResponse(snapshot);
+        var response = HealthDetailsResponseMapper.Build(snapshot);
         var actual = JsonSerializer.SerializeToNode(response, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
         var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "HealthReadyDetails.golden.json");
         var expected = JsonNode.Parse(await File.ReadAllTextAsync(path, cancellationToken))!;

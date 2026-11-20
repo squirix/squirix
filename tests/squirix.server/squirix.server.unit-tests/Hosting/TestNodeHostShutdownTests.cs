@@ -1,15 +1,12 @@
 using System;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -85,30 +82,20 @@ public sealed class TestNodeHostShutdownTests
     public async Task AbruptShutdownDropsInFlightCalls(CancellationToken cancellationToken)
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var builder = WebApplication.CreateSlimBuilder();
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
-        _ = builder.Services.AddSingleton<DisposalProbe>();
-        var app = builder.Build();
-
-        // The handler answers once its service is disposed, as a call that reaches a torn-down node would.
-        app.Run(async context =>
+        using var held = ListenPortPool.ServerUnitTests.HoldPort();
+        await using var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", held.HttpUri)]);
+        var host = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { TrackRequests = true }, cancellationToken);
+        var tracker = host.Services.GetRequiredService<InFlightRequestTracker>();
+        tracker.OnEnter = async token =>
         {
-            var probe = context.RequestServices.GetRequiredService<DisposalProbe>();
             entered.SetResult();
-            await probe.Disposed.WaitAsync(CancellationToken.None);
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        });
-        await app.StartAsync(cancellationToken);
-        Uri? address = null;
-        foreach (var url in app.Urls)
-            address ??= new Uri(url);
-
-        await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
-        var call = GetAsync(address!, cancellationToken);
+            await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, token);
+        };
+        var call = GetAsync(held.HttpUri, cancellationToken);
         await entered.Task.WaitAsync(cancellationToken);
 
         await host.AbruptShutdownAsync();
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<System.IO.IOException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A failing app stop still disposes the app and the owned scope, and the stop failure surfaces to the caller.</summary>
@@ -116,8 +103,7 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task ShutdownDisposesAppWhenStopThrows(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateSlimBuilder();
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var builder = Host.CreateApplicationBuilder();
         _ = builder.Services.AddSingleton<DisposalProbe>();
         _ = builder.Services.AddHostedService(static _ => new FailingStopService());
         var app = builder.Build();
@@ -160,8 +146,7 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task AbruptShutdownReportsStopPhases(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateSlimBuilder();
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var builder = Host.CreateApplicationBuilder();
         InFlightRequestTracker.AddTo(builder.Services);
         var app = builder.Build();
         await app.StartAsync(cancellationToken);
@@ -182,8 +167,7 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task UntrackedNodeReportsNoInFlightCount(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateSlimBuilder();
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var builder = Host.CreateApplicationBuilder();
         var app = builder.Build();
         await app.StartAsync(cancellationToken);
 
@@ -200,29 +184,23 @@ public sealed class TestNodeHostShutdownTests
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var builder = WebApplication.CreateSlimBuilder();
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
-        InFlightRequestTracker.AddTo(builder.Services);
-        var app = builder.Build();
-        app.Run(async _ =>
+        using var held = ListenPortPool.ServerUnitTests.HoldPort();
+        await using var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", held.HttpUri)]);
+        var host = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { TrackRequests = true }, cancellationToken);
+        var tracker = host.Services.GetRequiredService<InFlightRequestTracker>();
+        tracker.OnEnter = token =>
         {
             entered.SetResult();
-            await release.Task.WaitAsync(CancellationToken.None);
-        });
-        await app.StartAsync(cancellationToken);
-        Uri? address = null;
-        foreach (var url in app.Urls)
-            address ??= new Uri(url);
-
-        await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
+            return new ValueTask(release.Task.WaitAsync(token));
+        };
         _ = await Assert.That(host.LastStop).IsNull();
-
-        var call = GetAsync(address!, cancellationToken);
+        var call = GetAsync(held.HttpUri, cancellationToken);
         await entered.Task.WaitAsync(cancellationToken);
         var stop = host.ShutdownAsync().AsTask();
         release.SetResult();
         await stop;
-        using var response = await call;
+        var response = await call;
+        _ = await Assert.That(response.Found).IsFalse();
 
         var phases = host.LastStop;
         _ = await Assert.That(phases).IsNotNull();
@@ -241,8 +219,7 @@ public sealed class TestNodeHostShutdownTests
     [Test]
     public async Task ShutdownOfIdleNodeReportsNoRequests(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateSlimBuilder();
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var builder = Host.CreateApplicationBuilder();
         InFlightRequestTracker.AddTo(builder.Services);
         var app = builder.Build();
         await app.StartAsync(cancellationToken);
@@ -261,12 +238,11 @@ public sealed class TestNodeHostShutdownTests
     /// <param name="address">The request address.</param>
     /// <param name="cancellationToken">The request token.</param>
     /// <returns>The response.</returns>
-    private static async Task<HttpResponseMessage> GetAsync(Uri address, CancellationToken cancellationToken)
+    private static async Task<GetValueAsyncResponse> GetAsync(Uri address, CancellationToken cancellationToken)
     {
-        using var handler = new SocketsHttpHandler();
-        using var invoker = new HttpMessageInvoker(handler, false);
-        using var request = new HttpRequestMessage(HttpMethod.Get, address);
-        return await invoker.SendAsync(request, cancellationToken);
+        using var channel = new PublicBinaryChannel(address);
+        var client = new CacheWireClient(channel);
+        return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "shutdown" }, cancellationToken: cancellationToken);
     }
 
     private sealed class DisposalProbe : IDisposable

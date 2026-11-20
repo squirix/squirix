@@ -36,7 +36,7 @@ public sealed class ServerMetricsTests : ServerSurfaceTestBase
             },
             cancellationToken: cancellationToken);
 
-        var body = await GetWithRetryAsync(new Uri(node.Uri, "/metrics"), TimeSpan.FromMilliseconds(50), 30, cancellationToken);
+        var body = await GetWithRetryAsync(new Uri(node.ManagementUri, "/metrics"), TimeSpan.FromMilliseconds(50), 30, cancellationToken);
         _ = await Assert.That(string.IsNullOrWhiteSpace(body)).IsFalse();
         _ = await Assert.That(body).DoesNotContain("cache=\"", StringComparison.InvariantCulture);
         _ = await Assert.That(body).DoesNotContain("exception_type=", StringComparison.InvariantCulture);

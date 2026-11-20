@@ -442,9 +442,10 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             ElectionTiming = startOptions?.ElectionTiming,
             ServicesConfigure = WithCompactionInterval(startOptions?.ServicesConfigure, startOptions?.ReplicaLogCompactionInterval),
             TrackRequests = startOptions?.TrackRequests ?? false,
+            PartitionFabric = startOptions?.PartitionFabric,
+            ManagementUri = startOptions?.ManagementUri,
             MetricsEnabled = startOptions?.MetricsEnabled ?? false,
             PrometheusMetricsEnabled = startOptions?.PrometheusMetricsEnabled ?? false,
-            Extensions = startOptions?.Extensions,
         };
     }
 

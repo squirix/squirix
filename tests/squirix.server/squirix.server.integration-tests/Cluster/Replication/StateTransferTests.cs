@@ -158,13 +158,13 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         using var sampling = new CancellationTokenSource();
         var peak = PeakUsedBytesAsync(journal, sampling.Token);
 
-        await (Http: HttpClient, Uri: new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics")).WaitUntilValueAsync(
+        await (Http: HttpClient, Uri: new Uri(lag.Cluster[lag.Survivor].ManagementUri, "/metrics")).WaitUntilValueAsync(
             static async (state, token) => (await state.Http.GetStringAsync(state.Uri, token)).Contains("reason=\"journal-full\"", StringComparison.Ordinal),
             Bound,
             cancellationToken);
         await sampling.CancelAsync();
         var highest = await peak;
-        var metrics = await HttpClient.GetStringAsync(new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics"), cancellationToken);
+        var metrics = await HttpClient.GetStringAsync(new Uri(lag.Cluster[lag.Survivor].ManagementUri, "/metrics"), cancellationToken);
         var copy = (await Log(lag.Cluster[lag.Lagging]).GetStatusAsync(cancellationToken)).MemberState;
 
         _ = await Assert.That(metrics).Contains("outcome=\"follower_refused\"", StringComparison.Ordinal);
@@ -419,7 +419,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
             cancellationToken);
         var cache = repaired.GetRequiredService<PhysicalCache<object?>>();
         var status = await Log(repaired).GetStatusAsync(cancellationToken);
-        var metrics = await HttpClient.GetStringAsync(new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics"), cancellationToken);
+        var metrics = await HttpClient.GetStringAsync(new Uri(lag.Cluster[lag.Survivor].ManagementUri, "/metrics"), cancellationToken);
         var (bytes, entries) = await MeasureAsync(repaired, cancellationToken);
         var accounting = repaired.GetRequiredService<IMemoryUsageAccounting>();
 

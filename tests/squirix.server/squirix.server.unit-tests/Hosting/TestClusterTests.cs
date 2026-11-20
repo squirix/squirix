@@ -276,6 +276,8 @@ public sealed class TestClusterTests
 
         public IServiceProvider Services { get; } = new EmptyServiceProvider();
 
+        public Uri ManagementUri => Uri;
+
         public Uri Uri { get; }
 
         internal bool FailShutdown { get; set; }

@@ -198,6 +198,17 @@ public sealed class PartitionFabric : IAsyncDisposable
         this[to, from].Release(ProxyDirection.UpstreamToClient);
     }
 
+    internal async ValueTask<EndPoint> ResolveEndpointAsync(string from, string to, CancellationToken cancellationToken)
+    {
+        if (IsBlackHoled(to))
+        {
+            var unreachable = await HangAsync(cancellationToken).ConfigureAwait(false);
+            await unreachable.DisposeAsync().ConfigureAwait(false);
+        }
+
+        return this[from, to].ListenEndPoint;
+    }
+
     private static async ValueTask<Stream> ConnectAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
     {
         Socket? socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };

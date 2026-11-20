@@ -115,9 +115,9 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         // request the first snapshot directly; if the service already runs one, this call returns and that snapshot is awaited.
         if (!await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken))
             await SnapshotPublicationWait.WaitAsync(ledger, snapshot, previousIndex, Bound, cancellationToken);
-        var fresh = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
+        var fresh = await GetSnapshotAgeSecondsAsync(node.ManagementUri, cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(90));
-        var aged = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
+        var aged = await GetSnapshotAgeSecondsAsync(node.ManagementUri, cancellationToken);
 
         _ = await Assert.That(aged - fresh).IsEqualTo(90d).Within(0.001);
     }
@@ -140,9 +140,9 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         (HttpStatusCode Status, string Body) stalled;
         try
         {
-            fresh = await GetReadyAsync(node.Uri, cancellationToken);
+            fresh = await GetReadyAsync(node.ManagementUri, cancellationToken);
             clock.Advance(new Storage.PersistenceOptions().JournalStallDegradedThreshold);
-            stalled = await GetReadyAsync(node.Uri, cancellationToken);
+            stalled = await GetReadyAsync(node.ManagementUri, cancellationToken);
         }
         finally
         {

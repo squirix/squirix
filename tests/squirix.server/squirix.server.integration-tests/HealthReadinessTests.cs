@@ -50,7 +50,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
 
         await cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), cancellationToken);
 
-        var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
+        var json = await FetchReadyDetailsAsync(node.ManagementUri, cancellationToken);
 
         await AssertJournalReadinessAsync(json);
         await AssertSnapshotReadinessAsync(json);
@@ -76,7 +76,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
 
         if (!await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken))
             await SnapshotPublicationWait.WaitAsync(ledger, snapshot, previousIndex, TimeSpan.FromSeconds(30), cancellationToken);
-        var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
+        var json = await FetchReadyDetailsAsync(node.ManagementUri, cancellationToken);
 
         _ = await Assert.That(json.GetProperty("journalBacklogOps").GetUInt64()).IsEqualTo(0UL);
     }

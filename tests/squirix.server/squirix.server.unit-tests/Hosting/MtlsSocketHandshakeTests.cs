@@ -1,15 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.AspNetCore.Server.Kestrel.Https;
+using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -21,9 +20,9 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>Verifies outbound cluster mTLS handlers complete TLS handshakes with Kestrel internal listeners.</summary>
+/// <summary>Verifies outbound cluster mTLS handlers complete TLS handshakes with native internal listeners.</summary>
 [Immutable]
-public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
+public sealed class MtlsSocketHandshakeTests : ServerUnitTestBase
 {
     /// <summary>Ensures a trusted peer client certificate can complete TLS against the internal mTLS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -87,8 +86,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
     {
         private static readonly List<SslApplicationProtocol> ClientApplicationProtocols =
         [
-            SslApplicationProtocol.Http2,
-            SslApplicationProtocol.Http11,
+            PeerFrames.Protocol,
         ];
 
         private static readonly string[] ExpectedInboundPeerNodeIds = ["node-a"];
@@ -96,7 +94,9 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         private readonly X509CertificateCollection _clientCertificates;
         private readonly SemaphoreSlim _inboundValidations = new(0);
         private readonly RemoteCertificateValidationCallback _validateRemoteServer;
-        private WebApplication? _application;
+        private readonly CancellationTokenSource _stop = new();
+        private readonly Socket _listener = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        private Task _running = Task.CompletedTask;
 
         private MtlsInternalListenerHost(X509Certificate2 serverCertificate, X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string serverNodeId)
         {
@@ -124,12 +124,10 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 
         public async ValueTask DisposeAsync()
         {
-            if (_application != null)
-            {
-                await _application.DisposeAsync();
-                _application = null;
-            }
-
+            await _stop.CancelAsync();
+            await _running.WaitAsync(CancellationToken.None);
+            _listener.Dispose();
+            _stop.Dispose();
             _inboundValidations.Dispose();
             ServerCertificate.Dispose();
             ClientCertificate.Dispose();
@@ -150,21 +148,25 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
                 LoadExportableCertificate(peerClientCertificate),
                 X509CertificateLoader.LoadCertificateFromFile(bundle.CaPath),
                 serverNodeId);
-            var kestrelConfigurator = new KestrelListenConfigurator(internalPort, host);
-
-            var builder = WebApplication.CreateBuilder();
-            _ = builder.WebHost.ConfigureKestrel(kestrelConfigurator.Apply);
-            var application = builder.Build();
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 ListenPortPool.ServerUnitTests.ReleasePort(internalPort);
-                await application.StartAsync(cancellationToken);
-                host._application = application;
+                host._listener.Bind(new IPEndPoint(IPAddress.Loopback, internalPort));
+                host._listener.Listen(4);
+                var options = new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = host.ServerCertificate,
+                    ClientCertificateRequired = true,
+                    ApplicationProtocols = [PeerFrames.Protocol],
+                    RemoteCertificateValidationCallback = (_, cert, _, _) => cert is X509Certificate2 peer && host.ValidateInboundClient(peer),
+                };
+                var listener = new NativeTlsListener(host._listener, options, static (_, _, _, _) => Task.CompletedTask, NullLogger.Instance, 4);
+                host._running = listener.RunAsync(host._stop.Token, host._stop.Token);
                 return host;
             }
             catch
             {
-                await application.DisposeAsync().ConfigureAwait(false);
                 await host.DisposeAsync().ConfigureAwait(false);
                 throw;
             }
@@ -188,20 +190,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 
         internal Task WaitForInboundValidationAsync(CancellationToken cancellationToken) => _inboundValidations.WaitAsync(cancellationToken);
 
-        private void ConfigureHttps(HttpsConnectionAdapterOptions https)
-        {
-            https.ServerCertificate = ServerCertificate;
-            https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
-            https.ClientCertificateValidation = ValidateInboundClient;
-        }
-
-        private void ConfigureListenOptions(ListenOptions listenOptions)
-        {
-            listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-            _ = listenOptions.UseHttps(ConfigureHttps);
-        }
-
-        private bool ValidateInboundClient(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors)
+        private bool ValidateInboundClient(X509Certificate2? certificate)
         {
             try
             {
@@ -222,24 +211,6 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 
             using var copy = new X509Certificate2(certificate);
             return OutboundChains.TryVerify(copy, TimeProvider.System.GetUtcNow(), out var verdict) && string.Equals(verdict.NodeId, ServerNodeId, StringComparison.Ordinal);
-        }
-
-        [Immutable]
-        private sealed class KestrelListenConfigurator
-        {
-            private readonly MtlsInternalListenerHost _host;
-            private readonly int _port;
-
-            internal KestrelListenConfigurator(int port, MtlsInternalListenerHost host)
-            {
-                _port = port;
-                _host = host;
-                Apply = ApplyCore;
-            }
-
-            internal Action<KestrelServerOptions> Apply { get; }
-
-            private void ApplyCore(KestrelServerOptions kestrel) => kestrel.ListenLocalhost(_port, _host.ConfigureListenOptions);
         }
     }
 }

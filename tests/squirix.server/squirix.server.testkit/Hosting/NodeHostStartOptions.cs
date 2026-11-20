@@ -36,6 +36,10 @@ internal sealed class NodeHostStartOptions
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
 
+    internal Squirix.Server.TestKit.Networking.PartitionFabric? PartitionFabric { get; init; }
+
+    internal Uri? ManagementUri { get; init; }
+
     internal bool MetricsEnabled { get; init; }
 
     internal bool PrometheusMetricsEnabled { get; init; }
@@ -46,8 +50,6 @@ internal sealed class NodeHostStartOptions
     internal X509Certificate2? ServerCertificate { get; init; }
 
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
-
-    internal ExtensionOptions? Extensions { get; init; }
 
     /// <summary>Gets the node time source; when set it is registered in DI so cache expiration and other clock consumers read it.</summary>
     internal TimeProvider? TimeProvider { get; init; }

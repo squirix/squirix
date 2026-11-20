@@ -21,7 +21,7 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
         await using var cluster = CreateCluster([new ClusterNode("node-metrics-a", GetNextHttpUri()), new ClusterNode("node-metrics-b", GetNextHttpUri())]);
         var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, MetricsEnabled = true, PrometheusMetricsEnabled = true, ExtraScope = "replication-gauges" };
         var owner = await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken);
-        var uri = owner.Uri;
+        var uri = owner.ManagementUri;
 
         // A new group takes no part until all of its members were up once: the second node completes the topology and seeds it.
         _ = await cluster.StartNodeAsync("node-metrics-b", options, cancellationToken);

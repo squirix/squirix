@@ -1,27 +1,30 @@
 using System;
-using System.Net;
-using System.Net.Http;
+using System.IO;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Mtls;
 
 internal static class InterNodeProbe
 {
-    internal static async Task<HttpStatusCode?> GetValueAsync(Uri uri, CancellationToken cancellationToken)
+    internal static async Task<bool> NegotiatesPeerProtocolAsync(Uri address, CancellationToken cancellationToken)
     {
-        using var handler = LoopbackHttp.CreateHandler();
-        using var client = new HttpClient(handler, false) { BaseAddress = uri };
-        using var request = new HttpRequestMessage(HttpMethod.Post, PeerProtocol.Prefix + "owner/GetValue")
+        using var client = new TcpClient();
+        await client.ConnectAsync(address.DnsSafeHost, address.Port, cancellationToken).ConfigureAwait(false);
+        await using var stream = new SslStream(client.GetStream());
+        var options = new SslClientAuthenticationOptions { TargetHost = address.DnsSafeHost, ApplicationProtocols = [PeerFrames.Protocol] };
+        try
         {
-            Version = HttpVersion.Version20,
-            VersionPolicy = HttpVersionPolicy.RequestVersionExact,
-            Content = new ByteArrayContent([]),
-        };
-        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(PeerProtocol.MediaType);
-        using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        return response.StatusCode;
+            await stream.AuthenticateAsClientAsync(options, cancellationToken).ConfigureAwait(false);
+            return stream.NegotiatedApplicationProtocol == PeerFrames.Protocol;
+        }
+        catch (Exception error) when (error is AuthenticationException or IOException)
+        {
+            return false;
+        }
     }
 }

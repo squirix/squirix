@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -50,5 +49,4 @@ using TUnit.Core;
 [assembly: Rock(typeof(IManifestRetentionFailureMetrics), BuildType.Create)]
 [assembly: Rock(typeof(IRetentionCleanupReadinessStatus), BuildType.Create)]
 [assembly: Rock(typeof(ISnapshotReadinessStatus), BuildType.Create)]
-[assembly: Rock(typeof(IHttpContextAccessor), BuildType.Create)]
 [assembly: ParallelLimiter<Squirix.Server.UnitTests.ServerUnitParallelLimit>]

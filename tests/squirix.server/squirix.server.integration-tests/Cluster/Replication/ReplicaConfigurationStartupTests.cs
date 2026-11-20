@@ -3,8 +3,6 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -47,7 +45,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     /// <summary>
     /// The public hosting path maps both switches from the server options into the node topology, and with them on registers one more
     /// hosted service, the election service; the host is built but not started, so storage stays closed. The cluster mTLS material comes from the testkit instead of process environment variables; nothing else differs from
-    /// <see cref="AspNetCoreExtensions.AddSquirixServerAsync" />.
+    /// <see cref="TestNodeBuilder.ConfigureNodeAsync" />.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -177,8 +175,8 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task PublicHostDisablesFoundationMode(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
-        _ = await builder.AddSquirixServerAsync(
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ApplicationName = "Squirix.Server" });
+        _ = await builder.ConfigureNodeAsync(
             static options =>
             {
                 options.NodeId = "node-a";
@@ -187,7 +185,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             },
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
-        await using var app = builder.Build();
+        using var app = builder.Build();
         var features = app.Services.GetRequiredService<FeatureState>();
         _ = await Assert.That(features.FoundationOnly).IsFalse();
         _ = await Assert.That(features.NetworkReplicationEnabled).IsFalse();
@@ -221,16 +219,8 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             throw new InvalidOperationException("RF1 must not open a replica group log.");
     }
 
-    private static bool HasReplicationEndpoint(ITestNodeHost host)
-    {
-        foreach (var endpoint in host.GetRequiredService<EndpointDataSource>().Endpoints)
-        {
-            if (endpoint is RouteEndpoint route && string.Equals(route.RoutePattern.RawText, PeerProtocol.Prefix + "replication/{operation}", StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
-    }
+    private static bool HasReplicationEndpoint(ITestNodeHost host) =>
+        host.Services.GetService<SquirixReplicationServiceAdapter>() != null && host.GetRequiredService<MtlsOptions>().InternalListenPort > 0;
 
     /// <summary>Builds, without starting, a node of the given three-node topology through the public hosting path.</summary>
     /// <param name="nodes">The topology.</param>
@@ -254,10 +244,9 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             cancellationToken);
         using var identityScope = identity;
         using var material = certificate;
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ApplicationName = "Squirix.Server" });
 
-        _ = await AspNetCoreExtensions.ConfigureSquirixServerBuilderAsync(
-            builder,
+        _ = await builder.ConfigureNodeAsync(
             options =>
             {
                 options.NodeId = nodes[0].NodeId;
@@ -271,7 +260,6 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             },
             null,
             false,
-            null,
             args =>
             {
                 args.MtlsOptions = mtlsOptions;
@@ -285,7 +273,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
                 hostedServices++;
         }
 
-        await using var app = builder.Build();
+        using var app = builder.Build();
         return (app.Services.GetRequiredService<TopologyOptions>(), hostedServices);
     }
 }

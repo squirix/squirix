@@ -1,5 +1,4 @@
 using System;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
@@ -40,8 +39,8 @@ public sealed class InterNodeMtlsTests
         var security = TestNodeSecurityOptions.FromJwtCredentials(credentials);
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
-        var status = await InterNodeProbe.GetValueAsync(cluster.GetUri("nodeB"), cancellationToken);
-        _ = await Assert.That(status).IsEqualTo(HttpStatusCode.NotFound);
+        var negotiated = await InterNodeProbe.NegotiatesPeerProtocolAsync(cluster.GetUri("nodeB"), cancellationToken);
+        _ = await Assert.That(negotiated).IsFalse();
     }
 
     /// <summary>Verifies node B rejects internode forwarding when node A presents a certificate signed by an untrusted CA.</summary>

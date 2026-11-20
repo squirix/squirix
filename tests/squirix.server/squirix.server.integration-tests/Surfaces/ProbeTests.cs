@@ -23,7 +23,7 @@ public sealed class ProbeTests : ServerSurfaceTestBase
             "node-health",
             _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
-        var uri = cluster["node-health"].Uri;
+        var uri = cluster["node-health"].ManagementUri;
 
         var live = await HttpClient.GetAsync(new Uri(uri, "/health/live"), cancellationToken);
         _ = await Assert.That(live.IsSuccessStatusCode).IsTrue();

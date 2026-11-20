@@ -39,7 +39,7 @@ public sealed class HostLoggingTests
         var server = await ServerProcess.StartAsync(false, cancellationToken, (start, token) => ConfigureAsync(start, configuration, token));
         try
         {
-            using var response = await server.HttpClient.GetAsync(new Uri(server.Uri, "/health/live"), cancellationToken);
+            using var response = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/live"), cancellationToken);
             _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         }
         finally
@@ -48,8 +48,8 @@ public sealed class HostLoggingTests
         }
 
         var output = await server.ReadOutputAsync();
-        _ = await Assert.That(output.Contains("Request starting", StringComparison.Ordinal)).IsEqualTo(requestInfo);
-        _ = await Assert.That(output.Contains("Now listening on:", StringComparison.Ordinal)).IsEqualTo(lifetimeInfo);
+        _ = await Assert.That(output.Contains("Management request", StringComparison.Ordinal)).IsEqualTo(requestInfo);
+        _ = await Assert.That(output.Contains("Listening on ", StringComparison.Ordinal)).IsEqualTo(lifetimeInfo);
     }
 
     private static async Task ConfigureAsync(ProcessStartInfo start, int configuration, CancellationToken cancellationToken)
@@ -69,7 +69,7 @@ public sealed class HostLoggingTests
         {
             await File.WriteAllTextAsync(
                 Path.Join(start.WorkingDirectory, "appsettings.json"),
-                """{"Logging":{"LogLevel":{"Default":"Warning","Microsoft.AspNetCore":"Information"}}}""",
+                """{"Logging":{"LogLevel":{"Default":"Warning","Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Information"}}}""",
                 cancellationToken);
         }
 
@@ -77,15 +77,15 @@ public sealed class HostLoggingTests
         {
             await File.WriteAllTextAsync(
                 Path.Join(start.WorkingDirectory, "appsettings.json"),
-                """{"Logging":{"LogLevel":{"Microsoft.AspNetCore":"Warning"}}}""",
+                """{"Logging":{"LogLevel":{"Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Warning"}}}""",
                 cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Join(start.WorkingDirectory, "appsettings.Production.json"),
-                """{"Logging":{"LogLevel":{"Microsoft.AspNetCore":"Information"}}}""",
+                """{"Logging":{"LogLevel":{"Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Information"}}}""",
                 cancellationToken);
         }
 
         if (configuration is EnvironmentConfig or EnvironmentOverFileConfig)
-            start.Environment["Logging__LogLevel__Microsoft.AspNetCore"] = configuration == EnvironmentConfig ? "Information" : "Warning";
+            start.Environment["Logging__LogLevel__Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint"] = configuration == EnvironmentConfig ? "Information" : "Warning";
     }
 }

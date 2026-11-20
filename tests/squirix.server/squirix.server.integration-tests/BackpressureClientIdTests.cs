@@ -35,6 +35,6 @@ public sealed class BackpressureClientIdTests : NodeIntegrationTestBase
 
         var resolver = cluster["node_bp_client"].GetRequiredService<IBackpressureClientIdResolver>();
 
-        _ = await Assert.That(resolver).IsTypeOf<HttpContextClientIdResolver>();
+        _ = await Assert.That(resolver).IsTypeOf<BinaryClientIdResolver>();
     }
 }

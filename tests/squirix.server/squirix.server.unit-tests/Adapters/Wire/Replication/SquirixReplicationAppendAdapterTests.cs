@@ -27,7 +27,7 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
         var payload = CanonicalPayload(1, 7);
         var request = AppendRequest(follower, 1, 7, payload);
 
-        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.HttpContext);
+        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.Context);
 
         _ = await Assert.That((response.Success, response.LastLogIndex)).IsEqualTo((true, 1UL));
         var tail = await GroupLog(follower).GetUncommittedTailAsync(cancellationToken);
@@ -44,7 +44,7 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = AppendRequest(follower, 1, 7, CanonicalPayload(2, 7));
 
-        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.HttpContext);
+        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.Context);
 
         _ = await Assert.That((response.Success, response.RefusalCode, response.Term, response.LastLogIndex)).IsEqualTo((false, RefusalCodes.ChecksumMismatch, 0UL, 0UL));
         var status = await GroupStatusAsync(follower, cancellationToken);
@@ -72,7 +72,7 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
         var secondMemory = request.Entries[1].CanonicalPayload.Memory;
         Array.Fill<byte>(wire, 255);
 
-        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.HttpContext);
+        var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.Context);
         request.Entries[0].CanonicalPayload = ByteString.Empty;
         request.Entries.Clear();
 

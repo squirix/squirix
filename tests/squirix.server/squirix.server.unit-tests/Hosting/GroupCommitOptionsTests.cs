@@ -3,11 +3,12 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -40,10 +41,9 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     public async Task SettingsMapToPersistenceOptions(CancellationToken cancellationToken)
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
-        DevelopmentCertificate.AddTo(builder.Services);
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = "Development" });
         var dataDirectory = Dir;
-        _ = await builder.AddSquirixServerAsync(
+        _ = await builder.ConfigureNodeAsync(
             options =>
             {
                 options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", port));
@@ -54,7 +54,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 
-        await using var app = builder.Build();
+        using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
         _ = await Assert.That(persistence.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.FromMilliseconds(3));
         _ = await Assert.That(persistence.JournalGroupCommitMaxBatch).IsEqualTo(16);
@@ -66,9 +66,8 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     [Test]
     public async Task InvalidJournalFailsHosting(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
-        DevelopmentCertificate.AddTo(builder.Services);
-        var operation = builder.AddSquirixServerAsync(
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = "Development" });
+        var operation = builder.ConfigureNodeAsync(
             static options =>
             {
                 options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));

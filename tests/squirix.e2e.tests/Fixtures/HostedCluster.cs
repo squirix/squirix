@@ -153,6 +153,8 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     internal Uri GetUri(string nodeId) => Cluster[nodeId].Uri;
 
+    internal Uri GetManagementUri(string nodeId) => Cluster[nodeId].ManagementUri;
+
     /// <summary>Gets a value indicating whether a running node opened the internode mTLS listener.</summary>
     /// <param name="nodeId">Node identifier.</param>
     /// <returns><see langword="true" /> when the node listens for internode mTLS traffic.</returns>

@@ -14,6 +14,9 @@ public interface ITestNodeHost : IAsyncDisposable
     /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     string DataDir { get; }
 
+    /// <summary>Gets the separate management listener address.</summary>
+    Uri ManagementUri { get; }
+
     /// <summary>Gets a value indicating whether the internode mTLS listener is enabled for this host.</summary>
     bool HasInterNodeMtlsListener { get; }
 

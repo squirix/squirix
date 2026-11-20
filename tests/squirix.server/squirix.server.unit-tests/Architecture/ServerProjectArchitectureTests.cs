@@ -16,7 +16,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 [Immutable]
 public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 {
-    /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
+    /// <summary>Ensures standalone server bootstrap starts through the public native lifecycle.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task BootstrapSourcesUsePackageHostStartup(CancellationToken cancellationToken)
@@ -24,8 +24,8 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         var sources = await ServerArchitectureFixtures.ReadServerBootstrapSourceTextsAsync(cancellationToken);
         var combined = string.Join(Environment.NewLine, Array.ConvertAll(sources, static source => source.Text));
 
-        _ = await Assert.That(combined).Contains("AddSquirixServerAsync", StringComparison.Ordinal);
-        _ = await Assert.That(combined).Contains("MapSquirixServerAsync", StringComparison.Ordinal);
+        _ = await Assert.That(combined).Contains("SquirixServer.StartAsync", StringComparison.Ordinal);
+        _ = await Assert.That(combined).Contains("server.ApplicationStopping", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures the standalone process host stays separate from the packable server runtime.</summary>
@@ -54,24 +54,10 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
         _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain(static package => package.StartsWith("Grpc.", StringComparison.OrdinalIgnoreCase));
-        var frameworkIncludes = index.GetIncludes("FrameworkReference");
-        _ = await Assert.That(frameworkIncludes).IsNotNull();
-
-        _ = await Assert.That(
-            ServerArchitectureFixtures.CollectUnexpectedMatches(
-                index.GetIncludes("PackageReference"),
-                static include => include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal),
-                ServerArchitectureFixtures.KnownServerPackageDependencyBaseline,
-                StringComparer.Ordinal)).IsEmpty();
-
-        _ = await Assert.That(
-            ServerArchitectureFixtures.CollectUnexpectedMatches(
-                frameworkIncludes,
-                static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal),
-                ServerArchitectureFixtures.KnownServerFrameworkDependencyBaseline,
-                StringComparer.Ordinal)).IsEmpty();
-
-        _ = await Assert.That(frameworkIncludes).Contains(static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
+        _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain(static package => package.StartsWith("Microsoft.AspNetCore.", StringComparison.OrdinalIgnoreCase));
+        var frameworks = index.GetIncludes("FrameworkReference") ?? [];
+        _ = await Assert.That(frameworks).DoesNotContain("Microsoft.AspNetCore.App");
+        _ = await Assert.That(index.GetIncludes("PackageReference")).Contains("Microsoft.Extensions.Hosting");
     }
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>

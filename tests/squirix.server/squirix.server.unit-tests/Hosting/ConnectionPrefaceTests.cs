@@ -5,9 +5,6 @@ using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Connections;
-using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -43,7 +40,7 @@ public sealed class ConnectionPrefaceTests
             },
             null,
             clock);
-        var processing = middleware.OnConnectionAsync(connection);
+        var processing = middleware.OnConnectionAsync(connection.Native);
         clock.Advance(TimeSpan.FromSeconds(5));
         await processing;
         _ = await Assert.That(connection.Aborted).IsTrue();
@@ -478,7 +475,7 @@ public sealed class ConnectionPrefaceTests
             },
             null,
             TimeProvider.System);
-        await middleware.OnConnectionAsync(connection);
+        await middleware.OnConnectionAsync(connection.Native);
         var status = await ReadStatusAsync(connection);
         _ = await Assert.That(status).IsEqualTo(unsupportedVersion ? ConnectionAuthenticationProtocol.UnsupportedVersion : ConnectionAuthenticationProtocol.InvalidCredentials);
         _ = await Assert.That(admitted).IsFalse();
@@ -491,9 +488,8 @@ public sealed class ConnectionPrefaceTests
         var services = new ServiceCollection();
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
-        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
         await using var connection = new ProbeConnection();
-        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
         _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
@@ -507,7 +503,7 @@ public sealed class ConnectionPrefaceTests
             },
             validator,
             TimeProvider.System);
-        await middleware.OnConnectionAsync(connection);
+        await middleware.OnConnectionAsync(connection.Native);
         _ = await Assert.That(await ReadStatusAsync(connection)).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials);
         _ = await Assert.That(admitted).IsFalse();
         _ = await Assert.That(connection.Aborted).IsFalse();
@@ -524,15 +520,14 @@ public sealed class ConnectionPrefaceTests
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
         var clock = new FakeTimeProvider();
-        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), clock, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), clock, provider.GetRequiredService<IServiceScopeFactory>());
         await using var connection = new ProbeConnection();
-        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
         _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
         var held = HoldPermits(validator, 255);
         var middleware = new ConnectionAuthenticationMiddleware(static _ => Task.CompletedTask, validator, clock);
-        var processing = middleware.OnConnectionAsync(connection);
+        var processing = middleware.OnConnectionAsync(connection.Native);
         var available = validator.TryEnter();
         if (available)
             validator.Exit();
@@ -554,9 +549,8 @@ public sealed class ConnectionPrefaceTests
         var services = new ServiceCollection();
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
-        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
         await using var connection = new ProbeConnection();
-        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
         _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
@@ -573,7 +567,7 @@ public sealed class ConnectionPrefaceTests
             TimeProvider.System);
         try
         {
-            await middleware.OnConnectionAsync(connection);
+            await middleware.OnConnectionAsync(connection.Native);
         }
         finally
         {
@@ -615,7 +609,7 @@ public sealed class ConnectionPrefaceTests
             },
             null,
             TimeProvider.System);
-        await middleware.OnConnectionAsync(connection);
+        await middleware.OnConnectionAsync(connection.Native);
         var replyBytes = 0L;
         if (connection.Outgoing.Reader.TryRead(out var reply))
         {
@@ -629,7 +623,7 @@ public sealed class ConnectionPrefaceTests
         _ = await Assert.That(replyBytes).IsEqualTo(0);
     }
 
-    private static int HoldPermits(ConnectionAuthenticationValidator validator, int maximum)
+    private static int HoldPermits(NativeConnectionAuthenticationValidator validator, int maximum)
     {
         var held = 0;
         while (held < maximum && validator.TryEnter())
@@ -637,7 +631,7 @@ public sealed class ConnectionPrefaceTests
         return held;
     }
 
-    private static void ReleasePermits(ConnectionAuthenticationValidator validator, int held)
+    private static void ReleasePermits(NativeConnectionAuthenticationValidator validator, int held)
     {
         for (var i = 0; i < held; i++)
             validator.Exit();
@@ -675,29 +669,36 @@ public sealed class ConnectionPrefaceTests
         return Frames.Read(header, Frames.MaxResponseBytes);
     }
 
-    internal sealed class ProbeConnection : DefaultConnectionContext
+    internal sealed class ProbeConnection : IAsyncDisposable
     {
         internal ProbeConnection()
         {
             Transport = new TransportPipe(Incoming.Reader, Outgoing.Writer);
+            Native = new BinaryConnection(Transport, null, null, CancellationToken.None, CancellationToken.None);
         }
 
         internal Pipe Incoming { get; } = new();
 
         internal Pipe Outgoing { get; } = new();
 
-        internal bool Aborted { get; private set; }
+        internal BinaryConnection Native { get; }
 
-        public override void Abort(ConnectionAbortedException abortReason) => Aborted = true;
+        internal IDuplexPipe Transport { get; set; }
 
-        public override async ValueTask DisposeAsync()
+        internal CancellationToken ConnectionClosed => Native.ConnectionClosed;
+
+        internal bool Aborted => Native.ConnectionClosed.IsCancellationRequested;
+
+        public async ValueTask DisposeAsync()
         {
             await Incoming.Writer.CompleteAsync();
             await Incoming.Reader.CompleteAsync();
             await Outgoing.Writer.CompleteAsync();
             await Outgoing.Reader.CompleteAsync();
-            await base.DisposeAsync();
+            Native.Dispose();
         }
+
+        internal void Abort() => Native.Abort();
     }
 
     private sealed class FlushProbe : PipeWriter
@@ -740,14 +741,5 @@ public sealed class ConnectionPrefaceTests
         public PipeReader Input { get; }
 
         public PipeWriter Output { get; }
-    }
-
-    private sealed class Lifetime : IConnectionLifetimeNotificationFeature
-    {
-        public CancellationToken ConnectionClosedRequested { get; set; }
-
-        public void RequestClose()
-        {
-        }
     }
 }

@@ -1,11 +1,7 @@
 using System;
-using System.Security.Cryptography.X509Certificates;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -13,24 +9,34 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.TestKit.Hosting;
 
 internal static class NodeHost
 {
-    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions options, CancellationToken cancellationToken)
+    internal static async Task<IHost> StartAsync(TopologyOptions cluster, NodeHostStartOptions options, CancellationToken cancellationToken)
     {
         var builder = CreateBuilder(options.ConfigureLogging);
-        var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
-        if (options.ServerCertificate == null)
-            DevelopmentCertificate.AddTo(builder.Services);
-        else
-            AddServerCertificate(builder.Services, options.ServerCertificate);
 
+        var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
+
+        if (options.PeerHandlerFactory is { } factory)
+        {
+            _ = builder.Services.AddSingleton<Func<string, PeerSocketOptions>>(peer =>
+            {
+                var handler = ThrowHelper.Required(factory(peer) as SocketsHttpHandler, "The peer TLS fixture requires a sockets handler.");
+                Func<CancellationToken, ValueTask<System.Net.EndPoint>>? resolve = options.PartitionFabric is { } fabric && !string.Equals(peer, cluster.NodeId, StringComparison.Ordinal)
+                    ? token => fabric.ResolveEndpointAsync(cluster.NodeId, peer, token)
+                    : null;
+                return new PeerSocketOptions(handler.SslOptions, resolve);
+            });
+        }
 
         if (options.TrackRequests)
             InFlightRequestTracker.AddTo(builder.Services);
@@ -38,36 +44,28 @@ internal static class NodeHost
         var app = builder.Build();
         try
         {
-            _ = await ServerHostingComposition.MapServerAsync(app, cancellationToken).ConfigureAwait(false);
+            await ServerHostingComposition.OpenStorageAsync(app.Services, cancellationToken).ConfigureAwait(false);
             await app.StartAsync(cancellationToken).ConfigureAwait(false);
             return app;
         }
         catch
         {
-            await app.DisposeAsync().ConfigureAwait(false);
+            if (app is IAsyncDisposable disposable)
+                await disposable.DisposeAsync().ConfigureAwait(false);
+            else
+                app.Dispose();
             throw;
         }
     }
 
-    private static void AddServerCertificate(IServiceCollection services, X509Certificate2 certificate)
-        => services.AddOptions<KestrelServerOptions>().Configure(kestrel => kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate = certificate));
-
-    private static WebApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
+    private static HostApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
     {
-        // The empty builder registers no configuration sources, so the process environment, appsettings files, user secrets
-        // and data protection stay out of every host; the squirix node reads no configuration keys. Only Kestrel, routing and logging are added back.
-        var builder = WebApplication.CreateEmptyBuilder(
-            new WebApplicationOptions
-            {
-                Args = [],
-                ApplicationName = "Squirix.Server",
-                EnvironmentName = Environments.Production,
-            });
-
-        // Host settings written through UseSetting need one source to land in.
-        _ = builder.Configuration.AddInMemoryCollection();
-        _ = builder.WebHost.UseKestrelCore();
-        _ = builder.Services.AddRouting();
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            DisableDefaults = true,
+            ApplicationName = "Squirix.Server",
+            EnvironmentName = Environments.Production,
+        });
         _ = builder.Services.AddLogging();
         (configureLogging ?? TestHostLogging.Configure).Invoke(builder.Logging);
         return builder;
@@ -87,6 +85,8 @@ internal static class NodeHost
 
         internal void Configure(CompositionArgs args)
         {
+            args.ManagementUri = _options.ManagementUri ?? new Uri("https://127.0.0.1:0");
+            args.ServerCertificate = _options.ServerCertificate ?? DevelopmentCertificate.Shared;
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
@@ -99,7 +99,6 @@ internal static class NodeHost
             args.MtlsOptions = _options.MtlsOptions;
             args.Certificate = _options.Certificate;
             args.FoundationOnly = _options.FoundationOnly;
-            args.Extensions = _options.Extensions;
         }
 
         private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)

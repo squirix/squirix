@@ -22,8 +22,8 @@ public abstract class ServerSurfaceTestBase : IDisposable
     /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 endpoint integration testing.</summary>
     protected HttpClient HttpClient => _httpClient ??= new HttpClient(_socketsHttpHandler ??= LoopbackHttp.CreateHandler(), false)
     {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        DefaultRequestVersion = HttpVersion.Version11,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact,
         Timeout = TimeSpan.FromSeconds(30),
     };
 

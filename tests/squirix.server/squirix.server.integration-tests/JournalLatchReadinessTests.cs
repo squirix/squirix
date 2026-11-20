@@ -38,7 +38,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
             hasJournalCheck |= string.Equals(registration.Name, JournalMaintenanceCheck, StringComparison.Ordinal);
 
         _ = await Assert.That(hasJournalCheck).IsFalse();
-        _ = await Assert.That(await GetReadyStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
+        _ = await Assert.That(await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
     }
 
     /// <summary>A persistent node turns <c language="csharp">/health/ready</c> unhealthy once its journal pipeline latches a failure.</summary>
@@ -48,12 +48,12 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync("node_latch_journal", new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
         var node = cluster["node_latch_journal"];
-        var readyBefore = await GetReadyStatusCodeAsync(node.Uri, cancellationToken);
+        var readyBefore = await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken);
 
         node.GetRequiredService<IJournalCoordinator>().FailJournalPipeline(new IOException("simulated fsync failure"));
 
         _ = await Assert.That(readyBefore).IsEqualTo(HttpStatusCode.OK);
-        _ = await Assert.That(await GetReadyStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+        _ = await Assert.That(await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
 
         // The node cannot make what it accepted durable, and the stop says so instead of looking clean.
         var stopError = await NodeAsyncAssert.ThrowsAsync<IOException>(cluster.StopNodeAsync("node_latch_journal"), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -78,7 +78,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
             throw new InvalidOperationException("the host journal does not expose its stall probe.");
 
-        var before = await GetReadyAsync(node.Uri, cancellationToken);
+        var before = await GetReadyAsync(node.ManagementUri, cancellationToken);
 
         // The node is idle, so its journal thread performs no segment I/O and the test is the only writer of the probe.
         journal.StallProbe.IoStarted(nameof(IJournalSegmentWriter.FlushToDisk));
@@ -86,14 +86,14 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         try
         {
             clock.Advance(persistence.JournalStallDegradedThreshold);
-            stalled = await GetReadyAsync(node.Uri, cancellationToken);
+            stalled = await GetReadyAsync(node.ManagementUri, cancellationToken);
         }
         finally
         {
             journal.StallProbe.IoFinished();
         }
 
-        var after = await GetReadyAsync(node.Uri, cancellationToken);
+        var after = await GetReadyAsync(node.ManagementUri, cancellationToken);
 
         _ = await Assert.That(before).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
         _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Degraded)));

@@ -45,8 +45,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
     protected HttpClient HttpClient => _httpClient ??= new HttpClient(_socketsHttpHandler ??= LoopbackHttp.CreateHandler(), false)
     {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        DefaultRequestVersion = HttpVersion.Version11,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact,
         Timeout = TimeSpan.FromSeconds(30),
     };
 
@@ -459,7 +459,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 MetricsEnabled = options.MetricsEnabled,
                 PrometheusMetricsEnabled = options.PrometheusMetricsEnabled,
                 ServicesConfigure = options.ServicesConfigure,
-                Extensions = options.Extensions,
+                PartitionFabric = options.PartitionFabric,
+                ManagementUri = options.ManagementUri,
                 ElectionTiming = options.ElectionTiming,
                 TimeProvider = options.TimeProvider,
                 BackpressureOptions = options.BackpressureOptions,
