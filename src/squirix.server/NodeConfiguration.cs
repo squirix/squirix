@@ -2,11 +2,12 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Node.Hosting;
+namespace Squirix.Server;
 
 internal static class NodeConfiguration
 {

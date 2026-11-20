@@ -3,10 +3,10 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Transport.Binary;
 
-namespace Squirix.Server.Adapters.Wire.Replication;
+namespace Squirix.Server.Adapters.Endpoint;
 
 internal static class PeerDispatch
 {
