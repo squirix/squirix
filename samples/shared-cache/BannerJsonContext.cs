@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Squirix.AspNetSharedCache;
+namespace Squirix.SharedCacheSample;
 
 /// <summary>Serializes the shared banner for the Squirix client.</summary>
 [JsonSourceGenerationOptions(RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true)]

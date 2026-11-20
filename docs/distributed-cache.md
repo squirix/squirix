@@ -58,4 +58,4 @@ HybridCache adds its own envelope and tag metadata. Replicated sliding renewal r
 Get responses and removed values are not retained in the mutation-outcome budget. Renewal still writes and replicates the entry;
 large values and high request rates can reach server admission limits.
 
-Run the [two-process ASP.NET Core example](../samples/aspnet-hybrid-cache/README.md) to see a fresh application reuse an existing L2 value.
+Run the [two-process HybridCache example](../samples/hybrid-cache/README.md) to see a fresh application reuse an existing L2 value.

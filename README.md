@@ -115,15 +115,12 @@ and [Consistency](docs/consistency.md) for configuration and guarantees.
 ## Microsoft distributed caching
 
 The preview.11 adapter provides `IDistributedCache` and integrates with Microsoft HybridCache as its secondary cache.
-See the [provider guide](docs/distributed-cache.md) and the [ASP.NET Core sample](samples/aspnet-hybrid-cache/README.md).
+See the [provider guide](docs/distributed-cache.md) and the [HybridCache sample](samples/hybrid-cache/README.md).
 
 ## Examples
 
 - [Share a cache between two console processes](https://squirix.io/#example).
-- [Share a cache between ASP.NET Core instances](https://squirix.io/docs/develop/aspnet-core-shared-cache/)
-  ([runnable project](https://github.com/squirix/squirix/tree/develop/samples/aspnet-shared-cache)).
-
-The ASP.NET Core guide and runnable project are in `develop` and use the published `0.1.0-preview.10` SDK.
+- [Share a typed cache across processes](samples/shared-cache/README.md).
 
 ## Documentation
 

@@ -1,3 +1,3 @@
-namespace Squirix.AspNetSharedCache;
+namespace Squirix.SharedCacheSample;
 
 internal sealed record Banner(string Message);
