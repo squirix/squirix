@@ -198,7 +198,6 @@ jobs:
             built: ${{ steps.gate.outputs.build }}
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
             -   name: Set Git Options
@@ -248,7 +247,6 @@ jobs:
             )
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
             -   name: Set Git Options
@@ -295,7 +293,6 @@ jobs:
                 # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
                 shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -368,7 +365,6 @@ jobs:
             github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
             -   name: Set Git Options
@@ -440,7 +436,6 @@ jobs:
             github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
             -   name: Set Git Options
@@ -486,7 +481,6 @@ jobs:
             github.event_name == 'workflow_dispatch'
             )
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -538,7 +532,6 @@ jobs:
                     && '["light", "e2e-multi-node", "e2e-failover", "server-unit", "server-integration"]'
                     || '["light-e2e", "server-unit-failover", "server-integration"]') }}
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -593,7 +586,6 @@ jobs:
                 # Two jobs of similar length; see test-ubuntu.
                 suite: [ desktop-integration, server-unit-e2e ]
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -657,7 +649,6 @@ jobs:
                 suite: [ desktop-integration, server-unit, e2e-cluster ]
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
             -   name: Set Git Options
@@ -696,7 +687,6 @@ jobs:
                 suite: [ arm-client, arm-server ]
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
             -   name: Set Git Options
@@ -726,7 +716,6 @@ jobs:
         outputs:
             built: ${{ steps.gate.outputs.build }}
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             SquirixTargetFramework: net11.0
@@ -772,7 +761,6 @@ jobs:
                 # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
                 shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             SquirixTargetFramework: net11.0
@@ -856,7 +844,6 @@ jobs:
                     || '["light-e2e", "server-unit-failover", "server-integration"]') }}
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             SquirixTargetFramework: net11.0
         steps:
@@ -906,7 +893,6 @@ jobs:
         # PR fast path: these checks run on push/schedule/dispatch only.
         if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -1064,7 +1050,6 @@ jobs:
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
             DOTNET_ENVIRONMENT: Production
-            DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
         steps:
@@ -1219,7 +1204,6 @@ jobs:
             github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
-            DOTNET_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
