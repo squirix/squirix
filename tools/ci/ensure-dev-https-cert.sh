@@ -1,31 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+os="$(uname -s)"
+
+if [[ "${os}" == "Darwin" && -n "${GITHUB_ENV:-}" ]]; then
+    # The runner login keychain can block even when dev-certs is invoked without --trust.
+    umask 077
+    cert_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/squirix-https.XXXXXXXX")"
+    trap 'rm -f -- "${cert_dir}/localhost.key" "${cert_dir}/localhost.pem" "${cert_dir}/localhost.cnf"' EXIT
+    cert_password="$(openssl rand -hex 24)"
+    echo "::add-mask::${cert_password}"
+    cat > "${cert_dir}/localhost.cnf" <<'EOF'
+[req]
+distinguished_name = subject
+[subject]
+[v3]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:localhost
+EOF
+    openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
+        -config "${cert_dir}/localhost.cnf" -extensions v3 \
+        -keyout "${cert_dir}/localhost.key" -out "${cert_dir}/localhost.pem" 2>/dev/null
+    SQUIRIX_DEV_TLS_SECRET="${cert_password}" openssl pkcs12 -export \
+        -in "${cert_dir}/localhost.pem" -inkey "${cert_dir}/localhost.key" \
+        -out "${cert_dir}/localhost.pfx" -passout env:SQUIRIX_DEV_TLS_SECRET
+    {
+        echo "SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1"
+        echo "SQUIRIX_TLS_CERTIFICATE_PATH=${cert_dir}/localhost.pfx"
+        echo "SQUIRIX_TLS_CERTIFICATE_PASSWORD=${cert_password}"
+    } >> "${GITHUB_ENV}"
+    exit 0
+fi
+
 # Ensure the .NET SDK HTTPS development certificate exists.
 dotnet dev-certs https >/dev/null
 
-os="$(uname -s)"
-
-# Windows and macOS show a GUI / keychain password prompt for --trust and hang in CI.
-# Linux can trust without a GUI; OpenSSL then needs SSL_CERT_DIR for the aspnet trust store.
+# Windows and interactive macOS installs can show a trust prompt.
 if [[ "${os}" != "Linux" ]]; then
-    echo "Skipping interactive 'dotnet dev-certs https --trust' on ${os} (CI has no UI for trust prompts)."
+    echo "Skipping interactive 'dotnet dev-certs https --trust' on ${os}."
     if [[ -n "${GITHUB_ENV:-}" ]]; then
         echo "SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1" >> "${GITHUB_ENV}"
-        if [[ "${os}" == "Darwin" ]]; then
-            # Handshakes use a certificate file so native listeners do not access the login keychain.
-            cert_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/squirix-https.XXXXXXXX")"
-            cert_password="$(openssl rand -hex 24)"
-            echo "::add-mask::${cert_password}"
-            dotnet dev-certs https --export-path "${cert_dir}/localhost.pfx" --password "${cert_password}" >/dev/null
-            {
-                echo "SQUIRIX_TLS_CERTIFICATE_PATH=${cert_dir}/localhost.pfx"
-                echo "SQUIRIX_TLS_CERTIFICATE_PASSWORD=${cert_password}"
-            } >> "${GITHUB_ENV}"
-        fi
     fi
     export SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1
-    # Cert exists; OS trust is intentionally not required when SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1.
     exit 0
 fi
 
