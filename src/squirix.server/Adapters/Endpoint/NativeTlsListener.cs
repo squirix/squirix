@@ -59,7 +59,17 @@ internal sealed partial class NativeTlsListener
             while (true)
             {
                 var slot = await slots.Reader.ReadAsync(accepting.Token).ConfigureAwait(false);
-                var socket = await _listener.AcceptAsync(accepting.Token).ConfigureAwait(false);
+                Socket socket;
+                try
+                {
+                    socket = await _listener.AcceptAsync(accepting.Token).ConfigureAwait(false);
+                }
+                catch (SocketException error) when (error.SocketErrorCode is SocketError.ConnectionAborted or SocketError.ConnectionReset)
+                {
+                    // A queued connection can reset before accept completes, particularly on Windows.
+                    _ = slots.Writer.TryWrite(slot);
+                    continue;
+                }
 #pragma warning disable CA2025 // The finally block awaits every occupied slot before disposing the lifetime sources.
                 active[slot] = ServeAsync(socket, slots.Writer, slot, accepting.Token, connections.Token);
 #pragma warning restore CA2025

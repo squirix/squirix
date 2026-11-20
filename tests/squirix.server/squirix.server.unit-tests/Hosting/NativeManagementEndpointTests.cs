@@ -76,7 +76,7 @@ public sealed class NativeManagementEndpointTests
 
     private static async Task<string> ExchangeAsync(IServiceProvider services, string request, IPAddress address)
     {
-        var endpoint = new NativeManagementEndpoint(services, static (_, _) => ValueTask.FromResult(false));
+        var endpoint = new NativeManagementEndpoint(services, static (_, _) => ValueTask.FromResult(false), Microsoft.Extensions.Logging.Abstractions.NullLogger<NativeManagementEndpoint>.Instance);
         var bytes = Encoding.ASCII.GetBytes(request);
         var stream = new MemoryStream();
         await using var lifetime = stream.ConfigureAwait(false);

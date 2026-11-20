@@ -34,14 +34,14 @@ internal sealed partial class NativeManagementEndpoint
 
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
-    private readonly ILogger<NativeManagementEndpoint>? _logger;
+    private readonly ILogger<NativeManagementEndpoint> _logger;
     private readonly IServiceProvider _services;
     private readonly Func<string, CancellationToken, ValueTask<bool>> _authenticateBearer;
 
-    internal NativeManagementEndpoint(IServiceProvider services, Func<string, CancellationToken, ValueTask<bool>> authenticateBearer)
+    internal NativeManagementEndpoint(IServiceProvider services, Func<string, CancellationToken, ValueTask<bool>> authenticateBearer, ILogger<NativeManagementEndpoint> logger)
     {
         _services = services;
-        _logger = services.GetService<ILogger<NativeManagementEndpoint>>();
+        _logger = logger;
         _authenticateBearer = authenticateBearer;
     }
 
@@ -59,8 +59,7 @@ internal sealed partial class NativeManagementEndpoint
 
         if (parsed.Request is not { } request)
             return;
-        if (_logger != null)
-            LogRequest(_logger, request.Path);
+        LogRequest(_logger, request.Path);
         var response = await ExecuteAsync(request, remote.Address, token).ConfigureAwait(false);
         await WriteAsync(stream, response, request.Head, token).ConfigureAwait(false);
     }

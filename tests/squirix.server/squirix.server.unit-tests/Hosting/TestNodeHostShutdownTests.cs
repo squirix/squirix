@@ -95,7 +95,8 @@ public sealed class TestNodeHostShutdownTests
         await entered.Task.WaitAsync(cancellationToken);
 
         await host.AbruptShutdownAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<System.IO.IOException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<Squirix.Transport.Binary.ServerCallException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(Squirix.Transport.Binary.FrameStatus.Unavailable);
     }
 
     /// <summary>A failing app stop still disposes the app and the owned scope, and the stop failure surfaces to the caller.</summary>

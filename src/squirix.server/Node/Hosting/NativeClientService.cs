@@ -52,7 +52,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, null, true) };
         var managementUri = _managementUri ?? ResolveManagementUri(_topology.Uri);
         _ = _services.GetService<PrometheusMetricsScraper>();
-        var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync);
+        var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync, _services.GetRequiredService<ILogger<NativeManagementEndpoint>>());
         var listeners = new List<(Socket Socket, NativeTlsListener Listener)>();
         var sessions = new List<Task>();
 
@@ -79,7 +79,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
             foreach (var (socket, _) in listeners)
                 LogListening(logger, socket.LocalEndPoint);
             foreach (var (_, listener) in listeners)
-                sessions.Add(listener.RunAsync(_graceful.Token, _abort.Token));
+                sessions.Add(RunListenerAsync(listener));
             _run = Task.WhenAll(sessions);
             foreach (var session in sessions)
             {
@@ -171,6 +171,8 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
         {
             Add(IPAddress.Loopback);
+            if (uri.Port == 0 && listeners[^1].Socket.LocalEndPoint is IPEndPoint bound)
+                uri = new UriBuilder(uri) { Port = bound.Port }.Uri;
             if (Socket.OSSupportsIPv6)
                 Add(IPAddress.IPv6Loopback);
             return;
@@ -246,6 +248,20 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
     }
 
     private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
+
+    private async Task RunListenerAsync(NativeTlsListener listener)
+    {
+        try
+        {
+            await listener.RunAsync(_graceful.Token, _abort.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            _services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
+            await _abort.CancelAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
 
 #pragma warning disable CA2000 // Both branches transfer ownership of the returned certificate to the listener service.
     private X509Certificate2 AcquireCertificate() => _suppliedCertificate == null ? LoadCertificate() : new X509Certificate2(_suppliedCertificate);
