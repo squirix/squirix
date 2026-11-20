@@ -145,7 +145,7 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 
 ## HTTPS in containers
 
-Both images bundle a self-signed development PFX at `/https/aspnetapp.pfx` with an empty export password. The source
+Both images bundle a self-signed development PFX at `/https/squirix.pfx` with an empty export password. The source
 image certificate has SANs for `localhost`, `127.0.0.1`, and `squirix-node-a`, `squirix-node-b`, `squirix-node-c`.
 The release image includes the `squirix-node-*-release` names. The server loads the PFX from
 `SQUIRIX_TLS_CERTIFICATE_PATH`.

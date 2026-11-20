@@ -1,6 +1,6 @@
 # Docker client example
 
-A standalone .NET 10 client using the published `squirix` `0.1.0-preview.10` NuGet package.
+A standalone .NET 10 client built with the Squirix SDK from the same checkout as the servers.
 No source project references or changes to the host certificate store are required.
 
 To see what happens after a leader crashes, run the [isolated failover demo](FAILOVER.md).
