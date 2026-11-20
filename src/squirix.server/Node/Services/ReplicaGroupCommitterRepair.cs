@@ -167,7 +167,8 @@ internal static class ReplicaGroupCommitterRepair
         [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The caller owns both tuple members. Every path that does not return them releases them here.")]
         private async ValueTask<(ReplicaFollowerCatchUp? Lease, AsyncLockHolder Guard)> AcquireCatchUpAsync(ReplicaFollowerSender sender, CancellationToken cancellationToken)
         {
-            while (true)
+            // Yield to the other repair targets if a live request twice takes the released sender.
+            for (var attempt = 0; attempt < 2; attempt++)
             {
                 var lease = await committer.BeginCatchUpBoundedAsync(sender, cancellationToken).ConfigureAwait(false);
                 if (lease == null)
@@ -204,6 +205,8 @@ internal static class ReplicaGroupCommitterRepair
                     throw;
                 }
             }
+
+            return default;
         }
 
         private async ValueTask<ReplicaFollowerCatchUp?> BeginCatchUpBoundedAsync(ReplicaFollowerSender sender, CancellationToken cancellationToken)
