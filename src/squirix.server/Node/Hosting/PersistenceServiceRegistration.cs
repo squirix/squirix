@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
@@ -24,8 +23,6 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class PersistenceServiceRegistration
 {
-    private static readonly string[] ReadyHealthCheckTags = ["ready"];
-
     internal static IServiceCollection AddPersistenceServices(this IServiceCollection services, PersistenceOptions options, bool waitForRecovery, bool metricsEnabled = false)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -162,28 +159,22 @@ internal static class PersistenceServiceRegistration
 
     private static void RegisterRuntimeHealthChecks(IServiceCollection services)
     {
-        var journalRecovery = new HealthCheckRegistration(
+        var journalRecovery = new ReadinessCheck(
             "journal_recovery",
-            static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<AsyncManualResetEvent>()),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
+            static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<AsyncManualResetEvent>()));
 
-        var journalMaintenance = new HealthCheckRegistration(
+        var journalMaintenance = new ReadinessCheck(
             "journal_maintenance",
             static sp => new JournalMaintenanceReadinessHealthCheck(
                 sp.GetRequiredService<IJournalCoordinator>(),
                 sp.GetRequiredService<ISnapshotReadinessStatus>(),
                 FindStallProbe(sp.GetRequiredService<JournalCoordinatorHost>().Coordinator),
                 sp.GetRequiredService<PersistenceOptions>().JournalStallDegradedThreshold,
-                ResolveClock(sp)),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
-        var storageRetentionCleanup = new HealthCheckRegistration(
+                ResolveClock(sp)));
+        var storageRetentionCleanup = new ReadinessCheck(
             "storage_retention_cleanup",
-            static sp => new RetentionCleanupReadinessCheck(sp.GetRequiredService<IRetentionCleanupReadinessStatus>()),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
-        _ = services.AddHealthChecks().Add(journalRecovery).Add(journalMaintenance).Add(storageRetentionCleanup);
+            static sp => new RetentionCleanupReadinessCheck(sp.GetRequiredService<IRetentionCleanupReadinessStatus>()));
+        _ = services.AddSingleton(journalRecovery).AddSingleton(journalMaintenance).AddSingleton(storageRetentionCleanup);
     }
 
     /// <summary>Resolves the server clock.</summary>

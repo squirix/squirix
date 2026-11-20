@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -25,9 +25,9 @@ public sealed class RetentionCleanupReadinessCheckTests
         readiness.RecordWriteOutcome(true);
 
         var check = new RetentionCleanupReadinessCheck(readiness);
-        var result = await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+        var result = await check.CheckHealthAsync(CancellationToken.None);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
     }
 
     private static RetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) => new(

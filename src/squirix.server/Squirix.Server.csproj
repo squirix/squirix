@@ -28,7 +28,6 @@
     <ItemGroup>
         <PackageReference Include="Google.Protobuf"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
-        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks"/>
         <PackageReference Include="Microsoft.Extensions.Hosting"/>
         <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect"/>
     </ItemGroup>

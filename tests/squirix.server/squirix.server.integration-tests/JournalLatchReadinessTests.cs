@@ -1,13 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -32,7 +32,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node_latch_ephemeral", new IntegrationStartOptions(), cancellationToken);
         var node = cluster["node_latch_ephemeral"];
 
-        var registrations = node.GetRequiredService<IOptions<HealthCheckServiceOptions>>().Value.Registrations;
+        var registrations = node.GetRequiredService<IEnumerable<ReadinessCheck>>();
         var hasJournalCheck = false;
         foreach (var registration in registrations)
             hasJournalCheck |= string.Equals(registration.Name, JournalMaintenanceCheck, StringComparison.Ordinal);
@@ -62,7 +62,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
 
     /// <summary>
     /// A persistent node reports <c language="csharp">/health/ready</c> degraded while a journal segment I/O call is in progress past the
-    /// threshold and ready again once it returns. The host keeps the default ASP.NET Core status mapping, so degraded answers HTTP 200
+    /// threshold and ready again once it returns. Degraded readiness answers HTTP 200
     /// like healthy and only the body (<c language="text">Degraded</c>) tells them apart.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -95,9 +95,9 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
 
         var after = await GetReadyAsync(node.ManagementUri, cancellationToken);
 
-        _ = await Assert.That(before).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
-        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Degraded)));
-        _ = await Assert.That(after).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
+        _ = await Assert.That(before).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Healthy)));
+        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Degraded)));
+        _ = await Assert.That(after).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Healthy)));
     }
 
     private async Task<(HttpStatusCode Status, string Body)> GetReadyAsync(Uri uri, CancellationToken cancellationToken)

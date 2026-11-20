@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -83,7 +83,7 @@ internal static class WipedCluster
             {
                 foreach (var nodeId in state.NodeIds)
                 {
-                    if ((await state.Cluster[nodeId].ReplicaGroupsAsync(token)).Status != HealthStatus.Healthy)
+                    if ((await state.Cluster[nodeId].ReplicaGroupsAsync(token)).Status != ReadinessStatus.Healthy)
                         return false;
                 }
 
@@ -100,7 +100,7 @@ internal static class WipedCluster
     {
         var (status, description) = await host.ReplicaGroupsAsync(cancellationToken);
 
-        _ = await Assert.That(status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(description).Contains(UnseededText, StringComparison.Ordinal);
     }
 

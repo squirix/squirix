@@ -3,7 +3,6 @@ using System.Net;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -11,6 +10,7 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -149,8 +149,8 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
             journal.StallProbe.IoFinished();
         }
 
-        _ = await Assert.That(fresh).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
-        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Degraded)));
+        _ = await Assert.That(fresh).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Healthy)));
+        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Degraded)));
     }
 
     private async Task<double> GetSnapshotAgeSecondsAsync(Uri uri, CancellationToken cancellationToken)

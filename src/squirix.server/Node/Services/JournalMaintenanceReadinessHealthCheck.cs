@@ -2,8 +2,8 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
@@ -11,7 +11,7 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Reports readiness based on fatal journal failures, and degraded readiness while journal I/O is stalled.</summary>
 [Immutable]
-internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
+internal sealed class JournalMaintenanceReadinessHealthCheck : IReadinessCheck
 {
     private readonly IJournalCoordinator _journal;
     private readonly ISnapshotReadinessStatus _snapshot;
@@ -48,32 +48,32 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
     }
 
     /// <inheritdoc />
-    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    public Task<ReadinessResult> CheckHealthAsync(CancellationToken cancellationToken)
     {
         // A latched pipeline (failed fsync/flush, segment roll, or post-ring apply) cannot commit
         // until restart. Report the reason as type and message only: no exception, so no stack trace in the report.
         if (_journal.GetJournalThreadFailure() is { } failure)
-            return Task.FromResult(HealthCheckResult.Unhealthy($"journal pipeline is latched as failed until restart: {failure.GetType().Name}: {failure.Message}"));
+            return Task.FromResult(ReadinessResult.Unhealthy($"journal pipeline is latched as failed until restart: {failure.GetType().Name}: {failure.Message}"));
 
         var snapshotFailure = _snapshot.CurrentFailure;
         if (_snapshot.HasFatalFailure)
         {
             var cause = snapshotFailure == null ? string.Empty : $" ({snapshotFailure.ExceptionType}: {snapshotFailure.Message})";
-            return Task.FromResult(HealthCheckResult.Unhealthy($"Snapshot trigger service has a fatal failure and takes no further snapshots; restart required{cause}."));
+            return Task.FromResult(ReadinessResult.Unhealthy($"Snapshot trigger service has a fatal failure and takes no further snapshots; restart required{cause}."));
         }
 
         // The node keeps serving and the journal keeps every write, so failing snapshots degrade readiness instead of failing it.
         if (snapshotFailure != null)
         {
             return Task.FromResult(
-                HealthCheckResult.Degraded(
+                ReadinessResult.Degraded(
                     string.Create(
                         CultureInfo.InvariantCulture,
                         $"snapshots failing: {snapshotFailure.ConsecutiveFailures} in a row, last {snapshotFailure.ExceptionType}: {snapshotFailure.Message}")));
         }
 
         // A stalled write or flush is not a failure: commits resume once it returns, so readiness is degraded, not unhealthy.
-        var result = DescribeStalledIo() is { } stalled ? HealthCheckResult.Degraded(stalled) : HealthCheckResult.Healthy("journal maintenance is ready.");
+        var result = DescribeStalledIo() is { } stalled ? ReadinessResult.Degraded(stalled) : ReadinessResult.Healthy("journal maintenance is ready.");
         return Task.FromResult(result);
     }
 
