@@ -7,12 +7,12 @@ using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Logging;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
 /// <summary>Accepts bounded TLS sessions and waits for admitted work before releasing the listener.</summary>
-internal sealed partial class NativeTlsListener
+internal sealed class NativeTlsListener
 {
     private readonly Socket _listener;
     private readonly Func<EndPoint, SslServerAuthenticationOptions> _tls;
@@ -91,11 +91,17 @@ internal sealed partial class NativeTlsListener
         }
     }
 
-    [LoggerMessage(EventId = 3033, Level = LogLevel.Debug, Message = "TLS connection ended before completing its session")]
-    private static partial void LogConnectionFailure(ILogger logger, Exception exception);
+    private static void LogConnectionFailure(ILogger logger, Exception exception)
+    {
+        if (logger.IsEnabled(LogLevel.Debug))
+            Events.LogConnectionFailureEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create());
+    }
 
-    [LoggerMessage(EventId = 3034, Level = LogLevel.Error, Message = "TLS session handler failed")]
-    private static partial void LogSessionFailure(ILogger logger, Exception exception);
+    private static void LogSessionFailure(ILogger logger, Exception exception)
+    {
+        if (logger.IsEnabled(LogLevel.Error))
+            Events.LogSessionFailureEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+    }
 
     private async Task ServeAsync(Socket socket, ChannelWriter<int> slots, int slot, CancellationToken graceful, CancellationToken abort)
     {
@@ -132,5 +138,12 @@ internal sealed partial class NativeTlsListener
         {
             _ = slots.TryWrite(slot);
         }
+    }
+
+    private static class Events
+    {
+        internal static readonly LogEvent LogConnectionFailureEvent = new(3033, nameof(NativeTlsListener.LogConnectionFailure), "TLS connection ended before completing its session");
+
+        internal static readonly LogEvent LogSessionFailureEvent = new(3034, nameof(NativeTlsListener.LogSessionFailure), "TLS session handler failed");
     }
 }

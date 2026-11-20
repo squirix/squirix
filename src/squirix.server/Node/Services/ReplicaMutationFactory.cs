@@ -2,10 +2,10 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Replication;
@@ -426,7 +426,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         }
         catch (InvalidDataException error)
         {
-            ServerLog.ReplicaInconsistentDecision(_log, _groupId, error);
+            ReplicaCommitLog.ReplicaInconsistentDecision(_log, _groupId, error);
             throw;
         }
 

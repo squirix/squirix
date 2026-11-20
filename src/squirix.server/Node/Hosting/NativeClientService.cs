@@ -8,20 +8,19 @@ using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>Owns the node's public TLS socket and drains it before the storage services stop.</summary>
-internal sealed partial class NativeClientService : IHostedService, IAsyncDisposable
+internal sealed class NativeClientService : INodeService, IAsyncDisposable
 {
     private readonly IServiceProvider _services;
     private readonly TopologyOptions _topology;
@@ -54,12 +53,12 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         _certificate = AcquireCertificate();
         ValidateCertificate(_certificate);
         var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, _additionalCertificates, true) };
-        var material = _services.GetRequiredService<MtlsCertificate>();
-        var peerPort = material.Enabled ? _services.GetRequiredService<MtlsOptions>().InternalListenPort : 0;
+        var material = _services.Require<MtlsCertificate>();
+        var peerPort = material.Enabled ? _services.Require<MtlsOptions>().InternalListenPort : 0;
         var (managementUri, managementAddresses) = await ResolveManagementBindingAsync(_certificate, peerPort, cancellationToken).ConfigureAwait(false);
-        var logger = _services.GetRequiredService<ILogger<NativeClientService>>();
-        _ = _services.GetService<PrometheusMetricsScraper>();
-        var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync, _services.GetRequiredService<ILogger<NativeManagementEndpoint>>());
+        var logger = _services.Require<ILoggerFactory>().CreateLogger<NativeClientService>();
+        _ = _services.Find<PrometheusMetricsScraper>();
+        var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync, _services.Require<ILoggerFactory>().CreateLogger<NativeManagementEndpoint>());
         var listeners = new List<(Socket Socket, NativeTlsListener Listener)>();
         var sessions = new List<Task>();
 
@@ -67,18 +66,18 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         {
             AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024, NextConnectionId), listeners);
             var managementIndex = listeners.Count;
-            AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 64), listeners, managementAddresses);
+            AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.Require<ILoggerFactory>().CreateLogger<NativeTlsListener>(), 64), listeners, managementAddresses);
             if (listeners[managementIndex].Socket.LocalEndPoint is IPEndPoint boundManagement)
                 ManagementUri = new UriBuilder(managementUri) { Port = boundManagement.Port }.Uri;
             if (material.Enabled)
             {
                 _peerMaterial = material.Retain();
                 var internalUri = new UriBuilder(_topology.Uri) { Port = peerPort }.Uri;
-                var feature = _services.GetRequiredService<FeatureState>();
+                var feature = _services.Require<FeatureState>();
                 var peer = new NativePeerEndpoint(_services, peerPort, feature.NetworkReplicationEnabled || feature.FoundationOnly);
-                var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.GetRequiredService<ILogger<PeerHandshakeVerifier>>());
+                var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.Require<ILoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
                 var handshake = new InboundPeerHandshake(verifier, material.NodeCertificate!, MtlsTopology.GetRemotePeerNodeIds(_topology));
-                AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 256), listeners);
+                AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.Require<ILoggerFactory>().CreateLogger<NativeTlsListener>(), 256), listeners);
             }
 
             foreach (var (socket, _) in listeners)
@@ -149,11 +148,17 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         return new UriBuilder(Uri.UriSchemeHttps, host, port).Uri;
     }
 
-    [LoggerMessage(EventId = 3037, Level = LogLevel.Warning, Message = "The TLS certificate does not cover the default management origin {ManagementUri}. Set SQUIRIX_MANAGEMENT_URI to a bound address covered by the certificate")]
-    private static partial void LogManagementCertificateMismatch(ILogger logger, Uri managementUri);
+    private static void LogManagementCertificateMismatch(ILogger logger, Uri managementUri)
+    {
+        if (logger.IsEnabled(LogLevel.Warning))
+            Events.LogManagementCertificateMismatchEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(managementUri));
+    }
 
-    [LoggerMessage(EventId = 3036, Level = LogLevel.Information, Message = "Listening on {Endpoint}")]
-    private static partial void LogListening(ILogger logger, EndPoint? endpoint);
+    private static void LogListening(ILogger logger, EndPoint? endpoint)
+    {
+        if (logger.IsEnabled(LogLevel.Information))
+            Events.LogListeningEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(endpoint));
+    }
 
     private static void ValidateCertificate(X509Certificate2 certificate)
     {
@@ -302,7 +307,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         var configured = _managementUri ?? ReadManagementUri();
         var uri = configured ?? ResolveDefaultManagementUri(_topology.Uri, peerPort, certificate.MatchesHostname("localhost"));
         if (configured == null && !certificate.MatchesHostname(uri.IdnHost))
-            LogManagementCertificateMismatch(_services.GetRequiredService<ILogger<NativeClientService>>(), uri);
+            LogManagementCertificateMismatch(_services.Require<ILoggerFactory>().CreateLogger<NativeClientService>(), uri);
         var addresses = await ResolveManagementAddressesAsync(uri, cancellationToken).ConfigureAwait(false);
         return (uri, addresses);
     }
@@ -315,7 +320,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         }
         catch
         {
-            _services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
+            _services.Require<INodeLifetime>().StopApplication();
             await _abort.CancelAsync().ConfigureAwait(false);
             throw;
         }
@@ -348,7 +353,14 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
 
     private ValueTask<bool> AuthenticateManagementAsync(string bearer, CancellationToken cancellationToken)
     {
-        var validator = _services.GetService<NativeConnectionAuthenticationValidator>();
+        var validator = _services.Find<NativeConnectionAuthenticationValidator>();
         return validator == null ? ValueTask.FromResult(false) : validator.ValidateBearerAsync(bearer, cancellationToken);
+    }
+
+    private static class Events
+    {
+        internal static readonly LogEvent LogManagementCertificateMismatchEvent = new(3037, nameof(NativeClientService.LogManagementCertificateMismatch), "The TLS certificate does not cover the default management origin {ManagementUri}. Set SQUIRIX_MANAGEMENT_URI to a bound address covered by the certificate");
+
+        internal static readonly LogEvent LogListeningEvent = new(3036, nameof(NativeClientService.LogListening), "Listening on {Endpoint}");
     }
 }

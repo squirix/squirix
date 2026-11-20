@@ -7,8 +7,8 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -211,7 +211,7 @@ internal sealed class PeerHandshakeVerifier
         var key = new RefusalKey(CertificateDigest.Of(certificate), reason, chainStatus, expectedPeerNodeId);
         var write = ShouldLog(in key, now, out var suppressedBefore);
         if (suppressedBefore > 0)
-            ServerLog.PeerCertificateRefusalsSuppressed(_logger, suppressedBefore, _relogInterval);
+            TransportLog.PeerCertificateRefusalsSuppressed(_logger, suppressedBefore, _relogInterval);
 
         if (!write)
             return;
@@ -221,9 +221,9 @@ internal sealed class PeerHandshakeVerifier
         var issuer = SanitizeName(certificate.Issuer);
         var thumbprint = certificate.GetCertHashString(HashAlgorithmName.SHA256);
         if (expectedPeerNodeId == null)
-            ServerLog.InboundPeerCertificateRefused(_logger, SanitizeName(remoteEndpoint?.ToString() ?? UnknownEndpoint), text, subject, issuer, thumbprint, _relogInterval);
+            TransportLog.InboundPeerCertificateRefused(_logger, SanitizeName(remoteEndpoint?.ToString() ?? UnknownEndpoint), text, subject, issuer, thumbprint, _relogInterval);
         else
-            ServerLog.OutboundPeerCertificateRefused(_logger, expectedPeerNodeId, text, subject, issuer, thumbprint, _relogInterval);
+            TransportLog.OutboundPeerCertificateRefused(_logger, expectedPeerNodeId, text, subject, issuer, thumbprint, _relogInterval);
     }
 
     /// <summary>Decides under the lock whether a refusal is written and how many refusals the interval that just ended suppressed.</summary>

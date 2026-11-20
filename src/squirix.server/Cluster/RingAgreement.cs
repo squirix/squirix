@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
 
@@ -86,6 +86,6 @@ internal sealed class RingAgreement
         }
 
         if (firstForPeer)
-            ServerLog.RingMismatchDetected(_logger, peerNodeId, direction == RingMismatchDirection.Inbound ? "Inbound" : "Outbound", _local.Value, peerFingerprint);
+            TransportLog.RingMismatchDetected(_logger, peerNodeId, direction == RingMismatchDirection.Inbound ? "Inbound" : "Outbound", _local.Value, peerFingerprint);
     }
 }

@@ -8,6 +8,7 @@
     <ItemGroup>
         <Compile Include="..\..\shared\GoldenSnapshotAssert.cs" Link="Shared\GoldenSnapshotAssert.cs"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
+        <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="all"/>
     </ItemGroup>
 

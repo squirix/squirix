@@ -16,7 +16,7 @@ internal static class Correlation
     /// <param name="nodeId">Node identifier.</param>
     /// <param name="method">Optional RPC method name.</param>
     /// <remarks>The current <see cref="Activity" /> is captured by reference; ids are formatted only if a scope provider enumerates the state.</remarks>
-    /// <returns>The scope state to pass to <see cref="Microsoft.Extensions.Logging.ILogger.BeginScope{TState}" />.</returns>
+    /// <returns>The scope state to pass to <see cref="Squirix.Server.Logging.ILogger.BeginScope{TState}" />.</returns>
     internal static IReadOnlyList<KeyValuePair<string, object?>> CreateScopeState(string nodeId, string? method = null) =>
         new StandardScopeState(Activity.Current, nodeId, method);
 

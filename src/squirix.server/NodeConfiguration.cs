@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage;
@@ -12,14 +12,14 @@ namespace Squirix.Server;
 internal static class NodeConfiguration
 {
     internal static async Task ConfigureNodeAsync(
-        IHostApplicationBuilder builder,
+        NodeServices services,
         SquirixServerOptions options,
         Action<CompositionArgs>? configureComposition,
         CancellationToken cancellationToken)
     {
         var persistenceOptions = ResolvePersistenceOptions(options);
         await ServerHostingComposition.ConfigureBuilderAsync(
-            builder,
+            services,
             Configurator.ToClusterConfig(options),
             args =>
             {

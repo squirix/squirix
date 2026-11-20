@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 
@@ -10,18 +10,18 @@ namespace Squirix.Server.Node.Hosting;
 internal static class ReplicaStatusRegistration
 {
     /// <summary>Registers the replica status source and the replica readiness health check.</summary>
-    /// <param name="services">DI service collection.</param>
-    internal static void Add(IServiceCollection services)
+    /// <param name="services">Node component registrations.</param>
+    internal static void Add(NodeServices services)
     {
-        _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<TopologyOptions>(),
-            sp.GetRequiredService<MtlsOptions>(),
-            sp.GetRequiredService<IReplicaGroupLocator>(),
-            sp.GetRequiredService<ReplicaGroupCommitters>().CoordinatorFor,
-            sp.GetRequiredService<TopologyOptions>().NodeId));
-        _ = services.AddSingleton(new ReadinessCheck(
+        _ = services.Own<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
+            sp.Require<ReplicaGroupRegistry>(),
+            sp.Require<TopologyOptions>(),
+            sp.Require<MtlsOptions>(),
+            sp.Require<IReplicaGroupLocator>(),
+            sp.Require<ReplicaGroupCommitters>().CoordinatorFor,
+            sp.Require<TopologyOptions>().NodeId));
+        _ = services.Use(new ReadinessCheck(
             "replica_readiness",
-            static sp => new ReplicaReadinessHealthCheck(sp.GetRequiredService<IReplicaStatusSource>(), sp.GetRequiredService<ReplicationMetrics>())));
+            static sp => new ReplicaReadinessHealthCheck(sp.Require<IReplicaStatusSource>(), sp.Require<ReplicationMetrics>())));
     }
 }

@@ -2,11 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration.Json;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -17,7 +15,6 @@ namespace Squirix.Server;
 [Immutable]
 public sealed class SquirixServer : IAsyncDisposable
 {
-    private const string ApplicationAssemblyName = "Squirix.Server";
     private readonly ApplicationHandle _handle;
 
     private SquirixServer(ApplicationHandle handle)
@@ -50,23 +47,26 @@ public sealed class SquirixServer : IAsyncDisposable
         Configurator.ApplyRuntimeDefaults(options);
         options.Validate();
 
-        var applicationOptions = new HostApplicationBuilderSettings
+        var services = new NodeServices();
+        var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production";
+        var configuration = new ServerLoggingSettings(Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"), Directory.GetCurrentDirectory(), environment);
+        try
         {
-            Args = [],
-            ApplicationName = ApplicationAssemblyName,
-        };
-        var builder = Host.CreateApplicationBuilder(applicationOptions);
-        var defaults = new JsonConfigurationSource
+#pragma warning disable RS0030 // The standalone composition root supplies the console writer to its injected logging factory.
+            _ = services.Own<ILoggerFactory>(_ => new ServerLoggerFactory(configuration, Console.Out.WriteLine));
+#pragma warning restore RS0030
+            await NodeConfiguration.ConfigureNodeAsync(services, options, null, cancellationToken).ConfigureAwait(false);
+        }
+        catch
         {
-            Path = Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"),
-            Optional = true,
-            ReloadOnChange = false,
-        };
-        defaults.ResolveFileProvider();
-        builder.Configuration.Sources.Insert(0, defaults);
+            configuration.Dispose();
+            throw;
+        }
 
-        await NodeConfiguration.ConfigureNodeAsync(builder, options, null, cancellationToken).ConfigureAwait(false);
-        var handle = await ApplicationHandle.StartApplicationAsync(builder.Build(), static (application, token) => ServerHostingComposition.OpenStorageAsync(application.Services, token), cancellationToken).ConfigureAwait(false);
+#pragma warning disable CA2000 // StartApplicationAsync takes ownership, including rollback on startup failure.
+        var application = ServerApplication.Build(services, configuration);
+#pragma warning restore CA2000
+        var handle = await ApplicationHandle.StartApplicationAsync(application, static (app, token) => ServerHostingComposition.OpenStorageAsync(app.Services, token), cancellationToken).ConfigureAwait(false);
         return new SquirixServer(handle);
     }
 
@@ -91,19 +91,19 @@ public sealed class SquirixServer : IAsyncDisposable
     [ThreadSafe]
     internal sealed class ApplicationHandle : IAsyncDisposable
     {
-        private readonly IHost _app;
+        private readonly ServerApplication _app;
         private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _disposeStarted;
 
-        internal ApplicationHandle(IHost app)
+        internal ApplicationHandle(ServerApplication app)
         {
             ArgumentNullException.ThrowIfNull(app);
             _app = app;
         }
 
-        internal Uri ManagementUri => _app.Services.GetRequiredService<NativeClientService>().ManagementUri!;
+        internal Uri ManagementUri => _app.Services.Require<NativeClientService>().ManagementUri!;
 
-        internal CancellationToken ApplicationStopping => _app.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        internal CancellationToken ApplicationStopping => _app.Services.Require<INodeLifetime>().ApplicationStopping;
 
         /// <summary>Stops the server application, then releases the owned host; repeated and concurrent calls share one disposal.</summary>
         /// <returns>A task that completes when the application is disposed.</returns>
@@ -123,12 +123,12 @@ public sealed class SquirixServer : IAsyncDisposable
         /// <param name="configure">Callback applied to the built application before it starts.</param>
         /// <param name="cancellationToken">Cancellation token for startup only; cleanup does not observe it.</param>
         /// <returns>A handle owning the started application.</returns>
-        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(IHost app, Func<IHost, CancellationToken, Task> configure, CancellationToken cancellationToken)
+        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(ServerApplication app, Func<ServerApplication, CancellationToken, Task> configure, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(app);
             ArgumentNullException.ThrowIfNull(configure);
             var handle = new ApplicationHandle(app);
-            var logger = app.Services.GetRequiredService<ILogger<SquirixServer>>();
+            var logger = app.Services.Require<ILoggerFactory>().CreateLogger<SquirixServer>();
 #pragma warning disable CA1031 // The original startup failure is rethrown; cleanup and its logging must never replace it.
             try
             {
@@ -158,7 +158,7 @@ public sealed class SquirixServer : IAsyncDisposable
             // failure has nowhere else to go without global state, so it is discarded by design.
             _ = Isolated.Run(
                 (Logger: logger, Cleanup: cleanupException),
-                static state => ServerLog.HostDisposeFailedAfterStartFailure(state.Logger, state.Cleanup));
+                static state => DiagnosticsLog.HostDisposeFailedAfterStartFailure(state.Logger, state.Cleanup));
         }
 
         private async Task RunDisposeAsync()
@@ -166,24 +166,19 @@ public sealed class SquirixServer : IAsyncDisposable
 #pragma warning disable CA1031 // A failed stop is logged and disposal continues; any other failure is delivered to every caller through the shared task.
             try
             {
-                var logger = _app.Services.GetRequiredService<ILogger<SquirixServer>>();
+                var logger = _app.Services.Require<ILoggerFactory>().CreateLogger<SquirixServer>();
                 try
                 {
-                    // Host.StopAsync cancels this token after HostOptions.ShutdownTimeout; most hosted services honour it, but the journal stop
-                    // ignores it and is bounded by its own budget and stage floors, so a stop can overrun the timeout.
-                    // It is a cancellation request rather than a hard deadline, so no extra bound is added here.
+                    // Journal draining has its own durability budget after the other services have stopped.
                     await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    ServerLog.HostStopFailedOnDispose(logger, ex);
+                    DiagnosticsLog.HostStopFailedOnDispose(logger, ex);
                 }
                 finally
                 {
-                    if (_app is IAsyncDisposable disposable)
-                        await disposable.DisposeAsync().ConfigureAwait(false);
-                    else
-                        _app.Dispose();
+                    await _app.DisposeAsync().ConfigureAwait(false);
                 }
 
                 _disposed.SetResult();

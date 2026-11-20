@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
@@ -18,37 +18,37 @@ namespace Squirix.Server.Node.Endpoint;
 /// <summary>Node-owned endpoint execution services consumed by transport adapters through runtime contracts.</summary>
 internal static class NodeEndpointServiceRegistration
 {
-    extension(IServiceCollection services)
+    extension(NodeServices services)
     {
         /// <summary>Registers inbound endpoint cache routing used by gRPC adapters.</summary>
         /// <param name="persistenceEnabled">When true, registers durable health-ready detail providers.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        internal IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
+        internal NodeServices AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
-            _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>>(static sp =>
-                new InboundEndpointCacheOperations<object?>(sp.GetRequiredService<ILogicalNamespacedCache<object?>>()));
+            _ = services.Own<IInboundEndpointCacheOperations<object?>>(static sp =>
+                new InboundEndpointCacheOperations<object?>(sp.Require<ILogicalNamespacedCache<object?>>()));
             if (persistenceEnabled)
             {
-                _ = services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
+                _ = services.Own<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
                     new HealthReadyDependencies(
-                        sp.GetRequiredService<Ledger>(),
-                        sp.GetRequiredService<IRetentionCleanupReadinessStatus>(),
-                        sp.GetRequiredService<IJournalCoordinator>(),
-                        sp.GetRequiredService<Coordinator>(),
-                        sp.GetRequiredService<TopologyOptions>(),
-                        sp.GetRequiredService<IMemoryUsageAccounting>()),
-                    sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                    sp.GetRequiredService<PressureOptions>(),
-                    sp.GetService<IReplicaStatusSource>(),
-                    sp.GetRequiredService<TimeProvider>()));
+                        sp.Require<Ledger>(),
+                        sp.Require<IRetentionCleanupReadinessStatus>(),
+                        sp.Require<IJournalCoordinator>(),
+                        sp.Require<Coordinator>(),
+                        sp.Require<TopologyOptions>(),
+                        sp.Require<IMemoryUsageAccounting>()),
+                    sp.Require<IMemoryPressureStateEvaluator>(),
+                    sp.Require<PressureOptions>(),
+                    sp.Find<IReplicaStatusSource>(),
+                    sp.Require<TimeProvider>()));
             }
             else
             {
-                _ = services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
-                    sp.GetRequiredService<TopologyOptions>(),
-                    sp.GetRequiredService<IMemoryUsageAccounting>(),
-                    sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                    sp.GetRequiredService<PressureOptions>()));
+                _ = services.Own<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
+                    sp.Require<TopologyOptions>(),
+                    sp.Require<IMemoryUsageAccounting>(),
+                    sp.Require<IMemoryPressureStateEvaluator>(),
+                    sp.Require<PressureOptions>()));
             }
 
             return services;

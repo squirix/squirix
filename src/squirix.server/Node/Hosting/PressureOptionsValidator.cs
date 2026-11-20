@@ -1,23 +1,24 @@
 using System;
-using Microsoft.Extensions.Options;
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
 [Immutable]
-internal sealed class PressureOptionsValidator : IValidateOptions<PressureOptions>
+internal sealed class PressureOptionsValidator : ISettingsRule<PressureOptions>
 {
-    public ValidateOptionsResult Validate(string? name, PressureOptions options)
+    public IReadOnlyList<string> Check(PressureOptions options)
     {
         try
         {
             options.Validate();
-            return ValidateOptionsResult.Success;
+            return [];
         }
         catch (InvalidOperationException ex)
         {
-            return ValidateOptionsResult.Fail(ex.Message);
+            return [ex.Message];
         }
     }
 }

@@ -1,9 +1,5 @@
 using System;
-using System.IdentityModel.Tokens.Jwt;
 using System.Threading.Tasks;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using TUnit.Assertions;
@@ -21,10 +17,10 @@ public sealed class ConnectionTrustTests
     public async Task UnobservedHistoricalKeyIsRejected()
     {
         var options = CreateOptions(out _);
-        var key = new SymmetricSecurityKey(new byte[32]);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var key = new JwtVerificationKey(new byte[32]);
+        var token = new TrustEvidence("issuer", key);
         var expiry = DateTime.MaxValue;
-        var accepted = new ConnectionTrustHistory().TryAuthorize(options, new OpenIdConnectConfiguration(), token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out _);
+        var accepted = new ConnectionTrustHistory().TryAuthorize(options, new JwtMetadata(), token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out _);
         _ = await Assert.That(accepted).IsFalse();
     }
 
@@ -37,25 +33,25 @@ public sealed class ConnectionTrustTests
     public async Task HistoricalLifetimeCannotBeExtended(int issuerMode)
     {
         var options = CreateOptions(out var manager);
-        ConfigureIssuer(options.TokenValidationParameters, issuerMode);
+        ConfigureIssuer(options, issuerMode);
         manager.LastKnownGoodLifetime = TimeSpan.FromMinutes(1);
-        var key = new SymmetricSecurityKey(new byte[32]);
-        var configuration = new OpenIdConnectConfiguration { Issuer = issuerMode == 0 ? "issuer" : "metadata" };
+        var key = new JwtVerificationKey(new byte[32]);
+        var configuration = new JwtMetadata { Issuer = issuerMode == 0 ? "issuer" : "metadata" };
         configuration.SigningKeys.Add(key);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var token = new TrustEvidence("issuer", key);
         var started = DateTime.UnixEpoch;
         var history = new ConnectionTrustHistory();
         var expiry = DateTime.MaxValue;
         var current = history.TryAuthorize(options, configuration, token, started, TimeSpan.MaxValue, ref expiry, out _);
         manager.LastKnownGoodLifetime = TimeSpan.FromHours(1);
         expiry = DateTime.MaxValue;
-        var historical = history.TryAuthorize(options, new OpenIdConnectConfiguration(), token, started.AddSeconds(30), TimeSpan.MaxValue, ref expiry, out var recorded);
+        var historical = history.TryAuthorize(options, new JwtMetadata(), token, started.AddSeconds(30), TimeSpan.MaxValue, ref expiry, out var recorded);
         _ = await Assert.That(current).IsTrue();
         _ = await Assert.That(historical).IsTrue();
         _ = await Assert.That(expiry).IsEqualTo(started.AddMinutes(1));
         _ = await Assert.That(recorded).IsEqualTo(started);
         expiry = DateTime.MaxValue;
-        _ = await Assert.That(history.TryAuthorize(options, new OpenIdConnectConfiguration(), token, started.AddMinutes(1), TimeSpan.MaxValue, ref expiry, out _)).IsFalse();
+        _ = await Assert.That(history.TryAuthorize(options, new JwtMetadata(), token, started.AddMinutes(1), TimeSpan.MaxValue, ref expiry, out _)).IsFalse();
     }
 
     /// <summary>Reused keys retain historical issuer bounds unless the issuer is explicitly trusted as current.</summary>
@@ -68,13 +64,13 @@ public sealed class ConnectionTrustTests
         var options = CreateOptions(out var manager);
         manager.LastKnownGoodLifetime = TimeSpan.FromMinutes(1);
         if (explicitIssuer)
-            options.TokenValidationParameters.ValidIssuer = "previous";
-        var key = new SymmetricSecurityKey(new byte[32]);
-        var original = new OpenIdConnectConfiguration { Issuer = "previous" };
+            options.Issuer = "previous";
+        var key = new JwtVerificationKey(new byte[32]);
+        var original = new JwtMetadata { Issuer = "previous" };
         original.SigningKeys.Add(key);
-        var replacement = new OpenIdConnectConfiguration { Issuer = "replacement" };
+        var replacement = new JwtMetadata { Issuer = "replacement" };
         replacement.SigningKeys.Add(key);
-        var token = new JwtSecurityToken(issuer: "previous") { SigningKey = key };
+        var token = new TrustEvidence("previous", key);
         var history = new ConnectionTrustHistory();
         var expiry = DateTime.MaxValue;
         var observed = history.TryAuthorize(options, original, token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out _);
@@ -97,12 +93,12 @@ public sealed class ConnectionTrustTests
     public async Task CurrentKeyUsesConfiguredIssuer(int issuerMode, bool sameKey, bool expected)
     {
         var options = CreateOptions(out _);
-        ConfigureIssuer(options.TokenValidationParameters, issuerMode);
-        var key = new SymmetricSecurityKey(new byte[32]) { KeyId = "same" };
-        var configuration = new OpenIdConnectConfiguration { Issuer = "metadata" };
+        ConfigureIssuer(options, issuerMode);
+        var key = new JwtVerificationKey(new byte[32]) { KeyId = "same" };
+        var configuration = new JwtMetadata { Issuer = "metadata" };
         configuration.SigningKeys.Add(key);
-        var tokenKey = sameKey ? key : new SymmetricSecurityKey(new byte[32]) { KeyId = "same" };
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = tokenKey };
+        var tokenKey = sameKey ? key : new JwtVerificationKey(new byte[32]) { KeyId = "same" };
+        var token = new TrustEvidence("issuer", tokenKey);
         var expiry = DateTime.MaxValue;
         var accepted = new ConnectionTrustHistory().TryAuthorize(options, configuration, token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out var historical);
         _ = await Assert.That(accepted).IsEqualTo(expected);
@@ -115,15 +111,15 @@ public sealed class ConnectionTrustTests
     public async Task DisabledHistoricalTrustIsRejected()
     {
         var options = CreateOptions(out _);
-        var key = new SymmetricSecurityKey(new byte[32]);
-        var configuration = new OpenIdConnectConfiguration { Issuer = "issuer" };
+        var key = new JwtVerificationKey(new byte[32]);
+        var configuration = new JwtMetadata { Issuer = "issuer" };
         configuration.SigningKeys.Add(key);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var token = new TrustEvidence("issuer", key);
         var history = new ConnectionTrustHistory();
         var expiry = DateTime.MaxValue;
         _ = history.TryAuthorize(options, configuration, token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out _);
-        options.ConfigurationManager = new ConfigurationManager<OpenIdConnectConfiguration>("https://issuer/.well-known/openid-configuration", new OpenIdConnectConfigurationRetriever()) { UseLastKnownGoodConfiguration = false };
-        _ = await Assert.That(history.TryAuthorize(options, new OpenIdConnectConfiguration(), token, DateTime.UnixEpoch.AddSeconds(1), TimeSpan.MaxValue, ref expiry, out _)).IsFalse();
+        options.Metadata = new JwtMetadataSource("https://issuer/.well-known/openid-configuration", true) { UseLastKnownGoodConfiguration = false };
+        _ = await Assert.That(history.TryAuthorize(options, new JwtMetadata(), token, DateTime.UnixEpoch.AddSeconds(1), TimeSpan.MaxValue, ref expiry, out _)).IsFalse();
     }
 
     /// <summary>A reduced LKG lifetime immediately narrows already observed trust.</summary>
@@ -132,15 +128,15 @@ public sealed class ConnectionTrustTests
     {
         var options = CreateOptions(out var manager);
         manager.LastKnownGoodLifetime = TimeSpan.FromHours(1);
-        var key = new SymmetricSecurityKey(new byte[32]);
-        var configuration = new OpenIdConnectConfiguration { Issuer = "issuer" };
+        var key = new JwtVerificationKey(new byte[32]);
+        var configuration = new JwtMetadata { Issuer = "issuer" };
         configuration.SigningKeys.Add(key);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var token = new TrustEvidence("issuer", key);
         var history = new ConnectionTrustHistory();
         var expiry = DateTime.MaxValue;
         _ = history.TryAuthorize(options, configuration, token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out _);
         manager.LastKnownGoodLifetime = TimeSpan.FromMinutes(1);
-        var accepted = history.TryAuthorize(options, new OpenIdConnectConfiguration(), token, DateTime.UnixEpoch.AddSeconds(30), TimeSpan.MaxValue, ref expiry, out _);
+        var accepted = history.TryAuthorize(options, new JwtMetadata(), token, DateTime.UnixEpoch.AddSeconds(30), TimeSpan.MaxValue, ref expiry, out _);
         _ = await Assert.That(accepted).IsTrue();
         _ = await Assert.That(expiry).IsEqualTo(DateTime.UnixEpoch.AddMinutes(1));
     }
@@ -150,9 +146,9 @@ public sealed class ConnectionTrustTests
     public async Task DistinctKeyCannotBorrowCurrentTrust()
     {
         var options = CreateOptions(out _);
-        var configuration = new OpenIdConnectConfiguration { Issuer = "issuer" };
-        configuration.SigningKeys.Add(new SymmetricSecurityKey(new byte[32]));
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = new SymmetricSecurityKey(new byte[32]) };
+        var configuration = new JwtMetadata { Issuer = "issuer" };
+        configuration.SigningKeys.Add(new JwtVerificationKey(new byte[32]));
+        var token = new TrustEvidence("issuer", new JwtVerificationKey(new byte[32]));
         var expiry = DateTime.MaxValue;
         _ = await Assert.That(new ConnectionTrustHistory().TryAuthorize(options, configuration, token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out _)).IsFalse();
     }
@@ -163,14 +159,14 @@ public sealed class ConnectionTrustTests
     {
         var options = CreateOptions(out var manager);
         manager.LastKnownGoodLifetime = TimeSpan.FromHours(1);
-        var key = new SymmetricSecurityKey(new byte[32]);
-        var configuration = new OpenIdConnectConfiguration { Issuer = "issuer" };
+        var key = new JwtVerificationKey(new byte[32]);
+        var configuration = new JwtMetadata { Issuer = "issuer" };
         configuration.SigningKeys.Add(key);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var token = new TrustEvidence("issuer", key);
         var history = new ConnectionTrustHistory();
         var expiry = DateTime.MaxValue;
         _ = history.TryAuthorize(options, configuration, token, DateTime.UnixEpoch, TimeSpan.FromMinutes(1), ref expiry, out _);
-        var accepted = history.TryAuthorize(options, new OpenIdConnectConfiguration(), token, DateTime.UnixEpoch.AddSeconds(30), TimeSpan.FromHours(1), ref expiry, out _);
+        var accepted = history.TryAuthorize(options, new JwtMetadata(), token, DateTime.UnixEpoch.AddSeconds(30), TimeSpan.FromHours(1), ref expiry, out _);
         _ = await Assert.That(accepted).IsTrue();
         _ = await Assert.That(expiry).IsEqualTo(DateTime.UnixEpoch.AddMinutes(1));
     }
@@ -183,19 +179,19 @@ public sealed class ConnectionTrustTests
     public async Task StaticKeyTracksMetadataIssuer(bool explicitIssuer)
     {
         var options = CreateOptions(out _);
-        var key = new SymmetricSecurityKey(new byte[32]);
-        options.TokenValidationParameters.IssuerSigningKey = key;
+        var key = new JwtVerificationKey(new byte[32]);
+        options.SigningKey = key;
         if (explicitIssuer)
-            options.TokenValidationParameters.ValidIssuer = "metadata";
-        var original = new OpenIdConnectConfiguration { Issuer = "metadata" };
-        original.SigningKeys.Add(new SymmetricSecurityKey(new byte[32]));
-        var replacement = new OpenIdConnectConfiguration { Issuer = "replacement" };
-        var token = new JwtSecurityToken(issuer: "metadata") { SigningKey = key };
+            options.Issuer = "metadata";
+        var original = new JwtMetadata { Issuer = "metadata" };
+        original.SigningKeys.Add(new JwtVerificationKey(new byte[32]));
+        var replacement = new JwtMetadata { Issuer = "replacement" };
+        var token = new TrustEvidence("metadata", key);
         var history = new ConnectionTrustHistory();
         var expiry = DateTime.MaxValue;
         var accepted = history.TryAuthorize(options, original, token, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out var historical);
         var changed = history.TryAuthorize(options, replacement, token, DateTime.UnixEpoch.AddSeconds(30), TimeSpan.MaxValue, ref expiry, out var changedHistory);
-        var unknown = new JwtSecurityToken(issuer: "untrusted") { SigningKey = key };
+        var unknown = new TrustEvidence("untrusted", key);
         var unknownAccepted = history.TryAuthorize(options, original, unknown, DateTime.UnixEpoch, TimeSpan.MaxValue, ref expiry, out _);
         _ = await Assert.That(accepted).IsTrue();
         _ = await Assert.That(historical).IsNull();
@@ -221,15 +217,15 @@ public sealed class ConnectionTrustTests
     {
         var options = CreateOptions(out var manager);
         manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(60);
-        options.TokenValidationParameters.ValidIssuer = "issuer";
-        var key = new SymmetricSecurityKey(new byte[32]);
+        options.Issuer = "issuer";
+        var key = new JwtVerificationKey(new byte[32]);
         var history = new ConnectionTrustHistory();
         _ = await Assert.That(ObserveSnapshot(history, options, key, newestFirst ? "B" : "A", newestFirst ? 30 : 0)).IsTrue();
         _ = await Assert.That(ObserveSnapshot(history, options, key, newestFirst ? "A" : "B", newestFirst ? 0 : 30)).IsTrue();
         manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(lifetimeSeconds);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var token = new TrustEvidence("issuer", key);
         var expiry = DateTime.UnixEpoch.AddSeconds(tokenExpirySeconds);
-        var accepted = history.TryAuthorize(options, new OpenIdConnectConfiguration { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(nowSeconds), TimeSpan.MaxValue, ref expiry, out var started);
+        var accepted = history.TryAuthorize(options, new JwtMetadata { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(nowSeconds), TimeSpan.MaxValue, ref expiry, out var started);
         _ = await Assert.That(accepted).IsTrue();
         _ = await Assert.That(expiry).IsEqualTo(DateTime.UnixEpoch.AddSeconds(expectedExpirySeconds));
         _ = await Assert.That(started).IsEqualTo(DateTime.UnixEpoch.AddSeconds(30));
@@ -247,16 +243,16 @@ public sealed class ConnectionTrustTests
     {
         var options = CreateOptions(out var manager);
         manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(60);
-        options.TokenValidationParameters.ValidIssuer = "issuer";
-        var key = new SymmetricSecurityKey(new byte[32]);
+        options.Issuer = "issuer";
+        var key = new JwtVerificationKey(new byte[32]);
         var history = new ConnectionTrustHistory();
         _ = await Assert.That(ObserveSnapshot(history, options, key, "A", 0)).IsTrue();
         _ = await Assert.That(ObserveSnapshot(history, options, key, "B", 30)).IsTrue();
         manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(lifetimeSeconds);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var token = new TrustEvidence("issuer", key);
         var original = DateTime.UnixEpoch.AddSeconds(tokenExpirySeconds);
         var expiry = original;
-        var accepted = history.TryAuthorize(options, new OpenIdConnectConfiguration { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(nowSeconds), TimeSpan.MaxValue, ref expiry, out var started);
+        var accepted = history.TryAuthorize(options, new JwtMetadata { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(nowSeconds), TimeSpan.MaxValue, ref expiry, out var started);
         _ = await Assert.That(accepted).IsFalse();
         _ = await Assert.That(expiry).IsEqualTo(original);
         _ = await Assert.That(started).IsNull();
@@ -272,42 +268,42 @@ public sealed class ConnectionTrustTests
     {
         var options = CreateOptions(out var manager);
         manager.LastKnownGoodLifetime = TimeSpan.FromSeconds(60);
-        options.TokenValidationParameters.ValidIssuer = "issuer";
-        var key = new SymmetricSecurityKey(new byte[32]) { KeyId = "same" };
+        options.Issuer = "issuer";
+        var key = new JwtVerificationKey(new byte[32]) { KeyId = "same" };
         var history = new ConnectionTrustHistory();
         _ = await Assert.That(ObserveSnapshot(history, options, key, "A", 0)).IsTrue();
         _ = await Assert.That(ObserveSnapshot(history, options, key, "B", 30)).IsTrue();
         var actualOptions = mismatch == 0 ? CreateOptions(out _) : options;
-        var actualKey = mismatch == 1 ? new SymmetricSecurityKey(new byte[32]) { KeyId = "same" } : key;
-        var token = new JwtSecurityToken(issuer: mismatch == 2 ? "other" : "issuer") { SigningKey = actualKey };
+        var actualKey = mismatch == 1 ? new JwtVerificationKey(new byte[32]) { KeyId = "same" } : key;
+        var token = new TrustEvidence(mismatch == 2 ? "other" : "issuer", actualKey);
         var original = DateTime.UnixEpoch.AddSeconds(120);
         var expiry = original;
-        var accepted = history.TryAuthorize(actualOptions, new OpenIdConnectConfiguration { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(70), TimeSpan.MaxValue, ref expiry, out var started);
+        var accepted = history.TryAuthorize(actualOptions, new JwtMetadata { Issuer = "C" }, token, DateTime.UnixEpoch.AddSeconds(70), TimeSpan.MaxValue, ref expiry, out var started);
         _ = await Assert.That(accepted).IsFalse();
         _ = await Assert.That(expiry).IsEqualTo(original);
         _ = await Assert.That(started).IsNull();
     }
 
-    private static bool ObserveSnapshot(ConnectionTrustHistory history, JwtValidationOptions options, SecurityKey key, string issuer, int startSeconds)
+    private static bool ObserveSnapshot(ConnectionTrustHistory history, JwtValidationOptions options, JwtVerificationKey key, string issuer, int startSeconds)
     {
-        var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
+        var configuration = new JwtMetadata { Issuer = issuer };
         configuration.SigningKeys.Add(key);
-        var token = new JwtSecurityToken(issuer: "issuer") { SigningKey = key };
+        var token = new TrustEvidence("issuer", key);
         var expiry = DateTime.MaxValue;
         return history.TryAuthorize(options, configuration, token, DateTime.UnixEpoch.AddSeconds(startSeconds), TimeSpan.MaxValue, ref expiry, out _);
     }
 
-    private static void ConfigureIssuer(TokenValidationParameters parameters, int issuerMode)
+    private static void ConfigureIssuer(JwtValidationOptions parameters, int issuerMode)
     {
         if (issuerMode == 1)
-            parameters.ValidIssuer = "issuer";
+            parameters.Issuer = "issuer";
         if (issuerMode == 2)
-            parameters.ValidIssuers = ["issuer"];
+            parameters.AdditionalIssuers = ["issuer"];
     }
 
-    private static JwtValidationOptions CreateOptions(out ConfigurationManager<OpenIdConnectConfiguration> manager)
+    private static JwtValidationOptions CreateOptions(out JwtMetadataSource manager)
     {
-        manager = new ConfigurationManager<OpenIdConnectConfiguration>("https://issuer/.well-known/openid-configuration", new OpenIdConnectConfigurationRetriever());
-        return new JwtValidationOptions { ConfigurationManager = manager };
+        manager = new JwtMetadataSource("https://issuer/.well-known/openid-configuration", true);
+        return new JwtValidationOptions { Metadata = manager };
     }
 }

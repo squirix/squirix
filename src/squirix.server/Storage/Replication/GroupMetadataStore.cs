@@ -3,8 +3,8 @@ using System.Buffers;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
@@ -209,7 +209,7 @@ internal sealed class GroupMetadataStore : IDisposable
 
         var result = FileEx.PublishFile(_tempPath, _path, TimeProvider.System);
         if (result.Attempts > 1)
-            ServerLog.DurablePublishRetried(_log, _tempPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
+            ReplicaCommitLog.DurablePublishRetried(_log, _tempPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
 
         OpenHandle();
         _currentSlot = 0;

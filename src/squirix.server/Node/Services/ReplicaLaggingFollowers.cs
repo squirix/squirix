@@ -1,7 +1,7 @@
 using System;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -46,7 +46,7 @@ internal sealed class ReplicaLaggingFollowers
         if (!_eligibility.TryDemote(replicaIndex, logIndex))
             return;
 
-        ServerLog.ReplicaFollowerDemoted(_log, _groupId, nodeId, logIndex);
+        ReplicaFollowerLog.ReplicaFollowerDemoted(_log, _groupId, nodeId, logIndex);
         _repairs.Enqueue(replicaIndex);
     }
 }

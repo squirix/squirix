@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
@@ -83,7 +83,7 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
     /// <exception cref="InvalidOperationException">The node runs no first start.</exception>
     private static Task FirstStartAsync(ITestNodeHost host)
     {
-        foreach (var service in host.GetRequiredService<IEnumerable<IHostedService>>())
+        foreach (var service in host.GetRequiredService<IEnumerable<INodeService>>())
         {
             if (service is ReplicaGroupBootstrapService { ExecuteTask: { } start })
                 return start;

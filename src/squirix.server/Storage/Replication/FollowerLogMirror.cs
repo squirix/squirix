@@ -2,8 +2,8 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -41,7 +41,7 @@ internal sealed class FollowerLogMirror
         if (pending.Exception is not { } failure || !FollowerLogAppend.FailsReadiness(failure.GetBaseException()))
             return false;
 
-        ServerLog.FollowerLogMirrorFailed(_log, failure.GetBaseException(), _groupId);
+        ReplicaFollowerLog.FollowerLogMirrorFailed(_log, failure.GetBaseException(), _groupId);
         return true;
     }
 
@@ -73,7 +73,7 @@ internal sealed class FollowerLogMirror
             gate.Dispose();
             heldHolder.Dispose();
             var faulted = acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
-            ServerLog.FollowerLogLeakedOnShutdownTimeout(_log, _groupId, _budget, faulted);
+            ReplicaFollowerLog.FollowerLogLeakedOnShutdownTimeout(_log, _groupId, _budget, faulted);
             return null;
         }
     }
@@ -88,6 +88,6 @@ internal sealed class FollowerLogMirror
 
         _journal.Metadata.PendingMirror = null;
         if (finished.Exception is { } failure)
-            ServerLog.FollowerLogMirrorFailedOnDispose(_log, failure.GetBaseException(), _groupId);
+            ReplicaFollowerLog.FollowerLogMirrorFailedOnDispose(_log, failure.GetBaseException(), _groupId);
     }
 }

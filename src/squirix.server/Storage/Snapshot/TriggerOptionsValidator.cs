@@ -1,19 +1,18 @@
 using System;
 using System.Collections.Generic;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot;
 
 [Immutable]
-internal sealed class TriggerOptionsValidator : IValidateOptions<TriggerOptions>
+internal sealed class TriggerOptionsValidator : ISettingsRule<TriggerOptions>
 {
-    public ValidateOptionsResult Validate(string? name, TriggerOptions options)
+    public IReadOnlyList<string> Check(TriggerOptions options)
     {
         var failures = new List<string>();
         CollectTriggerFailures(options, failures);
-        return OptionsValidator.ToResult(failures);
+        return failures;
     }
 
     private static void CollectCounterFailures(TriggerOptions options, List<string> failures)

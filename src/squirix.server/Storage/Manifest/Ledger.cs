@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -214,7 +214,7 @@ internal sealed class Ledger : IDisposable
                 work => work.Execute(this),
                 static (work, ex) => work.OnFailure?.Invoke(ex),
                 stopBudget,
-                () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
+                () => StorageLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
         internal Exception? Failure => Volatile.Read(ref _failure);

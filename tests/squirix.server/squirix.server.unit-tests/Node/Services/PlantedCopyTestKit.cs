@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 
 namespace Squirix.Server.UnitTests.Node.Services;

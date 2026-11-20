@@ -5,18 +5,15 @@ using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Composition;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
@@ -24,7 +21,6 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Node.Replication;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
@@ -36,21 +32,21 @@ internal static class ServerHostingComposition
 {
     internal const string MetricsMeterName = "Squirix";
 
-    /// <summary>Configures the node web host builder from cluster topology and optional composition overrides.</summary>
-    /// <param name="builder">The web application builder.</param>
+    /// <summary>Configures node services from cluster topology and optional composition overrides.</summary>
+    /// <param name="services">The server services.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="configure">Optional composition overrides callback.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when builder configuration finishes.</returns>
     internal static Task ConfigureBuilderAsync(
-        IHostApplicationBuilder builder,
+        NodeServices services,
         TopologyOptions cluster,
         Action<CompositionArgs>? configure = null,
         CancellationToken cancellationToken = default)
     {
         var args = new CompositionArgs();
         configure?.Invoke(args);
-        return ConfigureBuilderCoreAsync(builder, cluster, args, cancellationToken);
+        return ConfigureBuilderCoreAsync(services, cluster, args, cancellationToken);
     }
 
     /// <summary>Locks the data directory, checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
@@ -66,21 +62,21 @@ internal static class ServerHostingComposition
     /// </remarks>
     internal static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        var persistence = services.GetService<PersistenceOptions>();
+        var persistence = services.Find<PersistenceOptions>();
         if (persistence == null)
             return;
 
         // Resolved first so the container disposes the lock last, and so no other process touches the directory from here on.
-        _ = services.GetRequiredService<DataDirectoryLock>();
-        var registry = services.GetService<ReplicaGroupRegistry>();
-        var cluster = services.GetRequiredService<TopologyOptions>();
+        _ = services.Require<DataDirectoryLock>();
+        var registry = services.Find<ReplicaGroupRegistry>();
+        var cluster = services.Require<TopologyOptions>();
         if (cluster.ReplicaCount <= 1)
         {
             await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
         }
         else if (registry != null)
         {
-            var activation = services.GetRequiredService<ReplicaGroupActivation>();
+            var activation = services.Require<ReplicaGroupActivation>();
             await EnsureActivatedTopologyAsync(persistence.DataDir, activation.FingerprintBytes.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
                .ConfigureAwait(false);
         }
@@ -93,59 +89,59 @@ internal static class ServerHostingComposition
     }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
-    /// <param name="services">DI service collection.</param>
-    private static void AddReplicaElection(IServiceCollection services) => _ = services.AddHostedService(static sp =>
+    /// <param name="services">Node component registrations.</param>
+    private static void AddReplicaElection(NodeServices services) => _ = services.RunService(static sp =>
     {
-        var activation = sp.GetRequiredService<ReplicaGroupActivation>();
-        var topology = sp.GetRequiredService<TopologyOptions>();
+        var activation = sp.Require<ReplicaGroupActivation>();
+        var topology = sp.Require<TopologyOptions>();
         return new ReplicaElectionService(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<IReplicaGroupLocator>(),
-            sp.GetRequiredService<IReplicaVoteGateway>(),
-            sp.GetRequiredService<ReplicaGroupCommitters>(),
+            sp.Require<ReplicaGroupRegistry>(),
+            sp.Require<IReplicaGroupLocator>(),
+            sp.Require<IReplicaVoteGateway>(),
+            sp.Require<ReplicaGroupCommitters>(),
             (activation.FingerprintBytes.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
-            sp.GetRequiredService<ILogger<ReplicaElectionService>>())
+            sp.Require<ILoggerFactory>().CreateLogger<ReplicaElectionService>())
         {
-            HostStopping = sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping,
+            HostStopping = sp.Require<INodeLifetime>().ApplicationStopping,
         };
     });
 
     /// <summary>Registers the sweep that expires the keys of the led groups no read touches, through committed tombstones.</summary>
-    /// <param name="services">DI service collection.</param>
-    private static void AddReplicaExpirationSweep(IServiceCollection services) => _ = services.AddHostedService(static sp => new ReplicaExpirationSweepService(
-        sp.GetRequiredService<ReplicaGroupCommitters>(),
-        sp.GetRequiredService<ILocalCacheExpiredKeys>(),
-        sp.GetRequiredService<INodeLocator>(),
-        sp.GetRequiredService<ILogger<ReplicaExpirationSweepService>>()));
+    /// <param name="services">Node component registrations.</param>
+    private static void AddReplicaExpirationSweep(NodeServices services) => _ = services.RunService(static sp => new ReplicaExpirationSweepService(
+        sp.Require<ReplicaGroupCommitters>(),
+        sp.Require<ILocalCacheExpiredKeys>(),
+        sp.Require<INodeLocator>(),
+        sp.Require<ILoggerFactory>().CreateLogger<ReplicaExpirationSweepService>()));
 
     /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
-    /// <param name="services">DI service collection.</param>
-    private static void AddReplicaGroupAppliers(IServiceCollection services) => _ = services.AddSingleton(static sp => new ReplicaGroupAppliers(
-        sp.GetRequiredService<ReplicaGroupRegistry>(),
-        sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
-        sp.GetRequiredService<TopologyOptions>().NodeId,
-        sp.GetRequiredService<ILogger<ReplicaGroupAppliers>>(),
-        sp.GetRequiredService<ReplicationMetrics>()));
+    /// <param name="services">Node component registrations.</param>
+    private static void AddReplicaGroupAppliers(NodeServices services) => _ = services.Own(static sp => new ReplicaGroupAppliers(
+        sp.Require<ReplicaGroupRegistry>(),
+        sp.Require<OwnerLocalCache>().Value,
+        sp.Require<TopologyOptions>().NodeId,
+        sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupAppliers>(),
+        sp.Require<ReplicationMetrics>()));
 
     /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
-    /// <param name="services">DI service collection.</param>
+    /// <param name="services">Node component registrations.</param>
     /// <remarks>The readiness service sends the state transfers, so their registrations come with it.</remarks>
-    private static void AddReplicaGroupReadiness(IServiceCollection services)
+    private static void AddReplicaGroupReadiness(NodeServices services)
     {
         ReplicaTransferRegistration.Add(services);
-        _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
-            sp.GetRequiredService<ReplicaGroupCommitters>(),
-            sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),
-            sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ReplicaCatchUpMetrics>(),
-            sp.GetRequiredService<ReplicaStateTransfers>())
+        _ = services.RunService(static sp => new ReplicaGroupReadinessService(
+            sp.Require<ReplicaGroupCommitters>(),
+            sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupReadinessService>(),
+            sp.Require<TimeProvider>(),
+            sp.Require<ReplicaCatchUpMetrics>(),
+            sp.Require<ReplicaStateTransfers>())
         {
-            Options = sp.GetService<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
+            Options = sp.Find<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
         });
     }
 
     /// <summary>Registers the replica group registry and replication services for an activated node.</summary>
-    /// <param name="services">DI service collection.</param>
+    /// <param name="services">Node component registrations.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="persistence">Resolved persistence options.</param>
     /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
@@ -153,50 +149,49 @@ internal static class ServerHostingComposition
     /// One group per owner whose replica group includes this node (its own group among them); other groups are not opened.
     /// The logs open in <see cref="OpenStorageAsync" />, so any replication RPC fails closed until its log is ready.
     /// </remarks>
-    private static void AddReplicaGroupRegistry(IServiceCollection services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions)
+    private static void AddReplicaGroupRegistry(NodeServices services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions)
     {
         var activation = new ReplicaGroupActivation([.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes]);
-        _ = services.AddSingleton(activation);
+        _ = services.Use(activation);
 
-        _ = services.AddSingleton(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, activation));
+        _ = services.Own(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, activation));
 
-        _ = services.AddSingleton<IReplicaMembership>(static sp => new ReplicaMembership(
-            sp.GetRequiredService<IReplicaGroupLocator>(),
-            sp.GetRequiredService<ReplicaGroupRegistry>().GroupIds));
+        _ = services.Own<IReplicaMembership>(static sp => new ReplicaMembership(
+            sp.Require<IReplicaGroupLocator>(),
+            sp.Require<ReplicaGroupRegistry>().GroupIds));
 
         AddReplicaGroupAppliers(services);
 
         // The cluster locator registered the static leader table; an election-led node replaces it with the table of its election state.
         if (LeadsByElection(cluster))
         {
-            _ = services.Replace(
-                ServiceDescriptor.Singleton<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
-                    sp.GetRequiredService<ReplicaGroupRegistry>(),
-                    sp.GetRequiredService<TopologyOptions>().NodeId,
-                    sp.GetRequiredService<IReplicaGroupLocator>())));
+            _ = services.ReplaceFactory<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
+                    sp.Require<ReplicaGroupRegistry>(),
+                    sp.Require<TopologyOptions>().NodeId,
+                    sp.Require<IReplicaGroupLocator>()));
         }
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committers drain their coordinators on host shutdown.
-        _ = services.AddSingleton(static sp => CreateReplicaGroupCommitters(sp, sp.GetRequiredService<ReplicaGroupActivation>().FingerprintBytes));
+        _ = services.Own(static sp => CreateReplicaGroupCommitters(sp, sp.Require<ReplicaGroupActivation>().FingerprintBytes));
         AddReplicaGroupReadiness(services);
         ReplicaGroupBootstrapRegistration.Add(services);
-        _ = services.AddHostedService(static sp => new ReplicaApplyService(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<ReplicaGroupAppliers>(),
-            sp.GetRequiredService<ReplicaGroupCommitters>(),
-            sp.GetRequiredService<IJournalCoordinator>(),
-            sp.GetRequiredService<ILogger<ReplicaApplyService>>(),
-            sp.GetRequiredService<TimeProvider>()));
-        _ = services.AddSingleton(new ReplicaLogCompactionOptions());
-        _ = services.AddHostedService(static sp => new ReplicaLogCompactionService(
-            sp.GetRequiredService<ReplicaGroupCommitters>(),
-            sp.GetRequiredService<IJournalCoordinator>(),
-            (sp.GetRequiredService<ReplicaLogCompactionOptions>(), ReplicaLogCompactionPolicy.From(sp.GetRequiredService<PersistenceOptions>())),
-            sp.GetRequiredService<ReplicationMetrics>(),
-            (sp.GetRequiredService<ReplicaGroupAppliers>(), sp.GetRequiredService<ReplicaGroupRegistry>()),
-            sp.GetRequiredService<ILogger<ReplicaLogCompactionService>>(),
-            sp.GetRequiredService<TimeProvider>()));
+        _ = services.RunService(static sp => new ReplicaApplyService(
+            sp.Require<ReplicaGroupRegistry>(),
+            sp.Require<ReplicaGroupAppliers>(),
+            sp.Require<ReplicaGroupCommitters>(),
+            sp.Require<IJournalCoordinator>(),
+            sp.Require<ILoggerFactory>().CreateLogger<ReplicaApplyService>(),
+            sp.Require<TimeProvider>()));
+        _ = services.Use(new ReplicaLogCompactionOptions());
+        _ = services.RunService(static sp => new ReplicaLogCompactionService(
+            sp.Require<ReplicaGroupCommitters>(),
+            sp.Require<IJournalCoordinator>(),
+            (sp.Require<ReplicaLogCompactionOptions>(), ReplicaLogCompactionPolicy.From(sp.Require<PersistenceOptions>())),
+            sp.Require<ReplicationMetrics>(),
+            (sp.Require<ReplicaGroupAppliers>(), sp.Require<ReplicaGroupRegistry>()),
+            sp.Require<ILoggerFactory>().CreateLogger<ReplicaLogCompactionService>(),
+            sp.Require<TimeProvider>()));
         AddReplicaExpirationSweep(services);
 
         // Network replication is activated here; automatic failover adds the election drivers, which run for groups of three or more.
@@ -215,46 +210,46 @@ internal static class ServerHostingComposition
     /// Every host that is not network-replication-activated, with or without persistence, also gets the local expiry sweep, since
     /// its local clock decides expiry.
     /// </remarks>
-    /// <param name="services">DI service collection.</param>
+    /// <param name="services">Node component registrations.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="args">Hosting composition overrides for this node.</param>
-    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args)
+    private static void AddSquirixClusterStack(NodeServices services, TopologyOptions cluster, CompositionArgs args)
     {
         _ = services.AddSquirixClusterLocator(cluster);
-        _ = services.AddSingleton(new ReadinessCheck(
-            "ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>())));
+        _ = services.Use(new ReadinessCheck(
+            "ring_agreement", static sp => new RingAgreementHealthCheck(sp.Require<RingAgreement>())));
         _ = services.AddSquirixClusterTransport(cluster, null, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
 
         // Activated hosts expire entries through committed records and the replica sweep; every other host expires by its local clock.
         if (FeatureState.Resolve(cluster, args.FoundationOnly) != FeatureState.Activated)
         {
-            _ = services.AddHostedService(static sp => new LocalExpirationSweepService(
-                sp.GetRequiredService<ILocalCacheExpiredKeys>(),
-                sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<ILogger<LocalExpirationSweepService>>()));
+            _ = services.RunService(static sp => new LocalExpirationSweepService(
+                sp.Require<ILocalCacheExpiredKeys>(),
+                sp.Require<TimeProvider>(),
+                sp.Require<ILoggerFactory>().CreateLogger<LocalExpirationSweepService>()));
         }
 
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
             return;
-        _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
-            sp.GetRequiredService<TopologyOptions>(),
-            sp.GetRequiredService<MtlsOptions>(),
-            sp.GetService<VerifiedPeerCertificates>(),
-            sp.GetService<ReplicaGroupRegistry>(),
-            sp.GetService<IReplicaMembership>(),
-            sp.GetService<ReplicaTransferReceiver>(),
-            sp.GetRequiredService<ICriticalMemoryPressureReader>()));
-        _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
-        _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
-        _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
-        _ = services.AddSingleton<IReplicaBootstrapGateway>(static sp => new ReplicaBootstrapRpcGateway(sp.GetRequiredService<IServerClientPool>()));
-        _ = services.AddSingleton<IReplicaTransferGateway>(static sp => new ReplicaTransferRpcGateway(sp.GetRequiredService<IServerClientPool>()));
+        _ = services.Own(static sp => new SquirixReplicationServiceAdapter(
+            sp.Require<TopologyOptions>(),
+            sp.Require<MtlsOptions>(),
+            sp.Find<VerifiedPeerCertificates>(),
+            sp.Find<ReplicaGroupRegistry>(),
+            sp.Find<IReplicaMembership>(),
+            sp.Find<ReplicaTransferReceiver>(),
+            sp.Require<ICriticalMemoryPressureReader>()));
+        _ = services.Own(static sp => new ReplicaRpcGateway(sp.Require<IServerClientPool>()));
+        _ = services.Own<IReplicaRpcGateway>(static sp => sp.Require<ReplicaRpcGateway>());
+        _ = services.Own<IReplicaVoteGateway>(static sp => sp.Require<ReplicaRpcGateway>());
+        _ = services.Own<IReplicaBootstrapGateway>(static sp => new ReplicaBootstrapRpcGateway(sp.Require<IServerClientPool>()));
+        _ = services.Own<IReplicaTransferGateway>(static sp => new ReplicaTransferRpcGateway(sp.Require<IServerClientPool>()));
     }
 
-    private static async Task ConfigureBuilderCoreAsync(IHostApplicationBuilder builder, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
+    private static async Task ConfigureBuilderCoreAsync(NodeServices services, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(args);
 
@@ -263,7 +258,7 @@ internal static class ServerHostingComposition
         var uri = cluster.Uri;
         var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(cluster, args, persistenceEnabled);
 
-        _ = await builder.Services.AddSquirixValidatedOptionsAsync(
+        _ = await services.AddSquirixValidatedOptionsAsync(
             cluster,
             new ValidatedOptionsArgs
             {
@@ -278,22 +273,21 @@ internal static class ServerHostingComposition
 
         if (args.MetricsEnabled)
         {
-            _ = builder.Services.AddKeyedSingleton<Meter>(MetricsMeterName, static (_, _) => new Meter(MetricsMeterName));
-            _ = builder.Services.AddSingleton(static sp => new PrometheusMetricsScraper(sp.GetRequiredKeyedService<Meter>(MetricsMeterName)));
+            _ = services.Own(static _ => new Meter(MetricsMeterName));
+            _ = services.Own(static sp => new PrometheusMetricsScraper(sp.Require<Meter>()));
         }
 
-        _ = builder.Services.AddSquirixRuntimeServices(args.MetricsEnabled);
-        AddSquirixClusterStack(builder.Services, cluster, args);
-        RegisterPersistenceAndReplication(builder.Services, cluster, persistence, mtlsOptions, args);
+        _ = services.AddSquirixRuntimeServices(args.MetricsEnabled);
+        AddSquirixClusterStack(services, cluster, args);
+        RegisterPersistenceAndReplication(services, cluster, persistence, mtlsOptions, args);
 
-        _ = builder.Services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled);
-        _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
-        var authEnabled = builder.Services.AddSquirixSecurityServices(args.SecurityOptions);
+        _ = services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled);
+        _ = services.AddSquirixNodeEndpointServices(persistenceEnabled);
+        var authEnabled = services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
-        _ = builder.Services.AddSquirixFrameworkServices();
-        args.ServicesConfigure?.Invoke(builder.Services);
-        _ = builder.Services.AddSingleton(sp => new NativeClientService(sp, cluster, FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled, args.ManagementUri, args.ServerCertificate));
-        _ = builder.Services.AddHostedService(static sp => sp.GetRequiredService<NativeClientService>());
+        _ = services.AddSquirixFrameworkServices();
+        _ = services.Own(sp => new NativeClientService(sp, cluster, FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled, args.ManagementUri, args.ServerCertificate));
+        _ = services.RunService(static sp => sp.Require<NativeClientService>());
     }
 
     /// <summary>Creates the committer of a group this node leads.</summary>
@@ -304,28 +298,28 @@ internal static class ServerHostingComposition
     /// <returns>The committer.</returns>
     private static ReplicaGroupCommitter CreateCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint, string groupId, ReplicaGroupState? election)
     {
-        var topology = sp.GetRequiredService<TopologyOptions>();
+        var topology = sp.Require<TopologyOptions>();
         return new ReplicaGroupCommitter(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<IReplicaGroupLocator>(),
-            sp.GetRequiredService<IReplicaRpcGateway>(),
-            sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
+            sp.Require<ReplicaGroupRegistry>(),
+            sp.Require<IReplicaGroupLocator>(),
+            sp.Require<IReplicaRpcGateway>(),
+            sp.Require<OwnerLocalCache>().Value,
             (groupId, topology.NodeId),
             new ReplicaTopologyStamp(fingerprint.AsMemory(), topology.ConfigurationGeneration),
-            sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>())
+            sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupCommitter>())
         {
-            Recovery = sp.GetRequiredService<IJournalCoordinator>(),
-            Applier = sp.GetRequiredService<ReplicaGroupAppliers>().For(groupId),
-            Clock = sp.GetRequiredService<TimeProvider>(),
+            Recovery = sp.Require<IJournalCoordinator>(),
+            Applier = sp.Require<ReplicaGroupAppliers>().For(groupId),
+            Clock = sp.Require<TimeProvider>(),
 
             // The commit and shutdown budgets run on the system clock, so a host clock that never advances cannot park a commit or a dispose.
             BudgetTimeProvider = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
             Election = election,
-            Metrics = sp.GetRequiredService<ReplicationMetrics>(),
+            Metrics = sp.Require<ReplicationMetrics>(),
 
             // A led group waits at most one maintenance interval for its followers and its commit gate, so a stalled group holds back no other.
-            CompactionWaitBudget = sp.GetRequiredService<ReplicaLogCompactionOptions>().Interval,
+            CompactionWaitBudget = sp.Require<ReplicaLogCompactionOptions>().Interval,
         };
     }
 
@@ -335,9 +329,9 @@ internal static class ServerHostingComposition
     /// <returns>The committers, which own the disposal of each committer.</returns>
     private static ReplicaGroupCommitters CreateReplicaGroupCommitters(IServiceProvider sp, ImmutableArray<byte> fingerprint)
     {
-        var topology = sp.GetRequiredService<TopologyOptions>();
-        var owners = sp.GetRequiredService<INodeLocator>();
-        var clock = sp.GetRequiredService<TimeProvider>();
+        var topology = sp.Require<TopologyOptions>();
+        var owners = sp.Require<INodeLocator>();
+        var clock = sp.Require<TimeProvider>();
         if (!LeadsByElection(topology))
         {
             var led = new ReplicaGroupCommitter[1];
@@ -345,16 +339,16 @@ internal static class ServerHostingComposition
             return new ReplicaGroupCommitters(led, topology.NodeId, owners, clock);
         }
 
-        var registry = sp.GetRequiredService<ReplicaGroupRegistry>();
+        var registry = sp.Require<ReplicaGroupRegistry>();
         return new ReplicaGroupCommitters(
             groupId => CreateCommitter(sp, fingerprint, groupId, registry.StateFor(groupId)),
-            sp.GetRequiredService<IGroupLeaderTable>(),
+            sp.Require<IGroupLeaderTable>(),
             topology.NodeId,
             owners,
             clock)
         {
             // The receiver is resolved when a leadership starts: it depends on the committers through the state sink.
-            BeforeLeading = (groupId, cancellationToken) => sp.GetRequiredService<ReplicaTransferReceiver>().ReleaseAsync(groupId, cancellationToken),
+            BeforeLeading = (groupId, cancellationToken) => sp.Require<ReplicaTransferReceiver>().ReleaseAsync(groupId, cancellationToken),
         };
     }
 
@@ -372,15 +366,15 @@ internal static class ServerHostingComposition
 
         return new ReplicaGroupRegistry(
             dataDir,
-            ReplicaGroupMembership.GroupsServedBy(sp.GetRequiredService<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
+            ReplicaGroupMembership.GroupsServedBy(sp.Require<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
             cluster.ReplicaCount,
             activation.FingerprintBytes.AsMemory(),
             cluster.ConfigurationGeneration,
-            sp.GetRequiredService<ILoggerFactory>(),
+            sp.Require<ILoggerFactory>(),
             ReplicaGroupLogOptions(sp))
         {
-            Election = sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
-            ElectionClock = sp.GetRequiredService<TimeProvider>(),
+            Election = sp.Find<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
+            ElectionClock = sp.Require<TimeProvider>(),
             QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
         };
     }
@@ -467,7 +461,7 @@ internal static class ServerHostingComposition
     private static DataDirectoryLock AcquireDataDirectoryLock(IServiceProvider sp, string dataDir)
     {
         var directoryLock = DataDirectoryLock.Acquire(dataDir);
-        var logger = sp.GetRequiredService<ILogger<DataDirectoryLock>>();
+        var logger = sp.Require<ILoggerFactory>().CreateLogger<DataDirectoryLock>();
 
         // Under the lock and before anything opens the files: data written by an earlier version may be readable by other users.
         DataDirectoryPermissions.Outcome tightened;
@@ -482,13 +476,13 @@ internal static class ServerHostingComposition
         }
 
         if (tightened.Tightened > 0)
-            ServerLog.DataDirectoryPermissionsTightened(logger, directoryLock.Directory, tightened.Tightened);
+            StorageLog.DataDirectoryPermissionsTightened(logger, directoryLock.Directory, tightened.Tightened);
 
         if (tightened.RootRefused)
-            ServerLog.DataDirectoryRootNotRestricted(logger, directoryLock.Directory);
+            StorageLog.DataDirectoryRootNotRestricted(logger, directoryLock.Directory);
 
         if (!directoryLock.IsEnforced)
-            ServerLog.DataDirectoryLockNotEnforced(logger, directoryLock.Directory);
+            StorageLog.DataDirectoryLockNotEnforced(logger, directoryLock.Directory);
 
         return directoryLock;
     }
@@ -499,13 +493,13 @@ internal static class ServerHostingComposition
     private static bool LeadsByElection(TopologyOptions cluster) => cluster is { AutomaticFailoverEnabled: true, ReplicaCount: >= 3 };
 
     /// <summary>Registers persistence, follower-group storage, and the replica group registry on the service collection.</summary>
-    /// <param name="services">DI service collection.</param>
+    /// <param name="services">Node component registrations.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="persistence">Resolved persistence options; <see langword="null" /> when persistence is disabled.</param>
     /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
     /// <param name="args">Composition arguments.</param>
     private static void RegisterPersistenceAndReplication(
-        IServiceCollection services,
+        NodeServices services,
         TopologyOptions cluster,
         PersistenceOptions? persistence,
         MtlsOptions mtlsOptions,
@@ -515,7 +509,7 @@ internal static class ServerHostingComposition
             return;
 
         // Registered before every storage component: the container disposes in reverse order of creation, so the lock is released last.
-        _ = services.AddSingleton(sp => AcquireDataDirectoryLock(sp, persistence.DataDir));
+        _ = services.Own(sp => AcquireDataDirectoryLock(sp, persistence.DataDir));
         _ = services.AddPersistenceServices(persistence, args.WaitForRecovery, args.MetricsEnabled);
 
         if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
@@ -532,7 +526,7 @@ internal static class ServerHostingComposition
         IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
         IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
         IdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes,
-        TimeProvider = sp.GetRequiredService<TimeProvider>(),
+        TimeProvider = sp.Require<TimeProvider>(),
 
         // The shutdown budget runs on the system clock, so a host clock that never advances cannot park a dispose.
         ShutdownTimeProvider = TimeProvider.System,
@@ -551,12 +545,12 @@ internal static class ServerHostingComposition
 
         // Refuse an invalid topology while the builder is configured, before the mapped host opens or writes any storage.
         if (!TopologyValidator.TryValidate(cluster, out var topologyFailures))
-            throw new OptionsValidationException(Options.DefaultName, typeof(TopologyOptions), topologyFailures);
+            throw new InvalidOperationException(string.Join("; ", topologyFailures));
 
         var groupIdFailures = new List<string>();
         ReplicaGroupIdLimit.CollectFailures(groupIdFailures, cluster);
         if (groupIdFailures.Count > 0)
-            throw new OptionsValidationException(Options.DefaultName, typeof(TopologyOptions), groupIdFailures);
+            throw new InvalidOperationException(string.Join("; ", groupIdFailures));
 
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
 

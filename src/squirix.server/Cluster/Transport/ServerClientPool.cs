@@ -3,8 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -173,7 +173,7 @@ internal sealed class ServerClientPool : IServerClientPool
         // A callback registered on a lease token may throw; the remaining callbacks have run and disposal must still release the channels and the material.
         var failure = await _closing.CancelAsync().CaptureFailureAsync().ConfigureAwait(false);
         if (failure != null)
-            ServerLog.ClientPoolLeaseCancelFailed(_logger, failure);
+            TransportLog.ClientPoolLeaseCancelFailed(_logger, failure);
     }
 
     private void DisposeChannels()
@@ -185,7 +185,7 @@ internal sealed class ServerClientPool : IServerClientPool
             if (failure == null)
                 _metrics.AddDisposal();
             else
-                ServerLog.ClientPoolChannelDisposeFailed(_logger, failure, nodeId);
+                TransportLog.ClientPoolChannelDisposeFailed(_logger, failure, nodeId);
         }
     }
 
@@ -210,7 +210,7 @@ internal sealed class ServerClientPool : IServerClientPool
         }
         catch (TimeoutException)
         {
-            ServerLog.ClientPoolDrainTimedOut(_logger, _shutdownBudget, _calls.Pending, BusyPeers(drains));
+            TransportLog.ClientPoolDrainTimedOut(_logger, _shutdownBudget, _calls.Pending, BusyPeers(drains));
             return false;
         }
     }
@@ -244,7 +244,7 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         var failure = await _policies[nodeId].CaptureFailureAsync().ConfigureAwait(false);
         if (failure != null)
-            ServerLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
+            TransportLog.ClientPoolPolicyDisposeFailed(_logger, failure, nodeId);
     }
 
     /// <summary>Releases the pool's hold on the mTLS material, or keeps it when a connection may still read the certificates.</summary>
@@ -260,7 +260,7 @@ internal sealed class ServerClientPool : IServerClientPool
         }
         else
         {
-            ServerLog.ClientPoolMaterialLeaked(_logger, _connections.Pending, _shutdownBudget);
+            TransportLog.ClientPoolMaterialLeaked(_logger, _connections.Pending, _shutdownBudget);
             _connections.ReleaseWhenDrained(_materialHold, _logger);
         }
     }

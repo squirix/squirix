@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -51,7 +51,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
                                        .CaptureFailureAsync(static ex => ex is TimeoutException or AggregateException or ObjectDisposedException or IOException or InvalidOperationException)
                                        .ConfigureAwait(false);
         if (failure != null)
-            ServerLog.JournalDisposeFailedOnHostShutdown(_log, failure);
+            DiagnosticsLog.JournalDisposeFailedOnHostShutdown(_log, failure);
 
         _coordinator = null;
     }
@@ -89,7 +89,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         LogRepairs(repairs);
         var policy = new JournalSegmentPolicy(persistence);
         if (!policy.LeavesHeadroomBelowHighWater)
-            ServerLog.JournalSegmentLeavesNoHeadroom(_log, Convert.ToInt32(policy.MaxSegmentBytes / BytesPerMb), Convert.ToInt32(policy.MaxTotalBytes / BytesPerMb), policy.MaxSegmentCount);
+            StorageLog.JournalSegmentLeavesNoHeadroom(_log, Convert.ToInt32(policy.MaxSegmentBytes / BytesPerMb), Convert.ToInt32(policy.MaxTotalBytes / BytesPerMb), policy.MaxSegmentCount);
     }
 
     private void LogRepairs(IReadOnlyList<JournalRepair> repairs)
@@ -100,13 +100,13 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
             switch (repair.Kind)
             {
                 case JournalRepairKind.HeaderRestored:
-                    ServerLog.JournalHeaderRestored(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    StorageLog.JournalHeaderRestored(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
                     break;
                 case JournalRepairKind.TornCreationHeaderRewritten:
-                    ServerLog.JournalTornCreationRewritten(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    StorageLog.JournalTornCreationRewritten(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
                     break;
                 case JournalRepairKind.TornTailTruncated:
-                    ServerLog.JournalTornTailTruncated(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
+                    StorageLog.JournalTornTailTruncated(_log, repair.Path, repair.OriginalLength, repair.DiscardedBytes);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(repairs), repair.Kind, "Unsupported journal repair kind.");

@@ -10,6 +10,8 @@
 
     <ItemGroup>
         <PackageReference Include="JetBrains.Annotations"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting"/>
+        <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
         <PackageReference Include="TUnit" PrivateAssets="all"/>
     </ItemGroup>
 

@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 

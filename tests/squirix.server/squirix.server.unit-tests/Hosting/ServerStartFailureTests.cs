@@ -1,10 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -115,14 +116,14 @@ public sealed class ServerStartFailureTests
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
     }
 
-    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(IHost app, Func<IHost, CancellationToken, Task> configure, CancellationToken cancellationToken) =>
+    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(ServerApplication app, Func<ServerApplication, CancellationToken, Task> configure, CancellationToken cancellationToken) =>
         SquirixServer.ApplicationHandle.StartApplicationAsync(app, configure, cancellationToken).AsTask();
 
-    private static bool IsContainerDisposed(IHost app)
+    private static bool IsContainerDisposed(ServerApplication app)
     {
         try
         {
-            _ = app.Services.GetService<StartProbe>();
+            _ = app.Services.Find<StartProbe>();
             return false;
         }
         catch (ObjectDisposedException)
@@ -131,30 +132,28 @@ public sealed class ServerStartFailureTests
         }
     }
 
-    private static IHost BuildApp(StartProbe probe, Exception? startFailure, EventRecordingLogger? log = null, bool throwingLogger = false, bool observeCancellation = false)
+    private static ServerApplication BuildApp(StartProbe probe, Exception? startFailure, EventRecordingLogger? log = null, bool throwingLogger = false, bool observeCancellation = false)
     {
-        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
-        _ = builder.Logging.ClearProviders();
-        if (log != null)
-            _ = builder.Services.AddSingleton<ILoggerProvider>(_ => new RecordingLoggerProvider(log));
-
+        var services = new NodeServices();
         if (throwingLogger)
-            _ = builder.Services.AddSingleton<ILoggerProvider>(static _ => new ThrowingLoggerProvider());
+            _ = services.Own<ILoggerFactory>(static _ => new FixedLoggerFactory(new ThrowingLogger()));
+        else
+            _ = services.Own<ILoggerFactory>(_ => log == null ? NullLoggerFactory.Instance : new FixedLoggerFactory(log));
 
-        _ = builder.Services.AddSingleton(probe);
-        _ = builder.Services.AddSingleton(static serviceProvider => new ProbeDependency(serviceProvider.GetRequiredService<StartProbe>()));
-        _ = builder.Services.AddSingleton<IHostedService>(serviceProvider =>
+        _ = services.Use(probe);
+        _ = services.Own(static serviceProvider => new ProbeDependency(serviceProvider.Require<StartProbe>()));
+        _ = services.Own<INodeService>(serviceProvider =>
         {
-            _ = serviceProvider.GetRequiredService<ProbeDependency>();
+            _ = serviceProvider.Require<ProbeDependency>();
             return new RunningService(probe);
         });
         if (startFailure != null)
-            _ = builder.Services.AddSingleton<IHostedService>(_ => new FailingService(startFailure));
+            _ = services.Own<INodeService>(_ => new FailingService(startFailure));
 
         if (observeCancellation)
-            _ = builder.Services.AddSingleton<IHostedService>(static _ => new CancellationObservingService());
+            _ = services.Own<INodeService>(static _ => new CancellationObservingService());
 
-        return builder.Build();
+        return ServerApplication.Build(services);
     }
 
     private sealed class StartProbe
@@ -196,7 +195,7 @@ public sealed class ServerStartFailureTests
         private static void Fail() => throw new InvalidOperationException("Probe dependency dispose failure.");
     }
 
-    private sealed class RunningService : IHostedService
+    private sealed class RunningService : INodeService
     {
         private readonly StartProbe _probe;
 
@@ -214,7 +213,7 @@ public sealed class ServerStartFailureTests
         }
     }
 
-    private sealed class FailingService : IHostedService
+    private sealed class FailingService : INodeService
     {
         private readonly Exception _failure;
 
@@ -228,7 +227,7 @@ public sealed class ServerStartFailureTests
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class CancellationObservingService : IHostedService
+    private sealed class CancellationObservingService : INodeService
     {
         public Task StartAsync(CancellationToken cancellationToken)
         {
@@ -237,15 +236,6 @@ public sealed class ServerStartFailureTests
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-    }
-
-    private sealed class ThrowingLoggerProvider : ILoggerProvider
-    {
-        public ILogger CreateLogger(string categoryName) => new ThrowingLogger();
-
-        public void Dispose()
-        {
-        }
     }
 
     private sealed class ThrowingLogger : ILogger

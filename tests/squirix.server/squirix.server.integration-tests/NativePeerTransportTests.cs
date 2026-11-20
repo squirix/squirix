@@ -5,11 +5,11 @@ using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Binary;
@@ -120,7 +120,7 @@ public sealed class NativePeerTransportTests
         var options = new TopologyOptions(peers) { NodeId = name, Uri = port.HttpUri };
         var material = await identity.ResolveNodeStartupForBindAsync(options, TestNodeProfile.Normal, null, cancellationToken);
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
-        await ServerHostingComposition.ConfigureBuilderAsync(builder, options, Configure, cancellationToken);
+        await TestNodeServices.ConfigureBuilderAsync(builder.Services, options, Configure, cancellationToken);
         void Configure(CompositionArgs args)
         {
             args.MtlsOptions = material.Options;

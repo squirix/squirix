@@ -1,12 +1,11 @@
 using System;
 using System.Diagnostics.Metrics;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -23,131 +22,127 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class RuntimeServiceRegistration
 {
-    extension(IServiceCollection services)
+    extension(NodeServices services)
     {
-        internal IServiceCollection AddSquirixRuntimeServices(bool metricsEnabled)
+        internal NodeServices AddSquirixRuntimeServices(bool metricsEnabled)
         {
             _ = services.AddRequestContextServices();
-            _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => sp.GetRequiredService<AdmissionOptions>().HasPerClientLimits
-                ? new BinaryClientIdResolver(sp.GetRequiredService<BinaryRequestAccessor>())
+            _ = services.Own<IBackpressureClientIdResolver>(static sp => sp.Require<AdmissionOptions>().HasPerClientLimits
+                ? new BinaryClientIdResolver(sp.Require<BinaryRequestAccessor>())
                 : SharedClientIdResolver.Instance);
-            _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(
-                sp.GetRequiredService<AdmissionOptions>(),
-                sp.GetRequiredService<BackpressureMetrics>(),
-                sp.GetRequiredService<TimeProvider>()));
-            _ = services.AddSingleton<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.GetRequiredService<IOptions<PressureOptions>>().Value));
-            _ = services.AddSingleton(static sp => new MemoryUsageAccounting(sp.GetRequiredService<ILocalCacheStats>()));
-            _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
+            _ = services.Own<IBackpressureGate>(static sp => new AdmissionGate(
+                sp.Require<AdmissionOptions>(),
+                sp.Require<BackpressureMetrics>(),
+                sp.Require<TimeProvider>()));
+            _ = services.Own<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.Require<PressureOptions>()));
+            _ = services.Own(static sp => new MemoryUsageAccounting(sp.Require<ILocalCacheStats>()));
+            _ = services.Own<IMemoryUsageAccounting>(static sp => sp.Require<MemoryUsageAccounting>());
             _ = services.AddObservabilityServices();
-            _ = services.AddSingleton(static sp => new PressureGate(
-                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<IMemoryUsageAccounting>(),
-                sp.GetRequiredService<TopologyOptions>().NodeId,
-                sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
-                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<IMemoryUsageAccounting>()));
-            _ = services.AddSingleton<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());
+            _ = services.Own(static sp => new PressureGate(
+                sp.Require<IMemoryPressureStateEvaluator>(),
+                sp.Require<IMemoryUsageAccounting>(),
+                sp.Require<TopologyOptions>().NodeId,
+                sp.Find<Meter>()));
+            _ = services.Own<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
+                sp.Require<IMemoryPressureStateEvaluator>(),
+                sp.Require<IMemoryUsageAccounting>()));
+            _ = services.Own<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());
             _ = services.AddLocalCacheServices();
 
             if (metricsEnabled)
                 _ = services.AddMetricsHostedServices();
-            _ = services.AddSingleton<ILocalCacheRecovery<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-            _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-            _ = services.AddSingleton<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(
-                sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
-                sp.GetRequiredService<CacheExpiryAuthority>()));
+            _ = services.Own<ILocalCacheRecovery<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
+            _ = services.Own<ILocalCacheSnapshotReader<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
+            _ = services.Own<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(
+                sp.Require<ILocalCacheSnapshotReader<object?>>(),
+                sp.Require<CacheExpiryAuthority>()));
 
             _ = services.AddRequestRoutingServices();
 
             return services;
         }
 
-        private IServiceCollection AddRequestContextServices()
+        private NodeServices AddRequestContextServices()
         {
-            _ = services.AddSingleton<RemoteInvocationContextAccessor>();
-            _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
-            _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
-            _ = services.AddSingleton<BinaryRequestAccessor>();
+            _ = services.Own(static _ => new RemoteInvocationContextAccessor());
+            _ = services.Own<IRemoteInvocationScopeFactory>(static sp => sp.Require<RemoteInvocationContextAccessor>());
+            _ = services.Own<IRemoteInvocationState>(static sp => sp.Require<RemoteInvocationContextAccessor>());
+            _ = services.Own(static _ => new BinaryRequestAccessor());
             return services;
         }
 
-        private IServiceCollection AddRequestRoutingServices()
+        private NodeServices AddRequestRoutingServices()
         {
-            _ = services.AddSingleton(static sp => CreateOwnerRouter(sp));
-            _ = services.AddSingleton(static sp => new OwnerRpcForwarder(
-                sp.GetRequiredService<IServerClientPool>(),
-                sp.GetRequiredService<IBackpressureGate>(),
-                sp.GetRequiredService<IBackpressureClientIdResolver>(),
-                sp.GetRequiredService<RingAgreement>(),
-                sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled));
-            _ = services.AddSingleton(static sp => new RoutedCacheOperations<object?>(
-                sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>(),
-                sp.GetRequiredService<OwnerRouter>(),
-                sp.GetRequiredService<OwnerRpcForwarder>(),
-                sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled,
-                sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<IDistributedCacheAccess>(),
-                sp.GetService<IJournalCoordinator>()));
-            _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
+            _ = services.Own(static sp => CreateOwnerRouter(sp));
+            _ = services.Own(static sp => new OwnerRpcForwarder(
+                sp.Require<IServerClientPool>(),
+                sp.Require<IBackpressureGate>(),
+                sp.Require<IBackpressureClientIdResolver>(),
+                sp.Require<RingAgreement>(),
+                sp.Require<FeatureState>().NetworkReplicationEnabled));
+            _ = services.Own(static sp => new RoutedCacheOperations<object?>(
+                sp.Require<IInboundEndpointCacheOperations<object?>>(),
+                sp.Require<OwnerRouter>(),
+                sp.Require<OwnerRpcForwarder>(),
+                sp.Require<FeatureState>().NetworkReplicationEnabled,
+                sp.Require<TimeProvider>(),
+                sp.Require<IDistributedCacheAccess>(),
+                sp.Find<IJournalCoordinator>()));
+            _ = services.Own(static sp => sp.Require<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
 
             return services;
         }
 
-        private IServiceCollection AddMetricsHostedServices()
+        private NodeServices AddMetricsHostedServices()
         {
-            _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>(), sp.GetRequiredKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton(static sp => new MemoryPressureMetrics(sp.GetRequiredKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddHostedService(static sp => new MemoryPressureMetricsService(
-                sp.GetRequiredService<TopologyOptions>(),
-                sp.GetRequiredService<IMemoryUsageAccounting>(),
-                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<MemoryPressureMetrics>()));
+            _ = services.RunService(static sp => new ItemsGaugeReporterService(sp.Require<ILocalCacheStats>(), sp.Require<Meter>()));
+            _ = services.Own(static sp => new MemoryPressureMetrics(sp.Require<Meter>()));
+            _ = services.RunService(static sp => new MemoryPressureMetricsService(
+                sp.Require<TopologyOptions>(),
+                sp.Require<IMemoryUsageAccounting>(),
+                sp.Require<IMemoryPressureStateEvaluator>(),
+                sp.Require<MemoryPressureMetrics>()));
             return services;
         }
 
-        private IServiceCollection AddLocalCacheServices()
+        private NodeServices AddLocalCacheServices()
         {
             // Default server clock. Tests may register a fake TimeProvider that overrides this, so cache
             // expiration can be advanced deterministically instead of relying on real-time delays.
-            _ = services.AddSingleton(TimeProvider.System);
+            _ = services.Use(TimeProvider.System);
 
             // Who decides expiry, read by the cache, its snapshots and recovery alike. FeatureState is the single
             // source of truth: on network-replication-activated hosts only committed records remove an entry, so the leader decides expiry;
-            // RF=1 and foundation-only hosts keep the local clock. AddSingleton<T>(T) is constrained to class, so the descriptor boxes the enum.
-            services.Add(
-                new ServiceDescriptor(
-                    typeof(CacheExpiryAuthority),
-                    static sp => sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock,
-                    ServiceLifetime.Singleton));
-            _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
-                sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
+            // RF=1 and foundation-only hosts keep the local clock.
+            _ = services.Own(static sp => sp.Require<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock);
+            _ = services.Own(static sp => new PhysicalCache<object?>(
+                sp.Require<TimeProvider>(),
+                sp.Require<ICacheEntrySizeEstimator<object?>>(),
                 new EvictionOptions { Policy = EvictionPolicyType.Lru },
-                sp.GetRequiredService<CacheExpiryAuthority>()));
-            _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-            _ = services.AddSingleton<ILocalCacheReadOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-            _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-            _ = services.AddSingleton<ILocalCacheStats>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-            _ = services.AddSingleton<ILocalCacheRawReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>().RawReader);
-            _ = services.AddSingleton<ILocalCacheExpiredKeys>(static sp => sp.GetRequiredService<PhysicalCache<object?>>().ExpiredKeys);
+                sp.Require<CacheExpiryAuthority>()));
+            _ = services.Own<ILocalCache<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
+            _ = services.Own<ILocalCacheReadOperations<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
+            _ = services.Own<ILocalCacheMutationOperations<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
+            _ = services.Own<ILocalCacheStats>(static sp => sp.Require<PhysicalCache<object?>>());
+            _ = services.Own<ILocalCacheRawReader<object?>>(static sp => sp.Require<PhysicalCache<object?>>().RawReader);
+            _ = services.Own<ILocalCacheExpiredKeys>(static sp => sp.Require<PhysicalCache<object?>>().ExpiredKeys);
             return services;
         }
 
-        private IServiceCollection AddObservabilityServices()
+        private NodeServices AddObservabilityServices()
         {
             // The per-host Meter instance is owned by the host composition, which registers it through the factory
-            // overload (so the DI container disposes it on shutdown) before AddSquirixRuntimeServices runs. This
+            // overload (so the node disposes it on shutdown) before AddSquirixRuntimeServices runs. This
             // method only registers the metrics types against that shared meter.
-            _ = services.AddSingleton(static sp => BackpressureMetrics.Create(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton(static sp => new ReplicationMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton(static sp => new ReplicaCatchUpMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton(static sp => new ServerCallPolicyMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton(static sp => new ServerClientPoolMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton(static sp => new ServerRpcTimeoutMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
-            _ = services.AddSingleton(static sp => new ServerCallPolicyInstrumentation(
-                sp.GetRequiredService<ServerCallPolicyMetrics>(),
-                sp.GetRequiredService<ServerRpcTimeoutMetrics>()));
+            _ = services.Own(static sp => BackpressureMetrics.Create(sp.Find<Meter>()));
+            _ = services.Own(static sp => new ReplicationMetrics(sp.Find<Meter>()));
+            _ = services.Own(static sp => new ReplicaCatchUpMetrics(sp.Find<Meter>()));
+            _ = services.Own(static sp => new ServerCallPolicyMetrics(sp.Find<Meter>()));
+            _ = services.Own(static sp => new ServerClientPoolMetrics(sp.Find<Meter>()));
+            _ = services.Own(static sp => new ServerRpcTimeoutMetrics(sp.Find<Meter>()));
+            _ = services.Own(static sp => new ServerCallPolicyInstrumentation(
+                sp.Require<ServerCallPolicyMetrics>(),
+                sp.Require<ServerRpcTimeoutMetrics>()));
             return services;
         }
     }
@@ -156,13 +151,13 @@ internal static class RuntimeServiceRegistration
     /// <param name="sp">The service provider.</param>
     /// <returns>The router; it waits for a leader at most as long as the election options allow.</returns>
     private static OwnerRouter CreateOwnerRouter(IServiceProvider sp) => new(
-        sp.GetRequiredService<INodeOwnershipResolver>(),
-        sp.GetRequiredService<IRemoteInvocationState>(),
-        sp.GetRequiredService<RingAgreement>(),
-        sp.GetRequiredService<IGroupLeaderTable>(),
-        (sp.GetService<ElectionTimerOptions>() ?? new ElectionTimerOptions()).LeaderWaitTimeout,
-        sp.GetRequiredService<TimeProvider>(),
-        sp.GetRequiredService<IReplicaGroupLocator>());
+        sp.Require<INodeOwnershipResolver>(),
+        sp.Require<IRemoteInvocationState>(),
+        sp.Require<RingAgreement>(),
+        sp.Require<IGroupLeaderTable>(),
+        (sp.Find<ElectionTimerOptions>() ?? new ElectionTimerOptions()).LeaderWaitTimeout,
+        sp.Require<TimeProvider>(),
+        sp.Require<IReplicaGroupLocator>());
 
     /// <summary>DI-backed accessor for <see cref="RemoteInvocationContext" /> async-local state.</summary>
     [Immutable]

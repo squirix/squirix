@@ -5,8 +5,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -217,7 +217,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     internal ReplicaTransferReply Refuse(string groupId, ulong term, string refusalCode, in ReplicaTransferHeader header = default, string? validationFailure = null, string step = "Begin")
     {
         if (validationFailure != null)
-            ReplicaTransferLog.Invalid(_log, _nodeId, header, step, validationFailure);
+            ReplicaTransferLog.Invalid(_log, _nodeId, in header, step, validationFailure);
 
         if (string.Equals(refusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal))
             ReplicaTransferLog.JournalBusy(_log, groupId);

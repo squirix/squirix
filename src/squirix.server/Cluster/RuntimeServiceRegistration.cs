@@ -4,20 +4,19 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text;
 using JetBrains.Annotations;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
-/// <summary>Cluster-owned DI registrations for static topology location (no child-namespace types).</summary>
+/// <summary>Cluster-owned component registrations for static topology location (no child-namespace types).</summary>
 internal static class RuntimeServiceRegistration
 {
-    /// <summary>Extension methods that register cluster locator services on <see cref="IServiceCollection" />.</summary>
+    /// <summary>Extension methods that register cluster locator services on <see cref="NodeServices" />.</summary>
     /// <param name="services">The service collection to register locators on.</param>
-    extension(IServiceCollection services)
+    extension(NodeServices services)
     {
         /// <summary>Registers static topology node location, ownership resolution, and the static leader table.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
@@ -26,16 +25,16 @@ internal static class RuntimeServiceRegistration
         /// table of its election state afterwards.
         /// </remarks>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
+        internal NodeServices AddSquirixClusterLocator(TopologyOptions cluster)
         {
             var nodeIds = GetPeerNodeIds(cluster);
-            _ = services.AddSingleton<INodeLocator>(new ConsistentHashRing(nodeIds, cluster.VirtualNodes));
-            _ = services.AddSingleton(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
-            _ = services.AddSingleton(static sp => new RingAgreement(sp.GetRequiredService<RingFingerprint>(), sp.GetRequiredService<ILogger<RingAgreement>>()));
-            _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
-                sp.GetRequiredService<INodeLocator>(),
-                sp.GetRequiredService<TopologyOptions>()));
-            services.TryAddSingleton<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
+            _ = services.Use<INodeLocator>(new ConsistentHashRing(nodeIds, cluster.VirtualNodes));
+            _ = services.Use(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
+            _ = services.Own(static sp => new RingAgreement(sp.Require<RingFingerprint>(), sp.Require<ILoggerFactory>().CreateLogger<RingAgreement>()));
+            _ = services.Own<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
+                sp.Require<INodeLocator>(),
+                sp.Require<TopologyOptions>()));
+            services.UseDefault<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
             return services;
         }
     }
@@ -236,7 +235,7 @@ internal static class RuntimeServiceRegistration
 
         internal NodeOwnershipResolver(INodeLocator locator, TopologyOptions options)
         {
-            // No options guard: the only caller feeds GetRequiredService (never null, throws first),
+            // No options guard: the only caller feeds a required component,
             // and an untestable guard would sink new-code coverage below the Sonar gate.
             ArgumentNullException.ThrowIfNull(locator);
             _locator = locator;

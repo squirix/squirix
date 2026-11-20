@@ -1,11 +1,7 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
@@ -15,7 +11,7 @@ internal static class SecurityServiceRegistration
     /// <summary>Minimum symmetric key length: HMAC-SHA256 keys shorter than the hash output weaken the signature.</summary>
     private const int MinSigningKeyBytes = 32;
 
-    internal static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? securityOptionsOverride = null)
+    internal static bool AddSquirixSecurityServices(this NodeServices services, SecurityOptions? securityOptionsOverride = null)
     {
         var configuration = ResolveSecurityConfiguration(securityOptionsOverride);
         ValidateSecurityConfiguration(in configuration);
@@ -25,34 +21,6 @@ internal static class SecurityServiceRegistration
 
         RegisterNativeAuthentication(services, in configuration);
         return true;
-    }
-
-    private static TokenValidationParameters CreateTokenValidationParameters(in ResolvedSecurityConfiguration configuration)
-    {
-        var parameters = new TokenValidationParameters
-        {
-            ValidateAudience = true,
-            ValidAudience = configuration.JwtAudience,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ClockSkew = TimeSpan.FromMinutes(2),
-            ValidateIssuer = true,
-        };
-
-        if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority))
-        {
-            if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer))
-                parameters.ValidIssuer = configuration.JwtIssuer;
-        }
-        else
-        {
-            parameters.ValidIssuer = configuration.JwtIssuer;
-        }
-
-        if (configuration.SigningKeyBytes != null)
-            parameters.IssuerSigningKey = new SymmetricSecurityKey(configuration.SigningKeyBytes);
-
-        return parameters;
     }
 
     private static byte[]? DecodeSymmetricKey(string value)
@@ -75,24 +43,23 @@ internal static class SecurityServiceRegistration
             : throw new InvalidOperationException($"SQUIRIX_JWT_SIGNING_KEY must decode to at least {MinSigningKeyBytes} bytes.");
     }
 
-    private static void RegisterNativeAuthentication(IServiceCollection services, in ResolvedSecurityConfiguration configuration)
+    private static void RegisterNativeAuthentication(NodeServices services, in ResolvedSecurityConfiguration configuration)
     {
         var requireHttps = !string.IsNullOrWhiteSpace(configuration.JwtAuthority) && !configuration.JwtAllowHttpMetadata;
         var metadata = string.IsNullOrWhiteSpace(configuration.JwtAuthority)
             ? null
-            : new ConfigurationManager<OpenIdConnectConfiguration>(
-                $"{configuration.JwtAuthority.TrimEnd('/')}/.well-known/openid-configuration",
-                new OpenIdConnectConfigurationRetriever(),
-                new HttpDocumentRetriever { RequireHttps = requireHttps });
-        var parameters = CreateTokenValidationParameters(in configuration);
-        _ = services.AddOptions<JwtValidationOptions>().Configure(options =>
+            : new JwtMetadataSource($"{configuration.JwtAuthority.TrimEnd('/')}/.well-known/openid-configuration", requireHttps);
+        var options = new JwtValidationOptions
         {
-            options.TokenValidationParameters = parameters;
-            options.ConfigurationManager = metadata;
-            options.RequireHttpsMetadata = requireHttps;
-        });
-        _ = services.AddSingleton(static provider => new NativeConnectionAuthenticationValidator(
-            provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider));
+            Audience = configuration.JwtAudience,
+            Issuer = string.IsNullOrWhiteSpace(configuration.JwtIssuer) ? null : configuration.JwtIssuer,
+            SigningKey = configuration.SigningKeyBytes == null ? null : new JwtVerificationKey(configuration.SigningKeyBytes),
+            RequireHttpsMetadata = requireHttps,
+            Metadata = metadata,
+        };
+        _ = services.Use<Func<JwtValidationOptions>>(() => options);
+        _ = services.Own(static provider => new NativeConnectionAuthenticationValidator(
+            provider.Require<Func<JwtValidationOptions>>(), TimeProvider.System, provider));
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()

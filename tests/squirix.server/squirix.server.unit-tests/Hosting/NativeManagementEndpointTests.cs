@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -154,7 +155,7 @@ public sealed class NativeManagementEndpointTests
 
     private static async Task<string> ExchangeAsync(IServiceProvider services, string request, IPAddress address, int fragmentSize = int.MaxValue)
     {
-        var endpoint = new NativeManagementEndpoint(services, static (_, _) => ValueTask.FromResult(false), Microsoft.Extensions.Logging.Abstractions.NullLogger<NativeManagementEndpoint>.Instance);
+        var endpoint = new NativeManagementEndpoint(services, static (_, _) => ValueTask.FromResult(false), Squirix.Server.TestKit.Logging.NullLogger<NativeManagementEndpoint>.Instance);
         var bytes = Encoding.ASCII.GetBytes(request);
         var stream = new FragmentedStream(fragmentSize);
         await using var lifetime = stream.ConfigureAwait(false);

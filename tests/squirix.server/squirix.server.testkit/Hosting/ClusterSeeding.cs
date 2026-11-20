@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.Services;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -45,7 +45,7 @@ internal static class ClusterSeeding
     {
         try
         {
-            foreach (var service in node.GetService<IEnumerable<IHostedService>>() ?? [])
+            foreach (var service in node.GetService<IEnumerable<INodeService>>() ?? [])
             {
                 if (service is ReplicaGroupBootstrapService { ExecuteTask: { } start })
                     starts.Add(start);

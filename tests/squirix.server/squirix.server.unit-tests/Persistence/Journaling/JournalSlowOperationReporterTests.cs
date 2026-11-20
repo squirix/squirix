@@ -4,15 +4,15 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -435,7 +435,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     private sealed class EventLoopSetup : IDisposable
     {
         private readonly CancellationTokenSource _backgroundCancellation = new();
-        private readonly FixedLoggerFactory _loggerFactory;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly BoundedJournalRing _ring = new(4);
 
         internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, ILogger logger)
@@ -447,7 +447,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
                 writer,
                 options,
                 new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1), new JournalCapacityResyncSignal()),
-                new Logger<JournalEventLoop>(_loggerFactory),
+                _loggerFactory.CreateLogger<JournalEventLoop>(),
                 _backgroundCancellation.Token);
         }
 

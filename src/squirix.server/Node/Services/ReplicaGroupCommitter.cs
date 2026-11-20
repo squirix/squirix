@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -287,7 +287,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
+            ReplicaCommitLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
             Gate.Dispose();
             this.RefuseQueued();
             return;
@@ -415,7 +415,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         var fault = (error.GetType(), progress.Appended);
         if (_reportedAppendFault != fault)
-            ServerLog.ReplicaLocalAppendFailed(Log, error, GroupId);
+            ReplicaCommitLog.ReplicaLocalAppendFailed(Log, error, GroupId);
 
         _reportedAppendFault = fault;
     }
@@ -541,7 +541,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             var fault = (error.GetType(), Applier.AppliedIndex);
             if (_reportedApplyFault != fault)
-                ServerLog.ReplicaPendingApplyFailed(Log, error);
+                ReplicaCommitLog.ReplicaPendingApplyFailed(Log, error);
 
             _reportedApplyFault = fault;
             return false;
@@ -572,7 +572,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         MaxBatchKeys = ReplicaGroupCommitterCommits.MaxExpiriesPerCommit,
         ShutdownBudget = ShutdownBudget,
         ShutdownTimeProvider = ShutdownTimeProvider,
-        ShutdownLeakReporter = budget => ServerLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
+        ShutdownLeakReporter = budget => ReplicaMaintenanceLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
     };
 
     /// <summary>Disposes the coordinator of the previous start, if any, once its committed entries are applied.</summary>

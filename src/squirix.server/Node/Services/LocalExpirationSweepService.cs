@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -16,7 +16,7 @@ namespace Squirix.Server.Node.Services;
 /// of the cache, so it costs in proportion to the expired entries, not to the stored ones. The removal is memory-only, like the drop on
 /// read: recovery, snapshots and compaction already treat an expired entry as absent.
 /// </remarks>
-internal sealed class LocalExpirationSweepService : BackgroundService
+internal sealed class LocalExpirationSweepService : NodeWorker
 {
     /// <summary>The time between two passes.</summary>
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
@@ -52,6 +52,6 @@ internal sealed class LocalExpirationSweepService : BackgroundService
             _ = SweepOnce();
 
         if (stoppingToken.IsCancellationRequested)
-            ServerLog.LocalExpirationSweepStopped(_log);
+            DiagnosticsLog.LocalExpirationSweepStopped(_log);
     }
 }

@@ -1,41 +1,34 @@
 using System;
-using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
+using Squirix.Server.Composition;
 using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
 internal sealed class NativeConnectionAuthenticationValidator : IDisposable
 {
-    private readonly IOptionsMonitor<JwtValidationOptions> _options;
+    private readonly Func<JwtValidationOptions> _options;
     private readonly TimeProvider _clock;
-    private readonly IServiceScopeFactory _scopes;
+    private readonly INodeRequestScopes? _scopes;
     private readonly bool _hasAuthorizationHook;
     private readonly bool _hasTokenObserver;
-    private readonly JsonWebTokenHandler _handler = new() { MapInboundClaims = true };
     private readonly ConnectionTrustHistory _history = new();
     private readonly SemaphoreSlim _pending = new(256, 256);
 
-    internal NativeConnectionAuthenticationValidator(IOptionsMonitor<JwtValidationOptions> options, TimeProvider clock, IServiceProvider services)
+    internal NativeConnectionAuthenticationValidator(Func<JwtValidationOptions> options, TimeProvider clock, IServiceProvider services)
     {
         _options = options;
         _clock = clock;
-        _scopes = services.GetRequiredService<IServiceScopeFactory>();
-        var registrations = services.GetRequiredService<IServiceProviderIsService>();
-        _hasAuthorizationHook = registrations.IsService(typeof(IBinaryAuthorizationHook));
-        _hasTokenObserver = registrations.IsService(typeof(IConnectionTokenObserver));
+        _scopes = services.Find<INodeRequestScopes>();
+        _hasAuthorizationHook = _scopes?.Contains(typeof(IBinaryAuthorizationHook)) == true;
+        _hasTokenObserver = _scopes?.Contains(typeof(IConnectionTokenObserver)) == true;
     }
 
     public void Dispose() => _pending.Dispose();
 
-    internal AsyncServiceScope? CreateRequestScope() => _hasAuthorizationHook ? _scopes.CreateAsyncScope() : null;
+    internal NodeRequestScope? CreateRequestScope() => _hasAuthorizationHook ? _scopes!.Open() : null;
 
     internal bool TryEnter() => _pending.Wait(0, CancellationToken.None);
 
@@ -67,13 +60,13 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
 
     internal async ValueTask<bool> IsCurrentAsync(AuthenticatedConnection connection, CancellationToken cancellationToken)
     {
-        var options = _options.CurrentValue;
+        var options = _options();
         if (!connection.IsWithinLifetime(_clock.GetUtcNow().UtcDateTime) || !ReferenceEquals(connection.Options, options))
             return false;
 
         var configuration = await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        return connection.IsWithinLifetime(now) && ReferenceEquals(options, _options.CurrentValue) && ReferenceEquals(configuration, connection.Configuration) && ConnectionTrustHistory.IsCurrent(connection, now);
+        return connection.IsWithinLifetime(now) && ReferenceEquals(options, _options()) && ReferenceEquals(configuration, connection.Configuration) && ConnectionTrustHistory.IsCurrent(connection, now);
     }
 
     internal async ValueTask<FrameStatus> AuthorizeAsync(AuthenticatedConnection connection, BinaryRequestContext request, CancellationToken cancellationToken)
@@ -89,7 +82,7 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
             return FrameStatus.Unauthenticated;
 
         request.User = principal;
-        var hook = request.RequestServices?.GetService<IBinaryAuthorizationHook>();
+        var hook = request.RequestServices?.Find<IBinaryAuthorizationHook>();
         return hook == null ? FrameStatus.Ok : await hook.AuthorizeAsync(request).ConfigureAwait(false);
     }
 
@@ -104,86 +97,65 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
         return false;
     }
 
-    private static DateTime AddClamped(DateTime value, TimeSpan offset)
-    {
-        return offset.Ticks switch
-        {
-            > 0 when DateTime.MaxValue.Ticks - value.Ticks < offset.Ticks => DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc),
-            < 0 when value.Ticks < -offset.Ticks => DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc),
-            _ => value.Add(offset),
-        };
-    }
-
-    private static (DateTime Lower, DateTime Upper) Lifetime(SecurityToken token, TimeSpan skew)
-    {
-        var lower = AddClamped(token.ValidFrom, -skew);
-        var upper = AddClamped(token.ValidTo, skew);
-        if (token.SigningKey is X509SecurityKey certificate)
-        {
-            var keyLower = AddClamped(certificate.Certificate.NotBefore.ToUniversalTime(), -skew);
-            var keyUpper = AddClamped(certificate.Certificate.NotAfter.ToUniversalTime(), skew);
-            lower = keyLower > lower ? keyLower : lower;
-            upper = keyUpper < upper ? keyUpper : upper;
-        }
-
-        return (lower, upper);
-    }
-
-    private static TokenValidationParameters CreateValidationParameters(JwtValidationOptions options, OpenIdConnectConfiguration? configuration)
-    {
-        var parameters = options.TokenValidationParameters.Clone();
-        parameters.ConfigurationManager = options.ConfigurationManager as BaseConfigurationManager;
-        if (parameters.ConfigurationManager == null && configuration != null)
-        {
-            parameters.ValidIssuers = new List<string>(parameters.ValidIssuers ?? []) { configuration.Issuer };
-            var signingKeys = new List<SecurityKey>(parameters.IssuerSigningKeys ?? []);
-            signingKeys.AddRange(configuration.SigningKeys);
-            parameters.IssuerSigningKeys = signingKeys;
-        }
-
-        return parameters;
-    }
-
-    private static async ValueTask<OpenIdConnectConfiguration?> GetConfigurationAsync(JwtValidationOptions options, CancellationToken cancellationToken) =>
-        options.ConfigurationManager == null ? null : await options.ConfigurationManager.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+    private static async ValueTask<JwtMetadata?> GetConfigurationAsync(JwtValidationOptions options, CancellationToken cancellationToken) =>
+        options.Metadata == null ? null : await options.Metadata.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
 
     private async ValueTask<ValidatedToken?> ValidateTokenAsync(string raw, BinaryConnection? connection, CancellationToken cancellationToken)
     {
-        var options = _options.CurrentValue;
+        var options = _options();
         var configuration = await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false);
         var started = _clock.GetUtcNow().UtcDateTime;
-        var lifetime = (options.ConfigurationManager as BaseConfigurationManager)?.LastKnownGoodLifetime ?? TimeSpan.Zero;
-        var parameters = CreateValidationParameters(options, configuration);
-
-        var result = await _handler.ValidateTokenAsync(raw, parameters).ConfigureAwait(false);
+        var lifetime = options.Metadata?.LastKnownGoodLifetime ?? TimeSpan.Zero;
+        var result = VerifyToken(raw, options, configuration, started, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!result.IsValid || result.ClaimsIdentity == null || result.SecurityToken == null)
+        if (result == null)
             return null;
 
-        var principal = new ClaimsPrincipal(result.ClaimsIdentity);
+        var principal = result.Principal;
         if (_hasTokenObserver)
             principal = await ObservePrincipalAsync(principal, connection, cancellationToken).ConfigureAwait(false);
-        if (principal == null || !ReferenceEquals(options, _options.CurrentValue))
+        if (principal == null || !HasAuthenticatedIdentity(principal) || !ReferenceEquals(options, _options()))
             return null;
 
         var currentConfiguration = await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!ReferenceEquals(options, _options.CurrentValue) || !ReferenceEquals(configuration, currentConfiguration))
+        if (!ReferenceEquals(options, _options()) || !ReferenceEquals(configuration, currentConfiguration))
             return null;
 
-        var (notBefore, expires) = Lifetime(result.SecurityToken, parameters.ClockSkew);
-        if (!_history.TryAuthorize(options, configuration, result.SecurityToken, started, lifetime, ref expires, out var historical))
+        var notBefore = result.NotBefore;
+        var expires = result.Expires;
+        if (!_history.TryAuthorize(options, configuration, new TrustEvidence(result.Issuer, result.SigningKey), started, lifetime, ref expires, out var historical))
             return null;
 
         var now = _clock.GetUtcNow().UtcDateTime;
         return now < notBefore || now >= expires ? null : new ValidatedToken(principal, notBefore, expires, options, configuration, historical);
     }
 
+    private SignedConnectionToken? VerifyToken(string raw, JwtValidationOptions options, JwtMetadata? configuration, DateTime started, CancellationToken cancellationToken)
+    {
+        var result = SignedConnectionToken.Verify(raw, options, configuration, started, out var refresh);
+        if (result == null && refresh && options.Metadata != null)
+        {
+            options.Metadata.RequestRefresh();
+            foreach (var candidate in _history.GetCandidates(options, started))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                result = SignedConnectionToken.Verify(raw, options, candidate, started, out _);
+                if (result != null && ReferenceEquals(result.SigningKey, options.SigningKey))
+                    result = null;
+                if (result != null)
+                    break;
+            }
+        }
+
+        return result;
+    }
+
     private async ValueTask<ClaimsPrincipal?> ObservePrincipalAsync(ClaimsPrincipal principal, BinaryConnection? connection, CancellationToken cancellationToken)
     {
-        var scope = _scopes.CreateAsyncScope();
+        var scope = _scopes!.Open();
         await using var scopeLifetime = scope.ConfigureAwait(false);
-        var observer = scope.ServiceProvider.GetService<IConnectionTokenObserver>();
+        var observer = scope.ServiceProvider.Find<IConnectionTokenObserver>();
         return observer == null
             ? principal
             : await observer.OnValidatedAsync(principal, scope.ServiceProvider, connection, cancellationToken).ConfigureAwait(false);
@@ -194,6 +166,6 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
         DateTime NotBefore,
         DateTime Expires,
         JwtValidationOptions Options,
-        OpenIdConnectConfiguration? Configuration,
+        JwtMetadata? Configuration,
         DateTime? HistoricalStarted);
 }

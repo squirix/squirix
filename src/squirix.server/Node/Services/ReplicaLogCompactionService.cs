@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
@@ -23,7 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// group's compaction outcome is logged once, not on every pass. A failed step of one group is retried on the next pass without holding back the other groups; a follower
 /// group's failure is logged when it starts or changes, not on every pass. Every pass also sweeps the expired idempotency outcomes of each served group. The service runs on the host lifetime and stops with it.
 /// </remarks>
-internal sealed class ReplicaLogCompactionService : BackgroundService
+internal sealed class ReplicaLogCompactionService : NodeWorker
 {
     private readonly ReplicaGroupAppliers _appliers;
     private readonly ReplicaGroupCommitters _committers;
@@ -146,7 +146,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         {
             // Storage and journal faults are retried on the next pass; unexpected exceptions still fault the service so the host fails
             // fast instead of silently retaining every applied entry.
-            ServerLog.ReplicaLogMaintenanceRetry(_log, committer.GroupId, exception);
+            ReplicaMaintenanceLog.ReplicaLogMaintenanceRetry(_log, committer.GroupId, exception);
         }
     }
 
@@ -167,7 +167,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         if (!applier.DriverLease.TryEnterPass())
         {
             if (_skipped.Add(groupId))
-                ServerLog.ReplicaPassSkippedWhileLeading(_log, groupId, "maintenance");
+                ReplicaMaintenanceLog.ReplicaPassSkippedWhileLeading(_log, groupId, "maintenance");
 
             return;
         }
@@ -184,7 +184,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
             // The same policy as a led log: a fault of one group is retried on the next pass and holds back no other group.
             // The same fault can repeat on every pass for long, so it is logged when it starts or changes, not on every retry.
             if (!_failed.TryGetValue(groupId, out var failed) || failed != exception.GetType())
-                ServerLog.ReplicaLogMaintenanceRetry(_log, groupId, exception);
+                ReplicaMaintenanceLog.ReplicaLogMaintenanceRetry(_log, groupId, exception);
 
             _failed[groupId] = exception.GetType();
             return;
@@ -210,10 +210,10 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
 
         _reported[groupId] = outcome;
         if (outcome == ReplicaLogCompactionOutcome.SnapshotTooLarge)
-            ServerLog.ReplicaLogCompactionSnapshotTooLarge(_log, groupId);
+            ReplicaMaintenanceLog.ReplicaLogCompactionSnapshotTooLarge(_log, groupId);
         else if (outcome == ReplicaLogCompactionOutcome.CompactedPastFollower)
-            ServerLog.ReplicaLogCompactedPastFollower(_log, groupId);
+            ReplicaMaintenanceLog.ReplicaLogCompactedPastFollower(_log, groupId);
         else
-            ServerLog.ReplicaLogCompactionChanged(_log, groupId, name);
+            ReplicaMaintenanceLog.ReplicaLogCompactionChanged(_log, groupId, name);
     }
 }

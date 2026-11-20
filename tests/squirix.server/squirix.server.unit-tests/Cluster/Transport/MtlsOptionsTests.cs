@@ -103,8 +103,8 @@ public sealed class MtlsOptionsTests : IsolatedStorageTestBase
         };
         var validator = new MtlsOptionsValidator(cluster);
 
-        var result = validator.Validate(null, new MtlsOptions());
+        var result = validator.Check(new MtlsOptions());
 
-        _ = await Assert.That(result.Failed).IsFalse();
+        _ = await Assert.That(result).IsEmpty();
     }
 }

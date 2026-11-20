@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 
 namespace Squirix.Server.UnitTests.Support;
 

@@ -2,10 +2,10 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
@@ -129,7 +129,7 @@ internal sealed class DurableMutationExecutor
     /// <remarks>The frame may be durable while this process never applied it, and a restart replays it, so the caller must not see a definite failure.</remarks>
     private SquirixException ReportCommitOutcomeUnknown(Exception cause)
     {
-        ServerLog.DurableMutationOutcomeUnknown(_logger, cause);
+        StorageLog.DurableMutationOutcomeUnknown(_logger, cause);
         return ServerOpContract.CommitOutcomeUnknown();
     }
 

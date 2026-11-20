@@ -1,12 +1,12 @@
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
+using Squirix.Server.Composition;
 using Squirix.Server.LocalCache;
 
 namespace Squirix.Server.Node.Services;
 
-internal sealed class ItemsGaugeReporterService : BackgroundService
+internal sealed class ItemsGaugeReporterService : NodeWorker
 {
     private readonly ILocalCacheStats _stats;
 

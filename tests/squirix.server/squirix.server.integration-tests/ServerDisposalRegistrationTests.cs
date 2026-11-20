@@ -8,6 +8,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
 using TUnit.Core;
@@ -83,7 +84,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
                 _ = preExisting.Add(descriptor);
         }
 
-        await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, Configure, cancellationToken);
+        await TestNodeServices.ConfigureBuilderAsync(builder.Services, cluster, Configure, cancellationToken);
         var offenders = new List<string>(builder.Services.Count);
         foreach (var descriptor in builder.Services)
         {

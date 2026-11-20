@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Binary;
 
@@ -18,7 +17,7 @@ internal static class FencedReads
     /// <returns>The fenced cache.</returns>
     internal static ReplicatedCache Fenced(ITestNodeHost host) =>
         new(
-            host.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
+            host.Services.GetRequiredService<OwnerLocalCache>().Value,
             host.GetRequiredService<ReplicaGroupCommitters>(),
             true);
 

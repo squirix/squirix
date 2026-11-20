@@ -1,9 +1,8 @@
 using System;
-using System.Collections.Generic;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
@@ -12,29 +11,29 @@ namespace Squirix.Server.Adapters.Endpoint;
 
 internal static class FrameworkServiceRegistration
 {
-    internal static IServiceCollection AddSquirixFrameworkServices(this IServiceCollection services)
+    internal static NodeServices AddSquirixFrameworkServices(this NodeServices services)
     {
-        _ = services.AddSingleton(static sp => new CacheRequestAdmission(
-            sp.GetRequiredService<IBackpressureGate>(),
-            sp.GetRequiredService<IBackpressureClientIdResolver>()));
-        _ = services.AddSingleton(static sp => new BinaryDispatch(
-            sp.GetRequiredService<RoutedCacheOperations<object?>>(),
-            sp.GetRequiredService<CacheRequestAdmission>(),
-            sp.GetRequiredService<ServerCallCorrelation>(),
-            sp.GetRequiredService<IRemoteInvocationScopeFactory>(),
-            sp.GetService<BinaryCallObserver>()));
+        _ = services.Own(static sp => new CacheRequestAdmission(
+            sp.Require<IBackpressureGate>(),
+            sp.Require<IBackpressureClientIdResolver>()));
+        _ = services.Own(static sp => new BinaryDispatch(
+            sp.Require<RoutedCacheOperations<object?>>(),
+            sp.Require<CacheRequestAdmission>(),
+            sp.Require<ServerCallCorrelation>(),
+            sp.Require<IRemoteInvocationScopeFactory>(),
+            sp.Find<BinaryCallObserver>()));
 
-        _ = services.AddSingleton(static sp => new ReadinessMonitor(
-            sp.GetRequiredService<IEnumerable<ReadinessCheck>>(),
-            sp.GetRequiredService<IServiceScopeFactory>(),
-            sp.GetRequiredService<ILogger<ReadinessMonitor>>()));
+        _ = services.Own(static sp => new ReadinessMonitor(
+            sp.All<ReadinessCheck>(),
+            sp,
+            sp.Require<ILoggerFactory>().CreateLogger<ReadinessMonitor>()));
 
         // One verifier is shared by every inbound consumer so an expiry on an open connection is logged once; it resolves to null (GetService) when mTLS is disabled.
-        _ = services.AddSingleton(static sp => VerifiedPeerCertificates.CreateIfEnabled(
-            sp.GetRequiredService<TopologyOptions>(),
-            sp.GetRequiredService<MtlsCertificate>(),
+        _ = services.Own(static sp => VerifiedPeerCertificates.CreateIfEnabled(
+            sp.Require<TopologyOptions>(),
+            sp.Require<MtlsCertificate>(),
             TimeProvider.System,
-            sp.GetRequiredService<ILogger<VerifiedPeerCertificates>>())!);
+            sp.Require<ILoggerFactory>().CreateLogger<VerifiedPeerCertificates>())!);
 
         return services;
     }

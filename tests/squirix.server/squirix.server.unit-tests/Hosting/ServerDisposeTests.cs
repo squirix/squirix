@@ -1,10 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
+using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -29,6 +31,27 @@ public sealed class ServerDisposeTests
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
         _ = await Assert.That(probe.DependencyDisposedAtStop).IsFalse();
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
+    }
+
+    /// <summary>A failing shutdown subscriber cannot prevent services from stopping or the journal from draining.</summary>
+    [Test]
+    public async Task SubscriberFailurePreservesJournalDrain()
+    {
+        var probe = new ShutdownProbe();
+        var log = new EventRecordingLogger();
+        var stopsAtDrain = -1;
+        var handle = await StartHandleAsync(probe, log, () =>
+        {
+            stopsAtDrain = probe.StopCalls;
+            return ValueTask.CompletedTask;
+        });
+        await using var subscriber = handle.ApplicationStopping.Register(static () => throw new InvalidOperationException("subscriber failed"));
+
+        await handle.DisposeAsync();
+
+        _ = await Assert.That(stopsAtDrain).IsEqualTo(1);
+        _ = await Assert.That(probe.DependencyDisposed).IsTrue();
+        _ = await Assert.That(log.Find(3091)?.Cause).IsTypeOf<AggregateException>();
     }
 
     /// <summary>Repeated and concurrent disposal stops the host exactly once and never throws.</summary>
@@ -107,16 +130,16 @@ public sealed class ServerDisposeTests
 
     private static Task DisposeAsTaskAsync(SquirixServer.ApplicationHandle handle) => handle.DisposeAsync().AsTask();
 
-    private static async Task<SquirixServer.ApplicationHandle> StartHandleAsync(ShutdownProbe probe, EventRecordingLogger? log)
+    private static async Task<SquirixServer.ApplicationHandle> StartHandleAsync(ShutdownProbe probe, EventRecordingLogger? log, Func<ValueTask>? drain = null)
     {
-        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
-        _ = builder.Logging.ClearProviders();
-        if (log != null)
-            _ = builder.Services.AddSingleton<ILoggerProvider>(_ => new RecordingLoggerProvider(log));
+        var services = new NodeServices();
+        _ = services.Own<ILoggerFactory>(_ => log == null ? NullLoggerFactory.Instance : new FixedLoggerFactory(log));
 
-        _ = builder.Services.AddSingleton(_ => new ProbeDependency(probe));
-        _ = builder.Services.AddSingleton<IHostedService>(serviceProvider => new ProbeHostedService(probe, serviceProvider.GetRequiredService<ProbeDependency>()));
-        var app = builder.Build();
+        _ = services.Own(_ => new ProbeDependency(probe));
+        _ = services.Own<INodeService>(serviceProvider => new ProbeHostedService(probe, serviceProvider.Require<ProbeDependency>()));
+        if (drain != null)
+            _ = services.RunService(_ => new JournalStopService(drain));
+        var app = ServerApplication.Build(services);
         await app.StartAsync(CancellationToken.None);
         return new SquirixServer.ApplicationHandle(app);
     }
@@ -176,7 +199,7 @@ public sealed class ServerDisposeTests
         private static void Fail() => throw new InvalidOperationException("Probe dependency dispose failure.");
     }
 
-    private sealed class ProbeHostedService : IHostedService
+    private sealed class ProbeHostedService : INodeService
     {
         private readonly ProbeDependency _dependency;
         private readonly ShutdownProbe _probe;
