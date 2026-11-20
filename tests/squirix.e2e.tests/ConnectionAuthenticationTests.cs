@@ -36,7 +36,7 @@ public sealed class ConnectionAuthenticationTests
                 TestConnectionAuthHooks.Add(services, probe.CaptureConnection, probe.AuthorizeAsync);
             },
             cancellationToken: cancellationToken);
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var options = new SquirixClientOptions
         {
             BearerTokenProvider = token =>
@@ -47,7 +47,7 @@ public sealed class ConnectionAuthenticationTests
             },
         };
         options.Endpoints.Add(cluster.GetUri("nodeA"));
-        await using var client = await SquirixClient.ConnectAsync(options, handler, cancellationToken);
+        await using var client = await SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken);
         var cache = await client.GetCacheAsync<string>("default", cancellationToken);
         for (var i = 0; i < 8; i++)
             _ = await cache.GetValueAsync("warm", cancellationToken);
@@ -105,7 +105,7 @@ public sealed class ConnectionAuthenticationTests
                 TestConnectionAuthHooks.Add(services, secondaryProbe.RecordHandshake);
             },
             cancellationToken: cancellationToken);
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var options = new SquirixClientOptions
         {
             BearerTokenProvider = token =>
@@ -118,7 +118,7 @@ public sealed class ConnectionAuthenticationTests
         options.Endpoints.Add(cluster.GetUri("nodeA"));
         options.Endpoints.Add(secondary.GetUri("nodeA"));
         var exception = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException, ISquirixClient>(
-            SquirixClient.ConnectAsync(options, handler, cancellationToken),
+            SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
@@ -126,10 +126,10 @@ public sealed class ConnectionAuthenticationTests
         _ = await Assert.That(Volatile.Read(ref providerCalls)).IsEqualTo(1);
         _ = await Assert.That(secondaryProbe.Handshakes).IsEqualTo(0);
 
-        using var controlHandler = LoopbackHttp.CreateHandler();
+        var controlTls = LoopbackHttp.CreateTlsOptions();
         var controlOptions = new SquirixClientOptions { BearerTokenProvider = _ => ValueTask.FromResult(invalidToken) };
         controlOptions.Endpoints.Add(secondary.GetUri("nodeA"));
-        await using var controlClient = await SquirixClient.ConnectAsync(controlOptions, controlHandler, cancellationToken);
+        await using var controlClient = await SquirixClient.ConnectAsync(controlOptions, controlTls, cancellationToken);
         var controlCache = await controlClient.GetCacheAsync<string>("default", cancellationToken);
         _ = await Assert.That((await controlCache.GetValueAsync("denied", cancellationToken)).Found).IsFalse();
         await controlCache.SetAsync("control", "accepted", cancellationToken: cancellationToken);
@@ -155,13 +155,13 @@ public sealed class ConnectionAuthenticationTests
             TestNodeSecurityOptions.FromJwtCredentials(wrongKey),
             timeProvider: TimeProvider.System,
             cancellationToken: cancellationToken);
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var token = TestJwtHelper.CreateBearerToken(credentials);
         var options = new SquirixClientOptions { BearerTokenProvider = _ => ValueTask.FromResult(token) };
         options.Endpoints.Add(primary.GetUri("nodeA"));
         options.Endpoints.Add(secondary.GetUri("nodeA"));
 
-        await using var client = await SquirixClient.ConnectAsync(options, handler, cancellationToken);
+        await using var client = await SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken);
         var cache = await client.GetCacheAsync<string>("default", cancellationToken);
         await cache.SetAsync("key", "primary-value", cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync("key", cancellationToken);

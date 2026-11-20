@@ -32,13 +32,13 @@ internal sealed class ClientPool : IClientPool
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
         TimeProvider timeProvider,
-        HttpMessageHandler? handler = null,
+        SslClientAuthenticationOptions? tlsOptions = null,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider = null,
         BootstrapConnectOptions? connectOptions = null)
     {
         _connectOptions = connectOptions ?? DefaultConnectOptions;
         _timeProvider = timeProvider;
-        _nodeIds = RegisterPeers(peers, policyFactory, handler, bearerTokenProvider);
+        _nodeIds = RegisterPeers(peers, policyFactory, tlsOptions, bearerTokenProvider);
         BootstrapNodeIds = _nodeIds;
     }
 
@@ -93,14 +93,6 @@ internal sealed class ClientPool : IClientPool
 
         RecordSecondaryWarmupFailures(primaryNodeId, failuresByNode);
         return primaryNodeId;
-    }
-
-    private static SslClientAuthenticationOptions? ReadTlsOptions(HttpMessageHandler? handler)
-    {
-        while (handler is DelegatingHandler { InnerHandler: { } inner })
-            handler = inner;
-
-        return (handler as SocketsHttpHandler)?.SslOptions;
     }
 
     private static void RecordSecondaryWarmupFailures(string primaryNodeId, Dictionary<string, Exception> failuresByNode)
@@ -172,10 +164,9 @@ internal sealed class ClientPool : IClientPool
     private string[] RegisterPeers(
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
-        HttpMessageHandler? handler,
+        SslClientAuthenticationOptions? tlsOptions,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
-        var tlsOptions = ReadTlsOptions(handler);
         var ids = new string[peers.Length];
         for (var i = 0; i < peers.Length; i++)
         {

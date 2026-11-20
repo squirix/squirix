@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Net.Http;
+using System.Net.Security;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
@@ -21,7 +21,7 @@ internal static class RemoteClientSessionFactory
         IList<Uri> endpoints,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider,
         ISquirixSerializer? serializer,
-        HttpMessageHandler? handler,
+        SslClientAuthenticationOptions? tlsOptions,
         CancellationToken cancellationToken)
     {
         var normalizedEndpoints = NormalizeEndpoints(endpoints);
@@ -43,7 +43,7 @@ internal static class RemoteClientSessionFactory
                 peers,
                 static peer => CallPolicyDefaults.Create(peer, TimeProvider.System),
                 TimeProvider.System,
-                handler,
+                tlsOptions,
                 bearerTokenProvider);
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId, CallPolicyDefaults.OperationDeadline, TimeProvider.System);

@@ -1,7 +1,6 @@
 using System;
 using System.Buffers.Binary;
 using System.Net;
-using System.Net.Http;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
@@ -33,9 +32,10 @@ public sealed class BinaryMultiplexingTests
         var token = timeout.Token;
         using var certificate = CreateTlsCertificate();
         var thumbprint = certificate.Thumbprint;
-        using var handler = new SocketsHttpHandler();
-        handler.SslOptions.RemoteCertificateValidationCallback = (_, remote, _, _) =>
-            string.Equals(remote?.GetCertHashString(), thumbprint, StringComparison.Ordinal);
+        var tlsOptions = new SslClientAuthenticationOptions
+        {
+            RemoteCertificateValidationCallback = (_, remote, _, _) => string.Equals(remote?.GetCertHashString(), thumbprint, StringComparison.Ordinal),
+        };
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         if (listener.LocalEndpoint is not IPEndPoint endpoint)
@@ -45,7 +45,7 @@ public sealed class BinaryMultiplexingTests
         var options = new SquirixClientOptions();
         options.Endpoints.Add(uri);
 
-        var connecting = SquirixClient.ConnectAsync(options, handler, token);
+        var connecting = SquirixClient.ConnectAsync(options, tlsOptions, token);
         using var socket = await listener.AcceptTcpClientAsync(token);
         await using var stream = new SslStream(socket.GetStream());
         await NegotiateAsync(stream, certificate, token);
@@ -90,9 +90,10 @@ public sealed class BinaryMultiplexingTests
         var token = timeout.Token;
         using var certificate = CreateTlsCertificate();
         var thumbprint = certificate.Thumbprint;
-        using var handler = new SocketsHttpHandler();
-        handler.SslOptions.RemoteCertificateValidationCallback = (_, remote, _, _) =>
-            string.Equals(remote?.GetCertHashString(), thumbprint, StringComparison.Ordinal);
+        var tlsOptions = new SslClientAuthenticationOptions
+        {
+            RemoteCertificateValidationCallback = (_, remote, _, _) => string.Equals(remote?.GetCertHashString(), thumbprint, StringComparison.Ordinal),
+        };
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         if (listener.LocalEndpoint is not IPEndPoint endpoint)
@@ -100,7 +101,7 @@ public sealed class BinaryMultiplexingTests
 
         var options = new SquirixClientOptions();
         options.Endpoints.Add(new UriBuilder(Uri.UriSchemeHttps, "localhost", endpoint.Port).Uri);
-        var connecting = SquirixClient.ConnectAsync(options, handler, token);
+        var connecting = SquirixClient.ConnectAsync(options, tlsOptions, token);
         using var socket = await listener.AcceptTcpClientAsync(token);
         await using var stream = new SslStream(socket.GetStream());
         await NegotiateAsync(stream, certificate, token);

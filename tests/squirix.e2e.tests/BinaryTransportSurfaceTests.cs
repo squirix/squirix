@@ -60,19 +60,19 @@ public sealed class BinaryTransportSurfaceTests
     {
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
             nameof(SdkFallsBackFromManagementOrigin), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var management = cluster.Cluster["nodeA"].ManagementUri;
         var options = new SquirixClientOptions();
         options.Endpoints.Add(management);
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException, ISquirixClient>(
-            SquirixClient.ConnectAsync(options, handler, cancellationToken),
+            SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken),
             TimeSpan.FromSeconds(15),
             TimeProvider.System,
             cancellationToken);
         _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.FailedPrecondition);
 
         options.Endpoints.Add(cluster.GetUri("nodeA"));
-        await using var client = await SquirixClient.ConnectAsync(options, handler, cancellationToken);
+        await using var client = await SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken);
         var cache = await client.GetCacheAsync<string>("listener-fallback", cancellationToken);
         await cache.SetAsync("key", "value", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("key", cancellationToken)).Value).IsEqualTo("value");

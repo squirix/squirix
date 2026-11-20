@@ -1,5 +1,7 @@
 using System;
-using System.Net.Http;
+using System.Net.Security;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
@@ -23,15 +25,20 @@ public sealed class ClientPoolDisposalTests
         new() { NodeId = "node-b", Uri = new Uri("https://127.0.0.1:6511") },
     ];
 
-    /// <summary>A caller-supplied handler is shared by every channel and stays owned by the caller.</summary>
+    /// <summary>TLS settings and the certificate material they reference remain owned by the caller.</summary>
     [Test]
-    public async Task DisposeKeepsCallerSharedHandlerAsync()
+    public async Task DisposeKeepsCallerTlsMaterialAsync()
     {
-        using var shared = new TrackingHandler();
-        var pool = new ClientPool(Peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System, shared);
+        using var key = ECDsa.Create();
+        var request = new CertificateRequest("CN=ClientPoolTests", key, HashAlgorithmName.SHA256);
+        var now = TimeProvider.System.GetUtcNow();
+        using var certificate = request.CreateSelfSigned(now.AddMinutes(-1), now.AddDays(1));
+        var tlsOptions = new SslClientAuthenticationOptions { ClientCertificates = [certificate] };
+        var pool = new ClientPool(Peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System, tlsOptions);
         await pool.DisposeAsync();
 
-        _ = await Assert.That(shared.Disposed).IsFalse();
+        _ = await Assert.That(certificate.HasPrivateKey).IsTrue();
+        _ = await Assert.That(tlsOptions.ClientCertificates.Count).IsEqualTo(1);
     }
 
     /// <summary>A policy that fails to dispose is counted and does not stop the pool from disposing the other policies and every channel.</summary>
@@ -126,18 +133,4 @@ public sealed class ClientPoolDisposalTests
         new() { NodeId = prefix + "-a", Uri = new Uri("https://127.0.0.1:6510") },
         new() { NodeId = prefix + "-b", Uri = new Uri("https://127.0.0.1:6511") },
     ];
-
-    /// <summary>Records whether the owner disposed the handler; Rocks cannot observe the protected dispose overload.</summary>
-    private sealed class TrackingHandler : DelegatingHandler
-    {
-        internal bool Disposed { get; private set; }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-                Disposed = true;
-
-            base.Dispose(disposing);
-        }
-    }
 }
