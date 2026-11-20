@@ -90,6 +90,7 @@ internal sealed class NativePeerEndpoint
         {
             var token = deadline.Token;
             using var reading = CancellationTokenSource.CreateLinkedTokenSource(token, graceful);
+            reading.CancelAfter(TimeSpan.FromSeconds(30));
             await stream.ReadExactlyAsync(meta.AsMemory(0, frame.Metadata), reading.Token).ConfigureAwait(false);
             await stream.ReadExactlyAsync(body.AsMemory(0, frame.Body), reading.Token).ConfigureAwait(false);
             if (!_verifier.TryVerify(certificate, out var peer))

@@ -15,6 +15,7 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Threading;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 
@@ -23,8 +24,9 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Pools mutually authenticated peer streams, reserving each one for a single request and its reply.</summary>
 internal sealed class NativePeerClient : IPeerClient, IDisposable
 {
+    private readonly AsyncSemaphore _transfers = new(1);
     private readonly Lock _sync = new();
-    private readonly Stack<SslStream> _idle = new();
+    private readonly Stack<PeerSession> _idle = new();
     private readonly DnsEndPoint _address;
     private readonly Func<CancellationToken, ValueTask<EndPoint>>? _resolveEndpoint;
     private readonly SslClientAuthenticationOptions _tls;
@@ -34,6 +36,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     private readonly TrackedConnections _connections;
     private readonly TimeSpan _dial;
     private bool _closed;
+    private long _lastDialTimeout;
 
     internal NativePeerClient((Uri Address, string Id) target, MtlsCertificate material, PeerHandshakeVerifier verifier, TrackedConnections connections, TimeSpan dial, string? fingerprint, PeerSocketOptions? options = null)
     {
@@ -44,21 +47,83 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         _connections = connections;
         _dial = dial;
         _fingerprint = fingerprint ?? string.Empty;
-        var cert = material.NodeCertificate!;
         _resolveEndpoint = options?.ResolveEndpoint;
-        _tls = options?.Tls ?? new SslClientAuthenticationOptions
+        _tls = options?.Tls ?? CreateTlsOptions(address.DnsSafeHost, peer, material, verifier);
+        if (options != null)
         {
-            TargetHost = address.DnsSafeHost,
+            _tls.TargetHost = address.DnsSafeHost;
+            _tls.ApplicationProtocols = [PeerFrames.Protocol];
+        }
+    }
+
+    public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+        where T : IMessage<T>
+    {
+        return string.Equals(path, "replication/TransferReplicaState", StringComparison.Ordinal)
+            ? TransferAsync(path, request, parser, cancellationToken)
+            : ExchangeAsync(path, request, parser, cancellationToken);
+    }
+
+    public void Dispose()
+    {
+        _transfers.Dispose();
+        lock (_sync)
+        {
+            _closed = true;
+            while (_idle.TryPop(out var stream))
+                stream.Dispose();
+        }
+    }
+
+    internal static SslClientAuthenticationOptions CreateTlsOptions(string host, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier)
+    {
+        var cert = material.NodeCertificate!;
+        return new SslClientAuthenticationOptions
+        {
+            TargetHost = host,
             ClientCertificates = [cert],
             ClientCertificateContext = OperatingSystem.IsWindows() ? null : SslStreamCertificateContext.Create(cert, null, true),
             ApplicationProtocols = [PeerFrames.Protocol],
             RemoteCertificateValidationCallback = (_, presented, _, _) => presented is X509Certificate2 certificate && verifier.VerifyExpectedPeer(certificate, peer),
         };
-        _tls.TargetHost = address.DnsSafeHost;
-        _tls.ApplicationProtocols = [PeerFrames.Protocol];
     }
 
-    public async Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+    private static async Task<T> ReadReplyAsync<T>(SslStream stream, MessageParser<T> parser, Memory<byte> header, CancellationToken cancellationToken)
+        where T : IMessage<T>
+    {
+        await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
+        var (status, size) = PeerFrames.ReadReply(header.Span);
+        var buffer = ArrayPool<byte>.Shared.Rent(size);
+        try
+        {
+            await stream.ReadExactlyAsync(buffer.AsMemory(0, size), cancellationToken).ConfigureAwait(false);
+            return status == 0 ? parser.ParseFrom(buffer, 0, size) : throw new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(buffer, 0, size));
+        }
+        catch (InvalidProtocolBufferException)
+        {
+            throw new ServerCallException(FrameStatus.DataLoss, "Malformed peer response.");
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer, true);
+        }
+    }
+
+    private async Task<T> TransferAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+        where T : IMessage<T>
+    {
+        await _transfers.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await ExchangeAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transfers.Release();
+        }
+    }
+
+    private async Task<T> ExchangeAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
         where T : IMessage<T>
     {
         var size = request.CalculateSize();
@@ -68,7 +133,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         var parent = Activity.Current?.Id ?? string.Empty;
         var state = Activity.Current?.TraceStateString ?? string.Empty;
         var sent = false;
-        SslStream? stream = null;
+        PeerSession? stream = null;
         try
         {
             stream = await RentAsync(cancellationToken).ConfigureAwait(false);
@@ -114,42 +179,15 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        lock (_sync)
-        {
-            _closed = true;
-            while (_idle.TryPop(out var stream))
-                stream.Dispose();
-        }
-    }
-
-    private static async Task<T> ReadReplyAsync<T>(SslStream stream, MessageParser<T> parser, Memory<byte> header, CancellationToken cancellationToken)
-        where T : IMessage<T>
-    {
-        await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
-        var (status, size) = PeerFrames.ReadReply(header.Span);
-        var buffer = ArrayPool<byte>.Shared.Rent(size);
-        try
-        {
-            await stream.ReadExactlyAsync(buffer.AsMemory(0, size), cancellationToken).ConfigureAwait(false);
-            return status == 0 ? parser.ParseFrom(buffer, 0, size) : throw new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(buffer, 0, size));
-        }
-        catch (InvalidProtocolBufferException)
-        {
-            throw new ServerCallException(FrameStatus.DataLoss, "Malformed peer response.");
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer, true);
-        }
-    }
-
-    private async ValueTask<SslStream> RentAsync(CancellationToken cancellationToken)
+    private async ValueTask<PeerSession> RentAsync(CancellationToken cancellationToken)
     {
         var idle = TakeIdle();
         if (idle != null)
             return idle;
+
+        var timedOut = Interlocked.Read(ref _lastDialTimeout);
+        if (timedOut != 0 && Stopwatch.GetElapsedTime(timedOut) < _dial)
+            throw new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.TimedOut));
 
         using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         handshake.CancelAfter(TimeSpan.FromSeconds(5));
@@ -160,13 +198,16 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         {
             var endpoint = _resolveEndpoint == null ? _address : await _resolveEndpoint(dial.Token).ConfigureAwait(false);
             network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dial.Token).ConfigureAwait(false);
+            _ = Interlocked.Exchange(ref _lastDialTimeout, 0);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            if (_fingerprint.Length != 0)
+                _ = Interlocked.Exchange(ref _lastDialTimeout, Stopwatch.GetTimestamp());
             throw new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.TimedOut));
         }
 
-        SslStream? connection = new(network);
+        PeerSession? connection = new(network);
         try
         {
             await connection.AuthenticateAsClientAsync(_tls, handshake.Token).ConfigureAwait(false);
@@ -176,6 +217,10 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             connection = null;
             return owned;
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.TimedOut));
+        }
         finally
         {
             if (connection != null)
@@ -183,7 +228,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
-    private SslStream? TakeIdle()
+    private PeerSession? TakeIdle()
     {
         lock (_sync)
         {
@@ -192,7 +237,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             {
                 try
                 {
-                    if (stream.RemoteCertificate is X509Certificate2 cert && _verifier.VerifyExpectedPeer(cert, _peer))
+                    if (stream.CanReuse && stream.RemoteCertificate is X509Certificate2 cert && _verifier.VerifyExpectedPeer(cert, _peer))
                     {
                         var owned = stream;
                         stream = null;
@@ -209,7 +254,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         return null;
     }
 
-    private async ValueTask ReturnAsync(SslStream stream)
+    private async ValueTask ReturnAsync(PeerSession stream)
     {
         lock (_sync)
         {
@@ -221,5 +266,16 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
 
         await stream.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private sealed class PeerSession : SslStream
+    {
+        internal PeerSession(Stream network)
+            : base(network)
+        {
+        }
+
+        /// <summary>Gets a value indicating whether the idle socket has neither a pending shutdown nor an unexpected frame.</summary>
+        internal bool CanReuse => InnerStream is NetworkStream network && !network.Socket.Poll(0, SelectMode.SelectRead);
     }
 }

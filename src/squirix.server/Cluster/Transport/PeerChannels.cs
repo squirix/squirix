@@ -12,7 +12,6 @@ namespace Squirix.Server.Cluster.Transport;
 [Immutable]
 internal sealed class PeerChannels
 {
-    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly PeerChannels Disabled = new(UnavailablePeerClient.Instance, UnavailablePeerClient.Instance, null, null);
 
     private readonly IDisposable? _forward;
@@ -47,7 +46,7 @@ internal sealed class PeerChannels
         var forward = new NativePeerClient((address, nodeId), material, verifier, connections, forwardConnectTimeout, args.RingFingerprint, options);
         try
         {
-            var replication = new NativePeerClient((address, nodeId), material, verifier, connections, ConnectTimeout, null, options);
+            var replication = new NativePeerClient((address, nodeId), material, verifier, connections, TopologyOptions.DefaultForwardConnectTimeout, null, options);
             return new PeerChannels(forward, replication, forward, replication);
         }
         catch
