@@ -1,10 +1,10 @@
 # External package smoke
 
-This standalone sample starts an embedded Squirix server, connects through the public client SDK, and checks named-cache
-isolation and expiration. It is not part of the main solution.
+This sample starts an embedded Squirix server and exercises the public SDK, named-cache isolation, expiration,
+and the distributed and hybrid cache integrations.
 
-By default, the project references the client and server source projects. Set `SmokeUsePackages=true` to exercise the
-packed `squirix` and `squirix.server` NuGet packages instead.
+The main solution builds the sample against source project references by default. Set `SmokeUsePackages=true` to
+exercise the packed `squirix`, `squirix.server`, and `squirix.extensions.caching` NuGet packages.
 
 ## Prerequisites
 
@@ -14,11 +14,12 @@ packed `squirix` and `squirix.server` NuGet packages instead.
 
 ## Build the packages
 
-From the repository root, pack both runtime roles after changing either one:
+From the repository root, pack the three packages:
 
 ```bash
 dotnet pack src/squirix/Squirix.csproj -c Release -o artifacts/packages
 dotnet pack src/squirix.server/Squirix.Server.csproj -c Release -o artifacts/packages
+dotnet pack src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj -c Release -o artifacts/packages
 ```
 
 ## Run against the packages
@@ -31,7 +32,7 @@ dotnet restore -p:SmokeUsePackages=true
 dotnet run -c Release --no-restore -p:SmokeUsePackages=true
 ```
 
-The local [nuget.config](nuget.config) maps both Squirix packages to `../../artifacts/packages`. Their versions come from
+The local [nuget.config](nuget.config) maps all three Squirix packages to `../../artifacts/packages`. Their versions come from
 `SquirixPackageVersion` in the repository root [Directory.Build.props](../../Directory.Build.props), through
 [Directory.Packages.props](../../Directory.Packages.props). A successful run exits with code 0; a failed isolation or
 expiration check throws an exception.
