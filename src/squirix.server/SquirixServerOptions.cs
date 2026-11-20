@@ -243,7 +243,8 @@ public sealed class SquirixServerOptions
 
         return options.Journal.GroupCommitMaxWait > TimeSpan.Zero && !options.PersistenceEnabled
             ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
-            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout);
+            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout) ??
+              PrometheusEndpointOptionsValidator.ValidatePath(options.PrometheusMetricsEnabled, options.PrometheusMetricsPath);
     }
 
     private static void Validate(SquirixServerOptions options)

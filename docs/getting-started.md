@@ -188,8 +188,8 @@ Run `validate-config --settings Squirix.settings.json --strict` before starting 
 Use paths such as `Squirix.settings.json` or `config/node.json`; operator-supplied paths containing `.` or `..`
 segments are rejected. Relative paths are resolved against the process working directory.
 
-For settings outside the standard discovery locations, `--settings` selects cluster settings only. Optional runtime
-sections still use standard file discovery; see [file discovery](configuration.md#file-discovery).
+For settings outside the standard discovery locations, `--settings` selects the cluster and Prometheus export settings.
+Other optional runtime sections still use standard [file discovery](configuration.md#file-discovery).
 
 ## Next steps
 
