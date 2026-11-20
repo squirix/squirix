@@ -12,7 +12,7 @@ internal sealed class ConnectionAuthenticationHandler : AuthenticationHandler<Jw
 {
     private readonly ConnectionAuthenticationValidator _validator;
 
-    public ConnectionAuthenticationHandler(
+    internal ConnectionAuthenticationHandler(
         IOptionsMonitor<JwtBearerOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,

@@ -15,7 +15,7 @@ internal sealed class MemoryUsageAccounting : IMemoryUsageAccounting
 
     /// <summary>Initializes a new instance of the <see cref="MemoryUsageAccounting" /> class.</summary>
     /// <param name="stats">The local cache whose stored entries and recorded bytes the accounting reports.</param>
-    public MemoryUsageAccounting(ILocalCacheStats stats)
+    internal MemoryUsageAccounting(ILocalCacheStats stats)
     {
         ArgumentNullException.ThrowIfNull(stats);
         _stats = stats;

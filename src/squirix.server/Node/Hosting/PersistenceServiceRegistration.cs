@@ -95,7 +95,11 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<ISnapshotReadinessStatus>(static sp => sp.GetRequiredService<SnapshotTriggerService>());
         _ = services.AddHostedService(static sp => sp.GetRequiredService<SnapshotTriggerService>());
 
-        _ = services.AddHostedService<JournalMetricsExporterService>();
+        _ = services.AddHostedService(static sp => new JournalMetricsExporterService(
+            sp.GetRequiredService<PersistenceOptions>(),
+            sp.GetRequiredService<TopologyOptions>(),
+            sp.GetRequiredService<ILogger<JournalMetricsExporterService>>(),
+            sp.GetRequiredService<Meter>()));
 
         // Stops the journal once every other hosted service has stopped, so their final appends reach it.
         _ = services.AddHostedService(static sp => new JournalStopService(sp.GetRequiredService<JournalCoordinatorHost>().StopAsync));

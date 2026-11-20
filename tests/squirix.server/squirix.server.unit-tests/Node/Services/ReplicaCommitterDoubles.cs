@@ -211,7 +211,7 @@ internal static class ReplicaCommitterDoubles
         public ulong NextSequence => 1;
 
         /// <summary>Gets a task that completes when a caller waited for the startup gate.</summary>
-        public Task Requested => _requested.Task;
+        internal Task Requested => _requested.Task;
 
         public Exception? GetJournalThreadFailure() => null;
 

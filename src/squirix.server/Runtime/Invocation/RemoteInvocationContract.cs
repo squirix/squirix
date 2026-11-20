@@ -4,5 +4,5 @@ namespace Squirix.Server.Runtime.Invocation;
 internal static class RemoteInvocationContract
 {
     /// <summary>HTTP request header that carries the ring fingerprint of the calling node on internal owner-routed RPCs.</summary>
-    public const string RingFingerprintHeaderName = "squirix-ring-fingerprint";
+    internal const string RingFingerprintHeaderName = "squirix-ring-fingerprint";
 }

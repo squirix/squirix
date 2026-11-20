@@ -25,7 +25,7 @@ internal sealed class ConnectionAuthenticationValidator : IDisposable
     private readonly SemaphoreSlim _pending = new(256, 256);
     private readonly ConnectionTrustHistory _history = new();
 
-    public ConnectionAuthenticationValidator(IOptionsMonitor<JwtBearerOptions> options, TimeProvider timeProvider, IServiceScopeFactory scopeFactory)
+    internal ConnectionAuthenticationValidator(IOptionsMonitor<JwtBearerOptions> options, TimeProvider timeProvider, IServiceScopeFactory scopeFactory)
     {
         _options = options;
         _timeProvider = timeProvider;

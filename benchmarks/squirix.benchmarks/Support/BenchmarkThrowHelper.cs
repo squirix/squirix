@@ -16,7 +16,7 @@ internal static class BenchmarkThrowHelper
     /// <param name="owner">The disposed owner name for exceptions.</param>
     /// <returns><paramref name="value" />.</returns>
     /// <exception cref="ObjectDisposedException">Thrown when <paramref name="value" /> is null.</exception>
-    public static T Disposed<T>(T? value, string owner)
+    internal static T Disposed<T>(T? value, string owner)
         where T : class
     {
         if (value == null)
@@ -31,7 +31,7 @@ internal static class BenchmarkThrowHelper
     /// <param name="message">The exception message.</param>
     /// <returns><paramref name="value" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="value" /> is null.</exception>
-    public static T Required<T>(T? value, string message)
+    internal static T Required<T>(T? value, string message)
         where T : class
     {
         if (value == null)

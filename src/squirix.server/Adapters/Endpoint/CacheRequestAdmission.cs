@@ -11,7 +11,7 @@ internal sealed class CacheRequestAdmission
     private readonly IBackpressureClientIdResolver _clients;
     private readonly IBackpressureGate _gate;
 
-    public CacheRequestAdmission(IBackpressureGate gate, IBackpressureClientIdResolver clients)
+    internal CacheRequestAdmission(IBackpressureGate gate, IBackpressureClientIdResolver clients)
     {
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(clients);

@@ -173,7 +173,7 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
     {
         private readonly PolicyProbe _probe;
 
-        public PolicyInterceptor(PolicyProbe probe)
+        internal PolicyInterceptor(PolicyProbe probe)
         {
             _probe = probe;
         }

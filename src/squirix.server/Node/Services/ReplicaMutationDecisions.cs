@@ -181,9 +181,9 @@ internal static class ReplicaMutationDecisions
     internal readonly record struct ReplicaDecision(PreparedJournalEntry? Entry, ReadOnlyMemory<byte> Outcome, long ExpiresUtcTicks)
     {
         /// <summary>Gets the entry an upserting record writes, or null when the effect is a delete or nothing.</summary>
-        public PreparedJournalEntry? Entry { get; } = Entry;
+        internal PreparedJournalEntry? Entry { get; } = Entry;
 
         /// <summary>Gets the canonical outcome the client, the log and the idempotency state share.</summary>
-        public ReadOnlyMemory<byte> Outcome { get; } = Outcome;
+        internal ReadOnlyMemory<byte> Outcome { get; } = Outcome;
     }
 }

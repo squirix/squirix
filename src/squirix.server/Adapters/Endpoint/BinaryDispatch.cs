@@ -20,7 +20,7 @@ internal sealed class BinaryDispatch
     private readonly BinaryCallObserver? _observer;
     private readonly IRemoteInvocationScopeFactory _scopes;
 
-    public BinaryDispatch(RoutedCacheOperations<object?> operations, CacheRequestAdmission admission, ServerCallCorrelation correlation, IRemoteInvocationScopeFactory scopes, BinaryCallObserver? observer = null)
+    internal BinaryDispatch(RoutedCacheOperations<object?> operations, CacheRequestAdmission admission, ServerCallCorrelation correlation, IRemoteInvocationScopeFactory scopes, BinaryCallObserver? observer = null)
     {
         _operations = operations;
         _admission = admission;

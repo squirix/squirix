@@ -886,8 +886,6 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         public JournalCapacityResyncSignal CapacityResync { get; } = new();
 
-        public JournalDurabilityGroupCommit? GroupCommit { get; init; }
-
         long IJournalEventLoopState.ActiveSegmentWrittenBytes => _activeBytes;
 
         JournalDurabilityGroupCommit? IJournalEventLoopState.GroupCommit => GroupCommit;
@@ -903,6 +901,8 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         IJournalSegmentWriter IJournalEventLoopState.SegmentWriter => _segmentWriter;
 
         JournalWriteBatchBuffer IJournalEventLoopState.WriteBatch => _writeBatch;
+
+        internal JournalDurabilityGroupCommit? GroupCommit { get; init; }
 
         void IJournalEventLoopState.AddJournalTotalBytes(long delta) => _totalBytes += delta;
 
@@ -965,14 +965,14 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     {
         private readonly List<string> _calls = [];
 
-        public Action? OnWrite { get; set; }
+        long IJournalSegmentWriter.Length => 0;
+
+        internal Action? OnWrite { get; set; }
 
         /// <summary>Gets the recorded calls joined in call order.</summary>
-        public string Trace => string.Join(',', _calls);
+        internal string Trace => string.Join(',', _calls);
 
-        public Exception? WriteFailure { get; init; }
-
-        long IJournalSegmentWriter.Length => 0;
+        internal Exception? WriteFailure { get; init; }
 
         /// <summary>Releases test resources.</summary>
         public void Dispose()

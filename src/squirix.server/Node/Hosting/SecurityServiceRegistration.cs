@@ -1,7 +1,11 @@
 using System;
+using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
@@ -81,9 +85,22 @@ internal static class SecurityServiceRegistration
             .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options => ConfigureJwt(options, in configuration))
             .AddScheme<JwtBearerOptions, OperationalTokenHandler>(SquirixAuthenticationSchemes.OperationalBearer, static _ => { });
 
-        _ = services.AddSingleton(static provider => new ConnectionAuthenticationValidator(provider.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>()));
-        _ = services.AddTransient<ConnectionAuthenticationHandler>();
-        _ = services.AddTransient<ConnectionTokenHandler>();
+        _ = services.AddSingleton(static provider => new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>()));
+
+        // AddScheme registers the handler by type. Replace that descriptor with the factory.
+        _ = services.Replace(ServiceDescriptor.Transient(static provider => new OperationalTokenHandler(
+            provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(),
+            provider.GetRequiredService<ILoggerFactory>(),
+            provider.GetRequiredService<UrlEncoder>())));
+        _ = services.AddTransient(static provider => new ConnectionAuthenticationHandler(
+            provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(),
+            provider.GetRequiredService<ILoggerFactory>(),
+            provider.GetRequiredService<UrlEncoder>(),
+            provider.GetRequiredService<ConnectionAuthenticationValidator>()));
+        _ = services.AddTransient(static provider => new ConnectionTokenHandler(
+            provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(),
+            provider.GetRequiredService<ILoggerFactory>(),
+            provider.GetRequiredService<UrlEncoder>()));
         _ = services.Configure<AuthenticationOptions>(static options =>
         {
             options.DefaultScheme ??= JwtBearerDefaults.AuthenticationScheme;

@@ -40,7 +40,7 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<BackpressureMetrics>(),
                 sp.GetRequiredService<TimeProvider>()));
             _ = services.AddSingleton<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.GetRequiredService<IOptions<PressureOptions>>().Value));
-            _ = services.AddSingleton<MemoryUsageAccounting>();
+            _ = services.AddSingleton(static sp => new MemoryUsageAccounting(sp.GetRequiredService<ILocalCacheStats>()));
             _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
             _ = services.AddObservabilityServices();
             _ = services.AddSingleton(static sp => new PressureGate(
@@ -91,7 +91,11 @@ internal static class RuntimeServiceRegistration
         private IServiceCollection AddHostedServices()
         {
             _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>(), sp.GetRequiredService<Meter>()));
-            _ = services.AddHostedService<MemoryPressureMetricsService>();
+            _ = services.AddHostedService(static sp => new MemoryPressureMetricsService(
+                sp.GetRequiredService<TopologyOptions>(),
+                sp.GetRequiredService<IMemoryUsageAccounting>(),
+                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
+                sp.GetRequiredService<MemoryPressureMetrics>()));
             return services;
         }
 

@@ -18,7 +18,7 @@ internal sealed class MemoryPressureMetricsService : IHostedService
     private readonly MemoryPressureMetrics _metrics;
     private readonly MetricRegistration _registration;
 
-    public MemoryPressureMetricsService(TopologyOptions cluster, IMemoryUsageAccounting accounting, IMemoryPressureStateEvaluator evaluator, MemoryPressureMetrics metrics)
+    internal MemoryPressureMetricsService(TopologyOptions cluster, IMemoryUsageAccounting accounting, IMemoryPressureStateEvaluator evaluator, MemoryPressureMetrics metrics)
     {
         _metrics = metrics;
         _registration = new MetricRegistration(cluster.NodeId, accounting, evaluator);

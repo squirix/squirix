@@ -39,7 +39,7 @@ internal sealed class TestNodeHost : ITestNodeHost
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
     /// <param name="persistenceEnabled">Whether persistence is enabled for the hosted node.</param>
     /// <param name="scope">Optional disposable scope that will be disposed of alongside the host.</param>
-    public TestNodeHost(WebApplication app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
+    internal TestNodeHost(WebApplication app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
     {
         _app = app;
         _uri = uri;

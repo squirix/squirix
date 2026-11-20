@@ -7,20 +7,20 @@ namespace Squirix.Server.Core;
 internal static class EntryLimits
 {
     /// <summary>Maximum peer receive message size in bytes (8 MiB).</summary>
-    public const int MaxReceiveMessageSizeBytes = 8 * 1024 * 1024;
+    internal const int MaxReceiveMessageSizeBytes = 8 * 1024 * 1024;
 
     /// <summary>Maximum peer send message size in bytes (8 MiB).</summary>
-    public const int MaxSendMessageSizeBytes = 8 * 1024 * 1024;
+    internal const int MaxSendMessageSizeBytes = 8 * 1024 * 1024;
 
     /// <summary>Maximum encoded cache entry payload size in bytes (4 MiB).</summary>
-    public const int MaxEntrySizeBytes = 4 * 1024 * 1024;
+    internal const int MaxEntrySizeBytes = 4 * 1024 * 1024;
 
     /// <summary>Maximum number of tags on a cache entry.</summary>
-    public const int MaxEntryTagCount = 32;
+    internal const int MaxEntryTagCount = 32;
 
     /// <summary>Maximum UTF-8 byte length of a cache entry tag key.</summary>
-    public const int MaxEntryTagKeyUtf8Bytes = 256;
+    internal const int MaxEntryTagKeyUtf8Bytes = 256;
 
     /// <summary>Maximum UTF-8 byte length of a cache entry tag value.</summary>
-    public const int MaxEntryTagValueUtf8Bytes = 1024;
+    internal const int MaxEntryTagValueUtf8Bytes = 1024;
 }

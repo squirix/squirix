@@ -10,7 +10,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Runs the normal JWT pipeline only during the connection handshake.</summary>
 internal sealed class ConnectionTokenHandler : JwtBearerHandler
 {
-    public ConnectionTokenHandler(IOptionsMonitor<JwtBearerOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+    internal ConnectionTokenHandler(IOptionsMonitor<JwtBearerOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : base(options, logger, encoder)
     {
     }

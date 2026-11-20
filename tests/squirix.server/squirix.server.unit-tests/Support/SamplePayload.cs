@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -6,9 +7,12 @@ namespace Squirix.Server.UnitTests.Support;
 [Immutable]
 internal sealed class SamplePayload
 {
-    public int Id { get; init; }
+    [JsonInclude]
+    internal int Id { get; init; }
 
-    public string Name { get; init; } = string.Empty;
+    [JsonInclude]
+    internal string Name { get; init; } = string.Empty;
 
-    public string[] Tags { get; init; } = [];
+    [JsonInclude]
+    internal string[] Tags { get; init; } = [];
 }
