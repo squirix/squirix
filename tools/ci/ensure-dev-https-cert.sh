@@ -12,6 +12,17 @@ if [[ "${os}" != "Linux" ]]; then
     echo "Skipping interactive 'dotnet dev-certs https --trust' on ${os} (CI has no UI for trust prompts)."
     if [[ -n "${GITHUB_ENV:-}" ]]; then
         echo "SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1" >> "${GITHUB_ENV}"
+        if [[ "${os}" == "Darwin" ]]; then
+            # Handshakes use a certificate file so native listeners do not access the login keychain.
+            cert_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/squirix-https.XXXXXXXX")"
+            cert_password="$(openssl rand -hex 24)"
+            echo "::add-mask::${cert_password}"
+            dotnet dev-certs https --export-path "${cert_dir}/localhost.pfx" --password "${cert_password}" >/dev/null
+            {
+                echo "SQUIRIX_TLS_CERTIFICATE_PATH=${cert_dir}/localhost.pfx"
+                echo "SQUIRIX_TLS_CERTIFICATE_PASSWORD=${cert_password}"
+            } >> "${GITHUB_ENV}"
+        fi
     fi
     export SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1
     # Cert exists; OS trust is intentionally not required when SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1.
