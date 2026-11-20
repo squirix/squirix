@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,7 +52,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
     /// <summary>Allows peer failure detection and scheduling delays on a loaded runner.</summary>
-    private static readonly TimeSpan KeepAliveDetectionBound = TimeSpan.FromSeconds(33);
+    private static readonly TimeSpan IdleSessionRetirementBound = TimeSpan.FromSeconds(33);
 
     /// <summary>The election timeout of the owner under <see cref="OwnerLeadsOptions" />: shorter than <see cref="OthersElectionTimeout" />, so a cut-off owner steps down before its successor is elected.</summary>
     private static readonly TimeSpan OwnerElectionTimeout = TimeSpan.FromSeconds(4);
@@ -312,9 +311,8 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 
     /// <summary>
     /// With four nodes and three replicas, the host of the owner of a group goes silent without resetting the connection the entry node outside
-    /// the group already holds to it. The keepalive pings of the forward channel find that connection dead, so once another member leads, a
-    /// write sent to the entry node dials the owner anew, fails at the dial bound and falls back to the new leader, instead of waiting out
-    /// its per-attempt timeout on the dead connection.
+    /// the group already holds to it. The native peer pool retires the idle session. Once another member leads, a write sent to the
+    /// entry node dials the owner anew, fails at the dial bound and falls back to the new leader.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -322,9 +320,6 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     [ExecutionPriority(Priority.Critical)]
     public async Task SilentOwnerReachesNewLeader(CancellationToken cancellationToken)
     {
-        using var defaultHandler = new SocketsHttpHandler();
-        _ = await Assert.That(KeepAliveDetectionBound).IsLessThan(defaultHandler.PooledConnectionIdleTimeout)
-                        .Because("idle eviction must not satisfy the keepalive detection check");
         var topology = new ClusterNode[FourNodes.Length];
         for (var i = 0; i < topology.Length; i++)
             topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
@@ -349,9 +344,8 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             fabric.HoldDirection(survivor, OwnerId);
         }
 
-        // The keepalive pings close the connection the entry node holds to the owner, which drops its open connection count. Without them the
-        // connection stays open until the pool's one-minute idle timeout closes it, past the bound.
-        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, KeepAliveDetectionBound, TimeProvider.System, cancellationToken);
+        // Wait for the native pool to retire an idle session before sending the next write.
+        await cluster.WaitUntilAsync(_ => entryPool.OpenConnections < openBefore, IdleSessionRetirementBound, TimeProvider.System, cancellationToken);
 
         var leader = await LeaderAsync(cluster, survivors, cancellationToken);
         var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
