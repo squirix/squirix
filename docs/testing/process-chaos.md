@@ -115,19 +115,19 @@ SQUIRIX_CHAOS_HISTORY=/absolute/path/0.history.json dotnet test \
 
 `run.json` records the seed, source revision, replica count, fault schedule and elapsed event times. Each
 `control/*.history.json` contains write outcomes and invocation/response timestamps, successful read observations,
-and failed read intervals. Logs and TRX are uploaded for both passing and failing nightly runs. CA private keys and disk images
+and failed read intervals. The workflow uploads logs and TRX for passing and failing runs. CA private keys and disk images
 are not uploaded. After cleanup, the local disk image files remain for investigation; no filesystem remains mounted.
 
 ## Results and acceptance status
 
-The workflow is `.github/workflows/chaos-nightly.yml`. Scheduled runs check out `develop`; manual runs use the selected ref.
+The scheduled `.github/workflows/chaos-nightly.yml` run checks the controls on `develop`. Use **Run workflow** on the selected ref to run both the
+controls and the RF=3/RF=5 process-chaos matrix.
 The `checker-controls` job runs scheduler controls, register checker tests and only the model-generated
 `BrokenModeHistoryTests` controls once, before either process-chaos job can start. Its reports and build logs are uploaded separately.
-The complete protocol-model suite remains in regular CI; the RF=3/RF=5 matrix runs the real-process faults.
+Regular CI runs the complete protocol-model suite. The manual matrix runs the real-process faults.
 Both matrix jobs check out the exact commit validated by `checker-controls`. Filtered control runs fail if no test executes,
 including when all selected tests are skipped. Artifact paths remain bounded to their specific temporary directories even if setup fails.
-Both replica factors run with a fresh seed unless a manual run supplies one. As with other GitHub scheduled workflows, scheduling becomes active when
-the workflow is present on the repository's default branch.
+Both replica factors use a fresh seed unless the dispatch supplies one.
 
 The checker/workload/artifact validation passed 39 tests, including both permutation-oracle cases and a 20,000-operation history.
 The ordinary failover suite passed all 70 tests with the complete checker; the protocol-model suite passed all 61 tests,
