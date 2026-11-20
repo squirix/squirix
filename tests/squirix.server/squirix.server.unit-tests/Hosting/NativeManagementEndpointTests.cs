@@ -74,11 +74,49 @@ public sealed class NativeManagementEndpointTests
         _ = await Assert.That(response.StartsWith("HTTP/1.1 431 Request Header Fields Too Large\r\n", StringComparison.Ordinal)).IsTrue();
     }
 
-    private static async Task<string> ExchangeAsync(IServiceProvider services, string request, IPAddress address)
+    /// <summary>Checks the authority field required for HTTP/1.1 requests.</summary>
+    /// <param name="caseId">The authority test case.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(3)]
+    [Arguments(4)]
+    public async Task ValidatesManagementHost(int caseId)
+    {
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        var (headers, status) = caseId switch
+        {
+            0 => ("HTTP/1.1", "400 Bad Request"),
+            1 => ("HTTP/1.1\r\nHost: localhost\r\nHOST: localhost", "400 Bad Request"),
+            2 => ("HTTP/1.1\r\nHost: bad host", "400 Bad Request"),
+            3 => ("HTTP/1.0", "200 OK"),
+            _ => ("HTTP/1.1\r\nHost: [::1]:5002", "200 OK"),
+        };
+
+        var response = await ExchangeAsync(services, $"GET /health {headers}\r\n\r\n", IPAddress.Loopback, 1);
+        _ = await Assert.That(response.StartsWith($"HTTP/1.1 {status}\r\n", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>Advertises the supported method or authentication challenge on the corresponding error.</summary>
+    [Test]
+    public async Task ManagementErrorsIncludeRequiredHeaders()
+    {
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        var method = await ExchangeAsync(services, "POST /health HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\nX", IPAddress.Loopback);
+        var auth = await ExchangeAsync(services, "GET /health/ready/details HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Parse("203.0.113.10"));
+
+        _ = await Assert.That(method.StartsWith("HTTP/1.1 405 Method Not Allowed\r\n", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(method).Contains("\r\nAllow: GET, HEAD\r\n", StringComparison.Ordinal);
+        _ = await Assert.That(auth.StartsWith("HTTP/1.1 401 Unauthorized\r\n", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(auth).Contains("\r\nWWW-Authenticate: Bearer realm=\"management\"\r\n", StringComparison.Ordinal);
+    }
+
+    private static async Task<string> ExchangeAsync(IServiceProvider services, string request, IPAddress address, int fragmentSize = int.MaxValue)
     {
         var endpoint = new NativeManagementEndpoint(services, static (_, _) => ValueTask.FromResult(false), Microsoft.Extensions.Logging.Abstractions.NullLogger<NativeManagementEndpoint>.Instance);
         var bytes = Encoding.ASCII.GetBytes(request);
-        var stream = new MemoryStream();
+        var stream = new FragmentedStream(fragmentSize);
         await using var lifetime = stream.ConfigureAwait(false);
         await stream.WriteAsync(bytes, CancellationToken.None).ConfigureAwait(false);
         stream.Position = 0;
@@ -86,5 +124,18 @@ public sealed class NativeManagementEndpointTests
         await endpoint.ServeAsync(stream, new IPEndPoint(address, 3000), CancellationToken.None, CancellationToken.None).ConfigureAwait(false);
         var responseOffset = Math.Min(bytes.Length, 16 * 1024);
         return Encoding.ASCII.GetString(stream.GetBuffer(), responseOffset, int.CreateChecked(stream.Position) - responseOffset);
+    }
+
+    private sealed class FragmentedStream : MemoryStream
+    {
+        private readonly int _fragmentSize;
+
+        internal FragmentedStream(int fragmentSize)
+        {
+            _fragmentSize = fragmentSize;
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            base.ReadAsync(buffer[..Math.Min(buffer.Length, _fragmentSize)], cancellationToken);
     }
 }

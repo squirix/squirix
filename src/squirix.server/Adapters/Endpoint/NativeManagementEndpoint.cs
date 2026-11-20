@@ -27,6 +27,8 @@ internal sealed partial class NativeManagementEndpoint
     private const string JsonContentType = "application/json; charset=utf-8";
     private const string TextContentType = "text/plain";
 
+    private static readonly SearchValues<char> InvalidHostCharacters = SearchValues.Create(" \t\r\n/\\?#@");
+
     private static readonly ReadOnlyMemory<byte> CompatibilityHealthBody = Encoding.UTF8.GetBytes("\"OK\"");
     private static readonly ReadOnlyMemory<byte> HealthyBody = Encoding.UTF8.GetBytes(nameof(HealthStatus.Healthy));
     private static readonly ReadOnlyMemory<byte> DegradedBody = Encoding.UTF8.GetBytes(nameof(HealthStatus.Degraded));
@@ -86,13 +88,15 @@ internal sealed partial class NativeManagementEndpoint
                 var read = await stream.ReadAsync(buffer.AsMemory(total, MaxHeaderBytes - total), cancellationToken).ConfigureAwait(false);
                 if (read == 0)
                     return (null, null);
+                var previous = total;
                 total += read;
-                var end = buffer.AsSpan(0, total).IndexOf("\r\n\r\n"u8);
-                var headerSize = end >= 0 ? end : total;
-                if (HasInvalidHeaderBytes(buffer.AsSpan(0, headerSize)))
+                var searchStart = Math.Max(0, previous - 3);
+                var delimiter = buffer.AsSpan(searchStart, total - searchStart).IndexOf("\r\n\r\n"u8);
+                var headerSize = delimiter >= 0 ? searchStart + delimiter : total;
+                if (headerSize > previous && HasInvalidHeaderBytes(buffer.AsSpan(previous, headerSize - previous)))
                     return (null, Response.Empty("400 Bad Request"));
-                if (end >= 0)
-                    return ParseRequest(Encoding.ASCII.GetString(buffer, 0, end));
+                if (delimiter >= 0)
+                    return ParseRequest(Encoding.ASCII.GetString(buffer, 0, headerSize));
             }
 
             return (null, Response.Empty("431 Request Header Fields Too Large"));
@@ -123,21 +127,23 @@ internal sealed partial class NativeManagementEndpoint
             return (null, badRequest);
 
         var head = string.Equals(start[0], "HEAD", StringComparison.Ordinal);
-        if (!head && !string.Equals(start[0], "GET", StringComparison.Ordinal))
-            return (null, Response.Empty("405 Method Not Allowed"));
-
-        if (!TryReadHeaders(lines, out var bearer))
+        var supportedMethod = head || string.Equals(start[0], "GET", StringComparison.Ordinal);
+        if (!TryReadHeaders(lines, string.Equals(start[2], "HTTP/1.1", StringComparison.Ordinal), supportedMethod, out var bearer))
             return (null, badRequest);
+
+        if (!supportedMethod)
+            return (null, Response.Empty("405 Method Not Allowed"));
 
         var query = start[1].IndexOf('?', StringComparison.Ordinal);
         var path = query < 0 ? start[1] : start[1][..query];
         return (new Request(path, bearer, head), null);
     }
 
-    private static bool TryReadHeaders(string[] lines, out string? bearer)
+    private static bool TryReadHeaders(string[] lines, bool requireHost, bool rejectBody, out string? bearer)
     {
         bearer = null;
         var authorizationSeen = false;
+        var hostSeen = false;
         for (var i = 1; i < lines.Length; i++)
         {
             var line = lines[i].AsSpan();
@@ -147,7 +153,7 @@ internal sealed partial class NativeManagementEndpoint
 
             var name = line[..colon];
             var value = line[(colon + 1)..].Trim();
-            if (HasUnsupportedBody(name, value))
+            if (!TryValidateHeader(name, value, rejectBody, ref hostSeen))
                 return false;
 
             if (!name.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
@@ -160,6 +166,20 @@ internal sealed partial class NativeManagementEndpoint
                 bearer = value["Bearer ".Length..].Trim().ToString();
         }
 
+        return hostSeen || !requireHost;
+    }
+
+    private static bool TryValidateHeader(ReadOnlySpan<char> name, ReadOnlySpan<char> value, bool rejectBody, ref bool hostSeen)
+    {
+        if (rejectBody && HasUnsupportedBody(name, value))
+            return false;
+        if (!name.Equals("Host", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (hostSeen || value.IsEmpty || value.IndexOfAny(InvalidHostCharacters) >= 0 ||
+            !Uri.TryCreate($"https://{value}", UriKind.Absolute, out var authority) || authority.HostNameType == UriHostNameType.Unknown)
+            return false;
+
+        hostSeen = true;
         return true;
     }
 
@@ -182,9 +202,15 @@ internal sealed partial class NativeManagementEndpoint
     {
         var type = response.ContentType == null ? string.Empty : $"Content-Type: {response.ContentType}\r\n";
         var cache = response.NoCache ? "Cache-Control: no-store, no-cache\r\nPragma: no-cache\r\nExpires: Thu, 01 Jan 1970 00:00:00 GMT\r\n" : string.Empty;
+        var policy = response.Status switch
+        {
+            "401 Unauthorized" => "WWW-Authenticate: Bearer realm=\"management\"\r\n",
+            "405 Method Not Allowed" => "Allow: GET, HEAD\r\n",
+            _ => string.Empty,
+        };
         var header = string.Create(
             CultureInfo.InvariantCulture,
-            $"HTTP/1.1 {response.Status}\r\n{type}{cache}Content-Length: {response.Body.Length}\r\nConnection: close\r\n\r\n");
+            $"HTTP/1.1 {response.Status}\r\n{type}{cache}{policy}Content-Length: {response.Body.Length}\r\nConnection: close\r\n\r\n");
         await stream.WriteAsync(Encoding.ASCII.GetBytes(header), cancellationToken).ConfigureAwait(false);
         if (!head && !response.Body.IsEmpty)
             await stream.WriteAsync(response.Body, cancellationToken).ConfigureAwait(false);
