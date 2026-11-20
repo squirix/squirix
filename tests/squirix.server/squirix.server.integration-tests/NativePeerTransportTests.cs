@@ -103,7 +103,9 @@ public sealed class NativePeerTransportTests
             finally
             {
                 await transfer.CancelAsync();
-                _ = await NodeAsyncAssert.ThrowsAsync<OperationCanceledException>(Task.WhenAll(firstTransfer, queuedTransfer), TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+                _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Task.WhenAll(firstTransfer, queuedTransfer), TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+                _ = await Assert.That(firstTransfer.IsCanceled).IsTrue();
+                _ = await Assert.That(queuedTransfer.IsCanceled).IsTrue();
             }
         }
         finally
