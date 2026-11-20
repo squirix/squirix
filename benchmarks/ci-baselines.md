@@ -6,23 +6,23 @@ A separate nightly workflow compares execution time with the pinned accepted dev
 ## Managed allocation limits
 
 The allocation job checks eight public SDK Get/Set cases and five server read cases.
-The eight wire limits were refreshed from three independent successful Ubuntu CI runs from accepted develop sources:
-[41298680753](https://github.com/squirix/squirix/actions/runs/41298680753),
-[41274847911](https://github.com/squirix/squirix/actions/runs/41274847911) and
-[41273596456](https://github.com/squirix/squirix/actions/runs/41273596456).
-Each stored value is their rounded arithmetic mean; the existing 5% tolerance is unchanged.
-The previous limits below are previous CI budgets, not a newly measured preview.9 comparison.
+Three independent successful Allocation Guard jobs on Ubuntu / .NET 10 measured the eight wire cases on
+the native server revision [`44191189`](https://github.com/squirix/squirix/commit/44191189aa86d48ea4038b73e7e41a3f09ff9a95).
+Source runs [44727857333](https://github.com/squirix/squirix/actions/runs/44727857333),
+[44733966752](https://github.com/squirix/squirix/actions/runs/44733966752) and [44735209165](https://github.com/squirix/squirix/actions/runs/44735209165).
+Each refreshed budget is the rounded arithmetic mean. Each source run passes the refreshed budgets with the existing
+5% tolerance. The comparison below uses the previous CI budgets.
 
 | Wire case | Previous B/op | Refreshed B/op |
 | --- | ---: | ---: |
-| Scalar Get, ephemeral | 10469 | 10530 |
-| Scalar Get, persistent | 10361 | 10446 |
-| Scalar Set, ephemeral | 11685 | 11780 |
-| Scalar Set, persistent | 14342 | 14491 |
-| Structured Get, ephemeral | 11895 | 11962 |
-| Structured Get, persistent | 11882 | 11953 |
-| Structured Set, ephemeral | 12609 | 12682 |
-| Structured Set, persistent | 15255 | 15404 |
+| Scalar Get, ephemeral | 10530 | 3217 |
+| Scalar Get, persistent | 10446 | 3222 |
+| Scalar Set, ephemeral | 11780 | 3787 |
+| Scalar Set, persistent | 14491 | 5525 |
+| Structured Get, ephemeral | 11962 | 4674 |
+| Structured Get, persistent | 11953 | 4675 |
+| Structured Set, ephemeral | 12682 | 4676 |
+| Structured Set, persistent | 15404 | 6188 |
 
 Four server value-read paths retain their strict zero-allocation budget.
 The local entry read retains its 72 B/op budget.

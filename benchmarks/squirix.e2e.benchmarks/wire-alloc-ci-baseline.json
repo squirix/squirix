@@ -2,25 +2,25 @@
   "runner": "ubuntu-latest",
   "tolerance": 0.05,
   "bytesPerOperation": {
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 10530,
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 10446,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 11780,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 14491,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 11962,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 11953,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 12682,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 15404
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 3217,
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 3222,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 3787,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 5525,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 4674,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 4675,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 4676,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 6188
   },
   "release": "develop",
-  "measurement": "Rounded arithmetic mean of three independent successful Ubuntu develop CI runs; limits checked against each source run.",
+  "measurement": "Rounded arithmetic mean of three independent successful Allocation Guard jobs on Ubuntu / .NET 10 at the same native-server PR commit; limits checked against each source run.",
   "sourceRuns": [
-    "https://github.com/squirix/squirix/actions/runs/41298680753",
-    "https://github.com/squirix/squirix/actions/runs/41274847911",
-    "https://github.com/squirix/squirix/actions/runs/41273596456"
+    "https://github.com/squirix/squirix/actions/runs/44727857333",
+    "https://github.com/squirix/squirix/actions/runs/44733966752",
+    "https://github.com/squirix/squirix/actions/runs/44735209165"
   ],
   "sourceCommits": [
-    "915b08e752f2a5fb60094ef02d2e9eaa6e00f5f8",
-    "265659f6d25c478d5b3a01b4cb49cf9544c3ba9f",
-    "73bd1aa0ad6b12e30ae12099f1c54860b7597541"
+    "44191189aa86d48ea4038b73e7e41a3f09ff9a95",
+    "44191189aa86d48ea4038b73e7e41a3f09ff9a95",
+    "44191189aa86d48ea4038b73e7e41a3f09ff9a95"
   ]
 }
