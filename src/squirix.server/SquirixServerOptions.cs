@@ -229,22 +229,28 @@ public sealed class SquirixServerOptions
             return ex.Message;
         }
 
-        if (options.Journal == null)
+        return ValidateJournal(options.Journal, options.PersistenceEnabled) ??
+               ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout) ??
+               PrometheusEndpointOptionsValidator.ValidatePath(options.PrometheusMetricsEnabled, options.PrometheusMetricsPath);
+    }
+
+    private static string? ValidateJournal(SquirixServerJournalOptions? journal, bool persistenceEnabled)
+    {
+        if (journal == null)
             return "Journal cannot be null.";
 
         try
         {
-            options.Journal.ToPersistenceOptions().Validate();
+            journal.ToPersistenceOptions().Validate();
         }
         catch (InvalidOperationException ex)
         {
             return ex.Message;
         }
 
-        return options.Journal.GroupCommitMaxWait > TimeSpan.Zero && !options.PersistenceEnabled
+        return journal.GroupCommitMaxWait > TimeSpan.Zero && !persistenceEnabled
             ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
-            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout) ??
-              PrometheusEndpointOptionsValidator.ValidatePath(options.PrometheusMetricsEnabled, options.PrometheusMetricsPath);
+            : null;
     }
 
     private static void Validate(SquirixServerOptions options)

@@ -535,25 +535,25 @@ static async Task<string> ReadElementTextAsync(XmlReader reader)
 
 internal sealed class ReleaseOptions
 {
-    public string ArtifactsDirectory { get; set; } = "artifacts/release-validation";
+    internal string ArtifactsDirectory { get; set; } = "artifacts/release-validation";
 
-    public string Configuration { get; set; } = "Release";
+    internal string Configuration { get; set; } = "Release";
 
-    public bool IncludeBenchmarks { get; set; }
+    internal bool IncludeBenchmarks { get; set; }
 
-    public bool IncludeIntegrationTests { get; set; }
+    internal bool IncludeIntegrationTests { get; set; }
 
-    public bool IncludeStressChecks { get; set; }
+    internal bool IncludeStressChecks { get; set; }
 
-    public bool IsValid { get; private init; } = true;
+    internal bool IsValid { get; private init; } = true;
 
-    public string PackageVersion { get; set; } = string.Empty;
+    internal string PackageVersion { get; set; } = string.Empty;
 
-    public bool SkipFormat { get; set; }
+    internal bool SkipFormat { get; set; }
 
-    public bool SkipTests { get; set; }
+    internal bool SkipTests { get; set; }
 
-    public static async Task<ReleaseOptions> InvalidAsync(string message)
+    internal static async Task<ReleaseOptions> InvalidAsync(string message)
     {
         await Console.Error.WriteLineAsync($"ERROR: {message}", CancellationToken.None).ConfigureAwait(false);
         return new ReleaseOptions { IsValid = false };
