@@ -12,8 +12,6 @@ namespace Squirix.Server.Cluster.Transport;
 [Immutable]
 internal sealed class PeerChannels
 {
-    private static readonly PeerChannels Disabled = new(UnavailablePeerClient.Instance, UnavailablePeerClient.Instance, null, null);
-
     private readonly IDisposable? _forward;
     private readonly IDisposable? _replication;
 
@@ -37,7 +35,7 @@ internal sealed class PeerChannels
         TimeSpan forwardConnectTimeout)
     {
         if (!args.InterNodeMtlsEnabled)
-            return Disabled;
+            return new PeerChannels(new UnavailablePeerClient(), new UnavailablePeerClient(), null, null);
 
         if (args.Certificate is not { Enabled: true } material || verifier == null)
             throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport.");
@@ -66,8 +64,6 @@ internal sealed class PeerChannels
     [Immutable]
     private sealed class UnavailablePeerClient : IPeerClient
     {
-        internal static readonly UnavailablePeerClient Instance = new();
-
         public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
             where T : IMessage<T> => Task.FromException<T>(new ServerCallException(FrameStatus.Unavailable, "Peer transport is unavailable without cluster mTLS."));
     }
