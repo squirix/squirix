@@ -129,15 +129,8 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
         return (lower, upper);
     }
 
-    private static async ValueTask<OpenIdConnectConfiguration?> GetConfigurationAsync(JwtValidationOptions options, CancellationToken cancellationToken) =>
-        options.ConfigurationManager == null ? null : await options.ConfigurationManager.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-
-    private async ValueTask<ValidatedToken?> ValidateTokenAsync(string raw, BinaryConnection? connection, CancellationToken cancellationToken)
+    private static TokenValidationParameters CreateValidationParameters(JwtValidationOptions options, OpenIdConnectConfiguration? configuration)
     {
-        var options = _options.CurrentValue;
-        var configuration = await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false);
-        var started = _clock.GetUtcNow().UtcDateTime;
-        var lifetime = (options.ConfigurationManager as BaseConfigurationManager)?.LastKnownGoodLifetime ?? TimeSpan.Zero;
         var parameters = options.TokenValidationParameters.Clone();
         parameters.ConfigurationManager = options.ConfigurationManager as BaseConfigurationManager;
         if (parameters.ConfigurationManager == null && configuration != null)
@@ -147,6 +140,20 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
             signingKeys.AddRange(configuration.SigningKeys);
             parameters.IssuerSigningKeys = signingKeys;
         }
+
+        return parameters;
+    }
+
+    private static async ValueTask<OpenIdConnectConfiguration?> GetConfigurationAsync(JwtValidationOptions options, CancellationToken cancellationToken) =>
+        options.ConfigurationManager == null ? null : await options.ConfigurationManager.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+
+    private async ValueTask<ValidatedToken?> ValidateTokenAsync(string raw, BinaryConnection? connection, CancellationToken cancellationToken)
+    {
+        var options = _options.CurrentValue;
+        var configuration = await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false);
+        var started = _clock.GetUtcNow().UtcDateTime;
+        var lifetime = (options.ConfigurationManager as BaseConfigurationManager)?.LastKnownGoodLifetime ?? TimeSpan.Zero;
+        var parameters = CreateValidationParameters(options, configuration);
 
         var result = await _handler.ValidateTokenAsync(raw, parameters).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();

@@ -119,24 +119,16 @@ internal static class BinaryEndpoint
 
     private static async ValueTask<BinaryResponse> ProcessAsync(CallState state, (int Id, int Size, int Control) frame, ReadOnlyMemory<byte> body, TimeSpan elapsed, Task predecessor)
     {
-        var budget = frame.Control & 0xffff;
-        var timeout = TimeSpan.FromMilliseconds(Math.Min(budget, RpcAttemptTimeout.OperationDeadline.TotalMilliseconds)) - elapsed;
+        var timeout = TimeSpan.FromMilliseconds(Math.Min(frame.Control & 0xffff, RpcAttemptTimeout.OperationDeadline.TotalMilliseconds)) - elapsed;
         if (timeout <= TimeSpan.Zero)
             return new BinaryResponse(FrameStatus.DeadlineExceeded);
         var operationId = Frames.ReadOperationId(frame.Control);
-        var operation = Unsafe.BitCast<int, BinaryOperation>(operationId);
         var deadlineUtc = (TimeProvider.System.GetUtcNow() + timeout).UtcDateTime;
         using var deadline = new TimedCancellation(timeout, TimeProvider.System, state.Connection.ConnectionClosed);
         var scope = state.Validator?.CreateRequestScope();
         try
         {
-            var call = new BinaryRequestContext
-            {
-                Connection = state.Connection,
-                RequestServices = scope?.ServiceProvider,
-                RequestAborted = deadline.Token,
-                Path = operationId < OperationPaths.Length ? OperationPaths[operationId] : OperationPaths[0],
-            };
+            var call = CreateRequestContext(state.Connection, scope?.ServiceProvider, operationId, deadline.Token);
             state.Accessor.Current = call;
             var failure = state.Validator == null ? FrameStatus.Ok : await state.Validator.AuthorizeAsync(state.Connection.Identity!, call, deadline.Token).ConfigureAwait(false);
             deadline.Token.ThrowIfCancellationRequested();
@@ -147,7 +139,7 @@ internal static class BinaryEndpoint
                 return new BinaryResponse(FrameStatus.InvalidArgument);
 
             var callContext = new BinaryDispatch.Request(call, deadlineUtc, predecessor);
-            return await state.Operations.ExecuteAsync(operation, body, in callContext).ConfigureAwait(false);
+            return await state.Operations.ExecuteAsync(Unsafe.BitCast<int, BinaryOperation>(operationId), body, in callContext).ConfigureAwait(false);
         }
         catch (ServerCallException error)
         {
@@ -168,6 +160,15 @@ internal static class BinaryEndpoint
                 await requestScope.DisposeAsync().ConfigureAwait(false);
         }
     }
+
+    private static BinaryRequestContext CreateRequestContext(BinaryConnection connection, IServiceProvider? requestServices, int operationId, CancellationToken cancellationToken) =>
+        new()
+        {
+            Connection = connection,
+            RequestServices = requestServices,
+            RequestAborted = cancellationToken,
+            Path = operationId < OperationPaths.Length ? OperationPaths[operationId] : OperationPaths[0],
+        };
 
     private static bool TryReadTrace(BinaryRequestContext call, int control, ref ReadOnlyMemory<byte> body)
     {
