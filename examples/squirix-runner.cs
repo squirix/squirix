@@ -40,9 +40,11 @@ foreach (var arg in argv)
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 var cancellationToken = cts.Token;
 var previousTestRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");
+var previousManagementUri = Environment.GetEnvironmentVariable("SQUIRIX_MANAGEMENT_URI");
 var previousCurrentDirectory = Directory.GetCurrentDirectory();
 var demoRoot = Path.Join(Path.GetTempPath(), $"squirix-runner-{Guid.NewGuid():N}");
 Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", demoRoot);
+Environment.SetEnvironmentVariable("SQUIRIX_MANAGEMENT_URI", "https://127.0.0.1:0");
 
 try
 {
@@ -77,6 +79,7 @@ finally
 {
     Directory.SetCurrentDirectory(previousCurrentDirectory);
     Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", previousTestRoot);
+    Environment.SetEnvironmentVariable("SQUIRIX_MANAGEMENT_URI", previousManagementUri);
     TryDeleteDirectory(demoRoot);
 }
 
