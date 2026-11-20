@@ -26,7 +26,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
 {
     private readonly AsyncSemaphore _transfers = new(1);
     private readonly Lock _sync = new();
-    private readonly Stack<PeerSession> _idle = new();
+    private readonly List<PeerSession> _idle = [];
     private readonly DnsEndPoint _address;
     private readonly Func<CancellationToken, ValueTask<EndPoint>>? _resolveEndpoint;
     private readonly SslClientAuthenticationOptions _tls;
@@ -35,6 +35,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     private readonly string _fingerprint;
     private readonly TrackedConnections _connections;
     private readonly TimeSpan _dial;
+    private ITimer? _idleMonitor;
     private bool _closed;
     private long _lastDialTimeout;
 
@@ -70,8 +71,10 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         lock (_sync)
         {
             _closed = true;
-            while (_idle.TryPop(out var stream))
-                stream.Dispose();
+            _idleMonitor?.Dispose();
+            for (var i = 0; i < _idle.Count; i++)
+                _idle[i].Dispose();
+            _idle.Clear();
         }
     }
 
@@ -233,8 +236,10 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         lock (_sync)
         {
             ObjectDisposedException.ThrowIf(_closed, this);
-            while (_idle.TryPop(out var stream))
+            while (_idle.Count > 0)
             {
+                var stream = _idle[^1];
+                _idle.RemoveAt(_idle.Count - 1);
                 try
                 {
                     if (stream.CanReuse && stream.RemoteCertificate is X509Certificate2 cert && _verifier.VerifyExpectedPeer(cert, _peer))
@@ -260,12 +265,50 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         {
             if (!_closed && _idle.Count < 16)
             {
-                _idle.Push(stream);
+                _idleMonitor ??= CreateIdleMonitor();
+                _idle.Add(stream);
                 return;
             }
         }
 
         await stream.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Closes a half-closed idle stream even if the node sends no further calls to its peer.</summary>
+    private void RemoveClosedSessions()
+    {
+        lock (_sync)
+        {
+            for (var i = _idle.Count - 1; i >= 0; i--)
+            {
+                var stream = _idle[i];
+                if (stream.CanReuse)
+                    continue;
+
+                _idle.RemoveAt(i);
+                stream.Dispose();
+            }
+
+            if (_idle.Count == 0)
+            {
+                _idleMonitor?.Dispose();
+                _idleMonitor = null;
+            }
+        }
+    }
+
+    private ITimer CreateIdleMonitor()
+    {
+        var interval = TimeSpan.FromSeconds(1);
+        ITimer Start()
+        {
+            return TimeProvider.System.CreateTimer(static state => (state as NativePeerClient)?.RemoveClosedSessions(), this, interval, interval);
+        }
+
+        if (ExecutionContext.IsFlowSuppressed())
+            return Start();
+        using var suppression = ExecutionContext.SuppressFlow();
+        return Start();
     }
 
     private sealed class PeerSession : SslStream
@@ -276,6 +319,19 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
 
         /// <summary>Gets a value indicating whether the idle socket has neither a pending shutdown nor an unexpected frame.</summary>
-        internal bool CanReuse => InnerStream is NetworkStream network && !network.Socket.Poll(0, SelectMode.SelectRead);
+        internal bool CanReuse
+        {
+            get
+            {
+                try
+                {
+                    return InnerStream is NetworkStream network && !network.Socket.Poll(0, SelectMode.SelectRead);
+                }
+                catch (Exception error) when (error is SocketException or ObjectDisposedException)
+                {
+                    return false;
+                }
+            }
+        }
     }
 }
