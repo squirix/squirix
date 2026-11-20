@@ -31,6 +31,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
     private readonly CancellationTokenSource _abort = new();
     private int _disposeStarted;
     private Task _run = Task.CompletedTask;
+    private MtlsCertificate.Hold? _peerMaterial;
     private X509Certificate2? _certificate;
 
     internal NativeClientService(IServiceProvider services, TopologyOptions topology, bool mutationReplay, Uri? managementUri, X509Certificate2? suppliedCertificate)
@@ -66,6 +67,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
             var material = _services.GetRequiredService<MtlsCertificate>();
             if (material.Enabled)
             {
+                _peerMaterial = material.Retain();
                 var port = _services.GetRequiredService<MtlsOptions>().InternalListenPort;
                 var internalUri = new UriBuilder(_topology.Uri) { Port = port }.Uri;
                 var feature = _services.GetRequiredService<FeatureState>();
@@ -122,6 +124,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         }
         finally
         {
+            _peerMaterial?.Dispose();
             _certificate?.Dispose();
             _graceful.Dispose();
             _abort.Dispose();
