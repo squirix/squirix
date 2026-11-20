@@ -14,7 +14,8 @@ is the client port plus two, or minus two if adding two would exceed the TCP por
 
 See [getting started](getting-started.md#nuget-global-tool) for installation and startup and
 [containerization](containerization.md) for Docker. The standalone host loads `appsettings.json` and
-`appsettings.{Environment}.json` at startup. Restart the host to apply changes to those files.
+`appsettings.{Environment}.json` at startup. Set `DOTNET_ENVIRONMENT` to select the environment. The default is
+`Production`. Restart the host to apply changes to those files.
 
 The public and management listeners use the server certificate configured by `SQUIRIX_TLS_CERTIFICATE_PATH`
 and optionally `SQUIRIX_TLS_CERTIFICATE_PASSWORD`. A local .NET development certificate can be used on loopback.
