@@ -10,7 +10,6 @@ on:
     # Windows/macOS builds/tests run on pushes to main and develop, on pull requests into main, and on schedule/dispatch, not on
     # pull requests into develop. They run the test hosts directly.
     # Builds/tests are split per OS so ubuntu tests/Sonar are not gated on Windows/macOS build.
-    # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
     # PVS-Studio (Team): same-repo code changes; requires secrets.PVS_STUDIO_CREDENTIALS ("name key").
     push:
@@ -21,6 +20,11 @@ on:
     schedule:
         - cron: "0 6 * * 1"
     workflow_dispatch:
+        inputs:
+            run_stress:
+                description: Run resiliency repeat checks and the E2E stress suite
+                type: boolean
+                default: false
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -2292,8 +2296,8 @@ jobs:
                     fi
 
     stability-stress:
-        name: Stability Stress (Weekly / Manual)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        name: Stability Stress (Manual)
+        if: github.event_name == 'workflow_dispatch' && inputs.run_stress
         runs-on: windows-latest
         timeout-minutes: 60
         steps:

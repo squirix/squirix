@@ -25,7 +25,7 @@ SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Se
 # model alone, so nothing in them listens on HTTPS. Every suite that references
 # Squirix.Server starts real hosts and needs the certificate. Process smoke uses the public SDK
 # and requires a trusted development certificate; it runs in the Linux light group.
-# e2e-single-node excludes the scheduled/manual stress suite and mirrors the prior
+# e2e-single-node excludes the manual stress suite and mirrors the prior
 # VSTest filter
 #   (FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress
 # translated to one TUnit treenode-filter. The legacy Client/Persistence substring
@@ -45,7 +45,7 @@ SUITES = {
     "smoke": ("tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "/*/*/*/*[Suite=Smoke]", True),
     "e2e-single-node": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
-        "/*/Squirix.E2ETests.Cache.SingleNode*/*/*",
+        "/*/Squirix.E2ETests.Cache.SingleNode*/*/*[Suite!=Stress]",
         True,
     ),
     "e2e-multi-node": (
