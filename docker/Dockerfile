@@ -33,23 +33,23 @@ RUN dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj \
     -p:RunAnalyzers=false \
     -p:EnforceCodeStyleInBuild=false
 
-# Development HTTPS PFX for Kestrel. SANs cover Docker Compose DNS names and localhost host access.
+# Development TLS certificate for Squirix. SANs cover Docker Compose DNS names and localhost host access.
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS https-cert
 RUN mkdir -p /https \
     && openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
-        -keyout /https/aspnetapp.key \
-        -out /https/aspnetapp.crt \
+        -keyout /https/squirix.key \
+        -out /https/squirix.crt \
         -subj "/CN=localhost" \
         -addext "subjectAltName=DNS:localhost,DNS:squirix-node-a,DNS:squirix-node-b,DNS:squirix-node-c,IP:127.0.0.1" \
-    && openssl pkcs12 -export -out /https/aspnetapp.pfx \
-        -inkey /https/aspnetapp.key -in /https/aspnetapp.crt \
+    && openssl pkcs12 -export -out /https/squirix.pfx \
+        -inkey /https/squirix.key -in /https/squirix.crt \
         -passout pass:
 
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS cluster-mtls-certs
 COPY docker/create-dev-mtls.sh /tmp/create-dev-mtls.sh
 RUN sh /tmp/create-dev-mtls.sh
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.15 AS final
+FROM mcr.microsoft.com/dotnet/runtime:10.0.15 AS final
 
 # Selects which node certificate this image carries (A, B, or C). Each service image receives only
 # its assigned node PFX plus the cluster CA certificate; the CA key and other node identities stay
@@ -61,13 +61,15 @@ VOLUME ["/data"]
 RUN mkdir -p /data /https /mtls && chown "$APP_UID:$APP_UID" /data /https /mtls
 
 COPY --from=build --chown=$APP_UID:$APP_UID /app/publish .
-COPY --from=https-cert --chown=$APP_UID:$APP_UID /https/aspnetapp.pfx /https/aspnetapp.pfx
+COPY --from=https-cert --chown=$APP_UID:$APP_UID /https/squirix.pfx /https/squirix.pfx
 COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/cluster-ca.crt /mtls/cluster-ca.crt
 COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/node-${NODE_LETTER}.pfx /mtls/node-${NODE_LETTER}.pfx
 
-ENV ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
+ENV SQUIRIX_TLS_CERTIFICATE_PATH=/https/squirix.pfx
 
-EXPOSE 5000
+ENV SQUIRIX_MANAGEMENT_URI=https://0.0.0.0:5002
+
+EXPOSE 5000 5002
 
 USER $APP_UID
 

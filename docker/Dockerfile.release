@@ -1,6 +1,6 @@
 # Release image: install squirix-server from the squirix.server.tool NuGet package.
 # Default feed is nuget.org. Set LOCAL_PACKAGES=true and place *.nupkg in docker/nuget-packages/ to verify before publish.
-ARG SQUIRIX_VERSION=0.1.0-preview.11
+ARG SQUIRIX_VERSION=0.2.0-preview.1
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS tool-install
 ARG SQUIRIX_VERSION
 ARG LOCAL_PACKAGES=false
@@ -20,19 +20,19 @@ RUN set -eux; \
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS https-cert
 RUN mkdir -p /https \
     && openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
-        -keyout /https/aspnetapp.key \
-        -out /https/aspnetapp.crt \
+        -keyout /https/squirix.key \
+        -out /https/squirix.crt \
         -subj "/CN=localhost" \
         -addext "subjectAltName=DNS:localhost,DNS:squirix-node-a,DNS:squirix-node-b,DNS:squirix-node-c,DNS:squirix-node-a-release,DNS:squirix-node-b-release,DNS:squirix-node-c-release,IP:127.0.0.1" \
-    && openssl pkcs12 -export -out /https/aspnetapp.pfx \
-        -inkey /https/aspnetapp.key -in /https/aspnetapp.crt \
+    && openssl pkcs12 -export -out /https/squirix.pfx \
+        -inkey /https/squirix.key -in /https/squirix.crt \
         -passout pass:
 
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS cluster-mtls-certs
 COPY docker/create-dev-mtls.sh /tmp/create-dev-mtls.sh
 RUN sh /tmp/create-dev-mtls.sh
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.15 AS final
+FROM mcr.microsoft.com/dotnet/runtime:10.0.15 AS final
 
 # Selects which node certificate this image carries (A, B, or C). Each service image receives only
 # its assigned node PFX plus the cluster CA certificate; the CA key and other node identities stay
@@ -44,13 +44,15 @@ VOLUME ["/data"]
 RUN mkdir -p /data /https /mtls && chown "$APP_UID:$APP_UID" /data /https /mtls
 
 COPY --from=tool-install --chown=$APP_UID:$APP_UID /tools /tools
-COPY --from=https-cert --chown=$APP_UID:$APP_UID /https/aspnetapp.pfx /https/aspnetapp.pfx
+COPY --from=https-cert --chown=$APP_UID:$APP_UID /https/squirix.pfx /https/squirix.pfx
 COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/cluster-ca.crt /mtls/cluster-ca.crt
 COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/node-${NODE_LETTER}.pfx /mtls/node-${NODE_LETTER}.pfx
 ENV PATH="/tools:${PATH}"
-ENV ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
+ENV SQUIRIX_TLS_CERTIFICATE_PATH=/https/squirix.pfx
 
-EXPOSE 5000
+ENV SQUIRIX_MANAGEMENT_URI=https://0.0.0.0:5002
+
+EXPOSE 5000 5002
 
 USER $APP_UID
 

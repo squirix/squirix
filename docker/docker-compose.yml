@@ -20,7 +20,8 @@ services:
       - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:
-      - "5001:5000" # Binary cache and health over TLS
+      - "5001:5000" # Binary cache over TLS
+      - "127.0.0.1:5201:5002" # Management HTTPS
     volumes:
       - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodea-data:/data
@@ -45,6 +46,7 @@ services:
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:
       - "5002:5000"
+      - "127.0.0.1:5202:5002"
     volumes:
       - ./node-b/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodeb-data:/data
@@ -69,6 +71,7 @@ services:
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:
       - "5003:5000"
+      - "127.0.0.1:5203:5002"
     volumes:
       - ./node-c/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodec-data:/data

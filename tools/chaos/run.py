@@ -143,7 +143,8 @@ class Cluster:
                 "SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT": "5001",
                 "SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH": f"/certs/{i}.pfx",
                 "SQUIRIX_CLUSTER_MTLS_CA_PATH": "/certs/ca.crt",
-                "ASPNETCORE_Kestrel__Certificates__Default__Path": f"/certs/{i}.pfx",
+                "SQUIRIX_TLS_CERTIFICATE_PATH": f"/certs/{i}.pfx",
+                "SQUIRIX_MANAGEMENT_URI": "https://127.0.0.1:5002",
                 "DOTNET_PROCESSOR_COUNT": "2", "Logging__LogLevel__Default": "Warning",
                 "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1",
                 "FAKETIME_TIMESTAMP_FILE": "/config/clock", "FAKETIME_NO_CACHE": "1",
@@ -230,7 +231,7 @@ class Cluster:
     def http(self, index, path, statuses):
         name = self.nodes[index]
         request = (f"printf 'GET {path} HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | "
-                   f"timeout 5 openssl s_client -quiet -connect localhost:5000 -servername {name} "
+                   f"timeout 5 openssl s_client -quiet -connect 127.0.0.1:5002 -servername {name} "
                    f"-verify_hostname {name} -verify_return_error -CAfile /certs/ca.crt 2>/dev/null")
         # OpenSSL can report unexpected TLS EOF after a complete HTTP response.
         output = command("docker", "exec", name, "sh", "-c", request, check=False)
