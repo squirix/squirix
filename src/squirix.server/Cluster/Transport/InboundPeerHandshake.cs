@@ -40,6 +40,7 @@ internal sealed class InboundPeerHandshake
     {
         ServerCertificateContext = _serverCertificateContext,
         ClientCertificateRequired = true,
+        ApplicationProtocols = [PeerFrames.Protocol],
         RemoteCertificateValidationCallback = (_, certificate, _, _) => certificate != null && Verify(certificate, remoteEndpoint),
     };
 

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
@@ -34,8 +35,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     private readonly TimeSpan _dial;
     private bool _closed;
 
-    internal NativePeerClient(Uri address, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier, TrackedConnections connections, TimeSpan dial, string? fingerprint, PeerSocketOptions? options = null)
+    internal NativePeerClient((Uri Address, string Id) target, MtlsCertificate material, PeerHandshakeVerifier verifier, TrackedConnections connections, TimeSpan dial, string? fingerprint, PeerSocketOptions? options = null)
     {
+        var (address, peer) = target;
         _address = new DnsEndPoint(address.DnsSafeHost, address.Port);
         _peer = peer;
         _verifier = verifier;
@@ -103,7 +105,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
         catch (Exception error) when (error is IOException or SocketException or AuthenticationException)
         {
-            throw new ServerCallException(FrameStatus.Unavailable, "Peer request failed.", sent ? null : error);
+            throw new ServerCallException(FrameStatus.Unavailable, "Peer request failed.", sent ? null : new HttpRequestException(HttpRequestError.ConnectionError, "Could not establish the peer connection.", error));
         }
         finally
         {

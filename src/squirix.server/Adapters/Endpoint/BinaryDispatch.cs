@@ -91,9 +91,17 @@ internal sealed class BinaryDispatch
             using (lease)
             using (_admission.Enter())
             {
-                _observer?.Observe(call);
-                var response = await method(_operations, request, call.RequestAborted).ConfigureAwait(false);
-                return new BinaryResponse(FrameStatus.Ok, response);
+                try
+                {
+                    if (_observer != null)
+                        await _observer.EnterAsync(call).ConfigureAwait(false);
+                    var response = await method(_operations, request, call.RequestAborted).ConfigureAwait(false);
+                    return new BinaryResponse(FrameStatus.Ok, response);
+                }
+                finally
+                {
+                    _observer?.Exit();
+                }
             }
         }
         catch (ResourceExhaustedException)

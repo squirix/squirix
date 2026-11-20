@@ -246,7 +246,7 @@ internal sealed class SquirixReplicationServiceAdapter
     }
 
     /// <summary>Enforces internal-listener + mTLS NodeId binding for closed replication RPCs.</summary>
-    private static class PeerAuth
+    internal static class PeerAuth
     {
         /// <summary>
         /// Ensures the call arrived on the internal mTLS listener with a peer certificate whose NodeId is in

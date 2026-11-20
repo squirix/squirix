@@ -15,7 +15,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 internal sealed partial class NativeTlsListener
 {
     private readonly Socket _listener;
-    private readonly SslServerAuthenticationOptions _tls;
+    private readonly Func<EndPoint, SslServerAuthenticationOptions> _tls;
     private readonly Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> _serve;
     private readonly ILogger _log;
     private readonly int _capacity;
@@ -23,6 +23,16 @@ internal sealed partial class NativeTlsListener
     internal NativeTlsListener(
         Socket listener,
         SslServerAuthenticationOptions tls,
+        Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
+        ILogger log,
+        int capacity)
+        : this(listener, _ => tls, serve, log, capacity)
+    {
+    }
+
+    internal NativeTlsListener(
+        Socket listener,
+        Func<EndPoint, SslServerAuthenticationOptions> tls,
         Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
         ILogger log,
         int capacity)
@@ -93,7 +103,7 @@ internal sealed partial class NativeTlsListener
             using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(graceful, abort))
             {
                 handshake.CancelAfter(TimeSpan.FromSeconds(5));
-                await tls.AuthenticateAsServerAsync(_tls, handshake.Token).ConfigureAwait(false);
+                await tls.AuthenticateAsServerAsync(_tls(remote), handshake.Token).ConfigureAwait(false);
             }
 
             await _serve(tls, remote, graceful, abort).ConfigureAwait(false);

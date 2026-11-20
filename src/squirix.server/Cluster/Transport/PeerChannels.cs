@@ -87,8 +87,8 @@ internal sealed class PeerChannels
     {
         if (args.NativeProtocol && args.Certificate is { Enabled: true } material && verifier != null)
         {
-            var owner = new NativePeerClient(address, nodeId, material, verifier, connections, forwardConnectTimeout, args.RingFingerprint, args.SocketOptions?.Invoke(nodeId));
-            var internode = new NativePeerClient(address, nodeId, material, verifier, connections, ConnectTimeout, null, args.SocketOptions?.Invoke(nodeId));
+            var owner = new NativePeerClient((address, nodeId), material, verifier, connections, forwardConnectTimeout, args.RingFingerprint, args.SocketOptions?.Invoke(nodeId));
+            var internode = new NativePeerClient((address, nodeId), material, verifier, connections, ConnectTimeout, null, args.SocketOptions?.Invoke(nodeId));
             return new PeerChannels(owner, internode, owner, internode);
         }
 

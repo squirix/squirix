@@ -9,7 +9,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Peer addresses, authenticated identity and shutdown signals of a public binary session.</summary>
 internal sealed class BinaryConnection : IDisposable
 {
-    private static long s_sequence;
+    private static long _sequence;
     private readonly CancellationTokenSource _closed;
     private readonly CancellationTokenSource _draining;
 
@@ -18,7 +18,7 @@ internal sealed class BinaryConnection : IDisposable
         Transport = transport;
         LocalEndPoint = local;
         RemoteEndPoint = remote;
-        ConnectionId = Interlocked.Increment(ref s_sequence).ToString("x", CultureInfo.InvariantCulture);
+        ConnectionId = Interlocked.Increment(ref _sequence).ToString("x", CultureInfo.InvariantCulture);
         _closed = CancellationTokenSource.CreateLinkedTokenSource(abort);
         _draining = CancellationTokenSource.CreateLinkedTokenSource(graceful);
     }
@@ -43,7 +43,10 @@ internal sealed class BinaryConnection : IDisposable
         _closed.Dispose();
     }
 
+    // The pump observes cancellation before returning from its synchronous abort callback.
+#pragma warning disable MA0045
     internal void Abort() => _closed.Cancel();
 
     internal void RequestClose() => _draining.Cancel();
+#pragma warning restore MA0045
 }

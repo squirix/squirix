@@ -14,12 +14,13 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>Owns the node's public TLS socket and drains it before the storage services stop.</summary>
-internal sealed class NativeClientService : IHostedService, IDisposable
+internal sealed partial class NativeClientService : IHostedService, IAsyncDisposable
 {
     private readonly IServiceProvider _services;
     private readonly TopologyOptions _topology;
@@ -28,6 +29,7 @@ internal sealed class NativeClientService : IHostedService, IDisposable
     private readonly X509Certificate2? _suppliedCertificate;
     private readonly CancellationTokenSource _graceful = new();
     private readonly CancellationTokenSource _abort = new();
+    private int _disposeStarted;
     private Task _run = Task.CompletedTask;
     private X509Certificate2? _certificate;
 
@@ -45,9 +47,11 @@ internal sealed class NativeClientService : IHostedService, IDisposable
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _certificate = _suppliedCertificate == null ? LoadCertificate() : new X509Certificate2(_suppliedCertificate);
+        _certificate = AcquireCertificate();
+        ValidateCertificate(_certificate);
         var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, null, true) };
         var managementUri = _managementUri ?? ResolveManagementUri(_topology.Uri);
+        _ = _services.GetService<PrometheusMetricsScraper>();
         var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync);
         var listeners = new List<(Socket Socket, NativeTlsListener Listener)>();
         var sessions = new List<Task>();
@@ -68,11 +72,12 @@ internal sealed class NativeClientService : IHostedService, IDisposable
                 var peer = new NativePeerEndpoint(_services, port, feature.NetworkReplicationEnabled || feature.FoundationOnly);
                 var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.GetRequiredService<ILogger<PeerHandshakeVerifier>>());
                 var handshake = new InboundPeerHandshake(verifier, material.NodeCertificate!, MtlsTopology.GetRemotePeerNodeIds(_topology));
-                var peerTls = handshake.CreateServerOptions(null);
-                peerTls.ApplicationProtocols = [PeerFrames.Protocol];
-                AddListeners(internalUri, socket => new NativeTlsListener(socket, peerTls, peer.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 256), listeners);
+                AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 256), listeners);
             }
 
+            var logger = _services.GetRequiredService<ILogger<NativeClientService>>();
+            foreach (var (socket, _) in listeners)
+                LogListening(logger, socket.LocalEndPoint);
             foreach (var (_, listener) in listeners)
                 sessions.Add(listener.RunAsync(_graceful.Token, _abort.Token));
             _run = Task.WhenAll(sessions);
@@ -106,11 +111,42 @@ internal sealed class NativeClientService : IHostedService, IDisposable
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _certificate?.Dispose();
-        _graceful.Dispose();
-        _abort.Dispose();
+        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
+            return;
+        try
+        {
+            await _abort.CancelAsync().ConfigureAwait(false);
+            await _run.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _certificate?.Dispose();
+            _graceful.Dispose();
+            _abort.Dispose();
+        }
+    }
+
+    [LoggerMessage(EventId = 3036, Level = LogLevel.Information, Message = "Listening on {Endpoint}")]
+    private static partial void LogListening(ILogger logger, EndPoint? endpoint);
+
+    private static void ValidateCertificate(X509Certificate2 certificate)
+    {
+        if (!certificate.HasPrivateKey)
+            throw new InvalidOperationException("The TLS server certificate requires a private key.");
+        foreach (var extension in certificate.Extensions)
+        {
+            if (extension is not X509EnhancedKeyUsageExtension usage)
+                continue;
+            foreach (var purpose in usage.EnhancedKeyUsages)
+            {
+                if (string.Equals(purpose.Value, MtlsCertificateIdentity.ServerAuthOid, StringComparison.Ordinal) || string.Equals(purpose.Value, "2.5.29.37.0", StringComparison.Ordinal))
+                    return;
+            }
+
+            throw new InvalidOperationException("The TLS certificate does not permit server authentication.");
+        }
     }
 
     private static Uri ResolveManagementUri(Uri primary)
@@ -210,6 +246,10 @@ internal sealed class NativeClientService : IHostedService, IDisposable
     }
 
     private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
+
+#pragma warning disable CA2000 // Both branches transfer ownership of the returned certificate to the listener service.
+    private X509Certificate2 AcquireCertificate() => _suppliedCertificate == null ? LoadCertificate() : new X509Certificate2(_suppliedCertificate);
+#pragma warning restore CA2000
 
     private ValueTask<bool> AuthenticateManagementAsync(string bearer, CancellationToken cancellationToken)
     {

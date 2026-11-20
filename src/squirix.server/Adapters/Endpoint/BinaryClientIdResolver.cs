@@ -34,10 +34,7 @@ internal sealed class BinaryClientIdResolver : IBackpressureClientIdResolver
             return ClientIds.InternalOwner;
 
         var context = _requests.Current;
-        if (context == null)
-            return ClientIds.Runtime;
-
-        return context.ClientId ??= ResolveCore(context);
+        return context == null ? ClientIds.Runtime : context.ClientId ??= ResolveCore(context);
     }
 
     private static string CreatePrefixed(string prefix, string value) => string.Concat(prefix, value);

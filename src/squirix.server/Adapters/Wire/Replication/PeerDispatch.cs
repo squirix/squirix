@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Node.Observability;
 using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Wire.Replication;

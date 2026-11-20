@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -11,9 +13,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
-/// <summary>
-/// Starts a native Squirix server and owns its lifetime.
-/// </summary>
+/// <summary>Starts a native Squirix server and owns its lifetime.</summary>
 [Immutable]
 public sealed class SquirixServer : IAsyncDisposable
 {
@@ -25,6 +25,9 @@ public sealed class SquirixServer : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(handle);
         _handle = handle;
     }
+
+    /// <summary>Gets the bound HTTPS address of the management listener.</summary>
+    public Uri ManagementUri => _handle.ManagementUri;
 
     /// <summary>Gets the signal raised when the host receives a shutdown request.</summary>
     public CancellationToken ApplicationStopping => _handle.ApplicationStopping;
@@ -53,10 +56,14 @@ public sealed class SquirixServer : IAsyncDisposable
             ApplicationName = ApplicationAssemblyName,
         };
         var builder = Host.CreateApplicationBuilder(applicationOptions);
-        _ = builder.Logging.ClearProviders();
-        _ = builder.Logging.AddConsole();
-        _ = builder.Logging.AddDebug();
-        _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
+        var defaults = new JsonConfigurationSource
+        {
+            Path = Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"),
+            Optional = true,
+            ReloadOnChange = false,
+        };
+        defaults.ResolveFileProvider();
+        builder.Configuration.Sources.Insert(0, defaults);
 
         await NodeConfiguration.ConfigureNodeAsync(builder, options, null, cancellationToken).ConfigureAwait(false);
         var handle = await ApplicationHandle.StartApplicationAsync(builder.Build(), static (application, token) => ServerHostingComposition.OpenStorageAsync(application.Services, token), cancellationToken).ConfigureAwait(false);
@@ -93,6 +100,8 @@ public sealed class SquirixServer : IAsyncDisposable
             ArgumentNullException.ThrowIfNull(app);
             _app = app;
         }
+
+        internal Uri ManagementUri => _app.Services.GetRequiredService<NativeClientService>().ManagementUri!;
 
         internal CancellationToken ApplicationStopping => _app.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
 

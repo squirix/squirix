@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Frozen;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -9,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Node.Observability.Metrics;
@@ -16,8 +18,11 @@ using Squirix.Server.Runtime.Diagnostics;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
-internal sealed class NativeManagementEndpoint
+/// <summary>Serves health and metrics requests on the dedicated HTTPS management listener.</summary>
+internal sealed partial class NativeManagementEndpoint
 {
+    internal static readonly FrozenSet<string> Probes = new[] { "/health", "/health/live", "/health/ready", "/health/ready/details" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
     private const int MaxHeaderBytes = 16 * 1024;
     private const string JsonContentType = "application/json; charset=utf-8";
     private const string TextContentType = "text/plain";
@@ -29,12 +34,14 @@ internal sealed class NativeManagementEndpoint
 
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
+    private readonly ILogger<NativeManagementEndpoint>? _logger;
     private readonly IServiceProvider _services;
     private readonly Func<string, CancellationToken, ValueTask<bool>> _authenticateBearer;
 
     internal NativeManagementEndpoint(IServiceProvider services, Func<string, CancellationToken, ValueTask<bool>> authenticateBearer)
     {
         _services = services;
+        _logger = services.GetService<ILogger<NativeManagementEndpoint>>();
         _authenticateBearer = authenticateBearer;
     }
 
@@ -52,6 +59,8 @@ internal sealed class NativeManagementEndpoint
 
         if (parsed.Request is not { } request)
             return;
+        if (_logger != null)
+            LogRequest(_logger, request.Path);
         var response = await ExecuteAsync(request, remote.Address, token).ConfigureAwait(false);
         await WriteAsync(stream, response, request.Head, token).ConfigureAwait(false);
     }
@@ -63,6 +72,9 @@ internal sealed class NativeManagementEndpoint
         var loopback = remote != null && IPAddress.IsLoopback(remote);
         return !loopback && !string.IsNullOrEmpty(bearer) ? _authenticateBearer(bearer, cancellationToken) : ValueTask.FromResult(loopback);
     }
+
+    [LoggerMessage(EventId = 3035, Level = LogLevel.Information, Message = "Management request {Path}")]
+    private static partial void LogRequest(ILogger logger, string path);
 
     private static async Task<(Request? Request, Response? Error)> ReadRequestAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -181,15 +193,16 @@ internal sealed class NativeManagementEndpoint
 
     private async ValueTask<Response> ExecuteAsync(Request request, IPAddress remote, CancellationToken cancellationToken)
     {
-        if (string.Equals(request.Path, "/health", StringComparison.OrdinalIgnoreCase))
+        _ = Probes.TryGetValue(request.Path, out var probe);
+        if (string.Equals(probe, "/health", StringComparison.Ordinal))
             return new Response("200 OK", JsonContentType, CompatibilityHealthBody, false);
 
-        if (string.Equals(request.Path, "/health/live", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(probe, "/health/live", StringComparison.Ordinal))
             return await CheckHealthAsync("live", cancellationToken).ConfigureAwait(false);
-        if (string.Equals(request.Path, "/health/ready", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(probe, "/health/ready", StringComparison.Ordinal))
             return await CheckHealthAsync("ready", cancellationToken).ConfigureAwait(false);
 
-        if (string.Equals(request.Path, "/health/ready/details", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(probe, "/health/ready/details", StringComparison.Ordinal))
         {
             if (!await CanAccessDetailsAsync(remote, request.Bearer, cancellationToken).ConfigureAwait(false))
                 return Response.Empty("401 Unauthorized");

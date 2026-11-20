@@ -18,7 +18,6 @@ internal sealed class CompositionArgs
 
     internal MtlsCertificate? Certificate { get; set; }
 
-
     /// <summary>Gets or sets a value indicating whether the closed replication peer service is mapped for foundation tests.</summary>
     internal bool FoundationOnly { get; set; }
 

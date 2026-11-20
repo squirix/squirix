@@ -541,7 +541,6 @@ internal static class ServerHostingComposition
     };
 
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
-
         TopologyOptions cluster,
         CompositionArgs args,
         bool persistenceEnabled)

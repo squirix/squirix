@@ -14,7 +14,6 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
@@ -39,6 +38,7 @@ internal sealed class NativePeerEndpoint
 
     internal async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
     {
+        ArgumentNullException.ThrowIfNull(remote);
         if (stream.NegotiatedApplicationProtocol != PeerFrames.Protocol || stream.RemoteCertificate is not X509Certificate2 certificate)
             return;
         using var buffer = MemoryPool<byte>.Shared.Rent(PeerFrames.RequestBytes);
@@ -49,7 +49,7 @@ internal sealed class NativePeerEndpoint
             if (!_verifier.TryVerify(certificate, out _))
                 return;
             var frame = PeerFrames.ReadRequest(header.Span);
-            if (!await ProcessAsync(stream, frame, certificate, remote, graceful, abort).ConfigureAwait(false))
+            if (!await ProcessAsync(stream, frame, certificate, graceful, abort).ConfigureAwait(false))
                 return;
         }
     }
@@ -76,7 +76,7 @@ internal sealed class NativePeerEndpoint
         }
     }
 
-    private async Task<bool> ProcessAsync(SslStream stream, PeerFrames.Request frame, X509Certificate2 certificate, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
+    private async Task<bool> ProcessAsync(SslStream stream, PeerFrames.Request frame, X509Certificate2 certificate, CancellationToken graceful, CancellationToken abort)
     {
         var clock = _services.GetRequiredService<TimeProvider>();
         var started = clock.GetTimestamp();
@@ -94,7 +94,7 @@ internal sealed class NativePeerEndpoint
             await stream.ReadExactlyAsync(body.AsMemory(0, frame.Body), reading.Token).ConfigureAwait(false);
             if (!_verifier.TryVerify(certificate, out var peer))
                 return false;
-            reply = await DispatchAsync(frame, meta, body.AsMemory(0, frame.Body), certificate, peer, remote, token).ConfigureAwait(false);
+            reply = await DispatchAsync(frame, meta, body.AsMemory(0, frame.Body), certificate, peer, token).ConfigureAwait(false);
         }
         catch (ServerCallException error)
         {
@@ -123,7 +123,7 @@ internal sealed class NativePeerEndpoint
         return true;
     }
 
-    private async Task<BinaryResponse> DispatchAsync(PeerFrames.Request frame, byte[] meta, ReadOnlyMemory<byte> body, X509Certificate2 certificate, string peer, IPEndPoint remote, CancellationToken cancellationToken)
+    private async Task<BinaryResponse> DispatchAsync(PeerFrames.Request frame, byte[] meta, ReadOnlyMemory<byte> body, X509Certificate2 certificate, string peer, CancellationToken cancellationToken)
     {
         var path = PeerFrames.Text.GetString(meta, 0, frame.Path);
         if (string.Equals(path, "ping", StringComparison.Ordinal))

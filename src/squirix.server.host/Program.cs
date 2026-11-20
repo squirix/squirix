@@ -124,7 +124,7 @@ internal static class Program
 
             var server = await SquirixServer.StartAsync(options, CancellationToken.None).ConfigureAwait(false);
             await using var lifetime = server.ConfigureAwait(false);
-            await WriteRunServerStatusAsync(command, options, CancellationToken.None).ConfigureAwait(false);
+            await WriteRunServerStatusAsync(command, options, server.ManagementUri, CancellationToken.None).ConfigureAwait(false);
             await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, server.ApplicationStopping).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             return 0;
         }
@@ -219,13 +219,13 @@ internal static class Program
             return report.HasMismatch;
         }
 
-        private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)
+        private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, Uri management, CancellationToken cancellationToken)
         {
             await WriteConsoleLineAsync(Console.Out, "[Squirix.Server] Server is ready.").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  URL: {options.Uri}").ConfigureAwait(false);
-            await WriteConsoleLineAsync(Console.Out, $"  Health endpoint: {new Uri(options.Uri, "/health")}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Health endpoint: {new Uri(management, "/health")}").ConfigureAwait(false);
             if (options.MetricsEnabled && options.PrometheusMetricsEnabled)
-                await WriteConsoleLineAsync(Console.Out, $"  Metrics endpoint: {new Uri(options.Uri, options.PrometheusMetricsPath)}").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, $"  Metrics endpoint: {new Uri(management, options.PrometheusMetricsPath)}").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Node ID: {options.NodeId}").ConfigureAwait(false);
             _ = await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);
