@@ -216,6 +216,11 @@ internal sealed partial class NativeManagementEndpoint
             await stream.WriteAsync(response.Body, cancellationToken).ConfigureAwait(false);
     }
 
+    private static bool MatchesMetricsPath(string configuredPath, string requestPath) =>
+        string.Equals(configuredPath, requestPath, StringComparison.OrdinalIgnoreCase) ||
+        (requestPath.Contains('%', StringComparison.Ordinal) &&
+         string.Equals(configuredPath, Uri.UnescapeDataString(requestPath), StringComparison.OrdinalIgnoreCase));
+
     private async ValueTask<Response> ExecuteAsync(Request request, IPAddress remote, CancellationToken cancellationToken)
     {
         _ = Probes.TryGetValue(request.Path, out var probe);
@@ -241,7 +246,7 @@ internal sealed partial class NativeManagementEndpoint
 
         var metrics = _services.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
         var response = Response.Empty("404 Not Found");
-        if (metrics.Enabled && string.Equals(metrics.Path, request.Path, StringComparison.OrdinalIgnoreCase) &&
+        if (metrics.Enabled && MatchesMetricsPath(metrics.Path, request.Path) &&
             _services.GetService<PrometheusMetricsScraper>() is { } scraper)
         {
             response = await CanAccessDetailsAsync(remote, request.Bearer, cancellationToken).ConfigureAwait(false)
