@@ -77,6 +77,9 @@ internal sealed class NativeManagementEndpoint
                     return (null, null);
                 total += read;
                 var end = buffer.AsSpan(0, total).IndexOf("\r\n\r\n"u8);
+                var headerSize = end >= 0 ? end : total;
+                if (HasInvalidHeaderBytes(buffer.AsSpan(0, headerSize)))
+                    return (null, Response.Empty("400 Bad Request"));
                 if (end >= 0)
                     return ParseRequest(Encoding.ASCII.GetString(buffer, 0, end));
             }
@@ -87,6 +90,17 @@ internal sealed class NativeManagementEndpoint
         {
             ArrayPool<byte>.Shared.Return(buffer, true);
         }
+    }
+
+    private static bool HasInvalidHeaderBytes(ReadOnlySpan<byte> bytes)
+    {
+        foreach (var value in bytes)
+        {
+            if (value > 126 || (value < 32 && value is not (9 or 10 or 13)))
+                return true;
+        }
+
+        return false;
     }
 
     private static (Request? Request, Response? Error) ParseRequest(string headers)
