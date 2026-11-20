@@ -15,7 +15,7 @@ public sealed class DevelopmentCertificateTests
 {
     /// <summary>Ensures every node gets its own copy of the development certificate with the same identity and private key.</summary>
     /// <returns>A task that completes when the assertions finish.</returns>
-    /// <exception cref="SkipTestException">Thrown on macOS, where nodes keep the lookup of Kestrel.</exception>
+    /// <exception cref="SkipTestException">Thrown on macOS, where test hosts use externally configured TLS material.</exception>
     [Test]
     public async Task EveryNodeGetsItsOwnCertificateCopy()
     {
@@ -36,11 +36,11 @@ public sealed class DevelopmentCertificateTests
         _ = await Assert.That(secondCertificate.HasPrivateKey).IsTrue();
     }
 
-    /// <summary>Ensures nodes on macOS take no certificate from the login keychain and keep the development certificate lookup of Kestrel.</summary>
+    /// <summary>Ensures nodes on macOS take no certificate from the login keychain during test setup.</summary>
     /// <returns>A task that completes when the assertions finish.</returns>
     /// <exception cref="SkipTestException">Thrown on platforms other than macOS.</exception>
     [Test]
-    public async Task MacOsNodesKeepKestrelLookup()
+    public async Task MacOsTestNodesAvoidTheLoginKeychain()
     {
         if (!OperatingSystem.IsMacOS())
             throw new SkipTestException("Only macOS skips the store lookup.");

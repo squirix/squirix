@@ -8,15 +8,11 @@ With RF=1, durability is **per node**: no replication and no automatic failover.
 
 ## Enable persistence
 
-ASP.NET Core hosting (replace the registration call in the complete [server hosting example](server-mode.md#custom-aspnet-core-hosting)):
+Embedded server using [server mode](server-mode.md#embedded-server):
 
 ```csharp
-_ = await builder.AddSquirixServerAsync(static options =>
-{
-    options.NodeId = "node-a";
-    options.Uri = new Uri("https://localhost:5001");
-    options.UsePersistence("data");
-});
+options.UsePersistence("data");
+await using var server = await SquirixServer.StartAsync(options);
 ```
 
 Standalone CLI:

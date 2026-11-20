@@ -124,6 +124,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
     /// <summary>Concurrent lock, cancel and dispose interleavings keep exclusion and settle every waiter exactly once, with no lost wakeup.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [Property(StressTrait.TraitName, StressTrait.TraitValue)]
     public async Task LockCancelDisposeInterleavingsSettle(CancellationToken cancellationToken)
     {
         for (var round = 0; round < StressRounds; round++)

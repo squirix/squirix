@@ -1,0 +1,134 @@
+using System;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.TestKit.Mtls;
+using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.UnitTests.Cluster.Transport;
+
+/// <summary>Unit tests for outbound peer TLS configuration.</summary>
+[Immutable]
+public sealed class PeerTlsOptionsTests : ServerUnitTestBase
+{
+    /// <summary>Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MtlsTlsAttachesLocalNodeCert(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var material = MtlsCertificate.Load(
+            new MtlsOptions
+            {
+                CaPath = bundle.CaPath,
+                CertPfxPath = bundle.PfxPath,
+                InternalListenPort = 6101,
+            },
+            6001,
+            true,
+            "node-a");
+
+        var tlsOptions = TestCertificates.CreatePeerTlsOptions([material.NodeCertificate!], material.TrustAnchor!, "node-b");
+
+        var certificates = await Assert.That(tlsOptions.ClientCertificates).IsNotNull();
+        _ = await Assert.That(certificates.Count).IsEqualTo(1);
+        var clientCertificate = await Assert.That(certificates[0]).IsNotNull();
+        _ = await Assert.That(clientCertificate).IsEqualTo(material.NodeCertificate);
+    }
+
+    /// <summary>Ensures the outbound TLS options prebuild the client certificate context on Unix and leave it unset on Windows.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MtlsTlsPrebuildsClientContext(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var material = MtlsCertificate.Load(
+            new MtlsOptions
+            {
+                CaPath = bundle.CaPath,
+                CertPfxPath = bundle.PfxPath,
+                InternalListenPort = 6103,
+            },
+            6001,
+            true,
+            "node-a");
+
+        var testKitTls = TestCertificates.CreatePeerTlsOptions([material.NodeCertificate!], material.TrustAnchor!, "node-b");
+        var productTls = NativePeerClient.CreateTlsOptions("localhost", "node-b", material, new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, new EventRecordingLogger()));
+
+        await AssertClientContextAsync(testKitTls, material.NodeCertificate!);
+        await AssertClientContextAsync(productTls, material.NodeCertificate!);
+    }
+
+    /// <summary>Ensures outbound TLS rejects missing peer server certificates.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
+    [Test]
+    public async Task MtlsTlsRejectsUntrustedPeerCert(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var material = MtlsCertificate.Load(
+            new MtlsOptions
+            {
+                CaPath = bundle.CaPath,
+                CertPfxPath = bundle.PfxPath,
+                InternalListenPort = 6102,
+            },
+            6001,
+            true,
+            "node-a");
+        var tlsOptions = TestCertificates.CreatePeerTlsOptions([material.NodeCertificate!], material.TrustAnchor!, "node-b");
+        var callback = ThrowHelper.Required(tlsOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
+
+        _ = await Assert.That(callback(this, null, null, SslPolicyErrors.None)).IsFalse();
+    }
+
+    /// <summary>Ensures product TLS refuses a certificate of the wrong node on every handshake and logs the refusal once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
+    [Test]
+    public async Task MtlsTlsLogsWrongPeerOnce(CancellationToken cancellationToken)
+    {
+        const int refusedLogEventId = 5010;
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var material = MtlsCertificate.Load(
+            new MtlsOptions
+            {
+                CaPath = bundle.CaPath,
+                CertPfxPath = bundle.PfxPath,
+                InternalListenPort = 6104,
+            },
+            6001,
+            true,
+            "node-a");
+        using var wrongPeer = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x");
+        var log = new EventRecordingLogger();
+        var tls = NativePeerClient.CreateTlsOptions("localhost", "node-b", material, new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, log));
+        var callback = ThrowHelper.Required(tls.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
+
+        _ = await Assert.That(callback(this, wrongPeer, null, SslPolicyErrors.None)).IsFalse();
+        _ = await Assert.That(callback(this, wrongPeer, null, SslPolicyErrors.None)).IsFalse();
+
+        _ = await Assert.That(log.Count(refusedLogEventId)).IsEqualTo(1);
+    }
+
+    private static async Task AssertClientContextAsync(SslClientAuthenticationOptions tls, X509Certificate2 certificate)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            _ = await Assert.That(tls.ClientCertificateContext).IsNull();
+            return;
+        }
+
+        var context = await Assert.That(tls.ClientCertificateContext).IsNotNull();
+        _ = await Assert.That(context.TargetCertificate).IsEqualTo(certificate);
+    }
+}

@@ -1,8 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -111,8 +109,7 @@ public sealed class ServerDisposeTests
 
     private static async Task<SquirixServer.ApplicationHandle> StartHandleAsync(ShutdownProbe probe, EventRecordingLogger? log)
     {
-        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
         _ = builder.Logging.ClearProviders();
         if (log != null)
             _ = builder.Services.AddSingleton<ILoggerProvider>(_ => new RecordingLoggerProvider(log));

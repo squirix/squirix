@@ -1,12 +1,13 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -30,22 +31,18 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
         "JOURNAL_DISK_QUOTA",
         JournalCapacityExceededException.StableDetail);
 
-    /// <summary>Verifies REST JSON matches canonical error shape for journal disk quota.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <summary>Checks the status, error code trailer and detail received by a binary client.</summary>
     [Test]
-    public async Task DiskQuotaRestPayloadUsesStableFields(CancellationToken cancellationToken)
+    public async Task BinaryPayloadUsesStableFields()
     {
-        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(new JournalCapacityExceededException().ToHttpResult(), cancellationToken);
-        using (payload)
-        {
-            await ErrorContractTestKit.AssertErrorJsonPayloadAsync(
-                payload,
-                status,
-                StatusCodes.Status429TooManyRequests,
-                "JournalDiskQuota",
-                "JOURNAL_DISK_QUOTA",
-                JournalCapacityExceededException.StableDetail);
-        }
+        var contract = ServerOpContract.JournalDiskQuota();
+        var response = BinaryResponse.FromError(contract);
+        var error = await Assert.That(response.Payload).IsTypeOf<BinaryCallError>();
+        _ = await Assert.That(response.Status).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(error!.Detail).IsEqualTo(JournalCapacityExceededException.StableDetail);
+        _ = await Assert.That(error.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That(error.Trailers[0].Key).IsEqualTo(StaleOwnerMarkers.ErrorCodeMetadataKey);
+        _ = await Assert.That(error.Trailers[0].Text).IsEqualTo("JOURNAL_DISK_QUOTA");
     }
 
     /// <summary>Verifies message and message+inner constructor overloads keep the provided detail text.</summary>

@@ -23,7 +23,7 @@ internal sealed class BenchmarkRawBinaryCache : IAsyncDisposable
 
     private BenchmarkRawBinaryCache(Uri uri, string cacheName)
     {
-        _client = new BinaryCacheClient(uri, null, _handler);
+        _client = new BinaryCacheClient(uri, null, _handler.SslOptions);
         _cacheName = cacheName;
     }
 

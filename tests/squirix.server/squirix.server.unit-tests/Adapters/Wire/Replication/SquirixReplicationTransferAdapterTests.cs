@@ -5,7 +5,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Adapters.Wire.Replication;
@@ -277,8 +276,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var material = MtlsCertificate.Create(certificate, bundle.Ca);
         var topology = new TopologyOptions(new ServerPeer { NodeId = LeaderId, Uri = new Uri("https://localhost:6002") });
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members, withReceiver ? receiver : null);
-        var httpContext = new DefaultHttpContext { Connection = { LocalPort = mtls.InternalListenPort, ClientCertificate = certificate } };
-        httpContext.Features.Set(InternalListenerMarker.Instance);
+        var httpContext = new PeerCallContext { LocalPort = mtls.InternalListenPort, ClientCertificate = certificate, InternalListener = true };
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
@@ -368,7 +366,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
 
         internal required FakeTimeProvider Clock { get; init; }
 
-        internal required HttpContext Context { get; init; }
+        internal required PeerCallContext Context { get; init; }
 
         internal required TempDirectory Dir { get; init; }
 

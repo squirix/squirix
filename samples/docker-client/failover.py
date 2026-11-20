@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 import uuid
 
 
@@ -21,6 +22,7 @@ OUTPUT = ROOT / "artifacts" / "docker-failover" / PROJECT
 OUTPUT.mkdir(parents=True)
 COMPOSE = ["docker", "compose", "-p", PROJECT, "-f", str(OUTPUT / "compose.json")]
 NODES = ("a", "b", "c")
+MANAGEMENT_PORT = 5002
 COMMAND_TIMEOUT = 30
 BUILD_TIMEOUT = 900
 START_TIMEOUT = 120
@@ -67,6 +69,23 @@ def leaders(states):
             if group.get("copies")]
 
 
+def wait_for_replacement(ports, token, group_id, deadline):
+    surviving_ids = {node.upper() for node in ports}
+    while time.monotonic() < deadline:
+        try:
+            states = {node: details(port, token) for node, port in ports.items()}
+        except OSError:
+            time.sleep(1)
+            continue
+        candidates = [group for _, group in leaders(states) if group["groupId"] == group_id]
+        if len(candidates) == 1 and any(
+                copy["nodeId"] in surviving_ids and copy["state"] == "ready"
+                for copy in candidates[0]["copies"]):
+            return
+        time.sleep(1)
+    raise TimeoutError("No surviving leader with a ready follower for group " + group_id)
+
+
 def container_id(node):
     identifier = run(COMPOSE + ["ps", "--all", "-q", "node-" + node], capture=True).strip()
     if not identifier or "\n" in identifier:
@@ -91,10 +110,12 @@ def main():
     raw = run(["docker", "compose", "-p", PROJECT, "-f", "docker/docker-compose.yml",
                "-f", "docker/docker-compose.client.yml", "config", "--format", "json"], capture=True)
     config = json.loads(raw)
+    client_endpoints = config["services"]["client"]["environment"]["SQUIRIX_CLIENT_ENDPOINTS"]
+    entry_host = urlsplit(client_endpoints.split(";", 1)[0]).hostname
     for node in NODES:
         service = config["services"]["node-" + node]
         service.pop("container_name", None)
-        service["ports"] = [{"target": 5000, "published": "0", "host_ip": "127.0.0.1", "protocol": "tcp"}]
+        service["ports"] = [{"target": MANAGEMENT_PORT, "published": "0", "host_ip": "127.0.0.1", "protocol": "tcp"}]
         service["networks"]["squirix-net"] = {"aliases": ["squirix-node-" + node]}
     if any(volume.get("external") or not volume.get("name", "").startswith(PROJECT + "_")
            for volume in config.get("volumes", {}).values()):
@@ -106,7 +127,7 @@ def main():
     try:
         run(COMPOSE + ["build"], timeout=BUILD_TIMEOUT)
         run(COMPOSE + ["up", "-d", "node-a", "node-b", "node-c"], timeout=START_TIMEOUT)
-        ports = {node: int(run(COMPOSE + ["port", "node-" + node, "5000"], capture=True).strip().rsplit(":", 1)[1])
+        ports = {node: int(run(COMPOSE + ["port", "node-" + node, str(MANAGEMENT_PORT)], capture=True).strip().rsplit(":", 1)[1])
                  for node in NODES}
         token = development_token()
         deadline = time.monotonic() + 120
@@ -140,13 +161,16 @@ def main():
             pass
         before = snapshot(ports, token, "before")
         candidates = [(node, group) for node, group in leaders(before)
-                      if group["retainedEntries"] > 1 and len(group["copies"]) == 2
+                      if "squirix-node-" + node != entry_host
+                      and group["retainedEntries"] > 1 and len(group["copies"]) == 2
                       and all(copy["state"] == "ready" and copy["lagEntries"] == 0 for copy in group["copies"])]
         if not candidates:
-            raise RuntimeError("No current leader with replicated data and two caught-up followers")
+            raise RuntimeError("No eligible leader with replicated data and two caught-up followers outside the client entry node")
         node, group = candidates[0]
         print(f"KILL: node {node.upper()}, leader of group {group['groupId']}", flush=True)
         run(["docker", "kill", "--signal", "KILL", container_id(node)])
+        survivors = {other: port for other, port in ports.items() if other != node}
+        wait_for_replacement(survivors, token, group["groupId"], deadline)
         process.stdin.write("continue\n")
         process.stdin.flush()
         result = ""
@@ -154,7 +178,6 @@ def main():
             result = next_line(lines, process, deadline).strip()
         if process.wait(timeout=60) != 0:
             raise RuntimeError("Client failed after its final operations")
-        survivors = {other: port for other, port in ports.items() if other != node}
         after = snapshot(survivors, token, "after")
         elected = [other for other, candidate in leaders(after) if candidate["groupId"] == group["groupId"]]
         if len(elected) != 1:

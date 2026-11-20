@@ -1,15 +1,11 @@
 using System;
-using System.Text.Encodings.Web;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
@@ -27,7 +23,7 @@ internal static class SecurityServiceRegistration
         if (!configuration.JwtEnabled)
             return false;
 
-        RegisterJwtAuthentication(services, configuration);
+        RegisterNativeAuthentication(services, in configuration);
         return true;
     }
 
@@ -79,50 +75,24 @@ internal static class SecurityServiceRegistration
             : throw new InvalidOperationException($"SQUIRIX_JWT_SIGNING_KEY must decode to at least {MinSigningKeyBytes} bytes.");
     }
 
-    private static void RegisterJwtAuthentication(IServiceCollection services, ResolvedSecurityConfiguration configuration)
+    private static void RegisterNativeAuthentication(IServiceCollection services, in ResolvedSecurityConfiguration configuration)
     {
-        _ = services.AddAuthentication()
-            .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options => ConfigureJwt(options, in configuration))
-            .AddScheme<JwtBearerOptions, OperationalTokenHandler>(SquirixAuthenticationSchemes.OperationalBearer, static _ => { });
-
-        _ = services.AddSingleton(static provider => new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>()));
-
-        // AddScheme registers the handler by type. Replace that descriptor with the factory.
-        _ = services.Replace(ServiceDescriptor.Transient(static provider => new OperationalTokenHandler(
-            provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(),
-            provider.GetRequiredService<ILoggerFactory>(),
-            provider.GetRequiredService<UrlEncoder>())));
-        _ = services.AddTransient(static provider => new ConnectionAuthenticationHandler(
-            provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(),
-            provider.GetRequiredService<ILoggerFactory>(),
-            provider.GetRequiredService<UrlEncoder>(),
-            provider.GetRequiredService<ConnectionAuthenticationValidator>()));
-        _ = services.AddTransient(static provider => new ConnectionTokenHandler(
-            provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(),
-            provider.GetRequiredService<ILoggerFactory>(),
-            provider.GetRequiredService<UrlEncoder>()));
-        _ = services.Configure<AuthenticationOptions>(static options =>
+        var requireHttps = !string.IsNullOrWhiteSpace(configuration.JwtAuthority) && !configuration.JwtAllowHttpMetadata;
+        var metadata = string.IsNullOrWhiteSpace(configuration.JwtAuthority)
+            ? null
+            : new ConfigurationManager<OpenIdConnectConfiguration>(
+                $"{configuration.JwtAuthority.TrimEnd('/')}/.well-known/openid-configuration",
+                new OpenIdConnectConfigurationRetriever(),
+                new HttpDocumentRetriever { RequireHttps = requireHttps });
+        var parameters = CreateTokenValidationParameters(in configuration);
+        _ = services.AddOptions<JwtValidationOptions>().Configure(options =>
         {
-            options.DefaultScheme ??= JwtBearerDefaults.AuthenticationScheme;
-            options.SchemeMap[JwtBearerDefaults.AuthenticationScheme].HandlerType = typeof(ConnectionAuthenticationHandler);
+            options.TokenValidationParameters = parameters;
+            options.ConfigurationManager = metadata;
+            options.RequireHttpsMetadata = requireHttps;
         });
-
-        _ = services.AddAuthorizationBuilder().AddPolicy(
-            SquirixAuthorizationPolicies.JwtBearer,
-            static p =>
-            {
-                _ = p.RequireAuthenticatedUser();
-                p.AuthenticationSchemes.Add(JwtBearerDefaults.AuthenticationScheme);
-            });
-    }
-
-    private static void ConfigureJwt(JwtBearerOptions options, in ResolvedSecurityConfiguration configuration)
-    {
-        var hasAuthority = !string.IsNullOrWhiteSpace(configuration.JwtAuthority);
-        options.Authority = hasAuthority ? configuration.JwtAuthority : null;
-        options.RequireHttpsMetadata = hasAuthority && !configuration.JwtAllowHttpMetadata;
-        options.Audience = configuration.JwtAudience;
-        options.TokenValidationParameters = CreateTokenValidationParameters(in configuration);
+        _ = services.AddSingleton(static provider => new NativeConnectionAuthenticationValidator(
+            provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider));
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()

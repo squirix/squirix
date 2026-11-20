@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics.Metrics;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
@@ -30,7 +29,7 @@ internal static class RuntimeServiceRegistration
         {
             _ = services.AddRequestContextServices();
             _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => sp.GetRequiredService<AdmissionOptions>().HasPerClientLimits
-                ? new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>())
+                ? new BinaryClientIdResolver(sp.GetRequiredService<BinaryRequestAccessor>())
                 : SharedClientIdResolver.Instance);
             _ = services.AddSingleton<IBackpressureGate>(static sp => new AdmissionGate(
                 sp.GetRequiredService<AdmissionOptions>(),
@@ -69,7 +68,7 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<RemoteInvocationContextAccessor>();
             _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
             _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
-            _ = services.AddHttpContextAccessor();
+            _ = services.AddSingleton<BinaryRequestAccessor>();
             return services;
         }
 

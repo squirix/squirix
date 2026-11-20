@@ -1,5 +1,5 @@
 using System;
-using System.Net.Http;
+using System.Net.Security;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
@@ -74,12 +74,12 @@ public sealed class SquirixClient : ISquirixClient
         return ValueTask.FromResult<ICache<T>>(new InternalCache<T>(ThrowIfDisposed, cache));
     }
 
-    internal static async ValueTask<ISquirixClient> ConnectAsync(SquirixClientOptions options, HttpMessageHandler? handler, CancellationToken cancellationToken)
+    internal static async ValueTask<ISquirixClient> ConnectAsync(SquirixClientOptions options, SslClientAuthenticationOptions? tlsOptions, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         RegisterSerializerContexts(options);
-        var session = await RemoteClientSessionFactory.ConnectAsync(options.Endpoints, options.BearerTokenProvider, options.Serializer, handler, cancellationToken)
+        var session = await RemoteClientSessionFactory.ConnectAsync(options.Endpoints, options.BearerTokenProvider, options.Serializer, tlsOptions, cancellationToken)
                                                        .ConfigureAwait(false);
         return new SquirixClient(session);
     }

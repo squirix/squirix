@@ -1,15 +1,15 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Security.Claims;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -17,7 +17,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>Unit tests for metrics endpoint loopback-or-authenticated access control.</summary>
+/// <summary>Unit tests for native management loopback-or-bearer access control.</summary>
 [Immutable]
 public sealed class MetricsAuthOrLoopbackFilterTests
 {
@@ -27,21 +27,23 @@ public sealed class MetricsAuthOrLoopbackFilterTests
     [Arguments("127.0.0.1")]
     [Arguments("::1")]
     [Arguments("::ffff:127.0.0.1")]
-    public async Task LoopbackAllowedWithoutAuthentication(string address) =>
-        _ = await Assert.That(await ConnectionSecurity.IsRequestAuthorizedAsync(CreateContext(IPAddress.Parse(address)))).IsTrue();
+    public async Task LoopbackAllowedWithoutAuthentication(string address)
+    {
+        await using var services = CreateServices(null);
+        var endpoint = CreateEndpoint(services);
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(IPAddress.Parse(address), null, CancellationToken.None)).IsTrue();
+    }
 
-    /// <summary>Verifies remote authenticated clients can scrape metrics.</summary>
+    /// <summary>Verifies a valid operational bearer token permits a remote scrape.</summary>
     [Test]
     public async Task RemoteAllowedWhenAuthenticated()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         await using var services = CreateServices(credentials);
-        var context = CreateContext(IPAddress.Parse("203.0.113.10"), services);
-        context.Request.Headers.Authorization = $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}";
+        var endpoint = CreateEndpoint(services);
+        var token = TestJwtHelper.CreateBearerToken(credentials);
 
-        _ = await Assert.That(await ConnectionSecurity.IsRequestAuthorizedAsync(context)).IsTrue();
-        var defaultScheme = await services.GetRequiredService<IAuthenticationSchemeProvider>().GetDefaultAuthenticateSchemeAsync();
-        _ = await Assert.That(defaultScheme?.Name).IsEqualTo(CookieAuthenticationDefaults.AuthenticationScheme);
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsTrue();
     }
 
     /// <summary>Verifies remote unauthenticated clients are rejected.</summary>
@@ -52,41 +54,36 @@ public sealed class MetricsAuthOrLoopbackFilterTests
     public async Task UnauthenticatedRemoteRejected(string token)
     {
         await using var services = CreateServices(TestJwtHelper.CreateRandomCredentials());
-        var context = CreateContext(IPAddress.Parse("203.0.113.10"), services);
-        context.Request.Headers.Authorization = $"Bearer {token}";
-        _ = await Assert.That(await ConnectionSecurity.IsRequestAuthorizedAsync(context)).IsFalse();
+        var endpoint = CreateEndpoint(services);
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsFalse();
     }
 
-    /// <summary>A real host cookie does not authorize a remote diagnostic request.</summary>
+    /// <summary>A cookie header does not authorize a remote diagnostics request.</summary>
     [Test]
     public async Task HostCookieDoesNotAuthorizeRemoteRequest()
     {
         await using var services = CreateServices(TestJwtHelper.CreateRandomCredentials());
-        await using var signInScope = services.CreateAsyncScope();
-        var signIn = CreateContext(IPAddress.Parse("203.0.113.10"), signInScope.ServiceProvider);
-        await signIn.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "host-user")], CookieAuthenticationDefaults.AuthenticationScheme)));
-        var cookie = signIn.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
+        var endpoint = CreateEndpoint(services);
+        var stream = new MemoryStream();
+        await using var lifetime = stream.ConfigureAwait(false);
+        const string request = "GET /health/ready/details HTTP/1.1\r\nHost: test\r\nCookie: .AspNetCore.Cookies=opaque\r\n\r\n";
+        var buffer = Encoding.ASCII.GetBytes(request);
+        await stream.WriteAsync(buffer, CancellationToken.None);
+        stream.Position = 0;
 
-        await using var requestScope = services.CreateAsyncScope();
-        var context = CreateContext(IPAddress.Parse("203.0.113.10"), requestScope.ServiceProvider);
-        context.Request.Headers.Cookie = cookie;
-        var hostAuthentication = await context.AuthenticateAsync();
-        _ = await Assert.That(hostAuthentication.Succeeded).IsTrue();
-        context.User = hostAuthentication.Principal!;
-
-        _ = await Assert.That(await ConnectionSecurity.IsRequestAuthorizedAsync(context)).IsFalse();
+        await endpoint.ServeAsync(stream, new IPEndPoint(RemoteAddress(), 1234), CancellationToken.None, CancellationToken.None);
+        var response = Encoding.ASCII.GetString(stream.GetBuffer(), buffer.Length, int.CreateChecked(stream.Position) - buffer.Length);
+        _ = await Assert.That(response.StartsWith("HTTP/1.1 401 Unauthorized\r\n", StringComparison.Ordinal)).IsTrue();
     }
 
-    /// <summary>Existing identities do not replace an unregistered bearer handler.</summary>
+    /// <summary>A bearer token cannot authorize a request if JWT validation is unconfigured.</summary>
     [Test]
     public async Task RemoteRejectedWithoutBearerRegistration()
     {
         await using var services = CreateServices(null);
-        var context = CreateContext(IPAddress.Parse("203.0.113.10"), services);
-        context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "scraper")], "Bearer"));
-        _ = await Assert.That(await ConnectionSecurity.IsRequestAuthorizedAsync(context)).IsFalse();
+        var endpoint = CreateEndpoint(services);
+        var token = TestJwtHelper.CreateBearerToken(TestJwtHelper.CreateRandomCredentials());
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsFalse();
     }
 
     /// <summary>A missing connection address is not treated as loopback.</summary>
@@ -94,41 +91,79 @@ public sealed class MetricsAuthOrLoopbackFilterTests
     public async Task MissingAddressRequiresBearer()
     {
         await using var services = CreateServices(null);
-        _ = await Assert.That(await ConnectionSecurity.IsRequestAuthorizedAsync(CreateContext(null, services))).IsFalse();
+        _ = await Assert.That(await CreateEndpoint(services).CanAccessDetailsAsync(null, null, CancellationToken.None)).IsFalse();
     }
 
-    private static DefaultHttpContext CreateContext(IPAddress? remoteIp, IServiceProvider? services = null)
+    /// <summary>Remote management denies a JWT when the observer returns an unauthenticated identity.</summary>
+    [Test]
+    public async Task RejectsUnauthenticatedObserverPrincipal()
     {
-        var http = new DefaultHttpContext
-        {
-            Connection =
-            {
-                RemoteIpAddress = remoteIp,
-            },
-        };
-
-        if (services != null)
-            http.RequestServices = services;
-
-        return http;
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        await using var services = CreateServices(credentials, static registrations =>
+            registrations.AddScoped<IConnectionTokenObserver>(static _ => new UnauthenticatedObserver()));
+        var endpoint = CreateEndpoint(services);
+        var token = TestJwtHelper.CreateBearerToken(credentials);
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsFalse();
     }
 
-    private static ServiceProvider CreateServices(TestJwtCredentials? credentials)
+    /// <summary>Options reloaded while the scoped observer is disposed invalidate the current authentication.</summary>
+    [Test]
+    public async Task RejectsReloadDuringObserverDisposal()
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        await using var services = CreateServices(credentials, static registrations =>
+            registrations.AddScoped<IConnectionTokenObserver>(static provider => new OptionsResetObserver(provider.GetRequiredService<IOptionsMonitorCache<JwtValidationOptions>>())));
+        var endpoint = CreateEndpoint(services);
+        var token = TestJwtHelper.CreateBearerToken(credentials);
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsFalse();
+    }
+
+    private static NativeManagementEndpoint CreateEndpoint(IServiceProvider services)
+    {
+        var validator = services.GetService<NativeConnectionAuthenticationValidator>();
+        Func<string, CancellationToken, ValueTask<bool>> authenticate = validator == null ? static (_, _) => ValueTask.FromResult(false) : validator.ValidateBearerAsync;
+        return new NativeManagementEndpoint(services, authenticate, Microsoft.Extensions.Logging.Abstractions.NullLogger<NativeManagementEndpoint>.Instance);
+    }
+
+    private static IPAddress RemoteAddress() => IPAddress.Parse("203.0.113.10");
+
+    private static ServiceProvider CreateServices(TestJwtCredentials? credentials, Action<IServiceCollection>? configure = null)
     {
         var services = new ServiceCollection();
-        _ = services.AddLogging();
-        _ = services.AddDataProtection().UseEphemeralDataProtectionProvider();
-        _ = services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie();
-        if (credentials != null)
+        var options = new SecurityOptions
         {
-            _ = services.AddSquirixSecurityServices(new SecurityOptions
-            {
-                JwtAudience = credentials.Audience,
-                JwtIssuer = credentials.Issuer,
-                JwtSigningKey = credentials.Base64SigningKey,
-            });
+            JwtAudience = credentials?.Audience,
+            JwtIssuer = credentials?.Issuer,
+            JwtSigningKey = credentials == null ? null : Convert.ToBase64String(credentials.GetSigningKey()),
+        };
+
+        _ = services.AddSquirixSecurityServices(options);
+        configure?.Invoke(services);
+        return services.BuildServiceProvider();
+    }
+
+    private sealed class UnauthenticatedObserver : IConnectionTokenObserver
+    {
+        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<ClaimsPrincipal?>(new ClaimsPrincipal(new ClaimsIdentity()));
+    }
+
+    private sealed class OptionsResetObserver : IConnectionTokenObserver, IAsyncDisposable
+    {
+        private readonly IOptionsMonitorCache<JwtValidationOptions> _cache;
+
+        internal OptionsResetObserver(IOptionsMonitorCache<JwtValidationOptions> cache)
+        {
+            _cache = cache;
         }
 
-        return services.BuildServiceProvider();
+        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<ClaimsPrincipal?>(principal);
+
+        public ValueTask DisposeAsync()
+        {
+            _ = _cache.TryRemove(Options.DefaultName);
+            return ValueTask.CompletedTask;
+        }
     }
 }

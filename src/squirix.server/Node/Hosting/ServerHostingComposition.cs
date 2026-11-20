@@ -5,9 +5,6 @@ using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -15,13 +12,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
@@ -49,7 +44,7 @@ internal static class ServerHostingComposition
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when builder configuration finishes.</returns>
     internal static Task ConfigureBuilderAsync(
-        WebApplicationBuilder builder,
+        IHostApplicationBuilder builder,
         TopologyOptions cluster,
         Action<CompositionArgs>? configure = null,
         CancellationToken cancellationToken = default)
@@ -59,47 +54,43 @@ internal static class ServerHostingComposition
         return ConfigureBuilderCoreAsync(builder, cluster, args, cancellationToken);
     }
 
-    /// <summary>Opens node storage on the built application, then maps middleware and endpoints.</summary>
-    /// <param name="app">The built application.</param>
+    /// <summary>Locks the data directory, checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
+    /// <param name="services">The built service provider.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The supplied application.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the application was already mapped.</exception>
-    internal static async Task<WebApplication> MapServerAsync(WebApplication app, CancellationToken cancellationToken)
+    /// <returns>A task that completes when every storage component is open.</returns>
+    /// <remarks>
+    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the only things changed before the stamp check are the directory, its lock file, and the modes of the node's own entries in it.
+    /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
+    /// The lock is resolved first so the container disposes it last, after the registry, the journal host and the ledger.
+    /// The registry is resolved next so the container disposes it after the journal host and the ledger.
+    /// Nothing here is undone on failure: the registry closes the logs it opened partially, and the container disposes every component it created, including the registry, when the application is disposed.
+    /// </remarks>
+    internal static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(app);
+        var persistence = services.GetService<PersistenceOptions>();
+        if (persistence == null)
+            return;
 
-        var options = app.Services.GetRequiredService<SquirixServerEndpointMappingOptions>();
-        if (!options.TryMarkMapped())
-            throw new InvalidOperationException("MapSquirixServerAsync was already called for this application.");
+        // Resolved first so the container disposes the lock last, and so no other process touches the directory from here on.
+        _ = services.GetRequiredService<DataDirectoryLock>();
+        var registry = services.GetService<ReplicaGroupRegistry>();
+        var cluster = services.GetRequiredService<TopologyOptions>();
+        if (cluster.ReplicaCount <= 1)
+        {
+            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
+        }
+        else if (registry != null)
+        {
+            var activation = services.GetRequiredService<ReplicaGroupActivation>();
+            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.FingerprintBytes.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
+               .ConfigureAwait(false);
+        }
 
-        await OpenStorageAsync(app.Services, cancellationToken).ConfigureAwait(false);
+        await PersistenceServiceRegistration.OpenPersistenceAsync(services, cancellationToken).ConfigureAwait(false);
+        if (registry == null)
+            return;
 
-        _ = app.Use(static async (context, next) =>
-            {
-                try
-                {
-                    await next().ConfigureAwait(false);
-                }
-                catch (ResourceExhaustedException ex)
-                {
-                    await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-                }
-                catch (JournalCapacityExceededException ex)
-                {
-                    await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-                }
-                catch (SquirixException ex)
-                {
-                    await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-                }
-            });
-
-        if (!options.AuthEnabled)
-            return SquirixEndpointMapping.MapEndpoints(app, options.AuthEnabled);
-        _ = app.UseAuthentication();
-        _ = app.UseAuthorization();
-
-        return SquirixEndpointMapping.MapEndpoints(app, options.AuthEnabled);
+        await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
@@ -227,13 +218,13 @@ internal static class ServerHostingComposition
     /// </remarks>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
+    /// <param name="args">Hosting composition overrides for this node.</param>
     private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args)
     {
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddHealthChecks().Add(
             new HealthCheckRegistration("ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()), HealthStatus.Unhealthy, ["ready"]));
-        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
+        _ = services.AddSquirixClusterTransport(cluster, null, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
 
         // Activated hosts expire entries through committed records and the replica sweep; every other host expires by its local clock.
@@ -262,7 +253,7 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton<IReplicaTransferGateway>(static sp => new ReplicaTransferRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
-    private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
+    private static async Task ConfigureBuilderCoreAsync(IHostApplicationBuilder builder, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
@@ -271,7 +262,7 @@ internal static class ServerHostingComposition
         var persistence = args.PersistenceOptions == null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions);
         var persistenceEnabled = persistence != null;
         var uri = cluster.Uri;
-        var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(builder, cluster, args, persistenceEnabled);
+        var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(cluster, args, persistenceEnabled);
 
         _ = await builder.Services.AddSquirixValidatedOptionsAsync(
             cluster,
@@ -302,10 +293,8 @@ internal static class ServerHostingComposition
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
         _ = builder.Services.AddSquirixFrameworkServices();
         args.ServicesConfigure?.Invoke(builder.Services);
-        args.Extensions?.ConfigureServices?.Invoke(builder.Services);
-        if (args.Extensions != null)
-            _ = builder.Services.AddSingleton(args.Extensions);
-        _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
+        _ = builder.Services.AddSingleton(sp => new NativeClientService(sp, cluster, FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled, args.ManagementUri, args.ServerCertificate));
+        _ = builder.Services.AddHostedService(static sp => sp.GetRequiredService<NativeClientService>());
     }
 
     /// <summary>Creates the committer of a group this node leads.</summary>
@@ -510,45 +499,6 @@ internal static class ServerHostingComposition
     /// <returns><see langword="true" /> when an election driver leads every group; otherwise the owner leads its group statically.</returns>
     private static bool LeadsByElection(TopologyOptions cluster) => cluster is { AutomaticFailoverEnabled: true, ReplicaCount: >= 3 };
 
-    /// <summary>Locks the data directory, checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
-    /// <param name="services">The built service provider.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when every storage component is open.</returns>
-    /// <remarks>
-    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the only things changed before the stamp check are the directory, its lock file, and the modes of the node's own entries in it.
-    /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
-    /// The lock is resolved first so the container disposes it last, after the registry, the journal host and the ledger.
-    /// The registry is resolved next so the container disposes it after the journal host and the ledger.
-    /// Nothing here is undone on failure: the registry closes the logs it opened partially, and the container disposes every component it created, including the registry, when the application is disposed.
-    /// </remarks>
-    private static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
-    {
-        var persistence = services.GetService<PersistenceOptions>();
-        if (persistence == null)
-            return;
-
-        // Resolved first so the container disposes the lock last, and so no other process touches the directory from here on.
-        _ = services.GetRequiredService<DataDirectoryLock>();
-        var registry = services.GetService<ReplicaGroupRegistry>();
-        var cluster = services.GetRequiredService<TopologyOptions>();
-        if (cluster.ReplicaCount <= 1)
-        {
-            await EnsureNotActivatedAsync(persistence.DataDir, cancellationToken).ConfigureAwait(false);
-        }
-        else if (registry != null)
-        {
-            var activation = services.GetRequiredService<ReplicaGroupActivation>();
-            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.FingerprintBytes.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
-               .ConfigureAwait(false);
-        }
-
-        await PersistenceServiceRegistration.OpenPersistenceAsync(services, cancellationToken).ConfigureAwait(false);
-        if (registry == null)
-            return;
-
-        await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>Registers persistence, follower-group storage, and the replica group registry on the service collection.</summary>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -590,14 +540,13 @@ internal static class ServerHostingComposition
     };
 
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
-        WebApplicationBuilder builder,
         TopologyOptions cluster,
         CompositionArgs args,
         bool persistenceEnabled)
     {
         var uri = cluster.Uri;
-        _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
-        KestrelConfiguration.EnsureHttpsTransport(cluster);
+        if (!uri.IsAbsoluteUri || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext HTTP is not supported.");
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
 
@@ -612,128 +561,12 @@ internal static class ServerHostingComposition
 
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
 
-        var certificate = KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, args.Certificate, requiresInterNodeMtls);
+        var certificate = args.Certificate ?? MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
         return (mtlsOptions, certificate);
     }
 
     [Immutable]
     private sealed record ReplicaGroupActivation(ImmutableArray<byte> FingerprintBytes);
-
-    /// <summary>
-    /// Centralizes Kestrel listen options and transport security for the squirix node process.
-    /// Invariants here affect TLS listener setup — review carefully.
-    /// </summary>
-    private static class KestrelConfiguration
-    {
-        /// <summary>Resolves the cluster mTLS certificate material and configures Kestrel listeners from it.</summary>
-        /// <param name="builder">The web application builder.</param>
-        /// <param name="uri">The primary HTTPS listen URI.</param>
-        /// <param name="cluster">Cluster topology configuration.</param>
-        /// <param name="mtlsOptions">Cluster mTLS options.</param>
-        /// <param name="suppliedCertificate">Caller-supplied certificate material, when the caller owns loading it; otherwise <see langword="null" /> to load it here.</param>
-        /// <param name="requiresInterNodeMtls">Whether internode mTLS transport is required for this topology.</param>
-        /// <returns>The certificate material Kestrel was configured with.</returns>
-        internal static MtlsCertificate ConfigureKestrel(
-            WebApplicationBuilder builder,
-            Uri uri,
-            TopologyOptions cluster,
-            MtlsOptions mtlsOptions,
-            MtlsCertificate? suppliedCertificate,
-            bool requiresInterNodeMtls)
-        {
-            ArgumentNullException.ThrowIfNull(builder);
-            ArgumentNullException.ThrowIfNull(uri);
-            ArgumentNullException.ThrowIfNull(cluster);
-            ArgumentNullException.ThrowIfNull(mtlsOptions);
-
-            if (suppliedCertificate != null)
-            {
-                ConfigureKestrelListeners(builder, uri, cluster, mtlsOptions, suppliedCertificate);
-                return suppliedCertificate;
-            }
-
-            MtlsCertificate? loaded = null;
-            try
-            {
-                loaded = MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
-                ConfigureKestrelListeners(builder, uri, cluster, mtlsOptions, loaded);
-                var certificate = loaded;
-                loaded = null;
-                return certificate;
-            }
-            finally
-            {
-                (loaded as IDisposable)?.Dispose();
-            }
-        }
-
-        /// <summary>Ensures the node URI uses HTTPS gRPC transport.</summary>
-        /// <param name="cluster">Cluster configuration including the node URI.</param>
-        /// <exception cref="InvalidOperationException">Thrown when the node URI uses plaintext HTTP.</exception>
-        internal static void EnsureHttpsTransport(TopologyOptions cluster)
-        {
-            ArgumentNullException.ThrowIfNull(cluster);
-            if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext HTTP is not supported.");
-        }
-
-        private static void ConfigureKestrelListeners(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate certificate)
-        {
-            var mtlsEnabled = certificate.Enabled;
-            var remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
-            var isLoopbackHost = ExternalAccessSecurity.IsLoopbackHost(uri.Host);
-            _ = ExternalAccessSecurity.TryGetLoopbackAddress(uri.Host, out var loopbackAddress);
-
-            _ = builder.WebHost.ConfigureKestrel(kestrel =>
-            {
-                kestrel.AddServerHeader = false;
-                kestrel.ConfigureEndpointDefaults(static options => options.Protocols = HttpProtocols.Http1AndHttp2);
-
-                // An IP literal binds exactly that address, so a bind failure fails node start. The name localhost keeps
-                // Kestrel's dual-stack loopback binding, which tolerates hosts without an IPv6 loopback interface.
-                if (loopbackAddress != null)
-                    kestrel.Listen(loopbackAddress, uri.Port, ConfigurePrimaryEndpoint);
-                else if (isLoopbackHost)
-                    kestrel.ListenLocalhost(uri.Port, ConfigurePrimaryEndpoint);
-                else
-                    kestrel.ListenAnyIP(uri.Port, ConfigurePrimaryEndpoint);
-
-                if (!mtlsEnabled)
-                    return;
-                if (loopbackAddress != null)
-                    kestrel.Listen(loopbackAddress, mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
-                else if (isLoopbackHost)
-                    kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
-                else
-                    kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
-            });
-        }
-
-        private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificate material, string[] nodeIds)
-        {
-            listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-            _ = listenOptions.Use(static next => context =>
-            {
-                InternalListenerConnection.Mark(context);
-                return next(context);
-            });
-            var logger = listenOptions.ApplicationServices.GetRequiredService<ILogger<PeerHandshakeVerifier>>();
-            var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, logger);
-            _ = listenOptions.UseHttps(InboundPeerHandshake.Create(verifier, material.NodeCertificate!, nodeIds));
-        }
-
-        private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)
-        {
-            listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-            _ = listenOptions.UseHttps();
-            _ = listenOptions.Use(next =>
-            {
-                var services = listenOptions.ApplicationServices;
-                var middleware = new ConnectionAuthenticationMiddleware(next, services.GetService<ConnectionAuthenticationValidator>(), TimeProvider.System);
-                return BinaryEndpoint.Create(middleware.OnConnectionAsync, services, services.GetRequiredService<FeatureState>().NetworkReplicationEnabled);
-            });
-        }
-    }
 
     private static class PersistenceOptionsResolver
     {
@@ -745,24 +578,5 @@ internal static class ServerHostingComposition
             var dataDir = string.IsNullOrWhiteSpace(source.DataDir) ? DefaultDataDirectory.Resolve(cluster.ClusterId, cluster.NodeId) : source.DataDir;
             return source with { DataDir = dataDir };
         }
-    }
-
-    /// <summary>Host authentication state for endpoint mapping, plus the once-only guard for <see cref="MapServerAsync" />.</summary>
-    [ThreadSafe]
-    private sealed class SquirixServerEndpointMappingOptions
-    {
-        private int _mapped;
-
-        internal SquirixServerEndpointMappingOptions(bool authEnabled)
-        {
-            AuthEnabled = authEnabled;
-        }
-
-        /// <summary>Gets a value indicating whether data-plane authentication is enabled.</summary>
-        internal bool AuthEnabled { get; }
-
-        /// <summary>Marks the application as mapped.</summary>
-        /// <returns><see langword="true" /> for the first caller; <see langword="false" /> when the application was already mapped.</returns>
-        internal bool TryMarkMapped() => Interlocked.Exchange(ref _mapped, 1) == 0;
     }
 }

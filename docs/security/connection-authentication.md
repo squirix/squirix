@@ -78,7 +78,7 @@ Internode forwarding and replication retain their dedicated [mTLS transport](int
 Custom hosts should treat connection authentication hooks as connection-time validation.
 There is no application RPC path during the initial exchange, and validation hooks do not run for every subsequent RPC.
 Do not rely on a per-request validation callback to implement changing command permissions or immediate revocation.
-ASP.NET Core claims transformation still runs in the actual RPC request context against a fresh copy of the connection principal.
+Authorization uses a fresh copy of the accepted connection principal for each operation.
 
 ## Related documentation
 

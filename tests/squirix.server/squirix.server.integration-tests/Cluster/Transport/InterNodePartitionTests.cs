@@ -95,10 +95,11 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
 
         await cluster.StopNodeAsync("node-c");
 
-        await toC.WaitForActiveConnectionsAsync(0, cancellationToken);
-        await fabric["node-b", "node-c"].WaitForActiveConnectionsAsync(0, cancellationToken);
-        await fabric["node-c", "node-a"].WaitForActiveConnectionsAsync(0, cancellationToken);
-        await fabric["node-c", "node-b"].WaitForActiveConnectionsAsync(0, cancellationToken);
+        await Task.WhenAll(
+            toC.WaitForActiveConnectionsAsync(0, cancellationToken),
+            fabric["node-b", "node-c"].WaitForActiveConnectionsAsync(0, cancellationToken),
+            fabric["node-c", "node-a"].WaitForActiveConnectionsAsync(0, cancellationToken),
+            fabric["node-c", "node-b"].WaitForActiveConnectionsAsync(0, cancellationToken)).WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
         var fromC = fabric["node-c", "node-a"];
         var acceptedBefore = fromC.AcceptedConnections;

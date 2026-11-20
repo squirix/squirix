@@ -92,7 +92,7 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         }
 
         var held = restarted.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
-        var metrics = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/metrics"), cancellationToken);
+        var metrics = await HttpClient.GetStringAsync(new Uri(owner.ManagementUri, "/metrics"), cancellationToken);
 
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
         _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");

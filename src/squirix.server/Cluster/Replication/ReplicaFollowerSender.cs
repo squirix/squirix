@@ -240,6 +240,22 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         return new ReplicaFollowerCatchUp(this, NodeId);
     }
 
+    /// <summary>Acquires the sender only if no live request or catch-up lease already owns it.</summary>
+    /// <returns>The lease, or <see langword="null" /> when the sender is busy.</returns>
+    /// <exception cref="ObjectDisposedException">The sender is closed or draining.</exception>
+    internal ReplicaFollowerCatchUp? LeaseIfIdle()
+    {
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_closed || Draining, this);
+            if (_leaseDone != null || _loopDone != null)
+                return null;
+
+            _leaseDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return new ReplicaFollowerCatchUp(this, NodeId);
+        }
+    }
+
     /// <summary>Stops admitting entries and waits until the ones already queued, and the request in flight, have been answered.</summary>
     /// <param name="budget">The longest wait; entries still queued after it are left for <see cref="DisposeAsync" /> to fail.</param>
     /// <returns>A task that completes when the sender is idle or the budget elapsed.</returns>

@@ -145,7 +145,7 @@ internally — the client SDK calls one RPC per exported method and does not sti
 Wire operation names use the `BinaryOperation` enum. Public `ICache<T>` methods use their asynchronous API names.
 
 There is no `Contains` RPC. Prefer `GetValueAsync` or `GetEntryAsync` for presence checks (`found=false` is not an
-error). HTTP on the primary listener is limited to health and metrics — there is no REST cache `HEAD` route in v0.1.
+error). The management listener serves health and metrics. Cache operations use the binary protocol.
 
 ### Value encoding
 

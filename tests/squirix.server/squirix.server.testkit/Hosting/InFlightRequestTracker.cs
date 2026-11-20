@@ -2,11 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Squirix.Server.Adapters.Endpoint;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -21,14 +19,18 @@ internal sealed class InFlightRequestTracker
     private int _stopping;
     private long _stopStarted;
 
+    internal Func<CancellationToken, ValueTask>? OnEnter { get; set; }
+
     /// <summary>Registers the tracker and the middleware that feeds it.</summary>
     /// <param name="services">The service collection of the node.</param>
     internal static void AddTo(IServiceCollection services)
     {
         services.TryAddSingleton<InFlightRequestTracker>();
-        Func<IServiceProvider, TrackingStartupFilter> createFilter =
-            static sp => new TrackingStartupFilter(sp.GetRequiredService<InFlightRequestTracker>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter>(createFilter));
+        services.TryAddSingleton(static provider =>
+        {
+            var tracker = provider.GetRequiredService<InFlightRequestTracker>();
+            return new BinaryCallObserver(tracker.EnterAsync, tracker.Exit);
+        });
     }
 
     /// <summary>Marks the start of the stop and remembers how many requests are being served.</summary>
@@ -56,7 +58,11 @@ internal sealed class InFlightRequestTracker
         }
     }
 
-    private void Enter() => _ = Interlocked.Increment(ref _active);
+    private ValueTask EnterAsync(BinaryRequestContext context)
+    {
+        _ = Interlocked.Increment(ref _active);
+        return OnEnter?.Invoke(context.RequestAborted) ?? ValueTask.CompletedTask;
+    }
 
     private void Exit()
     {
@@ -66,34 +72,5 @@ internal sealed class InFlightRequestTracker
 
         lock (_gate)
             _lastFinished = Stopwatch.GetTimestamp();
-    }
-
-    private sealed class TrackingStartupFilter : IStartupFilter
-    {
-        private readonly InFlightRequestTracker _tracker;
-
-        internal TrackingStartupFilter(InFlightRequestTracker tracker)
-        {
-            _tracker = tracker;
-        }
-
-        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
-        {
-            _ = app.Use(TrackAsync);
-            next(app);
-        };
-
-        private async Task TrackAsync(HttpContext context, RequestDelegate next)
-        {
-            _tracker.Enter();
-            try
-            {
-                await next(context).ConfigureAwait(false);
-            }
-            finally
-            {
-                _tracker.Exit();
-            }
-        }
     }
 }

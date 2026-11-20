@@ -4,7 +4,7 @@ Build, test, limitations, and roadmap for squirix 0.1.0 preview.
 
 ## Build and test
 
-Install the .NET 11 SDK selected by [`global.json`](../global.json) and the .NET and ASP.NET Core runtimes for the target you
+Install the .NET 11 SDK selected by [`global.json`](../global.json) and the .NET runtime for the target you
 want to run. Run the commands below from the repository root. The solution builds for `net10.0` by default.
 
 ```bash
@@ -25,7 +25,7 @@ dotnet test --solution squirix.slnx --configuration Release --framework net11.0 
 
 The release workflow packs the client, server, caching adapter, and CLI with `net10.0` and `net11.0` in each NuGet package.
 Framework-specific Microsoft packages use the release line for the selected target. Protobuf uses the same version on both.
-The server uses HTTP/2 with protobuf messages for peer communication on both.
+The server uses the binary protobuf peer protocol on both.
 It tests consumption from a local feed and installs and runs the CLI for each framework before publication.
 Use a new package version for the first release that includes both targets.
 Install both sets of runtimes to run the same validation locally:

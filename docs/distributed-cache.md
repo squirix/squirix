@@ -9,7 +9,7 @@ Evaluate it before production use.**
 If your HybridCache app uses Redis or Garnet through `AddStackExchangeRedisCache`, install the Squirix provider:
 
 ```shell
-dotnet add package squirix.extensions.caching --version 0.1.0-preview.11
+dotnet add package squirix.extensions.caching --version 0.2.0-preview.1
 ```
 
 Replace the `AddStackExchangeRedisCache(...)` registration with `AddSquirixCache`. Keep the existing `AddHybridCache()` registration.
@@ -58,4 +58,4 @@ HybridCache adds its own envelope and tag metadata. Replicated sliding renewal r
 Get responses and removed values are not retained in the mutation-outcome budget. Renewal still writes and replicates the entry;
 large values and high request rates can reach server admission limits.
 
-Run the [two-process ASP.NET Core example](../samples/aspnet-hybrid-cache/README.md) to see a fresh application reuse an existing L2 value.
+Run the [two-process HybridCache example](../samples/hybrid-cache/README.md) to see a fresh application reuse an existing L2 value.

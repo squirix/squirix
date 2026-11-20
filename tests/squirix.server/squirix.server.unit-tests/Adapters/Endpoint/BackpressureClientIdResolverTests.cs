@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Rocks;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
@@ -17,15 +16,13 @@ namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 [Immutable]
 public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 {
+    private static readonly ServiceProvider Services = new ServiceCollection().BuildServiceProvider();
+
     /// <summary>Blank NameIdentifier is ignored so a raw subclaim can still scope the client id.</summary>
     [Test]
     public async Task RawSubUsedWhenNameIdentifierBlank()
     {
-        var blankSubExpectations = new IHttpContextAccessorCreateExpectations();
-        _ = blankSubExpectations.Setups.HttpContext.Gets()
-                                .ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject"))));
-        _ = blankSubExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(blankSubExpectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject"))) });
 
         _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:oidc-subject");
     }
@@ -34,22 +31,16 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Test]
     public async Task RawSubUsedWhenNameIdentifierMissing()
     {
-        var missingSubExpectations = new IHttpContextAccessorCreateExpectations();
-        _ = missingSubExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject"))));
-        _ = missingSubExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(missingSubExpectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject"))) });
 
         _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:oidc-subject");
     }
 
-    /// <summary>Resolved client ids are cached on the HttpContext for the request lifetime.</summary>
+    /// <summary>Resolved client ids are cached on the RequestContext for the request lifetime.</summary>
     [Test]
-    public async Task ResolveCachesClientIdOnHttpContext()
+    public async Task ResolveCachesClientIdOnRequestContext()
     {
-        var accessorExpectations = new IHttpContextAccessorCreateExpectations();
-        _ = accessorExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))));
-        _ = accessorExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(accessorExpectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))) });
 
         var first = resolver.Resolve();
         var second = resolver.Resolve();
@@ -58,7 +49,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
         _ = await Assert.That(second).IsSameReferenceAs(first);
     }
 
-    /// <summary>Anonymous requests fall back to the ASP.NET Core connection id.</summary>
+    /// <summary>Anonymous requests fall back to the native connection id.</summary>
     /// <param name="connectionId">The connection identifier.</param>
     /// <param name="expected">The exact prefixed identifier.</param>
     [Test]
@@ -66,10 +57,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Arguments("соединение:東京", "conn:соединение:東京")]
     public async Task ResolveUsesConnectionIdWhenAnonymous(string connectionId, string expected)
     {
-        var conn42Expectations = new IHttpContextAccessorCreateExpectations();
-        _ = conn42Expectations.Setups.HttpContext.Gets().ReturnValue(CreateContext(connectionId));
-        _ = conn42Expectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(conn42Expectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext(connectionId) });
 
         _ = await Assert.That(resolver.Resolve()).IsEqualTo(expected);
     }
@@ -82,22 +70,16 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Arguments("арендатор:東京", "jwt:арендатор:東京")]
     public async Task ResolveUsesJwtSubjectWhenAuthenticated(string subject, string expected)
     {
-        var jwtExpectations = new IHttpContextAccessorCreateExpectations();
-        _ = jwtExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, subject))));
-        _ = jwtExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(jwtExpectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, subject))) });
 
         _ = await Assert.That(resolver.Resolve()).IsEqualTo(expected);
     }
 
-    /// <summary>In-process calls without HttpContext share the runtime bucket.</summary>
+    /// <summary>In-process calls without RequestContext share the runtime bucket.</summary>
     [Test]
-    public async Task ResolveUsesRuntimeWhenHttpContextMissing()
+    public async Task MissingRequestUsesRuntimeId()
     {
-        var missingExpectations = new IHttpContextAccessorCreateExpectations();
-        _ = missingExpectations.Setups.HttpContext.Gets().ReturnValue(null);
-        _ = missingExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(missingExpectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = null });
         _ = await Assert.That(resolver.Resolve()).IsEqualTo(ClientIds.Runtime);
     }
 
@@ -105,10 +87,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Test]
     public async Task ResolverUsesConnectionWithoutSubject()
     {
-        var noSubExpectations = new IHttpContextAccessorCreateExpectations();
-        _ = noSubExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-no-sub", AuthenticatedWithoutClaims()));
-        _ = noSubExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(noSubExpectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-no-sub", AuthenticatedWithoutClaims()) });
 
         _ = await Assert.That(resolver.Resolve()).IsEqualTo("conn:conn-no-sub");
     }
@@ -117,10 +96,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Test]
     public async Task ResolverMarksInternalOwnerCalls()
     {
-        var expectations = new IHttpContextAccessorCreateExpectations();
-        _ = expectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("forwarder-conn"));
-        _ = expectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        var resolver = new HttpContextClientIdResolver(expectations.Instance());
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("forwarder-conn") });
 
         using var scope = RemoteInvocationContext.EnterRemoteInvocation(true);
 
@@ -150,7 +126,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     public async Task ResolverPrefixesInternalSubject()
     {
         var context = CreateContext("conn-1", Authenticated(new Claim("sub", "internal")));
-        var resolver = new HttpContextClientIdResolver(new HttpContextAccessor { HttpContext = context });
+        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = context });
 
         _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:internal");
     }
@@ -159,12 +135,11 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 
     private static ClaimsPrincipal AuthenticatedWithoutClaims() => new(new ClaimsIdentity("Bearer"));
 
-    private static DefaultHttpContext CreateContext(string connectionId, ClaimsPrincipal? user = null) => new()
+    private static BinaryRequestContext CreateContext(string connectionId, ClaimsPrincipal? user = null) => new()
     {
-        Connection =
-        {
-            Id = connectionId,
-        },
+        ConnectionId = connectionId,
+        RequestServices = Services,
+        Path = "/cache",
         User = user ?? new ClaimsPrincipal(),
     };
 }

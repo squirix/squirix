@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,7 +58,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             cancellationToken);
 
         var stored = cluster["node-a"].GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey("default", key), cancellationToken);
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(ex.StatusCode).IsNull();
         _ = await Assert.That(stored.Found).IsFalse();
     }
 
@@ -96,8 +95,8 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
         var value = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var entry = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(value.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        _ = await Assert.That(entry.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(value.StatusCode).IsNull();
+        _ = await Assert.That(entry.StatusCode).IsNull();
     }
 
     /// <summary>A forged Host header on the public listener never reaches the closed replication service.</summary>
@@ -132,7 +131,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetReplicaStatusAsync(request, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(ex.StatusCode).IsNull();
     }
 
     /// <summary>A forged Host header does not bypass JWT auth but a valid token still works on the public listener.</summary>
@@ -154,7 +153,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
         var oldClient = legacy;
         var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
         var rejected = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(oldClient.GetValueAsync(request, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(rejected.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(rejected.StatusCode).IsNull();
 
         using var channel = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials));
         var client = new CacheWireClient(channel);

@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Net.Http;
+using System.Net.Security;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Distributed;
@@ -26,13 +26,13 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
 
     /// <summary>Initializes a new instance of the <see cref="SquirixDistributedCache"/> class with a caller-owned transport.</summary>
     /// <param name="optionsAccessor">Options for this cache instance.</param>
-    /// <param name="handler">Optional caller-owned HTTP transport, used by loopback tests.</param>
+    /// <param name="tlsOptions">Optional TLS settings for loopback tests.</param>
     /// <exception cref="ArgumentNullException"><paramref name="optionsAccessor"/> is null.</exception>
     /// <exception cref="OptionsValidationException">The cache name or endpoints are invalid.</exception>
-    internal SquirixDistributedCache(IOptions<SquirixCacheOptions> optionsAccessor, HttpMessageHandler? handler)
+    internal SquirixDistributedCache(IOptions<SquirixCacheOptions> optionsAccessor, SslClientAuthenticationOptions? tlsOptions)
     {
         ArgumentNullException.ThrowIfNull(optionsAccessor);
-        _session = CreateSession(optionsAccessor.Value, handler);
+        _session = CreateSession(optionsAccessor.Value, tlsOptions);
     }
 
     /// <inheritdoc />
@@ -128,7 +128,7 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         return owned;
     }
 
-    private static DistributedCacheSession<RemoteDistributedCache> CreateSession(SquirixCacheOptions options, HttpMessageHandler? handler)
+    private static DistributedCacheSession<RemoteDistributedCache> CreateSession(SquirixCacheOptions options, SslClientAuthenticationOptions? tlsOptions)
     {
         try
         {
@@ -145,7 +145,7 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
 
             var tokenProvider = options.ClientOptions.BearerTokenProvider;
             return new DistributedCacheSession<RemoteDistributedCache>(
-                token => RemoteDistributedCache.ConnectAsync(endpoints, tokenProvider, name, token, handler),
+                token => RemoteDistributedCache.ConnectAsync(endpoints, tokenProvider, name, token, tlsOptions),
                 TimeProvider.System);
         }
         catch (ArgumentException ex)

@@ -34,9 +34,9 @@ public sealed class ServerProcessTests
         _ = await Assert.That(await cache.RemoveAsync("key", cancellationToken)).IsTrue();
         _ = await Assert.That((await cache.GetValueAsync("key", cancellationToken)).Found).IsFalse();
 
-        using var live = await server.HttpClient.GetAsync(new Uri(server.Uri, "/health/live"), cancellationToken);
+        using var live = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/live"), cancellationToken);
         _ = await Assert.That(live.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        using var ready = await server.HttpClient.GetAsync(new Uri(server.Uri, "/health/ready"), cancellationToken);
+        using var ready = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/ready"), cancellationToken);
         _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
@@ -47,7 +47,7 @@ public sealed class ServerProcessTests
     public async Task PrometheusEndpointIsDisabledByDefault(CancellationToken cancellationToken)
     {
         await using var server = await ServerProcess.StartAsync(false, cancellationToken);
-        using var metrics = await server.HttpClient.GetAsync(new Uri(server.Uri, "/metrics"), cancellationToken);
+        using var metrics = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/metrics"), cancellationToken);
 
         _ = await Assert.That(metrics.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
@@ -87,7 +87,7 @@ public sealed class ServerProcessTests
         var cache = await client.GetCacheAsync<string>("process-metrics", cancellationToken);
         await cache.SetAsync("key", "value", cancellationToken: cancellationToken);
 
-        using var customMetrics = await server.HttpClient.GetAsync(new Uri(server.Uri, "/custom-metrics"), cancellationToken);
+        using var customMetrics = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/custom-metrics"), cancellationToken);
         var expectedStatus = collect && export ? HttpStatusCode.OK : HttpStatusCode.NotFound;
         _ = await Assert.That(customMetrics.StatusCode).IsEqualTo(expectedStatus);
         if (expectedStatus == HttpStatusCode.OK)
@@ -96,7 +96,7 @@ public sealed class ServerProcessTests
             _ = await Assert.That(ContainsSuccessfulSet(body)).IsTrue();
         }
 
-        using var defaultMetrics = await server.HttpClient.GetAsync(new Uri(server.Uri, "/metrics"), cancellationToken);
+        using var defaultMetrics = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/metrics"), cancellationToken);
         _ = await Assert.That(defaultMetrics.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
@@ -119,7 +119,7 @@ public sealed class ServerProcessTests
         var cache = await client.GetCacheAsync<string>("authenticated-smoke", cancellationToken);
         await cache.SetAsync("key", "authenticated", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("key", cancellationToken)).Value).IsEqualTo("authenticated");
-        using var live = await server.HttpClient.GetAsync(new Uri(server.Uri, "/health/live"), cancellationToken);
+        using var live = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/live"), cancellationToken);
         _ = await Assert.That(live.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 

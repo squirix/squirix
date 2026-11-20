@@ -6,8 +6,11 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -23,26 +26,56 @@ public sealed class BinaryTransportSurfaceTests
     /// <summary>The SDK reaches the cache via binary TLS while legacy gRPC has no public route.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BinaryCacheAndHealthSharePublicPort(CancellationToken cancellationToken)
+    public async Task ManagementDoesNotShareCacheListener(CancellationToken cancellationToken)
     {
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(BinaryCacheAndHealthSharePublicPort), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+            nameof(ManagementDoesNotShareCacheListener), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
         var uri = cluster.GetUri("nodeA");
+        var management = cluster.Cluster["nodeA"].ManagementUri;
+        _ = await Assert.That(uri.Port).IsNotEqualTo(management.Port);
         var cache = await cluster.GetCacheAsync<string>("transport", cancellationToken: cancellationToken);
         await cache.SetAsync("key", "value", cancellationToken: cancellationToken);
         var value = await cache.GetValueAsync("key", cancellationToken);
         _ = await Assert.That(value.Value).IsEqualTo("value");
 
-        using var health = await LoopbackClient.GetAsync(new Uri(uri, "/health"), cancellationToken);
+        using var health = await LoopbackClient.GetAsync(new Uri(management, "/health"), cancellationToken);
         _ = await Assert.That(health.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(
+            LoopbackClient.GetAsync(new Uri(uri, "/health"), cancellationToken),
+            TimeSpan.FromSeconds(15),
+            TimeProvider.System,
+            cancellationToken);
 
-        using var legacy = new HttpRequestMessage(HttpMethod.Post, new Uri(uri, "/squirix.cache.v2.SquirixCacheService/GetValue"));
-        legacy.Version = HttpVersion.Version20;
-        legacy.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+        using var legacy = new HttpRequestMessage(HttpMethod.Post, new Uri(management, "/squirix.cache.v2.SquirixCacheService/GetValue"));
         legacy.Content = new ByteArrayContent([0, 0, 0, 0, 0]);
         legacy.Content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc");
         using var reply = await LoopbackClient.SendAsync(legacy, cancellationToken);
-        _ = await Assert.That(reply.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(reply.StatusCode).IsEqualTo(HttpStatusCode.MethodNotAllowed);
+    }
+
+    /// <summary>A management origin is unavailable to the SDK, which can still bootstrap on the binary listener.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SdkFallsBackFromManagementOrigin(CancellationToken cancellationToken)
+    {
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nameof(SdkFallsBackFromManagementOrigin), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
+        var management = cluster.Cluster["nodeA"].ManagementUri;
+        var options = new SquirixClientOptions();
+        options.Endpoints.Add(management);
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException, ISquirixClient>(
+            SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken),
+            TimeSpan.FromSeconds(15),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.FailedPrecondition);
+
+        options.Endpoints.Add(cluster.GetUri("nodeA"));
+        await using var client = await SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken);
+        var cache = await client.GetCacheAsync<string>("listener-fallback", cancellationToken);
+        await cache.SetAsync("key", "value", cancellationToken: cancellationToken);
+        _ = await Assert.That((await cache.GetValueAsync("key", cancellationToken)).Value).IsEqualTo("value");
     }
 
     /// <summary>Preserves the caller's W3C trace across the entry node and a forwarded call.</summary>

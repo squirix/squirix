@@ -73,7 +73,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = await Assert.That(reported.GetProperty("snapshotIndex").GetUInt64()).IsEqualTo(retention.SnapshotIndex);
         _ = await Assert.That(reported.GetProperty("retainedEntries").GetInt32()).IsEqualTo(retention.RetainedEntries);
         _ = await Assert.That(reported.GetProperty("logBytes").GetInt64()).IsEqualTo(retention.LogBytes);
-        var metrics = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/metrics"), cancellationToken);
+        var metrics = await HttpClient.GetStringAsync(new Uri(owner.ManagementUri, "/metrics"), cancellationToken);
         _ = await Assert.That(metrics).Contains("squirix_replication_log_compactions_total{", StringComparison.Ordinal);
     }
 
@@ -495,7 +495,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <exception cref="InvalidOperationException">The details report no entry for the owned group.</exception>
     private async Task<JsonElement> ReadyDetailsGroupAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        var text = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/health/ready/details"), cancellationToken);
+        var text = await HttpClient.GetStringAsync(new Uri(owner.ManagementUri, "/health/ready/details"), cancellationToken);
         using var document = JsonDocument.Parse(text);
         foreach (var group in document.RootElement.GetProperty("replicaGroups").EnumerateArray())
         {

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
+        <IsAotCompatible>false</IsAotCompatible>
+        <RootNamespace>Squirix.HybridCacheSample</RootNamespace>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../../src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection"/>
+    </ItemGroup>
+</Project>

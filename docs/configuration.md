@@ -16,9 +16,7 @@ Search order:
 In Docker, mount settings read-only (for example `docker/node-a/Squirix.settings.json` → `/app/Squirix.settings.json`).
 See [containerization.md](containerization.md) for dev and release image layouts.
 
-The standalone `squirix-server` host, `await builder.AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()` load
-`Squirix:Cluster` through `Configurator` when a settings file is discovered or supplied. `StartAsync()`
-then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServerAsync` pipeline as the standalone executable.
+The standalone CLI and `SquirixServer.StartAsync()` load `Squirix:Cluster` through `Configurator`.
 The host also loads `Squirix:PrometheusMetrics` from the selected settings file. An explicit `--settings custom.json`
 selects both sections from that file. `MemoryPressure` and `Snapshot` use standard file discovery independently.
 Keep all sections in `Squirix.settings.json` in the working directory to apply them together.
@@ -27,15 +25,12 @@ Keep all sections in `Squirix.settings.json` in the working directory to apply t
 Relative settings and data paths are resolved against the process working directory, not the settings file directory.
 Use paths without `.` or `..` segments, for example `config/node.json` and `data`; paths such as `./data` are rejected.
 CLI listen, persistence, data-directory, replication, and metrics flags apply after loading settings.
-In custom hosts, the configuration callback runs after file settings have been loaded.
-
-In a custom ASP.NET Core host, `AddSquirixServerAsync` configures the public TLS listener for binary cache connections.
-Configure cluster topology and optional persistence in its `SquirixServerOptions` callback. After building the app,
-call `await app.MapSquirixServerAsync()` to open node storage and map health and any configured metrics or internode endpoints.
+For an embedded node, pass a `SquirixServerOptions` instance to `SquirixServer.StartAsync`. To start from a
+named settings file, first load it with `Configurator.LoadAsync`, then apply any overrides to those options.
 
 ## Remote client (`SquirixClientOptions`)
 
-Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
+Configure the client when calling `SquirixClient.ConnectAsync`:
 
 | Member                   | Purpose                                                                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -44,7 +39,7 @@ Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 | `Serializer`             | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).                                     |
 | `JsonSerializerContexts` | Source-generated metadata for application value types used by the default serializer. See [Serialization](serialization.md#application-value-types). |
 
-For local HTTPS development, trust the ASP.NET Core development certificate with
+To use a local .NET development certificate, create or trust it with
 `dotnet dev-certs https --trust`.
 
 Example (requires a JWT in `SQUIRIX_CLIENT_JWT`, for example `export SQUIRIX_CLIENT_JWT=...` /
@@ -136,7 +131,7 @@ Example fragment:
 ## Cluster settings
 
 `Squirix:Cluster` is loaded by `Configurator` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
-standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
+standalone host and `SquirixServer.StartAsync()`.
 
 | Field                      | Type     | Default                                | Validation                                                                                                                                                                            |
 | -------------------------- | -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -187,11 +182,11 @@ networks, set `Uri` and the local peer entry to the **service hostname** reachab
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Uri` must exactly match `Cluster.Uri`.
 
 When exposing a container to host client apps: map the primary HTTPS listener (for example host **5001** → container **5000**)
-so binary cache clients and operational routes (`/health`, `/metrics`) share one TLS port. See [containerization.md](containerization.md).
+for binary cache clients. Publish the management port separately for health and metrics. See [containerization.md](containerization.md).
 
 ## Hosting options (`SquirixServerOptions`)
 
-Configure these through `await builder.AddSquirixServerAsync(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
+Pass these options to `SquirixServer.StartAsync(options)`, or use the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
 | Field                      | Type     | Default                  | Validation                                                                                                                                                                            |
@@ -225,12 +220,13 @@ the two switches through its topology fingerprint; later RF>1 starts with a diff
 Example:
 
 ```csharp
-await builder.AddSquirixServerAsync(options =>
+var options = new SquirixServerOptions
 {
-    options.NodeId = "node-a";
-    options.Uri = new Uri("https://localhost:5001");
-    options.UsePersistence("data");
-});
+    NodeId = "node-a",
+    Uri = new Uri("https://localhost:5001"),
+};
+options.UsePersistence("data");
+await using var server = await SquirixServer.StartAsync(options);
 ```
 
 ### Replication opt-in (`ReplicationEnabled`)
@@ -298,14 +294,8 @@ same node fail the same way at once for one more bound, instead of each waiting 
 
 - Name resolution and the attempts on every resolved address count against the bound, so a slow resolver or a peer name
   with several addresses uses it up sooner.
-- It covers new connections only. Connections to other nodes that carry forwards are checked with HTTP/2 keepalive
-  pings (one per second of silence, closed when unanswered for two seconds), so a peer that stops answering without
-  closing the connection is found within about five seconds and the next forward connects anew. The two-second answer
-  time trades one more second of detection for fewer healthy connections closed by a paused process. A forward already
-  written to such a connection still ends as an ambiguous timeout or failure.
-- A live node accepts the connection at once; the TLS handshake that follows keeps a longer bound, so a loaded node is
-  not cut off. The setting applies to client forwards only: replication and election traffic between nodes keeps its
-  own longer bounds.
+- The dial timeout covers new connections. Existing peer calls use the forwarded operation deadline.
+  An in-flight call that loses its response after sending can have an ambiguous outcome.
 
 ### Activated topology stamp (`topology.stamp`)
 
@@ -404,7 +394,7 @@ sections together with cluster settings.
 ### Persistence (host defaults)
 
 When persistence is enabled (`UsePersistence()` / `--persist`), the node uses internal `PersistenceOptions` defaults.
-There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putting a Persistence object in
+There is **no** `Squirix:Persistence` JSON merge in public hosting — putting a Persistence object in
 `Squirix.settings.json` has no effect. Data directory comes from `SquirixServerOptions.DataDirectory` / `--data-dir`
 (otherwise the host resolves a per-node default under local app data).
 
@@ -536,7 +526,7 @@ id** resolved for each cache operation:
 | Source | Client id | When |
 | ------ | --------- | ---- |
 | JWT bearer principal | `jwt:{subject}` | Authenticated request with a non-empty `sub` / `NameIdentifier` claim |
-| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, authenticated token missing `sub`) |
+| Binary connection | `conn:{connectionId}` | Request has a connection identity and no usable JWT subject |
 | Internal owner RPC | `internal` | Trusted owner-routed call from another cluster node (peer mTLS on the internal listener). Admitted only to a free slot: no per-client limits, slowdown or queueing; the node rate limit applies |
 | In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
 
@@ -544,7 +534,7 @@ Setting `PerClientMaxInFlight` or `PerClientRateLimitPerSecond` turns on per-cal
 share one bucket and no caller identity is computed per request; internal owner calls forwarded from another node are still
 told apart.
 
-v0.1 external auth is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
+External authentication is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
 entry node under the caller's own client id, including the slowdown delay and queue wait, and holds that admission for
 the whole hop. The owner treats it as an internal owner call (mTLS on the internal listener): it skips per-client limits,
 the slowdown delay and the queue, so a forwarded request waits in at most one queue and traffic is not pooled into one
@@ -661,12 +651,14 @@ For repository tests, see [Test host authentication](testing/in-process-authenti
 ## Environment variables
 
 Deployment, Docker, and standalone hosts load security settings from the process environment. These variables map to
-the same auth pipeline used by in-process overrides above. Docker images also set
-`ASPNETCORE_Kestrel__Certificates__Default__Path` for the
-bundled development PFX; see [containerization.md](containerization.md#https-in-containers).
+the same auth pipeline used by in-process overrides. Docker images set
+`SQUIRIX_TLS_CERTIFICATE_PATH` for the bundled development PFX; see [containerization.md](containerization.md#https-in-containers).
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SQUIRIX_TLS_CERTIFICATE_PATH`                       | PFX certificate for the client and management TLS listeners.                                                                                                                                                       |
+| `SQUIRIX_TLS_CERTIFICATE_PASSWORD`                   | Optional PFX password.                                                                                                                                                                                             |
+| `SQUIRIX_MANAGEMENT_URI`                             | HTTPS management origin. Defaults to loopback with a certificate-matching host where available. See [listener defaults](server-mode.md).                                                                           |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                                          |
 | `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value. Required whenever JWT authentication is enabled.                                                                                                                                    |
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
@@ -700,7 +692,7 @@ A loopback bind trusts every local process with access to that listener when cac
 Use it only for trusted local development or tests.
 
 Listen binding follows the host form. An IP literal such as `127.0.0.1` or `[::1]` binds exactly that address, and a bind
-failure fails node start. The name `localhost` binds both the IPv4 and IPv6 loopback interfaces through Kestrel, which
+failure fails node start. The name `localhost` requests loopback binding. This
 tolerates a host without an IPv6 loopback interface; use an IP literal when the node must serve on one specific family.
 
 ### External authentication
@@ -711,7 +703,7 @@ an issuer and audience; authority mode requires an audience. Token lifetime vali
 
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
-  internode mTLS is required at startup. Internode HTTP/2 is served on the dedicated internal HTTPS listener
+  internode mTLS is required at startup. Peer binary traffic uses the dedicated internal TLS listener
   (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Each node certificate CN must match
   its `Cluster.NodeId`; peer certificates are accepted only when they chain to the cluster CA and their CN matches the
   expected peer `NodeId`. Outbound `ClientPool` calls attach the local node certificate and apply the same trust and
@@ -749,7 +741,7 @@ an issuer and audience; authority mode requires an audience. Token lifetime vali
 
 Typical examples from options validators (host composition / `validate-config`). Backpressure messages are also
 returned by `SquirixServerOptions.TryValidate` and settings loading, as are the `Journal` messages. Persistence messages apply when that option object
-is constructed or overridden in a custom host — they are **not** produced by merging a JSON section that v0.1 public
+is constructed or overridden in a custom host — they are **not** produced by merging a JSON section that public
 hosting ignores:
 
 - `Backpressure SlowdownThreshold must be in the range [1, MaxInFlight].`

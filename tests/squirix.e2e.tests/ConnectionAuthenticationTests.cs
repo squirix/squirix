@@ -2,11 +2,6 @@ using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Connections.Features;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
@@ -38,12 +33,10 @@ public sealed class ConnectionAuthenticationTests
             configure: (nodeId, services) =>
             {
                 ArgumentException.ThrowIfNullOrEmpty(nodeId);
-                _ = services.AddSingleton(probe);
-                _ = services.AddSingleton<IAuthorizationHandler>(probe);
-                _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options => options.Events.OnTokenValidated = probe.CaptureConnectionAsync);
+                TestConnectionAuthHooks.Add(services, probe.CaptureConnection, probe.AuthorizeAsync);
             },
             cancellationToken: cancellationToken);
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var options = new SquirixClientOptions
         {
             BearerTokenProvider = token =>
@@ -54,7 +47,7 @@ public sealed class ConnectionAuthenticationTests
             },
         };
         options.Endpoints.Add(cluster.GetUri("nodeA"));
-        await using var client = await SquirixClient.ConnectAsync(options, handler, cancellationToken);
+        await using var client = await SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken);
         var cache = await client.GetCacheAsync<string>("default", cancellationToken);
         for (var i = 0; i < 8; i++)
             _ = await cache.GetValueAsync("warm", cancellationToken);
@@ -66,7 +59,7 @@ public sealed class ConnectionAuthenticationTests
         {
             await probe.Entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
             var lifetime = await probe.Connection.Task.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
-            lifetime.RequestClose();
+            lifetime();
             _ = await Assert.That(admitted.IsCompleted).IsFalse();
         }
         finally
@@ -109,11 +102,10 @@ public sealed class ConnectionAuthenticationTests
             configure: (nodeId, services) =>
             {
                 ArgumentException.ThrowIfNullOrEmpty(nodeId);
-                _ = services.AddSingleton(secondaryProbe);
-                _ = services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options => options.Events.OnMessageReceived = secondaryProbe.OnMessageReceivedAsync);
+                TestConnectionAuthHooks.Add(services, secondaryProbe.RecordHandshake);
             },
             cancellationToken: cancellationToken);
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var options = new SquirixClientOptions
         {
             BearerTokenProvider = token =>
@@ -126,7 +118,7 @@ public sealed class ConnectionAuthenticationTests
         options.Endpoints.Add(cluster.GetUri("nodeA"));
         options.Endpoints.Add(secondary.GetUri("nodeA"));
         var exception = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException, ISquirixClient>(
-            SquirixClient.ConnectAsync(options, handler, cancellationToken),
+            SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
@@ -134,10 +126,10 @@ public sealed class ConnectionAuthenticationTests
         _ = await Assert.That(Volatile.Read(ref providerCalls)).IsEqualTo(1);
         _ = await Assert.That(secondaryProbe.Handshakes).IsEqualTo(0);
 
-        using var controlHandler = LoopbackHttp.CreateHandler();
+        var controlTls = LoopbackHttp.CreateTlsOptions();
         var controlOptions = new SquirixClientOptions { BearerTokenProvider = _ => ValueTask.FromResult(invalidToken) };
         controlOptions.Endpoints.Add(secondary.GetUri("nodeA"));
-        await using var controlClient = await SquirixClient.ConnectAsync(controlOptions, controlHandler, cancellationToken);
+        await using var controlClient = await SquirixClient.ConnectAsync(controlOptions, controlTls, cancellationToken);
         var controlCache = await controlClient.GetCacheAsync<string>("default", cancellationToken);
         _ = await Assert.That((await controlCache.GetValueAsync("denied", cancellationToken)).Found).IsFalse();
         await controlCache.SetAsync("control", "accepted", cancellationToken: cancellationToken);
@@ -163,13 +155,13 @@ public sealed class ConnectionAuthenticationTests
             TestNodeSecurityOptions.FromJwtCredentials(wrongKey),
             timeProvider: TimeProvider.System,
             cancellationToken: cancellationToken);
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var token = TestJwtHelper.CreateBearerToken(credentials);
         var options = new SquirixClientOptions { BearerTokenProvider = _ => ValueTask.FromResult(token) };
         options.Endpoints.Add(primary.GetUri("nodeA"));
         options.Endpoints.Add(secondary.GetUri("nodeA"));
 
-        await using var client = await SquirixClient.ConnectAsync(options, handler, cancellationToken);
+        await using var client = await SquirixClient.ConnectAsync(options, tlsOptions, cancellationToken);
         var cache = await client.GetCacheAsync<string>("default", cancellationToken);
         await cache.SetAsync("key", "primary-value", cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync("key", cancellationToken);
@@ -189,42 +181,33 @@ public sealed class ConnectionAuthenticationTests
 
         internal int Handshakes => Volatile.Read(ref _handshakes);
 
-        internal Task OnMessageReceivedAsync(MessageReceivedContext context)
+        internal void RecordHandshake(Action requestClose)
         {
-            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(requestClose);
             _ = Interlocked.Increment(ref _handshakes);
-            return Task.CompletedTask;
         }
     }
 
-    private sealed class ExpiryProbe : IAuthorizationHandler
+    private sealed class ExpiryProbe
     {
         private int _armed;
 
-        internal TaskCompletionSource<IConnectionLifetimeNotificationFeature> Connection { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<Action> Connection { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async Task HandleAsync(AuthorizationHandlerContext context)
+        internal async Task AuthorizeAsync(CancellationToken cancellationToken)
         {
-            if (context.Resource is not HttpContext request || Interlocked.Exchange(ref _armed, 0) == 0)
+            if (Interlocked.Exchange(ref _armed, 0) == 0)
                 return;
 
             _ = Entered.TrySetResult();
-            await Release.Task.WaitAsync(request.RequestAborted);
+            await Release.Task.WaitAsync(cancellationToken);
         }
 
-        internal Task CaptureConnectionAsync(TokenValidatedContext context)
-        {
-            ArgumentNullException.ThrowIfNull(context);
-            var lifetime = context.HttpContext.Features.Get<IConnectionLifetimeNotificationFeature>();
-            if (lifetime != null)
-                _ = Connection.TrySetResult(lifetime);
-
-            return Task.CompletedTask;
-        }
+        internal void CaptureConnection(Action requestClose) => _ = Connection.TrySetResult(requestClose);
 
         internal void Arm() => Volatile.Write(ref _armed, 1);
     }

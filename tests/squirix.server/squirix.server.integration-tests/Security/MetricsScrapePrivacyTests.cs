@@ -37,8 +37,8 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
         var cache = cluster[NodeId].GetCache<object?>(secretCacheName);
         await cache.SetEntryAsync(IntegrationMutationOpIds.Default, secretCacheName, "k", new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken);
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/metrics"));
-        req.Version = HttpVersion.Version20;
+        using var req = new HttpRequestMessage(HttpMethod.Get, new Uri(cluster[NodeId].ManagementUri, "/metrics"));
+        req.Version = HttpVersion.Version11;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
 

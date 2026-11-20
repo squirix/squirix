@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Net.Security;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,13 +32,13 @@ internal sealed class ClientPool : IClientPool
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
         TimeProvider timeProvider,
-        HttpMessageHandler? handler = null,
+        SslClientAuthenticationOptions? tlsOptions = null,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider = null,
         BootstrapConnectOptions? connectOptions = null)
     {
         _connectOptions = connectOptions ?? DefaultConnectOptions;
         _timeProvider = timeProvider;
-        _nodeIds = RegisterPeers(peers, policyFactory, handler, bearerTokenProvider);
+        _nodeIds = RegisterPeers(peers, policyFactory, tlsOptions, bearerTokenProvider);
         BootstrapNodeIds = _nodeIds;
     }
 
@@ -163,7 +164,7 @@ internal sealed class ClientPool : IClientPool
     private string[] RegisterPeers(
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
-        HttpMessageHandler? handler,
+        SslClientAuthenticationOptions? tlsOptions,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
         var ids = new string[peers.Length];
@@ -173,7 +174,7 @@ internal sealed class ClientPool : IClientPool
             BinaryCacheClient.RequireHttps(peer.Uri);
             var policy = policyFactory.Invoke(peer.NodeId);
 #pragma warning disable CA2000 // The pool owns clients published in its per-peer registry and disposes all of them.
-            _clients[peer.NodeId] = new NodeClient(new BinaryCacheClient(peer.Uri, bearerTokenProvider, handler), policy);
+            _clients[peer.NodeId] = new NodeClient(new BinaryCacheClient(peer.Uri, bearerTokenProvider, tlsOptions), policy);
 #pragma warning restore CA2000
             ids[i] = peer.NodeId;
         }
@@ -224,7 +225,7 @@ internal sealed class ClientPool : IClientPool
                 if (failure == null)
                     return;
 
-                if (failure is SquirixTransportException { StatusCode: CacheTransportStatusCode.Unauthenticated })
+                if (failure is SquirixTransportException { StatusCode: CacheTransportStatusCode.Unauthenticated or CacheTransportStatusCode.FailedPrecondition })
                     throw failure;
                 lastFailure = failure;
                 remaining = deadlineUtc - time.GetUtcNow();

@@ -1,7 +1,6 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 
@@ -62,8 +61,8 @@ public class ClusterStartOptions
     /// <summary>Gets the replica factor including the original owner.</summary>
     public int ReplicaCount { get; init; } = 1;
 
-    /// <summary>Gets the optional package extensions of the node, such as a decorator of the cache pipeline.</summary>
-    public ExtensionOptions? Extensions { get; init; }
+    /// <summary>Gets the optional HTTPS management listener address.</summary>
+    public Uri? ManagementUri { get; init; }
 
     /// <summary>Gets or initializes a value indicating whether the node collects Squirix metrics.</summary>
     public bool MetricsEnabled { get; init; }

@@ -35,20 +35,21 @@ public sealed class OperationalEndpointAuthTests : ServerSurfaceTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         using var held = ListenPortPool.IntegrationTests.HoldPort();
         var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port), UriKind.Absolute);
-        var remoteUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, held.Port, path);
-        var loopbackUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, path);
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(nodeId, uri),
-            _ => new BlackBoxStartOptions { MetricsEnabled = true, PrometheusMetricsEnabled = true, Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            _ => new BlackBoxStartOptions { ManagementUri = new Uri("https://0.0.0.0:0"), MetricsEnabled = true, PrometheusMetricsEnabled = true, Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
+
+        var remoteUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, cluster[nodeId].ManagementUri.Port, path);
+        var loopbackUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", cluster[nodeId].ManagementUri.Port, path);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackUrl), cancellationToken);
         _ = await Assert.That(loopbackAnonymous.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
         using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, loopbackUrl))
         {
-            loopbackAuthorized.Version = HttpVersion.Version20;
+            loopbackAuthorized.Version = HttpVersion.Version11;
             loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
             loopbackAuthorized.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
             var loopbackWithJwt = await HttpClient.SendAsync(loopbackAuthorized, cancellationToken);

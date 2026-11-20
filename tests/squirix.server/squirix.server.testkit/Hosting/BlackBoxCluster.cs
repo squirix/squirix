@@ -61,6 +61,7 @@ internal static class BlackBoxCluster
         ServicesConfigure = options.ServicesConfigure,
         BackpressureOptions = options.BackpressureOptions?.ToServerOptions(),
         MemoryPressureOptions = options.MemoryPressureOptions?.ToServerOptions(),
+        ManagementUri = options.ManagementUri,
         MetricsEnabled = options.MetricsEnabled,
         PrometheusMetricsEnabled = options.PrometheusMetricsEnabled,
         SecurityOptions = (options.Security ?? UnauthenticatedSecurity).ToServerOptions(),

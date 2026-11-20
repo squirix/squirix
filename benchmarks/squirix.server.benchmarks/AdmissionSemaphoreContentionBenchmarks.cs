@@ -106,7 +106,7 @@ public class AdmissionSemaphoreContentionBenchmarks
                     semaphore.Release();
                     break;
                 case Operation.Admission:
-                    var (decision, lease) = await gate.AcquireAsync("grpc", "get", "client", CancellationToken.None).ConfigureAwait(false);
+                    var (decision, lease) = await gate.AcquireAsync("binary", "get", "client", CancellationToken.None).ConfigureAwait(false);
                     if (!decision.IsAccepted)
                         throw new InvalidOperationException("Uncontended admission was refused.");
                     lease.Dispose();

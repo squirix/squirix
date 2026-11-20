@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.UnitTests.Support;
@@ -46,7 +45,7 @@ public sealed class ReadyDetailsCopiesMappingTests : ServerUnitTestBase
             ],
         };
 
-        var response = SquirixEndpointMapping.BuildReadyDetailsResponse(snapshot);
+        var response = HealthDetailsResponseMapper.Build(snapshot);
         var element = JsonSerializer.SerializeToElement(response, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         var groups = element.GetProperty("replicaGroups");

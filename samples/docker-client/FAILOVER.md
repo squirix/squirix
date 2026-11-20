@@ -18,9 +18,11 @@ The first run builds the server and client images and downloads their dependenci
 1. Creates an isolated Compose project with fresh data volumes and automatically assigned loopback host ports.
 2. Waits for all three replica groups and their followers to become ready.
 3. Starts the public NuGet client, writes 96 unique keys, and verifies every value.
-4. Uses readiness diagnostics to identify a current leader with replicated data and two caught-up followers.
+4. Uses readiness diagnostics to identify a current leader with replicated data and two caught-up followers. The
+   client's first configured entry node stays running.
 5. Sends SIGKILL to that node's container, after verifying it belongs to this demo project.
-6. Continues the same client session: reads all 96 old values, writes 96 updates, and verifies those updates.
+6. Waits for a surviving leader and a ready follower, then resumes the same client session to read all 96 old values,
+   write 96 updates, and verify those updates.
 7. Confirms a surviving node now leads the affected group and saves the evidence.
 8. Removes only this demo's containers, network and disposable data volumes, including on failure.
 
@@ -28,12 +30,12 @@ Example output (the node names and duration can differ):
 
 ```text
 READY: 96 values written and verified; waiting for leader termination
-KILL: node A, leader of group A
+KILL: node B, leader of group B
 PASS: 96 old values read; 96 updates written and verified; batchMs=9211
-VERIFIED: group A moved from A to B
+VERIFIED: group B moved from B to C
 ```
 
-`batchMs` measures the whole post-failure client batch, not election latency. The demo adds no application-level retry
+`batchMs` measures the client batch after the replacement leader becomes ready. The demo adds no application-level retry
 loop; the SDK may retry calls and switch bootstrap endpoints internally. A missing value, wrong value, failed RPC,
 timeout or missing replacement leader makes the command fail instead of printing a successful final verification.
 

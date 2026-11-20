@@ -1,14 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Diagnostics.Metrics;
-using System.Net.Http;
+using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Observability;
-using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -16,78 +8,65 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>A handler the peer handler factory supplies gets keepalive pings on the forward channel only when it chose none itself.</summary>
+/// <summary>Native peer channels authenticate independent connections and honor configured TLS settings.</summary>
 public sealed class PeerChannelsTests
 {
     private const string Peer = "node-b";
 
-    /// <summary>A factory handler without a keepalive delay is pinged on the forward channel; the lease channel handler is not.</summary>
+    /// <summary>The default forward and replication channels establish separate authenticated streams.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FactoryHandlerGetsKeepAlive(CancellationToken cancellationToken)
+    public async Task ChannelsAuthenticateSeparateSessions(CancellationToken cancellationToken)
     {
-        using var forward = new SocketsHttpHandler();
-        using var lease = new SocketsHttpHandler();
+        using var peer = new NativePeerFixture();
+        await using var pool = peer.CreatePool();
+        using var lease = pool.LeaseChannel(Peer, cancellationToken);
+        var forward = NativePeerFixture.PingAsync(pool.ForNode(Peer), cancellationToken);
+        await using var first = await peer.AcceptTlsAsync(cancellationToken);
+        var replication = NativePeerFixture.PingAsync(lease.Client, lease.Token);
+        await using var second = await peer.AcceptTlsAsync(cancellationToken);
 
-        await CreatePoolAsync(forward, lease, cancellationToken);
-
-        _ = await Assert.That(forward.KeepAlivePingPolicy).IsEqualTo(HttpKeepAlivePingPolicy.Always);
-        _ = await Assert.That(forward.KeepAlivePingDelay).IsNotEqualTo(Timeout.InfiniteTimeSpan);
-        _ = await Assert.That(lease.KeepAlivePingDelay).IsEqualTo(Timeout.InfiniteTimeSpan);
+        _ = await Assert.That(pool.OpenConnections).IsEqualTo(2);
+        _ = await Assert.That((await NativePeerFixture.ReadAsync(first, cancellationToken)).Fingerprint).IsEqualTo(NativePeerFixture.Fingerprint);
+        _ = await Assert.That((await NativePeerFixture.ReadAsync(second, cancellationToken)).Fingerprint).IsEmpty();
+        await NativePeerFixture.ReplyAsync(first, cancellationToken);
+        await NativePeerFixture.ReplyAsync(second, cancellationToken);
+        _ = await Task.WhenAll(forward, replication);
     }
 
-    /// <summary>A factory handler that set its own keepalive keeps every part of it.</summary>
+    /// <summary>Both channels honor the supplied TLS protocol and certificate validator.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FactoryKeepAliveIsKept(CancellationToken cancellationToken)
+    public async Task SuppliedTlsPolicyIsPreserved(CancellationToken cancellationToken)
     {
-        using var forward = new SocketsHttpHandler();
-        forward.KeepAlivePingDelay = TimeSpan.FromSeconds(30);
-        forward.KeepAlivePingTimeout = TimeSpan.FromSeconds(7);
-        forward.KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests;
-        using var lease = new SocketsHttpHandler();
+        using var peer = new NativePeerFixture();
+        var options = peer.ClientTls;
 
-        await CreatePoolAsync(forward, lease, cancellationToken);
-
-        _ = await Assert.That(forward.KeepAlivePingDelay).IsEqualTo(TimeSpan.FromSeconds(30));
-        _ = await Assert.That(forward.KeepAlivePingTimeout).IsEqualTo(TimeSpan.FromSeconds(7));
-        _ = await Assert.That(forward.KeepAlivePingPolicy).IsEqualTo(HttpKeepAlivePingPolicy.WithActiveRequests);
-    }
-
-    /// <summary>Creates and disposes a pool whose factory supplies the forward handler first, then the lease handler.</summary>
-    /// <param name="forward">The forward channel handler.</param>
-    /// <param name="lease">The lease channel handler.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A task that completes once the pool is disposed.</returns>
-    private static async Task CreatePoolAsync(SocketsHttpHandler forward, SocketsHttpHandler lease, CancellationToken cancellationToken)
-    {
-        using var meter = new Meter("test-peer-channels");
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
-        var supplied = new Queue<HttpMessageHandler>([forward, lease]);
-        var (policyFactory, peerHandlerFactory) = Bind.To<(Meter Meter, Queue<HttpMessageHandler> Supplied), (Func<string, IServerCallPolicy>, Func<string, HttpMessageHandler>)>(
-            (meter, supplied),
-            static shared => (
-                _ => new ServerCallPolicy(
-                    new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(shared.Meter), new ServerRpcTimeoutMetrics(shared.Meter)),
-                    TimeProvider.System), _ => shared.Supplied.Dequeue()));
-        var args = new ServerClientPoolArgs
+        // Restrict this test peer to one protocol to observe that the pool honors the caller's TLS options.
+#pragma warning disable CA5398
+        const SslProtocols protocol = SslProtocols.Tls12;
+        options.EnabledSslProtocols = protocol;
+        var validate = options.RemoteCertificateValidationCallback!;
+        var validations = 0;
+        options.RemoteCertificateValidationCallback = (sender, certificate, chain, errors) =>
         {
-            TimeProvider = TimeProvider.System,
-            PolicyFactory = policyFactory,
-            PeerHandlerFactory = peerHandlerFactory,
-            MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
-            Certificate = certificate,
-            InterNodeMtlsEnabled = true,
-            ForwardConnectTimeout = TopologyOptions.DefaultForwardConnectTimeout,
+            _ = Interlocked.Increment(ref validations);
+            return validate(sender, certificate, chain, errors);
         };
+        await using var pool = peer.CreatePool(tls: options);
+        using var lease = pool.LeaseChannel(Peer, cancellationToken);
 
-        await using var pool = new ServerClientPool(
-            [new ServerPeer { NodeId = Peer, Uri = new Uri("https://localhost:6500") }],
-            args,
-            new ServerClientPoolMetrics(meter),
-            NullLogger<ServerClientPool>.Instance,
-            NullLogger<PeerHandshakeVerifier>.Instance);
+        foreach (var client in new[] { pool.ForNode(Peer), lease.Client })
+        {
+            var ping = NativePeerFixture.PingAsync(client, cancellationToken);
+            await using var stream = await peer.AcceptTlsAsync(cancellationToken);
+            _ = await Assert.That(stream.SslProtocol).IsEqualTo(protocol);
+            _ = await NativePeerFixture.ReadAsync(stream, cancellationToken);
+            await NativePeerFixture.ReplyAsync(stream, cancellationToken);
+            _ = await ping;
+        }
+
+        _ = await Assert.That(validations).IsEqualTo(2);
+#pragma warning restore CA5398
     }
 }

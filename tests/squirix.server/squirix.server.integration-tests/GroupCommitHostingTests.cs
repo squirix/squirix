@@ -2,14 +2,15 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
@@ -36,7 +37,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-group-commit-default");
         var (app, _) = await StartAsync(dir, null, cancellationToken);
-        await using (app)
+        using (app)
         {
             _ = await Assert.That(app.Services.GetRequiredService<PersistenceOptions>().IsJournalGroupCommitEnabled).IsFalse();
             _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsFalse();
@@ -50,7 +51,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-group-commit-lone");
         var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
-        await using (app)
+        using (app)
         {
             using var channel = CreateBinaryChannel(uri);
             var client = new CacheWireClient(channel);
@@ -72,7 +73,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-group-commit-distinct");
         var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
-        await using (app)
+        using (app)
         {
             _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsTrue();
 
@@ -110,7 +111,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         using var dir = new TempDirectory("squirix-group-commit-same-key");
         GetValueAsyncResponse before;
         var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
-        await using (app)
+        using (app)
         {
             using var channel = CreateBinaryChannel(uri);
             var client = new CacheWireClient(channel);
@@ -126,7 +127,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         }
 
         var (restarted, restartedUri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
-        await using (restarted)
+        using (restarted)
         {
             using var channel = CreateBinaryChannel(restartedUri);
             var client = new CacheWireClient(channel);
@@ -162,7 +163,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
     };
 
-    private static JournalCoordinator GetJournal(WebApplication app) =>
+    private static JournalCoordinator GetJournal(IHost app) =>
         ThrowHelper.Required(app.Services.GetRequiredService<JournalCoordinatorHost>().Coordinator as JournalCoordinator, "The hosted journal is not a JournalCoordinator.");
 
     private static Task MutateAsync(CacheWireClient client, string key, int index, CancellationToken cancellationToken)
@@ -178,12 +179,12 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         };
     }
 
-    private static async Task<(WebApplication App, Uri Uri)> StartAsync(string dataDirectory, Action<SquirixServerOptions>? configure, CancellationToken cancellationToken)
+    private static async Task<(IHost App, Uri Uri)> StartAsync(string dataDirectory, Action<SquirixServerOptions>? configure, CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ApplicationName = "Squirix.Server" });
         var uri = GetNextHttpUri();
         ListenPortPool.ReleaseHeldPrimary(uri);
-        _ = await builder.AddSquirixServerAsync(
+        _ = await builder.ConfigureNodeAsync(
             options =>
             {
                 options.Uri = uri;
@@ -191,18 +192,19 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
                 configure?.Invoke(options);
             },
             loadDiscoveredSettings: false,
+            configureComposition: static args => args.ManagementUri = new Uri("https://127.0.0.1:0"),
             cancellationToken: cancellationToken);
 
         var app = builder.Build();
         try
         {
-            _ = await app.MapSquirixServerAsync(cancellationToken);
+            await ServerHostingComposition.OpenStorageAsync(app.Services, cancellationToken);
             await app.StartAsync(cancellationToken);
             return (app, uri);
         }
         catch
         {
-            await app.DisposeAsync();
+            app.Dispose();
             throw;
         }
     }

@@ -35,7 +35,7 @@ public sealed class UnseededStartTests : NodeIntegrationTestBase
         await WipedCluster.AssertUnseededAsync(second, cancellationToken);
         await WipedCluster.AssertRefusesWriteAsync(first, Nodes[0], cancellationToken);
         await WipedCluster.AssertRefusesWriteAsync(second, Nodes[1], cancellationToken);
-        using (var response = await HttpClient.GetAsync(new Uri(first.Uri, "/health/ready"), cancellationToken))
+        using (var response = await HttpClient.GetAsync(new Uri(first.ManagementUri, "/health/ready"), cancellationToken))
             _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
 
         _ = await cluster.StartNodeAsync(Nodes[2], options, cancellationToken);

@@ -75,7 +75,7 @@ Security checks during triage:
   consistently for missing/invalid credentials (`/health`, `/health/live`, and `/health/ready` remain anonymous).
 - On shared or multi-tenant hosts, remember that loopback `/metrics` scrapes stay anonymous even when JWT is enabled;
   see [diagnostics — Loopback trust](diagnostics.md#metrics-loopback-trust).
-- Operational routes (`/health`, `/metrics`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and HTTP/2).
+- Operational routes (`/health`, `/metrics`) are served on the dedicated HTTPS management listener (HTTP/1.1).
 
 If failures are isolated to owner-routing paths, compare owner lookup results with the configured peer set and the
 node's local ring view.
@@ -233,8 +233,8 @@ owns more load than its `MaxInFlight` serves; queue metrics (`squirix_backpressu
 longer include forwarded requests.
 
 Per-client concurrency and rate limits isolate callers by backpressure client id: JWT `sub` / `NameIdentifier` when the
-request is authenticated (`jwt:{subject}`), otherwise the ASP.NET Core connection id (`conn:{id}`). Callers without an
-`HttpContext` (in-process paths) share the `runtime` bucket — see [configuration.md](configuration.md#backpressure).
+request is authenticated (`jwt:{subject}`), otherwise the binary connection id (`conn:{id}`). Callers without a
+network connection (in-process paths) share the `runtime` bucket — see [configuration.md](configuration.md#backpressure).
 Do not expect anonymous loopback clients on distinct TCP connections to share one JWT principal bucket; they are
 isolated by connection unless they present the same subject.
 
@@ -436,7 +436,7 @@ Before upgrade:
 5. Validate security posture after startup:
     - Non-loopback binary cache transport rejects missing/invalid JWT when auth is enabled.
     - Remote `/metrics` and `/health/ready/details` require the same JWT bearer credentials.
-    - Operational routes are HTTPS-only on the primary listener.
+    - Operational routes use the separate HTTPS management listener.
 6. For RF>1 data directories, run `squirix-server doctor` from the target version against a backup copy of the data directory. A
    `topology stamp: fingerprint MISMATCH` line (doctor exits with code 1) means the target version refuses to start on
    that directory; see [Activated topology stamp](#activated-topology-stamp).

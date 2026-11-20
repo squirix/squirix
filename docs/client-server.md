@@ -36,29 +36,28 @@ All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profi
 | [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity |
 | [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, cache host (library) |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool |
-| `squirix.extensions.caching` (preview.11) | Microsoft `IDistributedCache` provider and HybridCache L2 |
+| `squirix.extensions.caching` | Microsoft `IDistributedCache` provider and HybridCache L2 |
 
 Choose packages by process role. For Microsoft caching APIs, follow the [adapter guide](distributed-cache.md).
 For the native typed cache API, install the client SDK:
 
 ```bash
-dotnet add package squirix --version 0.1.0-preview.10
+dotnet add package squirix --version 0.2.0-preview.1
 ```
 
 Run the server separately with the global tool:
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
+dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
 ```
 
-Only a custom ASP.NET Core server host needs the server library:
+Applications that embed a node use the server library:
 
 ```bash
-dotnet add package squirix.server --version 0.1.0-preview.10
+dotnet add package squirix.server --version 0.2.0-preview.1
 ```
 
 Run package commands in the corresponding existing project directory. Use matching client and server versions.
-To try the preview.11 binary transport, build both from the same checkout.
 See [Getting started](getting-started.md) for both setup paths.
 
 ## Responsibilities
@@ -76,13 +75,13 @@ contracts and shared proto source.
 
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
-- Binary TLS transport in preview.11 (shared `SquirixCache.proto` contract)
-- Health, readiness, and metrics routes on the same primary TLS listener (HTTP/1.1 and HTTP/2)
+- Binary TLS transport (shared `SquirixCache.proto` contract)
+- Health, readiness and metrics on a dedicated HTTP/1.1 management listener over TLS
 - Opt-in journal-based durability with recovery on startup (`UsePersistence()` / `--persist`)
 - Snapshots and journal retention
 - Prometheus metrics and OpenTelemetry tracing
 - Static consistent-hash single-owner routing with bootstrap client failover
-- Standalone `squirix-server` CLI and optional ASP.NET Core embedding
+- Standalone `squirix-server` CLI and optional .NET embedding
 
 ## Further reading
 

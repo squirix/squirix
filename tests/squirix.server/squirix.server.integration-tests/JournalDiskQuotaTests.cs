@@ -42,7 +42,7 @@ public sealed class JournalDiskQuotaTests : NodeIntegrationTestBase
             },
             cancellationToken);
         var node = cluster["node_journal_quota"];
-        var uri = node.Uri;
+        var uri = node.ManagementUri;
 
         var journal = node.GetRequiredService<IJournalCoordinator>();
         _ = await Assert.That(journal.MaxBytes).IsEqualTo(JournalSegmentLimits.MinSegmentMb * 1024L * 1024L);

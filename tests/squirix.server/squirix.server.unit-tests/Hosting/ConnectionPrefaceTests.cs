@@ -5,9 +5,6 @@ using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Connections;
-using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -43,7 +40,7 @@ public sealed class ConnectionPrefaceTests
             },
             null,
             clock);
-        var processing = middleware.OnConnectionAsync(connection);
+        var processing = middleware.OnConnectionAsync(connection.Native);
         clock.Advance(TimeSpan.FromSeconds(5));
         await processing;
         _ = await Assert.That(connection.Aborted).IsTrue();
@@ -65,14 +62,16 @@ public sealed class ConnectionPrefaceTests
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var dispatched = false;
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (_, _, _, _) =>
             {
                 dispatched = true;
                 return ValueTask.FromResult(default(BinaryResponse));
             },
             NullLogger.Instance,
-            clock);
+            clock,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -111,14 +110,16 @@ public sealed class ConnectionPrefaceTests
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var dispatched = 0;
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (_, _, _, _) =>
             {
                 dispatched++;
                 return ValueTask.FromResult(default(BinaryResponse));
             },
             NullLogger.Instance,
-            clock);
+            clock,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -161,10 +162,12 @@ public sealed class ConnectionPrefaceTests
 
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (frame, _, _, _) => frame.Id == 2 ? new ValueTask<BinaryResponse>(delayed.Task) : ValueTask.FromResult(default(BinaryResponse)),
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -208,10 +211,12 @@ public sealed class ConnectionPrefaceTests
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var large = new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFrom(new byte[Frames.MaxBatchBytes]) };
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (frame, _, _, _) => ValueTask.FromResult(frame.Id == 1 ? new BinaryResponse(FrameStatus.Ok, large) : default),
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -253,7 +258,8 @@ public sealed class ConnectionPrefaceTests
         var dispatched = 0;
         var allDispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (_, _, _, _) =>
             {
                 if (Interlocked.Increment(ref dispatched) == pendingCalls)
@@ -261,7 +267,8 @@ public sealed class ConnectionPrefaceTests
                 return new ValueTask<BinaryResponse>(reply.Task);
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -298,7 +305,8 @@ public sealed class ConnectionPrefaceTests
 
         _ = await input.FlushAsync(guard.Token);
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             async (frame, _, _, _) =>
             {
                 if (frame.Id == 1)
@@ -307,7 +315,8 @@ public sealed class ConnectionPrefaceTests
                 return new BinaryResponse(FrameStatus.Ok);
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -344,10 +353,12 @@ public sealed class ConnectionPrefaceTests
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         stop.CancelAfter(TimeSpan.FromSeconds(5));
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             static (_, _, _, _) => ValueTask.FromResult(default(BinaryResponse)),
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -395,7 +406,8 @@ public sealed class ConnectionPrefaceTests
         Frames.Write(data.AsSpan(remainderLength), 3, 0, 1);
         var bodyIntact = false;
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (frame, body, _, _) =>
             {
                 if (frame.Id == 2)
@@ -404,7 +416,8 @@ public sealed class ConnectionPrefaceTests
                 return ValueTask.FromResult(default(BinaryResponse));
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -462,7 +475,7 @@ public sealed class ConnectionPrefaceTests
             },
             null,
             TimeProvider.System);
-        await middleware.OnConnectionAsync(connection);
+        await middleware.OnConnectionAsync(connection.Native);
         var status = await ReadStatusAsync(connection);
         _ = await Assert.That(status).IsEqualTo(unsupportedVersion ? ConnectionAuthenticationProtocol.UnsupportedVersion : ConnectionAuthenticationProtocol.InvalidCredentials);
         _ = await Assert.That(admitted).IsFalse();
@@ -475,9 +488,8 @@ public sealed class ConnectionPrefaceTests
         var services = new ServiceCollection();
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
-        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider);
         await using var connection = new ProbeConnection();
-        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
         _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
@@ -491,7 +503,7 @@ public sealed class ConnectionPrefaceTests
             },
             validator,
             TimeProvider.System);
-        await middleware.OnConnectionAsync(connection);
+        await middleware.OnConnectionAsync(connection.Native);
         _ = await Assert.That(await ReadStatusAsync(connection)).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials);
         _ = await Assert.That(admitted).IsFalse();
         _ = await Assert.That(connection.Aborted).IsFalse();
@@ -508,15 +520,14 @@ public sealed class ConnectionPrefaceTests
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
         var clock = new FakeTimeProvider();
-        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), clock, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), clock, provider);
         await using var connection = new ProbeConnection();
-        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
         _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
         var held = HoldPermits(validator, 255);
         var middleware = new ConnectionAuthenticationMiddleware(static _ => Task.CompletedTask, validator, clock);
-        var processing = middleware.OnConnectionAsync(connection);
+        var processing = middleware.OnConnectionAsync(connection.Native);
         var available = validator.TryEnter();
         if (available)
             validator.Exit();
@@ -538,9 +549,8 @@ public sealed class ConnectionPrefaceTests
         var services = new ServiceCollection();
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
-        using var validator = new ConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider);
         await using var connection = new ProbeConnection();
-        connection.Features.Set<IConnectionLifetimeNotificationFeature>(new Lifetime());
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
         _ = await connection.Incoming.Writer.WriteAsync(header, connection.ConnectionClosed);
@@ -557,7 +567,7 @@ public sealed class ConnectionPrefaceTests
             TimeProvider.System);
         try
         {
-            await middleware.OnConnectionAsync(connection);
+            await middleware.OnConnectionAsync(connection.Native);
         }
         finally
         {
@@ -599,7 +609,7 @@ public sealed class ConnectionPrefaceTests
             },
             null,
             TimeProvider.System);
-        await middleware.OnConnectionAsync(connection);
+        await middleware.OnConnectionAsync(connection.Native);
         var replyBytes = 0L;
         if (connection.Outgoing.Reader.TryRead(out var reply))
         {
@@ -613,7 +623,7 @@ public sealed class ConnectionPrefaceTests
         _ = await Assert.That(replyBytes).IsEqualTo(0);
     }
 
-    private static int HoldPermits(ConnectionAuthenticationValidator validator, int maximum)
+    private static int HoldPermits(NativeConnectionAuthenticationValidator validator, int maximum)
     {
         var held = 0;
         while (held < maximum && validator.TryEnter())
@@ -621,7 +631,7 @@ public sealed class ConnectionPrefaceTests
         return held;
     }
 
-    private static void ReleasePermits(ConnectionAuthenticationValidator validator, int held)
+    private static void ReleasePermits(NativeConnectionAuthenticationValidator validator, int held)
     {
         for (var i = 0; i < held; i++)
             validator.Exit();
@@ -659,29 +669,36 @@ public sealed class ConnectionPrefaceTests
         return Frames.Read(header, Frames.MaxResponseBytes);
     }
 
-    internal sealed class ProbeConnection : DefaultConnectionContext
+    internal sealed class ProbeConnection : IAsyncDisposable
     {
         internal ProbeConnection()
         {
             Transport = new TransportPipe(Incoming.Reader, Outgoing.Writer);
+            Native = new BinaryConnection("preface", Transport, null, null, CancellationToken.None, CancellationToken.None);
         }
 
         internal Pipe Incoming { get; } = new();
 
         internal Pipe Outgoing { get; } = new();
 
-        internal bool Aborted { get; private set; }
+        internal BinaryConnection Native { get; }
 
-        public override void Abort(ConnectionAbortedException abortReason) => Aborted = true;
+        internal IDuplexPipe Transport { get; set; }
 
-        public override async ValueTask DisposeAsync()
+        internal CancellationToken ConnectionClosed => Native.ConnectionClosed;
+
+        internal bool Aborted => Native.ConnectionClosed.IsCancellationRequested;
+
+        public async ValueTask DisposeAsync()
         {
             await Incoming.Writer.CompleteAsync();
             await Incoming.Reader.CompleteAsync();
             await Outgoing.Writer.CompleteAsync();
             await Outgoing.Reader.CompleteAsync();
-            await base.DisposeAsync();
+            Native.Dispose();
         }
+
+        internal void Abort() => Native.Abort();
     }
 
     private sealed class FlushProbe : PipeWriter
@@ -724,14 +741,5 @@ public sealed class ConnectionPrefaceTests
         public PipeReader Input { get; }
 
         public PipeWriter Output { get; }
-    }
-
-    private sealed class Lifetime : IConnectionLifetimeNotificationFeature
-    {
-        public CancellationToken ConnectionClosedRequested { get; set; }
-
-        public void RequestClose()
-        {
-        }
     }
 }

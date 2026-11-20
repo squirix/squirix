@@ -21,7 +21,9 @@ class CommandTimeoutTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 5)
 
     def checkCleanupAfterBuildTimeout(self, logTimeout):
-        config = {"services": {"node-" + node: {"networks": {"squirix-net": {}}} for node in failover.NODES}}
+        services = {"node-" + node: {"networks": {"squirix-net": {}}} for node in failover.NODES}
+        services["client"] = {"environment": {"SQUIRIX_CLIENT_ENDPOINTS": "https://squirix-node-a:5000"}}
+        config = {"services": services}
         buildError = TimeoutError("Build stalled")
 
         def command(arguments, capture=False, timeout=failover.COMMAND_TIMEOUT):

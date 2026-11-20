@@ -1,10 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
-using System.Net.Http;
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -15,7 +11,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>Holds gRPC clients per peer and an execution policy per peer.</summary>
+/// <summary>Holds native clients per peer and an execution policy per peer.</summary>
 /// <remarks>
 /// <para>
 /// Every peer has two channels (<see cref="PeerChannels" />): forwarded client calls go through one whose dial is bounded by the forward
@@ -133,27 +129,6 @@ internal sealed class ServerClientPool : IServerClientPool
     }
 
     public IServerCallPolicy PolicyFor(string nodeId) => _policies[nodeId];
-
-    /// <summary>Makes the connections of a handler the pool does not own count in the pool's gate, so disposal drains and aborts them before the material is released.</summary>
-    /// <param name="handler">The handler a factory supplied; one that is not, or does not wrap, a <see cref="SocketsHttpHandler" /> stays untracked.</param>
-    /// <param name="connections">The pool's tracked connections.</param>
-    /// <remarks>An existing connect callback keeps dialing; the tracked callback wraps the stream it returns.</remarks>
-    /// <exception cref="InvalidOperationException">The handler's connect callback already tracks the connections of a pool, so a factory returned one handler twice.</exception>
-    internal static void TrackFactoryConnections(HttpMessageHandler handler, TrackedConnections connections)
-    {
-        var current = handler;
-        while (current is DelegatingHandler { InnerHandler: { } next })
-            current = next;
-
-        if (current is not SocketsHttpHandler socketsHandler)
-            return;
-
-        var inner = socketsHandler.ConnectCallback;
-        if (inner?.Target is TrackingConnectCallback)
-            throw new InvalidOperationException("The peer handler factory returned a handler that already belongs to a pool; it must create a fresh handler per call.");
-
-        socketsHandler.ConnectCallback = new TrackingConnectCallback(connections, inner).ConnectAsync;
-    }
 
     /// <summary>Takes a hold on the mTLS material when it is enabled.</summary>
     /// <param name="args">The pool arguments.</param>
@@ -294,9 +269,11 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         var mtlsOptions = args.MtlsOptions ?? new MtlsOptions();
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
-        var channels = PeerChannels.Create(peer.NodeId, address, args, _peerVerifier, _connections, _forwardConnectTimeout);
+        var channels = args.ChannelsOverride == null
+            ? PeerChannels.Create(peer.NodeId, address, args, _peerVerifier, _connections, _forwardConnectTimeout)
+            : args.ChannelsOverride(peer.NodeId, _connections);
         _channels[peer.NodeId] = channels;
-        _cacheClients[peer.NodeId] = new PeerClient(channels.Forward, args.RingFingerprint);
+        _cacheClients[peer.NodeId] = channels.Forward;
         _policies[peer.NodeId] = args.PolicyFactory.Invoke(peer.NodeId);
     }
 
@@ -347,105 +324,14 @@ internal sealed class ServerClientPool : IServerClientPool
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
-    /// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
-    /// <remarks>The pool sets the connect timeout of every handler created here, so a peer that accepts but never answers cannot hold a connection open.</remarks>
-    internal static class PeerEndpoints
-    {
-        private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
-
-        /// <summary>Creates the handler a pool owns for one peer: mTLS when <paramref name="certificate" /> is supplied, plain HTTPS otherwise.</summary>
-        /// <param name="certificate">Loaded cluster mTLS material, or <see langword="null" /> for plain HTTPS.</param>
-        /// <param name="verifier">The check of the peer certificate under mTLS; <see langword="null" /> for plain HTTPS.</param>
-        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <param name="connections">The pool's tracked connections of the handler.</param>
-        /// <returns>A handler owned by the caller.</returns>
-        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, PeerHandshakeVerifier? verifier, string expectedPeerNodeId, TrackedConnections connections) =>
-            certificate == null ? CreateChannelHandler(connections) : CreateMtlsHandler(certificate, verifier, expectedPeerNodeId, connections);
-
-        /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
-        /// <param name="clientCertificate">Client certificate presented to the peer.</param>
-        /// <param name="verifier">The check of the peer certificate against the configured cluster trust root, which logs its refusals.</param>
-        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <param name="connections">The pool's tracked connections of the handler.</param>
-        /// <returns>A handler configured for internode mutual TLS.</returns>
-        internal static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, PeerHandshakeVerifier verifier, string expectedPeerNodeId, TrackedConnections connections)
-        {
-            ArgumentNullException.ThrowIfNull(clientCertificate);
-            ArgumentNullException.ThrowIfNull(verifier);
-            ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-
-            // On Unix, SslStream builds a client certificate chain on every handshake before the ClientHello, inside the connect timeout.
-            // A context prebuilt offline once per peer removes that work and never fetches anything.
-            // Windows starts mutual auth anonymously and needs no context; supplying one up front fails for ephemeral keys.
-            var clientCertificateContext = OperatingSystem.IsWindows() ? null : SslStreamCertificateContext.Create(clientCertificate, null, true);
-            return new SocketsHttpHandler
-            {
-                AllowAutoRedirect = false,
-                UseProxy = false,
-                EnableMultipleHttp2Connections = true,
-                ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
-                SslOptions = new SslClientAuthenticationOptions
-                {
-                    ClientCertificates = [clientCertificate],
-                    ClientCertificateContext = clientCertificateContext,
-                    ApplicationProtocols = Http2PreferredProtocols,
-                    RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, verifier, expectedPeerNodeId),
-                },
-            };
-        }
-
-        /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
-        /// <param name="connections">The pool's tracked connections.</param>
-        /// <returns>A handler suitable for secure gRPC transport that opens more HTTP/2 connections once the stream limit is reached.</returns>
-        private static SocketsHttpHandler CreateChannelHandler(TrackedConnections connections) => new()
-        {
-            EnableMultipleHttp2Connections = true,
-            ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
-        };
-
-        /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
-        /// <param name="certificate">Loaded cluster mTLS certificate.</param>
-        /// <param name="verifier">The check of the peer certificate against the configured cluster trust root; required with enabled material.</param>
-        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <param name="connections">The pool's tracked connections of the handler.</param>
-        /// <returns>A handler configured for internode mutual TLS.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="certificate" /> is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when cluster mTLS certificate is not loaded.</exception>
-        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, PeerHandshakeVerifier? verifier, string expectedPeerNodeId, TrackedConnections connections)
-        {
-            ArgumentNullException.ThrowIfNull(certificate);
-            ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-            var missingMaterial = !certificate.Enabled || certificate.NodeCertificate == null || certificate.TrustAnchor == null || verifier == null;
-            const string message = "Cluster mTLS certificate must be loaded before creating the outbound handler.";
-            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, verifier!, expectedPeerNodeId, connections);
-        }
-
-        /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
-        /// <param name="serverCertificate">The presented peer server certificate.</param>
-        /// <param name="verifier">The check of the peer certificate against the configured cluster trust root, which logs its refusals.</param>
-        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <returns><see langword="true" /> when the certificate is trusted for internode traffic.</returns>
-        private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, PeerHandshakeVerifier verifier, string expectedPeerNodeId)
-        {
-            if (serverCertificate == null)
-                return false;
-
-            if (serverCertificate is X509Certificate2 presented)
-                return verifier.VerifyExpectedPeer(presented, expectedPeerNodeId);
-
-            using var copy = new X509Certificate2(serverCertificate);
-            return verifier.VerifyExpectedPeer(copy, expectedPeerNodeId);
-        }
-    }
-
-    /// <summary>Resolves gRPC channel addresses for internode cluster transport.</summary>
+    /// <summary>Resolves TLS channel addresses for internode cluster transport.</summary>
     private static class ClusterPeerChannelAddress
     {
-        /// <summary>Resolves the gRPC endpoint used for internode cluster calls.</summary>
+        /// <summary>Resolves the peer TLS endpoint used for internode cluster calls.</summary>
         /// <param name="peer">Configured cluster peer.</param>
         /// <param name="options">Cluster mTLS options for the local node.</param>
         /// <param name="mtlsEnabled">Whether internode mTLS transport is active.</param>
-        /// <returns>The HTTPS gRPC address for pooled cluster clients.</returns>
+        /// <returns>The peer TLS address for pooled cluster clients.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="peer" /> or <paramref name="options" /> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when internode mTLS is enabled but the internal listen port or peer URI is invalid.</exception>
         internal static Uri Resolve(ServerPeer peer, MtlsOptions options, bool mtlsEnabled)
@@ -466,24 +352,5 @@ internal sealed class ServerClientPool : IServerClientPool
             var primaryUri = peer.Uri;
             return peer.Uri.IsAbsoluteUri ? new UriBuilder(primaryUri.Scheme, primaryUri.Host, options.InternalListenPort).Uri : throw new InvalidOperationException(message);
         }
-    }
-
-    /// <summary>The connect callback the pool installs on a factory-supplied handler; its type marks a handler that already belongs to a pool.</summary>
-    [Immutable]
-    private sealed class TrackingConnectCallback
-    {
-        private readonly TrackedConnections _connections;
-        private readonly Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>? _inner;
-
-        internal TrackingConnectCallback(TrackedConnections connections, Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>? inner)
-        {
-            _connections = connections;
-            _inner = inner;
-        }
-
-        internal ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken) =>
-            _inner == null
-                ? TrackedConnectionStream.ConnectAsync(_connections, context, cancellationToken)
-                : TrackedWrappedStream.ConnectAsync(_connections, context, _inner, cancellationToken);
     }
 }

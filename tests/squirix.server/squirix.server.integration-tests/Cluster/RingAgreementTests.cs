@@ -204,14 +204,14 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
 
     private async Task AssertNotReadyAsync(ITestNodeHost node, CancellationToken cancellationToken)
     {
-        using var response = await HttpClient.GetAsync(new Uri(node.Uri, "/health/ready"), cancellationToken);
+        using var response = await HttpClient.GetAsync(new Uri(node.ManagementUri, "/health/ready"), cancellationToken);
 
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
     }
 
     private async Task AssertReadyAsync(ITestNodeHost node, CancellationToken cancellationToken)
     {
-        using var response = await HttpClient.GetAsync(new Uri(node.Uri, "/health/ready"), cancellationToken);
+        using var response = await HttpClient.GetAsync(new Uri(node.ManagementUri, "/health/ready"), cancellationToken);
 
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }

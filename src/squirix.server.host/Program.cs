@@ -3,9 +3,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.Configuration.Json;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Host;
@@ -125,26 +122,11 @@ internal static class Program
                 command.SettingsPath,
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
-            var builder = WebApplication.CreateBuilder(["--hostBuilder:reloadConfigOnChange=false"]);
-            var defaults = new JsonConfigurationSource
-            {
-                Path = Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"),
-                Optional = false,
-                ReloadOnChange = false,
-            };
-            defaults.ResolveFileProvider();
-            builder.Configuration.Sources.Insert(0, defaults);
-            _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: CancellationToken.None)
-                             .ConfigureAwait(false);
-            var app = builder.Build();
-            await using (app.ConfigureAwait(false))
-            {
-                _ = await app.MapSquirixServerAsync(CancellationToken.None).ConfigureAwait(false);
-                await app.StartAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
-                await WriteRunServerStatusAsync(command, options, CancellationToken.None).ConfigureAwait(false);
-                await app.WaitForShutdownAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
-                return 0;
-            }
+            var server = await SquirixServer.StartAsync(options, CancellationToken.None).ConfigureAwait(false);
+            await using var lifetime = server.ConfigureAwait(false);
+            await WriteRunServerStatusAsync(command, options, server.ManagementUri, CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, server.ApplicationStopping).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return 0;
         }
 
         private static async Task<int> ValidateConfigAsync(SquirixServerCommand command)
@@ -237,13 +219,13 @@ internal static class Program
             return report.HasMismatch;
         }
 
-        private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)
+        private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, Uri management, CancellationToken cancellationToken)
         {
             await WriteConsoleLineAsync(Console.Out, "[Squirix.Server] Server is ready.").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  URL: {options.Uri}").ConfigureAwait(false);
-            await WriteConsoleLineAsync(Console.Out, $"  Health endpoint: {new Uri(options.Uri, "/health")}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Health endpoint: {new Uri(management, "/health")}").ConfigureAwait(false);
             if (options.MetricsEnabled && options.PrometheusMetricsEnabled)
-                await WriteConsoleLineAsync(Console.Out, $"  Metrics endpoint: {new Uri(options.Uri, options.PrometheusMetricsPath)}").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, $"  Metrics endpoint: {new Uri(management, options.PrometheusMetricsPath)}").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Node ID: {options.NodeId}").ConfigureAwait(false);
             _ = await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);

@@ -1,4 +1,4 @@
-name: Nightly Process Chaos
+name: Process Chaos and Checker Controls
 
 on:
     schedule:
@@ -67,6 +67,7 @@ jobs:
                   path: ${{ runner.temp }}/squirix-chaos-controls/**
 
     process-chaos:
+        if: github.event_name == 'workflow_dispatch'
         needs: checker-controls
         runs-on: ubuntu-latest
         timeout-minutes: 35

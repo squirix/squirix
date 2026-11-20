@@ -47,7 +47,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(ex.StatusCode).IsNull();
     }
 
     /// <summary>Verifies cluster forwarding over trusted internode mTLS succeeds without propagating external JWT.</summary>
@@ -93,13 +93,11 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         var interNodeUrl = ThrowHelper.Required(FindPeer(peers, "node-b").InterNodeUri, "Expected internode URL for node-b.");
 
-        using var handler = await CreateCaTrustingHandlerAsync("node-b", peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUrl };
-        var client = channel;
+        var tlsOptions = await CreateCaTrustingTlsOptionsAsync("node-b", peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUrl, tlsOptions);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsNull();
+        var ex = await NodeAsyncAssert.ThrowsAnyAsync<System.IO.IOException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(ex).IsNotNull();
     }
 
     /// <summary>Verifies a ring fingerprint header on the public listener cannot fence a node when it is not sent by a trusted peer.</summary>
@@ -121,7 +119,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         using var legacy = new HttpClient(legacyHandler, false) { BaseAddress = cluster["node-a"].Uri };
         var legacyClient = legacy;
         var rejected = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(legacyClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, spoofed, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(rejected.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(rejected.StatusCode).IsNull();
         await AssertReadyAsync(cluster["node-a"], cancellationToken);
     }
 
@@ -166,9 +164,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var nodeBUrl = FindPeer(peers, "node-b").Uri;
         var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
 
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUrlA };
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUrlA, tlsOptions);
         var headers = CreateOwnerHeaders(cluster["node-a"].GetRequiredService<RingFingerprint>().Value);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
@@ -226,9 +223,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var nodeBUrl = FindPeer(peers, "node-b").Uri;
         var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
 
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUrlA };
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUrlA, tlsOptions);
         var headers = CreateOwnerHeaders(cluster["node-a"].GetRequiredService<RingFingerprint>().Value);
 
         var value = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, headers, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -273,7 +269,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             TimeProvider.System,
             cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(ex.StatusCode).IsNull();
     }
 
     private static Dictionary<string, string> CreateOwnerHeaders(string? ringFingerprint)
@@ -302,9 +298,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", keySeed);
         var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
 
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", FindPeer(peers, "node-b").Uri, "node-a", peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUrlA };
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", FindPeer(peers, "node-b").Uri, "node-a", peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUrlA, tlsOptions);
 
         var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
             client.SetEntryAsync(
@@ -339,7 +334,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
     private async Task AssertReadyAsync(ITestNodeHost node, CancellationToken cancellationToken)
     {
-        using var response = await HttpClient.GetAsync(new Uri(node.Uri, "/health/ready"), cancellationToken);
+        using var response = await HttpClient.GetAsync(new Uri(node.ManagementUri, "/health/ready"), cancellationToken);
 
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }

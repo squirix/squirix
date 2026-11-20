@@ -1,7 +1,7 @@
 <Project>
     <PropertyGroup Label="Squirix NuGet">
-        <SquirixPackageVersion>0.1.0-preview.11</SquirixPackageVersion>
-        <SquirixAssemblyVersion>0.1.0.0</SquirixAssemblyVersion>
+        <SquirixPackageVersion>0.2.0-preview.1</SquirixPackageVersion>
+        <SquirixAssemblyVersion>0.2.0.0</SquirixAssemblyVersion>
         <AssemblyVersion>$(SquirixAssemblyVersion)</AssemblyVersion>
         <FileVersion>$(SquirixAssemblyVersion)</FileVersion>
     </PropertyGroup>

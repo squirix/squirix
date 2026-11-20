@@ -1,6 +1,6 @@
 # Docker client example
 
-A standalone .NET 10 client using the published `squirix` `0.1.0-preview.10` NuGet package.
+A standalone .NET 10 client built with the Squirix SDK from the same checkout as the servers.
 No source project references or changes to the host certificate store are required.
 
 To see what happens after a leader crashes, run the [isolated failover demo](FAILOVER.md).
@@ -16,9 +16,9 @@ Wait for all three nodes to become ready before starting the client. `up -d` ret
 the containers being listed as running is not enough. Check the readiness routes from the host:
 
 ```bash
-curl --fail -k https://localhost:5001/health/ready
-curl --fail -k https://localhost:5002/health/ready
-curl --fail -k https://localhost:5003/health/ready
+curl --fail -k https://localhost:5201/health/ready
+curl --fail -k https://localhost:5202/health/ready
+curl --fail -k https://localhost:5203/health/ready
 ```
 
 If a request fails during startup, wait and repeat the readiness checks. For startup errors, inspect

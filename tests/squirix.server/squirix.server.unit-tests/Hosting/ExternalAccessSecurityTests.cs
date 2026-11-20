@@ -9,7 +9,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>Covers how the listen host maps to the exact loopback address Kestrel binds.</summary>
+/// <summary>Covers how the listen host maps to the exact loopback address the native listener binds.</summary>
 [Immutable]
 public sealed class ExternalAccessSecurityTests : ServerUnitTestBase
 {

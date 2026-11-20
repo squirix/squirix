@@ -5,7 +5,7 @@ internal sealed class PrometheusMetricsEndpointOptions
 {
     internal const string DefaultPath = "/metrics";
 
-    /// <summary>Gets or sets a value indicating whether the metrics endpoint is mapped on the server Kestrel host.</summary>
+    /// <summary>Gets or sets a value indicating whether the metrics endpoint is available on the management listener.</summary>
     internal bool Enabled { get; set; }
 
     /// <summary>Gets or sets the request path for metrics scraping. Defaults to <c language="csharp">/metrics</c>.</summary>

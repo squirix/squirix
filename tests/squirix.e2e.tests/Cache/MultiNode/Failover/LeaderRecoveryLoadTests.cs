@@ -14,6 +14,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>Manual mixed-load evidence for SDK requests across a leader loss, without application retries.</summary>
+[Property(StressSuite.TraitName, StressSuite.TraitValue)]
 [Explicit]
 public sealed class LeaderRecoveryLoadTests
 {

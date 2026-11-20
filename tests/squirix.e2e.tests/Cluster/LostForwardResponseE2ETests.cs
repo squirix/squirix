@@ -106,14 +106,14 @@ public sealed class LostForwardResponseE2ETests
         var options = new MultiNodeStartOptions { ReplicaCount = replicas, ServicesConfigure = new EntryProbe(probe).Configure };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(SlidingGetReadsCurrentAfterLostResponse), options, replicas > 1, cancellationToken);
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-sliding-get");
-        using var handler = LoopbackHttp.CreateHandler();
+        var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var ownerOptions = new SquirixCacheOptions { CacheName = CacheName };
         ownerOptions.ClientOptions.Endpoints.Add(cluster.GetUri("nodeB"));
-        await using var owner = new SquirixDistributedCache(Options.Create(ownerOptions), handler);
+        await using var owner = new SquirixDistributedCache(Options.Create(ownerOptions), tlsOptions);
         var readerOptions = new SquirixCacheOptions { CacheName = CacheName };
         readerOptions.ClientOptions.Endpoints.Add(cluster.GetUri("nodeA"));
         readerOptions.ClientOptions.Endpoints.Add(cluster.GetUri("nodeC"));
-        await using var reader = new SquirixDistributedCache(Options.Create(readerOptions), handler);
+        await using var reader = new SquirixDistributedCache(Options.Create(readerOptions), tlsOptions);
         await owner.SetAsync(key, [0, 255], new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(5) }, cancellationToken);
         probe.Lose(
             key,

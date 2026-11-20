@@ -10,7 +10,6 @@ on:
     # Windows/macOS builds/tests run on pushes to main and develop, on pull requests into main, and on schedule/dispatch, not on
     # pull requests into develop. They run the test hosts directly.
     # Builds/tests are split per OS so ubuntu tests/Sonar are not gated on Windows/macOS build.
-    # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
     # PVS-Studio (Team): same-repo code changes; requires secrets.PVS_STUDIO_CREDENTIALS ("name key").
     push:
@@ -21,6 +20,11 @@ on:
     schedule:
         - cron: "0 6 * * 1"
     workflow_dispatch:
+        inputs:
+            run_stress:
+                description: Run resiliency repeat checks and the E2E stress suite
+                type: boolean
+                default: false
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -193,7 +197,6 @@ jobs:
         outputs:
             built: ${{ steps.gate.outputs.build }}
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -243,7 +246,6 @@ jobs:
             github.event_name == 'workflow_dispatch'
             )
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -291,7 +293,6 @@ jobs:
                 # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
                 shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -363,7 +364,6 @@ jobs:
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' ||
             github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -435,7 +435,6 @@ jobs:
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' ||
             github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -482,7 +481,6 @@ jobs:
             github.event_name == 'workflow_dispatch'
             )
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -534,7 +532,6 @@ jobs:
                     && '["light", "e2e-multi-node", "e2e-failover", "server-unit", "server-integration"]'
                     || '["light-e2e", "server-unit-failover", "server-integration"]') }}
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -589,7 +586,6 @@ jobs:
                 # Two jobs of similar length; see test-ubuntu.
                 suite: [ desktop-integration, server-unit-e2e ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -652,7 +648,6 @@ jobs:
                 # see test-ubuntu.
                 suite: [ desktop-integration, server-unit, e2e-cluster ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -691,7 +686,6 @@ jobs:
                 # back in two jobs (the `arm-client` and `arm-server` groups) and leave the job slots to the other runners.
                 suite: [ arm-client, arm-server ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -722,7 +716,6 @@ jobs:
         outputs:
             built: ${{ steps.gate.outputs.build }}
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             SquirixTargetFramework: net11.0
@@ -768,7 +761,6 @@ jobs:
                 # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
                 shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             SquirixTargetFramework: net11.0
@@ -851,7 +843,6 @@ jobs:
                     && '["light", "e2e-multi-node", "e2e-failover", "server-unit", "server-integration"]'
                     || '["light-e2e", "server-unit-failover", "server-integration"]') }}
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             SquirixTargetFramework: net11.0
@@ -902,7 +893,6 @@ jobs:
         # PR fast path: these checks run on push/schedule/dispatch only.
         if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -1059,7 +1049,6 @@ jobs:
             github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
@@ -1215,7 +1204,6 @@ jobs:
             github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
@@ -2292,8 +2280,8 @@ jobs:
                     fi
 
     stability-stress:
-        name: Stability Stress (Weekly / Manual)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        name: Stability Stress (Manual)
+        if: github.event_name == 'workflow_dispatch' && inputs.run_stress
         runs-on: windows-latest
         timeout-minutes: 60
         steps:

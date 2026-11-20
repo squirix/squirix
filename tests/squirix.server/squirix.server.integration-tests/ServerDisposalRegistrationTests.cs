@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
@@ -50,7 +50,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
             .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, null, cancellationToken),
             .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.FoundationOnly = true, cancellationToken),
             .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.SecurityOptions = new SecurityOptions(), cancellationToken),
-            .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.Extensions = new ExtensionOptions(), cancellationToken),
+            .. await ScanAsync(cluster, mtlsMaterial, mtlsOptions, persistenceOptions, static args => args.MetricsEnabled = true, cancellationToken),
         ];
 
         _ = await Assert.That(offenders).IsEmpty();
@@ -64,12 +64,12 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
         Action<CompositionArgs>? extra,
         CancellationToken cancellationToken)
     {
-        var applicationOptions = new WebApplicationOptions
+        var applicationOptions = new HostApplicationBuilderSettings
         {
             Args = [],
             ApplicationName = "Squirix.Server",
         };
-        var builder = WebApplication.CreateBuilder(applicationOptions);
+        var builder = Host.CreateApplicationBuilder(applicationOptions);
 
         // Snapshot instance-registration descriptors already present after CreateBuilder by reference identity.
         // The ASP.NET Core host itself adds several IDisposable instance services (for example its EventSource

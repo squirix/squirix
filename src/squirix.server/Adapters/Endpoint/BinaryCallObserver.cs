@@ -1,18 +1,31 @@
 using System;
-using Microsoft.AspNetCore.Http;
+using System.Threading.Tasks;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
-/// <summary>Observes admitted binary calls within their inbound correlation and deadline scope.</summary>
+/// <summary>Observes admitted binary calls inside their correlation and deadline scope.</summary>
 internal sealed class BinaryCallObserver
 {
-    private readonly Action<HttpContext> _observe;
+    private readonly Func<BinaryRequestContext, ValueTask> _enter;
+    private readonly Action? _exit;
 
-    internal BinaryCallObserver(Action<HttpContext> observe)
+    internal BinaryCallObserver(Action<BinaryRequestContext> observe)
     {
         ArgumentNullException.ThrowIfNull(observe);
-        _observe = observe;
+        _enter = context =>
+        {
+            observe(context);
+            return ValueTask.CompletedTask;
+        };
     }
 
-    internal void Observe(HttpContext context) => _observe(context);
+    internal BinaryCallObserver(Func<BinaryRequestContext, ValueTask> enter, Action exit)
+    {
+        _enter = enter;
+        _exit = exit;
+    }
+
+    internal ValueTask EnterAsync(BinaryRequestContext context) => _enter(context);
+
+    internal void Exit() => _exit?.Invoke();
 }

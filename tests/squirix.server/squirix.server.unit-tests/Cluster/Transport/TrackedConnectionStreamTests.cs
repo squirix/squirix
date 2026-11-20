@@ -68,7 +68,7 @@ public sealed class TrackedConnectionStreamTests : ServerUnitTestBase
 
     private static SocketsHttpHandler CreateHandler(TrackedConnections connections) => new()
     {
-        ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context, cancellationToken),
+        ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context.DnsEndPoint, cancellationToken),
     };
 
     private static int ReserveClosedPort()

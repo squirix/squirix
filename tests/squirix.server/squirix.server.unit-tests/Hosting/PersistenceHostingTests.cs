@@ -1,11 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -23,19 +24,18 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
     [Test]
     public async Task DefaultHostingSkipsPersistenceOptions(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
+        var builder = Host.CreateApplicationBuilder(
+            new HostApplicationBuilderSettings
             {
                 EnvironmentName = "Development",
             });
-        DevelopmentCertificate.AddTo(builder.Services);
 
-        _ = await builder.AddSquirixServerAsync(
+        _ = await builder.ConfigureNodeAsync(
             static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 
-        await using var app = builder.Build();
+        using var app = builder.Build();
         _ = await Assert.That(app.Services.GetService<PersistenceOptions>()).IsNull();
     }
 
@@ -45,17 +45,16 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
     public async Task UsePersistenceRegistersItsOptions(CancellationToken cancellationToken)
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
+        var builder = Host.CreateApplicationBuilder(
+            new HostApplicationBuilderSettings
             {
                 EnvironmentName = "Development",
             });
-        DevelopmentCertificate.AddTo(builder.Services);
 
         var optionsConfigurator = new PersistenceOptionsConfigurator(port, Dir);
-        _ = await builder.AddSquirixServerAsync(optionsConfigurator.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
+        _ = await builder.ConfigureNodeAsync(optionsConfigurator.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
 
-        await using var app = builder.Build();
+        using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
         _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir);
     }

@@ -21,8 +21,6 @@ namespace Squirix.Server.IntegrationTests.Surfaces;
 /// </summary>
 public sealed class CorrelationTests : ServerSurfaceTestBase
 {
-    private const string TraceParentHeader = "traceparent";
-
     /// <summary>
     /// Starts two nodes (A,B). Sends a gRPC insert to A for a key owned by B with a custom traceparent header.
     /// Verifies that node B's gRPC server received the same traceparent in its request metadata.
@@ -43,8 +41,8 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
 
         var observer = new BinaryCallObserver(http =>
         {
-            if (http.Request.Path.Value?.EndsWith("/TryAddEntry", StringComparison.Ordinal) == true)
-                Volatile.Write(ref received, http.Request.Headers[TraceParentHeader].ToString());
+            if (http.Path.EndsWith("/TryAddEntry", StringComparison.Ordinal))
+                Volatile.Write(ref received, http.TraceParent);
         });
         await using var cluster = await StartClusterAsync(
             "A",

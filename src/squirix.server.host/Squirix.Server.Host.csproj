@@ -14,7 +14,7 @@
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
         <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
         <PackageTags>dotnet;cache;distributed-cache;tool;cli;server</PackageTags>
-        <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
+        <PackageReleaseNotes>Squirix 0.2.0-preview.1 uses the native server and updates the client packages. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.2.0-preview.1.md</PackageReleaseNotes>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>icon.png</PackageIcon>

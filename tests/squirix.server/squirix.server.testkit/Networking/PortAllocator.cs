@@ -166,11 +166,10 @@ public sealed class PortAllocator : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        foreach (var (port, listener) in _heldPorts)
+        foreach (var (_, listener) in _heldPorts)
         {
             listener.Stop();
             listener.Dispose();
-            _ = Reserved.TryRemove(port, out _);
         }
 
         _heldPorts.Clear();

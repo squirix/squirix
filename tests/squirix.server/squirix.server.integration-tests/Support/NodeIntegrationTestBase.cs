@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Security;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
@@ -45,8 +46,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
     protected HttpClient HttpClient => _httpClient ??= new HttpClient(_socketsHttpHandler ??= LoopbackHttp.CreateHandler(), false)
     {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        DefaultRequestVersion = HttpVersion.Version11,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact,
         Timeout = TimeSpan.FromSeconds(30),
     };
 
@@ -60,12 +61,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
+    /// <summary>Creates outbound TLS options that trust the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A handler for negative mTLS internode auth tests.</returns>
-    internal async Task<SocketsHttpHandler> CreateCaTrustingHandlerAsync(string targetPeerNodeId, IReadOnlyList<ServerPeer> peers, CancellationToken cancellationToken = default)
+    /// <returns>TLS options for negative mTLS internode auth tests.</returns>
+    internal async Task<SslClientAuthenticationOptions> CreateCaTrustingTlsOptionsAsync(string targetPeerNodeId, IReadOnlyList<ServerPeer> peers, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
         var bootstrapPeer = peers[0];
@@ -77,18 +78,18 @@ public abstract class NodeIntegrationTestBase : IDisposable
         };
         (Identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(Identity, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null }
-            ? LoopbackHttp.CreateHandler()
-            : TestCertificates.CreateCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
+            ? LoopbackHttp.CreateTlsOptions()
+            : TestCertificates.CreatePeerTlsOptions(null, material.TrustAnchor, targetPeerNodeId);
     }
 
-    /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for internode gRPC.</summary>
+    /// <summary>Creates outbound TLS options that present a trusted cluster peer certificate.</summary>
     /// <param name="callerNodeId">Configured node identifier for the presenting peer.</param>
     /// <param name="callerPrimaryUrl">Primary listen URL for the presenting peer.</param>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A handler for trusted internode mTLS tests.</returns>
-    internal async Task<SocketsHttpHandler> CreateTrustedInterNodeClientHandlerAsync(
+    /// <returns>Options for trusted internode mTLS tests.</returns>
+    internal async Task<SslClientAuthenticationOptions> CreateTrustedInterNodeTlsOptionsAsync(
         string callerNodeId,
         Uri callerPrimaryUrl,
         string targetPeerNodeId,
@@ -106,8 +107,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
         };
         (Identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(Identity, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true }
-            ? LoopbackHttp.CreateHandler()
-            : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
+            ? LoopbackHttp.CreateTlsOptions()
+            : TestCertificates.CreatePeerTlsOptions([material.NodeCertificate!], material.TrustAnchor!, targetPeerNodeId);
     }
 
     /// <summary>Reserves one loopback listen URI and starts a single-node cluster.</summary>
@@ -213,7 +214,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="uri">The node listen URL.</param>
     /// <param name="bearerToken">Optional JWT used to authenticate the physical connection.</param>
     /// <param name="acknowledgement">Optional observer of the server acknowledgement status.</param>
-    /// <returns>A disposable gRPC channel.</returns>
+    /// <returns>A disposable binary channel.</returns>
     protected static PublicBinaryChannel CreateBinaryChannel(Uri uri, string? bearerToken = null, Action<byte>? acknowledgement = null) => new(uri, bearerToken, acknowledgement);
 
     /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until node startup (or disposal of a cluster whose node never started) releases it.</summary>
@@ -355,8 +356,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
             // Omitted cluster mTLS still passes explicit empty options: null would fall back to environment-provided mTLS settings.
             MtlsOptions? mtlsOptions;
             MtlsCertificate? mtlsMaterial = null;
-            Func<string, HttpMessageHandler>? peerHandlerFactory = null;
-            IDisposable? handlerScope = null;
+            Func<string, PeerSocketOptions>? peerOptionsFactory = null;
+            IDisposable? optionsScope = null;
             if (options.OmitClusterMtls)
             {
                 if (options.PartitionFabric != null)
@@ -366,13 +367,13 @@ public abstract class NodeIntegrationTestBase : IDisposable
             }
             else
             {
-                (Identity, mtlsOptions, mtlsMaterial, peerHandlerFactory, handlerScope) = await ClusterIdentity.ResolveForBindAsync(Identity, config, options.PartitionFabric, cancellationToken);
+                (Identity, mtlsOptions, mtlsMaterial, peerOptionsFactory, optionsScope) = await ClusterIdentity.ResolveForBindAsync(Identity, config, options.PartitionFabric, cancellationToken);
             }
 
-            var startOptions = Helpers.CreateStartOptions(options, selfNodeId, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
+            var startOptions = Helpers.CreateStartOptions(options, selfNodeId, po, mtlsOptions, mtlsMaterial, peerOptionsFactory);
             ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
             var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
-            return new TestNodeHost(application, canonicalUri, dir, po != null, handlerScope);
+            return new TestNodeHost(application, canonicalUri, dir, po != null, optionsScope);
         }
         catch
         {
@@ -450,16 +451,16 @@ public abstract class NodeIntegrationTestBase : IDisposable
             PersistenceOptions? persistenceOptions,
             MtlsOptions? mtlsOptions,
             MtlsCertificate? certificate,
-            Func<string, HttpMessageHandler>? peerHandlerFactory)
+            Func<string, PeerSocketOptions>? peerOptionsFactory)
         {
             return new NodeHostStartOptions
             {
-                PeerHandlerFactory = peerHandlerFactory,
+                PeerOptionsFactory = peerOptionsFactory,
                 WaitForRecovery = options.WaitForRecovery,
                 MetricsEnabled = options.MetricsEnabled,
                 PrometheusMetricsEnabled = options.PrometheusMetricsEnabled,
                 ServicesConfigure = options.ServicesConfigure,
-                Extensions = options.Extensions,
+                ManagementUri = options.ManagementUri,
                 ElectionTiming = options.ElectionTiming,
                 TimeProvider = options.TimeProvider,
                 BackpressureOptions = options.BackpressureOptions,

@@ -7,7 +7,7 @@ Facts about other projects come from their public documentation and package page
 ## squirix in brief
 
 - **Pure .NET.** Client SDK and server runtime are managed .NET code with no native storage engine; the server runs as
-  the `squirix-server` tool or embedded in an ASP.NET Core host. See [architecture.md](architecture.md).
+  the `squirix-server` tool or embedded in a .NET application. See [architecture.md](architecture.md).
 - **Typed client.** Applications use `SquirixClient` and `ICache<T>` over binary TLS, with pluggable
   [serialization](serialization.md).
 - **Replica groups with majority commit.** Each key has one owner group (static topology, consistent-hash routing).

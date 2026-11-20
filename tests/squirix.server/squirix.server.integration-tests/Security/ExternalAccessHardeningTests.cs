@@ -19,14 +19,14 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-external-hardening";
 
-    /// <summary>Verifies health is served on the primary HTTPS listener.</summary>
+    /// <summary>Verifies health is served on the management HTTPS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task HealthServedOnPrimaryHttpsListener(CancellationToken cancellationToken)
+    public async Task HealthServedOnManagementListener(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken);
 
-        var response = await HttpClient.GetAsync(new Uri(cluster[NodeId].Uri, "/health"), cancellationToken);
+        var response = await HttpClient.GetAsync(new Uri(cluster[NodeId].ManagementUri, "/health"), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 

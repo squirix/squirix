@@ -1,32 +1,28 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit.Networking;
 
-/// <summary>
-/// The ASP.NET Core HTTPS development certificate, looked up once per test process and given to every test node, as a copy of its
-/// own, as its default server certificate.
-/// </summary>
+/// <summary>The .NET SDK development HTTPS certificate, loaded once and copied for each test node.</summary>
 /// <remarks>
-/// Without it Kestrel searches the certificate stores for the development certificate on every node start. The store calls
-/// serialize across threads, so with many nodes starting at once the search alone held up cluster startups for seconds.
-/// Every node gets its own certificate instance: Kestrel decodes the extensions of the certificate lazily when it binds, and that
-/// decode is not thread-safe, so nodes binding at once on one shared instance could see no server authentication usage.
+/// Store queries serialize across threads. Sharing the lookup avoids delaying simultaneous node starts.
+/// Each node owns its own certificate instance so concurrent listeners do not share mutable certificate state.
 /// </remarks>
 [ThreadSafe]
 internal static class DevelopmentCertificate
 {
-    /// <summary>The extension that marks a certificate as the ASP.NET Core HTTPS development certificate.</summary>
+    /// <summary>The extension that marks a certificate as the .NET SDK development HTTPS certificate.</summary>
     private const string MarkerOid = "1.3.6.1.4.1.311.84.1.1";
 
     private static readonly Lazy<X509Certificate2?> Certificate = new(Find);
 
-    /// <summary>Makes the development certificate the default server certificate of the node's HTTPS endpoints.</summary>
+    internal static X509Certificate2? Shared => Certificate.Value;
+
+    /// <summary>Registers a copy of the development certificate with the node.</summary>
     /// <param name="services">The services of the node; the configuration goes first, so it applies before the node configures its listeners.</param>
-    /// <remarks>An endpoint that sets its own certificate keeps it. Without a development certificate Kestrel falls back to its own search.</remarks>
+    /// <remarks>Explicit server certificates take precedence. The server resolves its own certificate when no test certificate is available.</remarks>
     internal static void AddTo(IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -35,15 +31,13 @@ internal static class DevelopmentCertificate
             return;
 
         _ = services.AddSingleton(_ => new NodeCertificate(shared));
-        _ = services.AddOptions<KestrelServerOptions>()
-            .Configure<NodeCertificate>(static (kestrel, node) => kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate ??= node.Value));
     }
 
-    /// <summary>Finds the valid development certificate with a private key and the highest version, as Kestrel does.</summary>
+    /// <summary>Finds the valid development certificate with a private key and the highest marker version.</summary>
     /// <returns>The certificate, or <see langword="null" /> when the current user has none or the platform is macOS.</returns>
     /// <remarks>
     /// On macOS the store is the login keychain, and a TLS handshake with a key taken from it hangs on a runner without a user session.
-    /// Kestrel loads the development certificate from its file there instead, so the nodes keep that lookup.
+    /// On macOS CI, the native listener uses the exported PFX configured by the certificate setup step.
     /// </remarks>
     private static X509Certificate2? Find()
     {

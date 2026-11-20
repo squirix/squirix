@@ -2,14 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Routing;
-using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -38,18 +34,13 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var node = cluster["node-a"];
         _ = await Assert.That(node.Services.GetService(typeof(SquirixReplicationServiceAdapter))).IsNotNull();
         var port = node.GetRequiredService<MtlsOptions>().InternalListenPort;
-        var count = 0;
-        foreach (var endpoint in node.GetRequiredService<EndpointDataSource>().Endpoints)
-        {
-            if (endpoint is not RouteEndpoint route || !string.Equals(route.RoutePattern.RawText, PeerProtocol.Prefix + "replication/{operation}", StringComparison.Ordinal))
-                continue;
-            count++;
-            var metadata = endpoint.Metadata.GetMetadata<InternalListenerEndpointMetadata>();
-            _ = await Assert.That((metadata?.InternalOnly, metadata?.InternalListenPort)).IsEqualTo((true, port));
-            _ = await Assert.That(endpoint.Metadata.GetMetadata<IAllowAnonymous>()).IsNotNull();
-        }
-
-        _ = await Assert.That(count).IsEqualTo(1);
+        var peer = cluster.Peers[0];
+        _ = await Assert.That(peer.InterNodeUri!.Port).IsEqualTo(port);
+        _ = await Assert.That(peer.Uri.Port).IsNotEqualTo(port);
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(peer.InterNodeUri, tlsOptions);
+        var reply = await client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken);
+        _ = await Assert.That(reply).IsNotNull();
     }
 
     /// <summary>Matching peer certificate and sender_node_id is accepted.</summary>
@@ -60,10 +51,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
         var options = cluster["node-a"].GetRequiredService<MtlsOptions>();
         var interNodeUri = new UriBuilder(cluster["node-a"].Uri.Scheme, cluster["node-a"].Uri.Host, options.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUri };
-
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUri, tlsOptions);
 
         // Certificate identity is node-b; claim sender_node_id node-b for matching identity.
         var response = await client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken);
@@ -82,10 +71,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
         var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUri };
-
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUri, tlsOptions);
 
         // Certificate identity is node-b; claim sender_node_id node-a to force mismatch after TLS succeeds.
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-a"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -104,7 +91,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var client = channel;
         var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(ex.StatusCode).IsNull();
     }
 
     /// <summary>External listener does not expose the vote RPCs.</summary>
@@ -120,8 +107,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var preVote = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.PreVoteAsync(CreateVoteRequest("node-b", "node-b"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var vote = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.RequestVoteAsync(CreateVoteRequest("node-b", "node-b"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(preVote.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        _ = await Assert.That(vote.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(preVote.StatusCode).IsNull();
+        _ = await Assert.That(vote.StatusCode).IsNull();
     }
 
     /// <summary>Leader-authorized RPCs reject a trusted peer claiming a foreign LeaderNodeId.</summary>
@@ -134,10 +121,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
         var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUri };
-
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUri, tlsOptions);
 
         // Certificate identity is node-b; claim leader_node_id node-a to force a leader identity mismatch.
         var request = CreateAppendRequest("node-b", "node-a");
@@ -164,7 +149,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        _ = await Assert.That(ex.StatusCode).IsNull();
     }
 
     /// <summary>Append accepts a matching peer identity and continues the caller trace.</summary>
@@ -177,10 +162,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
         var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUri };
-
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUri, tlsOptions);
 
         var traceId = ActivityTraceId.CreateRandom();
         var parentSpanId = ActivitySpanId.CreateRandom();
@@ -224,10 +207,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
         var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUri };
-
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUri, tlsOptions);
 
         // Certificate identity is node-b; a candidate claiming node-a must not collect a vote for node-a.
         var preVote = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.PreVoteAsync(CreateVoteRequest("node-a", "node-a"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -247,10 +228,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
         var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
-        using var channel = new HttpClient(handler, false) { BaseAddress = interNodeUri };
-
-        var client = channel;
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUri, tlsOptions);
 
         // Certificate identity is node-b; leader_node_id node-a would be refused on leader-authorized RPCs.
         var preVote = await client.PreVoteAsync(CreateVoteRequest("node-b", "node-a"), cancellationToken: cancellationToken);

@@ -2,7 +2,10 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -13,6 +16,33 @@ namespace Squirix.Server.IntegrationTests;
 /// <summary>Verifies replication series are exposed on the Prometheus metrics endpoint.</summary>
 public sealed class MetricsEndpointTests : NodeIntegrationTestBase
 {
+    /// <summary>Serves metrics when a client escapes a configured path containing a space.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MetricsEndpointMatchesEscapedPath(CancellationToken cancellationToken)
+    {
+        const string nodeId = "metrics-path";
+        var options = new IntegrationStartOptions
+        {
+            MetricsEnabled = true,
+            PrometheusMetricsEnabled = true,
+            ServicesConfigure = static services => services.AddSingleton(Options.Create(new PrometheusMetricsEndpointOptions
+            {
+                Enabled = true,
+                Path = "/team metrics",
+            })),
+        };
+        await using var cluster = await StartClusterAsync(nodeId, options, cancellationToken);
+        var management = cluster[nodeId].ManagementUri;
+
+        using var response = await HttpClient.GetAsync(new Uri(management, "/team%20metrics"), cancellationToken);
+        _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        _ = await Assert.That(response.Content.Headers.ContentType?.ToString()).IsEqualTo("text/plain; version=0.0.4");
+
+        using var defaultPath = await HttpClient.GetAsync(new Uri(management, "/metrics"), cancellationToken);
+        _ = await Assert.That(defaultPath.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+    }
+
     /// <summary>Verifies a readiness probe feeds replication gauges visible on the metrics endpoint.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -21,7 +51,7 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
         await using var cluster = CreateCluster([new ClusterNode("node-metrics-a", GetNextHttpUri()), new ClusterNode("node-metrics-b", GetNextHttpUri())]);
         var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, MetricsEnabled = true, PrometheusMetricsEnabled = true, ExtraScope = "replication-gauges" };
         var owner = await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken);
-        var uri = owner.Uri;
+        var uri = owner.ManagementUri;
 
         // A new group takes no part until all of its members were up once: the second node completes the topology and seeds it.
         _ = await cluster.StartNodeAsync("node-metrics-b", options, cancellationToken);

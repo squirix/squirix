@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Transport.Binary;
@@ -26,7 +25,9 @@ internal sealed partial class BinaryConnectionPump
     private const int InlineRequestBytes = 4 * 1024;
     private const int ReadyBatchLimit = 8;
 
-    private readonly ConnectionContext _connection;
+    private readonly IDuplexPipe _transport;
+    private readonly CancellationToken _connectionClosed;
+    private readonly Action _abort;
     private readonly ILogger _log;
     private readonly TimeProvider _timeProvider;
     private readonly Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> _process;
@@ -39,12 +40,16 @@ internal sealed partial class BinaryConnectionPump
     private Task _previousOrdered = Task.CompletedTask;
 
     internal BinaryConnectionPump(
-        ConnectionContext connection,
+        IDuplexPipe transport,
+        Action abort,
         Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> process,
         ILogger log,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        CancellationToken connectionClosed)
     {
-        _connection = connection;
+        _transport = transport;
+        _connectionClosed = connectionClosed;
+        _abort = abort;
         _log = log;
         _timeProvider = timeProvider;
         _process = process;
@@ -73,7 +78,7 @@ internal sealed partial class BinaryConnectionPump
 
     private async Task ReadAsync(CancellationToken stop)
     {
-        var input = _connection.Transport.Input;
+        var input = _transport.Input;
         try
         {
             while (!stop.IsCancellationRequested)
@@ -90,11 +95,11 @@ internal sealed partial class BinaryConnectionPump
         }
         catch (IOException)
         {
-            _connection.Abort();
+            _abort();
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
-            // Allow already accepted calls to complete when Kestrel requests shutdown.
+            // Allow already accepted calls to complete during graceful shutdown.
         }
         finally
         {
@@ -286,7 +291,7 @@ internal sealed partial class BinaryConnectionPump
             catch (OperationCanceledException) when (deadline.IsCancellationRequested && !stop.IsCancellationRequested)
             {
                 // A timed-out body leaves the connection between frame boundaries.
-                _connection.Abort();
+                _abort();
                 return false;
             }
         }
@@ -342,8 +347,8 @@ internal sealed partial class BinaryConnectionPump
 
     private async Task WriteAsync()
     {
-        var writer = _connection.Transport.Output;
-        var stop = _connection.ConnectionClosed;
+        var writer = _transport.Output;
+        var stop = _connectionClosed;
         var current = default(ResponseBatch);
         var index = 0;
         try
@@ -364,13 +369,13 @@ internal sealed partial class BinaryConnectionPump
                 if (flush is { IsCanceled: false, IsCompleted: false })
                     continue;
 
-                _connection.Abort();
+                _abort();
                 return;
             }
         }
         catch (Exception error) when (error is IOException or OperationCanceledException)
         {
-            _connection.Abort();
+            _abort();
         }
         finally
         {
@@ -405,14 +410,14 @@ internal sealed partial class BinaryConnectionPump
     {
         try
         {
-            if (_connection.ConnectionClosed.IsCancellationRequested)
+            if (_connectionClosed.IsCancellationRequested)
                 return null;
 
             var elapsed = _timeProvider.GetElapsedTime(call.Received);
             var response = await _process(call.Frame, call.Body.AsMemory(0, call.Frame.Size), elapsed, call.Predecessor).ConfigureAwait(false);
             return new PendingResponse(call.Slot, call.Frame.Id, response);
         }
-        catch (OperationCanceledException) when (_connection.ConnectionClosed.IsCancellationRequested)
+        catch (OperationCanceledException) when (_connectionClosed.IsCancellationRequested)
         {
             // The transport is closed; the reply has no receiver.
             return null;

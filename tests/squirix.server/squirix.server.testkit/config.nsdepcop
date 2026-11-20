@@ -5,7 +5,7 @@
   Intended layer stack (outer → inner, dependencies flow downward only):
 
     TestKit.Hosting / TestKit.Benchmarks (composition & perf harness)
-      → TestKit.Mtls (focused cluster-transport kit)   TestKit.Replication (focused storage kit)
+      → TestKit.Mtls (peer fixtures)   TestKit.Replication (storage fixtures)
         → TestKit (root: generic asserts and kits)
           → TestKit.IO / TestKit.Networking (product-free file and port helpers)
             → TestKit.Diagnostics (product-free logging)

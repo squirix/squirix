@@ -47,7 +47,7 @@ public sealed class ClusterIdentityInternalPortTests
         }
     }
 
-    /// <summary>An allocated internal port must stay bound until released, so a parallel test cannot grab it between probing and Kestrel bind.</summary>
+    /// <summary>An allocated internal port must stay bound until released, so a parallel test cannot grab it between probing and the native bind.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task InternalPortStaysBoundUntilReleased(CancellationToken cancellationToken)
