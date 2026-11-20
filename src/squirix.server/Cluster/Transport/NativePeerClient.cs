@@ -25,6 +25,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     private readonly Lock _sync = new();
     private readonly Stack<SslStream> _idle = new();
     private readonly DnsEndPoint _address;
+    private readonly Func<CancellationToken, ValueTask<EndPoint>>? _resolveEndpoint;
     private readonly SslClientAuthenticationOptions _tls;
     private readonly PeerHandshakeVerifier _verifier;
     private readonly string _peer;
@@ -33,7 +34,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     private readonly TimeSpan _dial;
     private bool _closed;
 
-    internal NativePeerClient(Uri address, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier, TrackedConnections connections, TimeSpan dial, string? fingerprint)
+    internal NativePeerClient(Uri address, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier, TrackedConnections connections, TimeSpan dial, string? fingerprint, PeerSocketOptions? options = null)
     {
         _address = new DnsEndPoint(address.DnsSafeHost, address.Port);
         _peer = peer;
@@ -42,7 +43,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         _dial = dial;
         _fingerprint = fingerprint ?? string.Empty;
         var cert = material.NodeCertificate!;
-        _tls = new SslClientAuthenticationOptions
+        _resolveEndpoint = options?.ResolveEndpoint;
+        _tls = options?.Tls ?? new SslClientAuthenticationOptions
         {
             TargetHost = address.DnsSafeHost,
             ClientCertificates = [cert],
@@ -50,6 +52,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             ApplicationProtocols = [PeerFrames.Protocol],
             RemoteCertificateValidationCallback = (_, presented, _, _) => presented is X509Certificate2 certificate && verifier.VerifyExpectedPeer(certificate, peer),
         };
+        _tls.TargetHost = address.DnsSafeHost;
+        _tls.ApplicationProtocols = [PeerFrames.Protocol];
     }
 
     public async Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
@@ -152,7 +156,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         Stream network;
         try
         {
-            network = await TrackedConnectionStream.ConnectAsync(_connections, _address, dial.Token).ConfigureAwait(false);
+            var endpoint = _resolveEndpoint == null ? _address : await _resolveEndpoint(dial.Token).ConfigureAwait(false);
+            network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dial.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

@@ -1,5 +1,4 @@
 using System;
-using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
@@ -24,9 +23,7 @@ internal static class FrameworkServiceRegistration
             sp.GetRequiredService<IRemoteInvocationScopeFactory>(),
             sp.GetService<BinaryCallObserver>()));
 
-        _ = services.AddSingleton<MatcherPolicy>(static sp => new InternalListenerMatcherPolicy(sp.GetService<VerifiedPeerCertificates>()));
         _ = services.AddHealthChecks();
-        _ = services.ConfigureHttpJsonOptions(static o => o.SerializerOptions.PropertyNameCaseInsensitive = true);
 
         // One verifier is shared by every inbound consumer so an expiry on an open connection is logged once; it resolves to null (GetService) when mTLS is disabled.
         _ = services.AddSingleton(static sp => VerifiedPeerCertificates.CreateIfEnabled(

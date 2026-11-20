@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -17,12 +18,13 @@ internal sealed class CompositionArgs
 
     internal MtlsCertificate? Certificate { get; set; }
 
-    internal ExtensionOptions? Extensions { get; set; }
 
     /// <summary>Gets or sets a value indicating whether the closed replication peer service is mapped for foundation tests.</summary>
     internal bool FoundationOnly { get; set; }
 
     internal PressureOptions? MemoryPressureOptions { get; set; }
+
+    internal X509Certificate2? ServerCertificate { get; set; }
 
     internal Uri? ManagementUri { get; set; }
 

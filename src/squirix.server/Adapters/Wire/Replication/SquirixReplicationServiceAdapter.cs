@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Http;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -84,7 +83,7 @@ internal sealed class SquirixReplicationServiceAdapter
         return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
 
-    internal async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, HttpContext context)
+    internal async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, PeerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
         if (_follower == null)
@@ -103,7 +102,7 @@ internal sealed class SquirixReplicationServiceAdapter
         };
     }
 
-    internal async Task<GetReplicaStatusResponse> GetReplicaStatusAsync(GetReplicaStatusRequest request, HttpContext context)
+    internal async Task<GetReplicaStatusResponse> GetReplicaStatusAsync(GetReplicaStatusRequest request, PeerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(header.SenderNodeId);
@@ -143,7 +142,7 @@ internal sealed class SquirixReplicationServiceAdapter
         };
     }
 
-    internal async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrapAsync(OfferReplicaBootstrapRequest request, HttpContext context)
+    internal async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrapAsync(OfferReplicaBootstrapRequest request, PeerCallContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(h.SenderNodeId);
@@ -158,7 +157,7 @@ internal sealed class SquirixReplicationServiceAdapter
         };
     }
 
-    internal async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, HttpContext context)
+    internal async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, PeerCallContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(h.GroupId))
@@ -169,7 +168,7 @@ internal sealed class SquirixReplicationServiceAdapter
         return MapVote(in result);
     }
 
-    internal async Task<ReplicaVoteResponse> RequestVoteAsync(ReplicaVoteRequest request, HttpContext context)
+    internal async Task<ReplicaVoteResponse> RequestVoteAsync(ReplicaVoteRequest request, PeerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(header.GroupId))
@@ -180,7 +179,7 @@ internal sealed class SquirixReplicationServiceAdapter
         return MapVote(in result);
     }
 
-    internal async Task<TransferReplicaStateResponse> TransferReplicaStateAsync(TransferReplicaStateRequest request, HttpContext context)
+    internal async Task<TransferReplicaStateResponse> TransferReplicaStateAsync(TransferReplicaStateRequest request, PeerCallContext context)
     {
         _ = EnsureHeader(request.Header, context, true);
         return _transfers == null
@@ -232,7 +231,7 @@ internal sealed class SquirixReplicationServiceAdapter
     private bool RefusesVotes(string groupId) =>
         _follower == null || !_votesEnabled || (string.Equals(groupId, _nodeId, StringComparison.Ordinal) && !_follower.IsElectionDriven(groupId));
 
-    private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, HttpContext context, bool requireLeader)
+    private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, PeerCallContext context, bool requireLeader)
     {
         if (header == null || string.IsNullOrWhiteSpace(header.SenderNodeId))
             throw new ServerCallException(FrameStatus.InvalidArgument, "Replication envelope header with sender_node_id is required.");
@@ -253,7 +252,7 @@ internal sealed class SquirixReplicationServiceAdapter
         /// Ensures the call arrived on the internal mTLS listener with a peer certificate whose NodeId is in
         /// <see cref="TopologyOptions.Peers" /> and matches <paramref name="claimedSenderNodeId" />. When
         /// <paramref name="claimedLeaderNodeId" /> is supplied, also binds the claimed leader identity to the same
-        /// certificate. Host-header spoofing is ignored; <see cref="ConnectionInfo.LocalPort" /> is authoritative.
+        /// certificate. Host-header spoofing is ignored; <see cref="PeerCallContext.LocalPort" /> is authoritative.
         /// </summary>
         /// <param name="context">gRPC server call context.</param>
         /// <param name="options">Cluster mTLS options.</param>
@@ -266,7 +265,7 @@ internal sealed class SquirixReplicationServiceAdapter
         /// <returns>Validated peer node id from the client certificate.</returns>
         /// <exception cref="ServerCallException">Thrown when the call is not a trusted internal replication peer.</exception>
         internal static string EnsureTrustedPeer(
-            HttpContext context,
+            PeerCallContext context,
             MtlsOptions options,
             VerifiedPeerCertificates? peers,
             string claimedSenderNodeId,
@@ -279,11 +278,10 @@ internal sealed class SquirixReplicationServiceAdapter
             if (peers == null || options.InternalListenPort <= 0)
                 throw new ServerCallException(FrameStatus.Unavailable, "Internal replication listener is not configured.");
 
-            var httpContext = context;
-            if (!InternalListenerConnection.ArrivedOnInternalPort(httpContext, options.InternalListenPort))
+            if (!context.InternalListener || context.LocalPort != options.InternalListenPort)
                 throw new ServerCallException(FrameStatus.PermissionDenied, "Replication service is bound to the internal mTLS listener only.");
 
-            var certificate = httpContext.Connection.ClientCertificate ?? ThrowHelper.Throw<X509Certificate2>(
+            var certificate = context.ClientCertificate ?? ThrowHelper.Throw<X509Certificate2>(
                 new ServerCallException(FrameStatus.Unauthenticated, "Replication requires a trusted peer client certificate."));
 
             // The chain is built on the first call of a connection only; later calls reuse its verdict while the certificate stays valid.

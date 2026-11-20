@@ -50,6 +50,7 @@ internal static class ServiceRegistration
                         MtlsOptions = mtlsOptions,
                         Certificate = certificate,
                         InterNodeMtlsEnabled = interNodeMtlsEnabled,
+                        SocketOptions = sp.GetService<Func<string, PeerSocketOptions>>(),
                         NativeProtocol = nativeProtocol,
                     },
                     sp.GetRequiredService<ServerClientPoolMetrics>(),

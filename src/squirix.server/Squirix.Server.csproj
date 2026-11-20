@@ -9,7 +9,7 @@
         <RootNamespace>Squirix.Server</RootNamespace>
         <PackageId>squirix.server</PackageId>
         <Authors>Squirix Team</Authors>
-        <Description>Server runtime for Squirix — consistent-hash routing, durable journal, snapshots, compaction, recovery, HTTP and binary TLS hosting, health endpoints, Prometheus metrics, and OpenTelemetry journal tracing. Early preview.</Description>
+        <Description>Server runtime for Squirix — consistent-hash routing, durable journal, snapshots, compaction, recovery, native TLS client and peer listeners, health endpoints, Prometheus metrics, and OpenTelemetry journal tracing. Early preview.</Description>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
         <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
         <PackageTags>dotnet;cache;distributed-cache;csharp;tls;server;durability;journal;snapshot;opentelemetry</PackageTags>
@@ -28,11 +28,12 @@
     <ItemGroup>
         <PackageReference Include="Google.Protobuf"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"/>
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting"/>
+        <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect"/>
     </ItemGroup>
 
     <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
         <AdditionalFiles Include="BannedSymbols.txt"/>
     </ItemGroup>
 

@@ -1,6 +1,5 @@
 using System;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Runtime.Invocation;
@@ -9,24 +8,23 @@ namespace Squirix.Server.Adapters.Endpoint;
 
 /// <summary>
 /// Derives backpressure client ids from the JWT subject when authenticated, otherwise from the
-/// ASP.NET Core connection id. In-process calls without an <see cref="HttpContext" /> share the
+/// binary connection id. In-process calls without an <see cref="BinaryRequestContext" /> share the
 /// <c language="csharp">runtime</c> bucket. Owner-routed calls from another cluster node resolve to
 /// <see cref="ClientIds.InternalOwner" />, which the gate admits only to a free slot, without per-client limits, slowdown or queueing: the entry node already
 /// admitted the request under the caller's own client id, and the forwarding connection stands for many callers.
 /// </summary>
 [Immutable]
-internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolver
+internal sealed class BinaryClientIdResolver : IBackpressureClientIdResolver
 {
-    private const string CachedClientIdItemKey = "__squirix.backpressure.client_id";
     private const string ConnPrefix = "conn:";
     private const string JwtPrefix = "jwt:";
 
-    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly BinaryRequestAccessor _requests;
 
-    internal HttpContextClientIdResolver(IHttpContextAccessor httpContextAccessor)
+    internal BinaryClientIdResolver(BinaryRequestAccessor requests)
     {
-        ArgumentNullException.ThrowIfNull(httpContextAccessor);
-        _httpContextAccessor = httpContextAccessor;
+        ArgumentNullException.ThrowIfNull(requests);
+        _requests = requests;
     }
 
     /// <inheritdoc />
@@ -35,16 +33,11 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
         if (RemoteInvocationContext.IsInternalOwnerInvocation)
             return ClientIds.InternalOwner;
 
-        var context = _httpContextAccessor.HttpContext;
+        var context = _requests.Current;
         if (context == null)
             return ClientIds.Runtime;
 
-        if (context.Items.TryGetValue(CachedClientIdItemKey, out var cached) && cached is string clientId)
-            return clientId;
-
-        clientId = ResolveCore(context);
-        context.Items[CachedClientIdItemKey] = clientId;
-        return clientId;
+        return context.ClientId ??= ResolveCore(context);
     }
 
     private static string CreatePrefixed(string prefix, string value) => string.Concat(prefix, value);
@@ -55,17 +48,17 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
             return null;
 
         // JwtBearer maps inbound "sub" to NameIdentifier when MapInboundClaims is enabled (default).
-        var subject = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        var subject = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(subject))
-            subject = user.FindFirstValue("sub");
+            subject = user.FindFirst("sub")?.Value;
 
         return string.IsNullOrWhiteSpace(subject) ? null : subject;
     }
 
-    private static string ResolveCore(HttpContext context)
+    private static string ResolveCore(BinaryRequestContext context)
     {
         var principalId = GetAuthenticatedPrincipalId(context.User);
-        var connectionId = context.Connection.Id;
+        var connectionId = context.ConnectionId ?? context.Connection?.ConnectionId;
         return (principalId, connectionId) switch
         {
             ({ } pid, _) => CreatePrefixed(JwtPrefix, pid),

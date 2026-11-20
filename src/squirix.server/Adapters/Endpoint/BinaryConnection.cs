@@ -1,0 +1,49 @@
+using System;
+using System.Globalization;
+using System.IO.Pipelines;
+using System.Net;
+using System.Threading;
+
+namespace Squirix.Server.Adapters.Endpoint;
+
+/// <summary>Peer addresses, authenticated identity and shutdown signals of a public binary session.</summary>
+internal sealed class BinaryConnection : IDisposable
+{
+    private static long s_sequence;
+    private readonly CancellationTokenSource _closed;
+    private readonly CancellationTokenSource _draining;
+
+    internal BinaryConnection(IDuplexPipe transport, IPEndPoint? local, IPEndPoint? remote, CancellationToken graceful, CancellationToken abort)
+    {
+        Transport = transport;
+        LocalEndPoint = local;
+        RemoteEndPoint = remote;
+        ConnectionId = Interlocked.Increment(ref s_sequence).ToString("x", CultureInfo.InvariantCulture);
+        _closed = CancellationTokenSource.CreateLinkedTokenSource(abort);
+        _draining = CancellationTokenSource.CreateLinkedTokenSource(graceful);
+    }
+
+    internal IDuplexPipe Transport { get; }
+
+    internal string ConnectionId { get; }
+
+    internal IPEndPoint? LocalEndPoint { get; }
+
+    internal IPEndPoint? RemoteEndPoint { get; }
+
+    internal CancellationToken ConnectionClosed => _closed.Token;
+
+    internal CancellationToken CloseRequested => _draining.Token;
+
+    internal AuthenticatedConnection? Identity { get; set; }
+
+    public void Dispose()
+    {
+        _draining.Dispose();
+        _closed.Dispose();
+    }
+
+    internal void Abort() => _closed.Cancel();
+
+    internal void RequestClose() => _draining.Cancel();
+}

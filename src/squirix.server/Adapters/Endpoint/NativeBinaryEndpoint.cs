@@ -5,8 +5,6 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Connections;
-using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -15,13 +13,13 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Runs the cache protocol on TLS sessions admitted by the node's public listener.</summary>
 internal sealed class NativeBinaryEndpoint
 {
-    private readonly ConnectionDelegate _dispatch;
+    private readonly Func<BinaryConnection, Task> _dispatch;
     private readonly IPEndPoint _local;
 
     internal NativeBinaryEndpoint(IServiceProvider services, IPEndPoint local, bool mutationReplay)
     {
         _local = local;
-        _dispatch = BinaryEndpoint.Create(RejectAsync, services, mutationReplay);
+        _dispatch = BinaryEndpoint.Create(services, mutationReplay);
     }
 
     internal static NativeTlsListener CreateListener(Socket socket, SslServerAuthenticationOptions tls, IServiceProvider services, bool mutationReplay, int capacity)
@@ -32,25 +30,10 @@ internal sealed class NativeBinaryEndpoint
         return new NativeTlsListener(socket, tls, endpoint.ServeAsync, services.GetRequiredService<ILogger<NativeTlsListener>>(), capacity);
     }
 
-    private static Task RejectAsync(ConnectionContext connection)
-    {
-        connection.Abort();
-        return Task.CompletedTask;
-    }
-
     private async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
     {
-        using var disconnected = CancellationTokenSource.CreateLinkedTokenSource(abort);
-        using var draining = CancellationTokenSource.CreateLinkedTokenSource(graceful);
         var pipe = new StreamPipe(stream);
-        var connection = new ClientConnection(disconnected, draining)
-        {
-            Transport = pipe,
-            LocalEndPoint = _local,
-            RemoteEndPoint = remote,
-            ConnectionClosed = disconnected.Token,
-        };
-        await using var lifetime = connection.ConfigureAwait(false);
+        using var connection = new BinaryConnection(pipe, _local, remote, graceful, abort);
         try
         {
             await _dispatch(connection).ConfigureAwait(false);
@@ -73,25 +56,5 @@ internal sealed class NativeBinaryEndpoint
         public PipeReader Input { get; }
 
         public PipeWriter Output { get; }
-    }
-
-    private sealed class ClientConnection : DefaultConnectionContext, IConnectionLifetimeNotificationFeature
-    {
-        private readonly CancellationTokenSource _disconnected;
-        private readonly CancellationTokenSource _draining;
-
-        internal ClientConnection(CancellationTokenSource disconnected, CancellationTokenSource draining)
-        {
-            _disconnected = disconnected;
-            _draining = draining;
-            ConnectionClosedRequested = draining.Token;
-            Features.Set<IConnectionLifetimeNotificationFeature>(this);
-        }
-
-        public CancellationToken ConnectionClosedRequested { get; set; }
-
-        public void RequestClose() => _draining.Cancel();
-
-        public override void Abort(ConnectionAbortedException abortReason) => _disconnected.Cancel();
     }
 }

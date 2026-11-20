@@ -46,7 +46,7 @@ internal sealed class TrackedConnectionStream : NetworkStream
         return ConnectAsync(connections, context.DnsEndPoint, cancellationToken);
     }
 
-    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, DnsEndPoint endpoint, CancellationToken cancellationToken)
+    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, EndPoint endpoint, CancellationToken cancellationToken)
     {
         if (!connections.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and admits no new connection.");

@@ -2,18 +2,10 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Pipelines;
-using System.Net;
 using System.Runtime.CompilerServices;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Policy;
-using Microsoft.AspNetCore.Connections;
-using Microsoft.AspNetCore.Connections.Features;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Transport.Binary;
@@ -44,57 +36,32 @@ internal static class BinaryEndpoint
         ApiPath + nameof(BinaryOperation.RefreshDistributed),
     ];
 
-    internal static ConnectionDelegate Create(ConnectionDelegate next, IServiceProvider services, bool mutationReplay)
+    internal static Func<BinaryConnection, Task> Create(IServiceProvider services, bool mutationReplay)
     {
-        var validator = services.GetService<ConnectionAuthenticationValidator>();
-        var authenticate = new ConnectionAuthenticationMiddleware(DispatchAsync, validator, TimeProvider.System);
+        var validator = services.GetService<NativeConnectionAuthenticationValidator>();
+        var auth = new ConnectionAuthenticationMiddleware(connection => ServeAsync(connection, services, validator), validator, TimeProvider.System);
         var accepted = mutationReplay ? Frames.AcceptedWithMutationReplay : Frames.Accepted;
-        return connection => AcceptAsync(connection, next, authenticate, services, validator != null, accepted);
-
-        Task DispatchAsync(ConnectionContext connection)
-        {
-            return ServeAsync(connection, services, true);
-        }
+        return connection => AcceptAsync(connection, auth, services, validator != null, accepted);
     }
 
-    private static async Task AcceptAsync(
-        ConnectionContext connection,
-        ConnectionDelegate next,
-        ConnectionAuthenticationMiddleware authenticate,
-        IServiceProvider services,
-        bool requiresCredentials,
-        byte accepted)
+    private static async Task AcceptAsync(BinaryConnection connection, ConnectionAuthenticationMiddleware authenticate, IServiceProvider services, bool requiresCredentials, byte accepted)
     {
-        var reader = connection.Transport.Input;
-        using var timeout = new TimedCancellation(TimeSpan.FromSeconds(5), TimeProvider.System, connection.ConnectionClosed);
-        bool hasPreface;
-        byte mode;
-        try
-        {
-            (hasPreface, mode) = await ReadPrefaceAsync(reader, timeout.Token).ConfigureAwait(false);
-            if (hasPreface)
-            {
-                var allowed = mode == 1 ? requiresCredentials : mode == 0 && !requiresCredentials;
-                var writer = connection.Transport.Output;
-                writer.GetSpan(1)[0] = allowed ? accepted : Frames.Rejected;
-                writer.Advance(1);
-                _ = await writer.FlushAsync(timeout.Token).ConfigureAwait(false);
-                if (!allowed)
-                    return;
-            }
-        }
-        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
-        {
-            connection.Abort();
-            return;
-        }
-
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(connection.ConnectionClosed, connection.CloseRequested);
+        using var timeout = new TimedCancellation(TimeSpan.FromSeconds(5), TimeProvider.System, stop.Token);
+        var (hasPreface, mode) = await ReadPrefaceAsync(connection.Transport.Input, timeout.Token).ConfigureAwait(false);
         if (!hasPreface)
-            await next(connection).ConfigureAwait(false);
-        else if (mode == 1)
+            return;
+        var allowed = mode == 1 ? requiresCredentials : mode == 0 && !requiresCredentials;
+        var writer = connection.Transport.Output;
+        writer.GetSpan(1)[0] = allowed ? accepted : Frames.Rejected;
+        writer.Advance(1);
+        _ = await writer.FlushAsync(timeout.Token).ConfigureAwait(false);
+        if (!allowed)
+            return;
+        if (mode == 1)
             await authenticate.OnConnectionAsync(connection).ConfigureAwait(false);
         else
-            await ServeAsync(connection, services, false).ConfigureAwait(false);
+            await ServeAsync(connection, services, null).ConfigureAwait(false);
     }
 
     private static async ValueTask<(bool HasPreface, byte Mode)> ReadPrefaceAsync(PipeReader reader, CancellationToken cancellationToken)
@@ -127,24 +94,18 @@ internal static class BinaryEndpoint
         return BinaryPrimitives.ReadUInt32BigEndian(preface) == Frames.Preface ? preface[4] : null;
     }
 
-    private static async Task ServeAsync(ConnectionContext connection, IServiceProvider services, bool requiresCredentials)
+    private static async Task ServeAsync(BinaryConnection connection, IServiceProvider services, NativeConnectionAuthenticationValidator? validator)
     {
-        var identity = connection.Features.Get<AuthenticatedConnection>();
-        if (requiresCredentials && identity == null)
+        if (validator != null && connection.Identity == null)
         {
             connection.Abort();
             return;
         }
 
-        var graceful = connection.Features.Get<IConnectionLifetimeNotificationFeature>()?.ConnectionClosedRequested ?? CancellationToken.None;
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(connection.ConnectionClosed, graceful);
-        var stop = lifetime.Token;
-        var policy = requiresCredentials
-            ? await services.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync(SquirixAuthorizationPolicies.JwtBearer).ConfigureAwait(false) ?? ThrowMissingPolicy()
-            : null;
-        var accessor = services.GetRequiredService<IHttpContextAccessor>();
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(connection.ConnectionClosed, connection.CloseRequested);
+        var accessor = services.GetRequiredService<BinaryRequestAccessor>();
         var operations = services.GetRequiredService<BinaryDispatch>();
-        var state = new CallState(connection, services, identity, policy, accessor, operations, graceful);
+        var state = new CallState(connection, services, validator, accessor, operations);
         var log = services.GetRequiredService<ILogger<BinaryConnectionPump>>();
         var pump = new BinaryConnectionPump(
             connection.Transport,
@@ -153,7 +114,7 @@ internal static class BinaryEndpoint
             log,
             TimeProvider.System,
             connection.ConnectionClosed);
-        await pump.RunAsync(stop).ConfigureAwait(false);
+        await pump.RunAsync(lifetime.Token).ConfigureAwait(false);
     }
 
     private static async ValueTask<BinaryResponse> ProcessAsync(CallState state, (int Id, int Size, int Control) frame, ReadOnlyMemory<byte> body, TimeSpan elapsed, Task predecessor)
@@ -168,11 +129,17 @@ internal static class BinaryEndpoint
         using var deadline = new TimedCancellation(timeout, TimeProvider.System, state.Connection.ConnectionClosed);
         var scope = state.Services.CreateAsyncScope();
         await using var scopeLifetime = scope.ConfigureAwait(false);
-        var http = CreateRequestContext(state, scope.ServiceProvider, operationId, deadline.Token);
-        state.Accessor.HttpContext = http;
+        var call = new BinaryRequestContext
+        {
+            Connection = state.Connection,
+            RequestServices = scope.ServiceProvider,
+            RequestAborted = deadline.Token,
+            Path = operationId < OperationPaths.Length ? OperationPaths[operationId] : OperationPaths[0],
+        };
+        state.Accessor.Current = call;
         try
         {
-            var failure = await AuthorizeAsync(state, http, scope.ServiceProvider).ConfigureAwait(false);
+            var failure = state.Validator == null ? FrameStatus.Ok : await state.Validator.AuthorizeAsync(state.Connection.Identity!, call, deadline.Token).ConfigureAwait(false);
             deadline.Token.ThrowIfCancellationRequested();
             if (failure != FrameStatus.Ok)
                 return new BinaryResponse(failure);
@@ -190,7 +157,9 @@ internal static class BinaryEndpoint
                 body = traced.Payload.Memory;
             }
 
-            var callContext = new BinaryDispatch.Request(http, deadlineUtc, traceParent, traceState, predecessor);
+            call.TraceParent = traceParent;
+            call.TraceState = traceState;
+            var callContext = new BinaryDispatch.Request(call, deadlineUtc, traceParent, traceState, predecessor);
             return await state.Operations.ExecuteAsync(operation, body, in callContext).ConfigureAwait(false);
         }
         catch (ServerCallException error)
@@ -207,75 +176,14 @@ internal static class BinaryEndpoint
         }
         finally
         {
-            state.Accessor.HttpContext = null;
+            state.Accessor.Current = null;
         }
     }
-
-    private static DefaultHttpContext CreateRequestContext(CallState state, IServiceProvider services, int operationId, CancellationToken cancellationToken)
-    {
-        var http = new DefaultHttpContext();
-        if (state.Identity != null)
-            http.Features.Set(state.Identity);
-        http.RequestServices = services;
-        http.RequestAborted = cancellationToken;
-        http.Request.Scheme = Uri.UriSchemeHttps;
-        http.Request.Method = HttpMethods.Post;
-        http.Request.Path = operationId < OperationPaths.Length ? OperationPaths[operationId] : OperationPaths[0];
-        http.Connection.Id = state.Connection.ConnectionId;
-        if (state.Connection.RemoteEndPoint is IPEndPoint remote)
-        {
-            http.Connection.RemoteIpAddress = remote.Address;
-            http.Connection.RemotePort = remote.Port;
-        }
-
-        if (state.Connection.LocalEndPoint is not IPEndPoint local)
-            return http;
-
-        http.Connection.LocalIpAddress = local.Address;
-        http.Connection.LocalPort = local.Port;
-        return http;
-    }
-
-    private static async ValueTask<FrameStatus> AuthorizeAsync(CallState state, HttpContext http, IServiceProvider services)
-    {
-        if (state.Policy == null)
-            return FrameStatus.Ok;
-
-        var evaluator = services.GetRequiredService<IPolicyEvaluator>();
-        var schemes = state.Policy.AuthenticationSchemes;
-        var authentication = evaluator.GetType() == typeof(PolicyEvaluator) && schemes.Count == 1
-            ? await AuthenticateSingleSchemeAsync(http, schemes[0]).ConfigureAwait(false)
-            : await evaluator.AuthenticateAsync(state.Policy, http).ConfigureAwait(false);
-        var decision = await evaluator.AuthorizeAsync(state.Policy, authentication, http, http).ConfigureAwait(false);
-        if (decision.Succeeded)
-            return FrameStatus.Ok;
-
-        var denied = decision.Forbidden ? FrameStatus.PermissionDenied : FrameStatus.Unauthenticated;
-        return state.CloseRequested.IsCancellationRequested ? FrameStatus.Unavailable : denied;
-    }
-
-    private static async ValueTask<AuthenticateResult> AuthenticateSingleSchemeAsync(HttpContext http, string scheme)
-    {
-        // The default evaluator only merges principals when more than one scheme can authenticate.
-        var authentication = await http.AuthenticateAsync(scheme).ConfigureAwait(false);
-        if (authentication is { Succeeded: true })
-        {
-            http.User = authentication.Principal ?? new ClaimsPrincipal();
-            return authentication;
-        }
-
-        http.User = new ClaimsPrincipal(new ClaimsIdentity());
-        return AuthenticateResult.NoResult();
-    }
-
-    private static AuthorizationPolicy ThrowMissingPolicy() => throw new InvalidOperationException("Missing JWT policy for binary transport.");
 
     private sealed record CallState(
-        ConnectionContext Connection,
+        BinaryConnection Connection,
         IServiceProvider Services,
-        AuthenticatedConnection? Identity,
-        AuthorizationPolicy? Policy,
-        IHttpContextAccessor Accessor,
-        BinaryDispatch Operations,
-        CancellationToken CloseRequested);
+        NativeConnectionAuthenticationValidator? Validator,
+        BinaryRequestAccessor Accessor,
+        BinaryDispatch Operations);
 }

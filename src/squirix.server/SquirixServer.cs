@@ -12,8 +12,7 @@ using Squirix.Server.Utils;
 namespace Squirix.Server;
 
 /// <summary>
-/// Convenience entry point for starting and owning a Squirix server host in tests and samples.
-/// Production deployments typically use <see cref="AspNetCoreExtensions.AddSquirixServerAsync" /> or the standalone host tool.
+/// Starts a native Squirix server and owns its lifetime.
 /// </summary>
 [Immutable]
 public sealed class SquirixServer : IAsyncDisposable
@@ -59,7 +58,7 @@ public sealed class SquirixServer : IAsyncDisposable
         _ = builder.Logging.AddDebug();
         _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
 
-        await AspNetCoreExtensions.ConfigureNodeAsync(builder, options, null, null, cancellationToken).ConfigureAwait(false);
+        await NodeConfiguration.ConfigureNodeAsync(builder, options, null, cancellationToken).ConfigureAwait(false);
         var handle = await ApplicationHandle.StartApplicationAsync(builder.Build(), static (application, token) => ServerHostingComposition.OpenStorageAsync(application.Services, token), cancellationToken).ConfigureAwait(false);
         return new SquirixServer(handle);
     }
@@ -97,7 +96,7 @@ public sealed class SquirixServer : IAsyncDisposable
 
         internal CancellationToken ApplicationStopping => _app.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
 
-        /// <summary>Stops the server application, then releases the owned ASP.NET Core host; repeated and concurrent calls share one disposal.</summary>
+        /// <summary>Stops the server application, then releases the owned host; repeated and concurrent calls share one disposal.</summary>
         /// <returns>A task that completes when the application is disposed.</returns>
         public ValueTask DisposeAsync()
         {

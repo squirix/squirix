@@ -3,7 +3,6 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.AspNetCore.Http;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
@@ -71,29 +70,29 @@ internal sealed class BinaryDispatch
         Request context)
         where TResponse : class, IMessage<TResponse>
     {
-        var http = context.Http;
+        var call = context.Call;
 
         // Preparation can overlap, but admission and execution must observe earlier mutations.
         if (!context.Predecessor.IsCompletedSuccessfully)
-            await context.Predecessor.WaitAsync(http.RequestAborted).ConfigureAwait(false);
-        http.RequestAborted.ThrowIfCancellationRequested();
+            await context.Predecessor.WaitAsync(call.RequestAborted).ConfigureAwait(false);
+        call.RequestAborted.ThrowIfCancellationRequested();
 
-        var path = http.Request.Path.Value!;
+        var path = call.Path;
         try
         {
             using var invocation = _scopes.EnterRemoteInvocation(context.Forwarded);
             using var activity = ServerCallCorrelation.StartActivity(path, context.TraceParent, context.TraceState);
             using var log = _correlation.BeginLogScope(path);
             using var deadline = context.Forwarded ? null : ServerRpcDeadlineContext.Push(context.Deadline, TimeProvider.System);
-            var (decision, lease) = await _admission.AcquireAsync(path, http.RequestAborted).ConfigureAwait(false);
+            var (decision, lease) = await _admission.AcquireAsync(path, call.RequestAborted).ConfigureAwait(false);
             if (!decision.IsAccepted)
                 return BinaryResponse.FromError(ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown"));
 
             using (lease)
             using (_admission.Enter())
             {
-                _observer?.Observe(http);
-                var response = await method(_operations, request, http.RequestAborted).ConfigureAwait(false);
+                _observer?.Observe(call);
+                var response = await method(_operations, request, call.RequestAborted).ConfigureAwait(false);
                 return new BinaryResponse(FrameStatus.Ok, response);
             }
         }
@@ -115,5 +114,5 @@ internal sealed class BinaryDispatch
         }
     }
 
-    internal readonly record struct Request(HttpContext Http, DateTime Deadline, string? TraceParent, string? TraceState, Task Predecessor, bool Forwarded = false);
+    internal readonly record struct Request(BinaryRequestContext Call, DateTime Deadline, string? TraceParent, string? TraceState, Task Predecessor, bool Forwarded = false);
 }

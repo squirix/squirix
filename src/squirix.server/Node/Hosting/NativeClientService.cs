@@ -7,7 +7,6 @@ using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,7 +14,6 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
@@ -27,23 +25,27 @@ internal sealed class NativeClientService : IHostedService, IDisposable
     private readonly TopologyOptions _topology;
     private readonly bool _mutationReplay;
     private readonly Uri? _managementUri;
+    private readonly X509Certificate2? _suppliedCertificate;
     private readonly CancellationTokenSource _graceful = new();
     private readonly CancellationTokenSource _abort = new();
     private Task _run = Task.CompletedTask;
     private X509Certificate2? _certificate;
 
-    internal NativeClientService(IServiceProvider services, TopologyOptions topology, bool mutationReplay, Uri? managementUri)
+    internal NativeClientService(IServiceProvider services, TopologyOptions topology, bool mutationReplay, Uri? managementUri, X509Certificate2? suppliedCertificate)
     {
         _services = services;
         _topology = topology;
         _mutationReplay = mutationReplay;
         _managementUri = managementUri;
+        _suppliedCertificate = suppliedCertificate;
     }
+
+    internal Uri? ManagementUri { get; private set; }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _certificate = LoadCertificate();
+        _certificate = _suppliedCertificate == null ? LoadCertificate() : new X509Certificate2(_suppliedCertificate);
         var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, null, true) };
         var managementUri = _managementUri ?? ResolveManagementUri(_topology.Uri);
         var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync);
@@ -53,7 +55,10 @@ internal sealed class NativeClientService : IHostedService, IDisposable
         try
         {
             AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024), listeners);
+            var managementIndex = listeners.Count;
             AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 64), listeners);
+            if (listeners[managementIndex].Socket.LocalEndPoint is IPEndPoint boundManagement)
+                ManagementUri = new UriBuilder(managementUri) { Port = boundManagement.Port }.Uri;
             var material = _services.GetRequiredService<MtlsCertificate>();
             if (material.Enabled)
             {
@@ -206,12 +211,9 @@ internal sealed class NativeClientService : IHostedService, IDisposable
 
     private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
 
-    private async ValueTask<bool> AuthenticateManagementAsync(string bearer, CancellationToken cancellationToken)
+    private ValueTask<bool> AuthenticateManagementAsync(string bearer, CancellationToken cancellationToken)
     {
-        var scope = _services.CreateAsyncScope();
-        await using var lifetime = scope.ConfigureAwait(false);
-        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider, RequestAborted = cancellationToken };
-        context.Request.Headers.Authorization = $"Bearer {bearer}";
-        return await ConnectionSecurity.IsRequestAuthorizedAsync(context).ConfigureAwait(false);
+        var validator = _services.GetService<NativeConnectionAuthenticationValidator>();
+        return validator == null ? ValueTask.FromResult(false) : validator.ValidateBearerAsync(bearer, cancellationToken);
     }
 }

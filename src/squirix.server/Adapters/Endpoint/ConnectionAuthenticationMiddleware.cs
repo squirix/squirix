@@ -4,8 +4,6 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Connections;
-using Microsoft.AspNetCore.Connections.Features;
 using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Adapters.Endpoint;
@@ -16,18 +14,18 @@ internal sealed class ConnectionAuthenticationMiddleware
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(5);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
-    private readonly ConnectionDelegate _next;
-    private readonly ConnectionAuthenticationValidator? _validator;
+    private readonly Func<BinaryConnection, Task> _next;
+    private readonly NativeConnectionAuthenticationValidator? _validator;
     private readonly TimeProvider _timeProvider;
 
-    internal ConnectionAuthenticationMiddleware(ConnectionDelegate next, ConnectionAuthenticationValidator? validator, TimeProvider timeProvider)
+    internal ConnectionAuthenticationMiddleware(Func<BinaryConnection, Task> next, NativeConnectionAuthenticationValidator? validator, TimeProvider timeProvider)
     {
         _next = next;
         _validator = validator;
         _timeProvider = timeProvider;
     }
 
-    internal async Task OnConnectionAsync(ConnectionContext context)
+    internal async Task OnConnectionAsync(BinaryConnection context)
     {
         AuthenticatedConnection? identity;
         try
@@ -63,7 +61,7 @@ internal sealed class ConnectionAuthenticationMiddleware
         return (ConnectionAuthenticationProtocol.HasRequestMagic(header), status, length);
     }
 
-    private static async ValueTask ReplyAsync(ConnectionContext context, byte status, CancellationToken cancellationToken)
+    private static async ValueTask ReplyAsync(BinaryConnection context, byte status, CancellationToken cancellationToken)
     {
         var reply = context.Transport.Output.GetMemory(ConnectionAuthenticationProtocol.HeaderLength);
         ConnectionAuthenticationProtocol.WriteAcknowledgement(reply.Span[..ConnectionAuthenticationProtocol.HeaderLength], status);
@@ -83,7 +81,7 @@ internal sealed class ConnectionAuthenticationMiddleware
         }
     }
 
-    private async ValueTask<(bool Continue, AuthenticatedConnection? Identity)> ReadAuthenticationAsync(ConnectionContext context, CancellationToken cancellationToken)
+    private async ValueTask<(bool Continue, AuthenticatedConnection? Identity)> ReadAuthenticationAsync(BinaryConnection context, CancellationToken cancellationToken)
     {
         var input = context.Transport.Input;
         var result = await input.ReadAtLeastAsync(ConnectionAuthenticationProtocol.HeaderLength, cancellationToken).ConfigureAwait(false);
@@ -103,8 +101,7 @@ internal sealed class ConnectionAuthenticationMiddleware
         }
 
         input.AdvanceTo(buffer.GetPosition(ConnectionAuthenticationProtocol.HeaderLength));
-        if (status != ConnectionAuthenticationProtocol.Accepted || _validator == null ||
-            context.Features.Get<IConnectionLifetimeNotificationFeature>() == null)
+        if (status != ConnectionAuthenticationProtocol.Accepted || _validator == null)
         {
             await ReplyAsync(context, status == ConnectionAuthenticationProtocol.Accepted ? ConnectionAuthenticationProtocol.InvalidCredentials : status, cancellationToken).ConfigureAwait(false);
             return (false, null);
@@ -113,7 +110,7 @@ internal sealed class ConnectionAuthenticationMiddleware
         return await ReadIdentityAsync(context, length, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<(byte Status, AuthenticatedConnection? Identity)> ValidateTokenAsync(string? token, ConnectionContext context, CancellationToken cancellationToken)
+    private async ValueTask<(byte Status, AuthenticatedConnection? Identity)> ValidateTokenAsync(string? token, BinaryConnection context, CancellationToken cancellationToken)
     {
         if (token == null)
             return (ConnectionAuthenticationProtocol.InvalidCredentials, null);
@@ -130,7 +127,7 @@ internal sealed class ConnectionAuthenticationMiddleware
         }
     }
 
-    private async ValueTask<(bool Continue, AuthenticatedConnection? Identity)> ReadIdentityAsync(ConnectionContext context, int length, CancellationToken cancellationToken)
+    private async ValueTask<(bool Continue, AuthenticatedConnection? Identity)> ReadIdentityAsync(BinaryConnection context, int length, CancellationToken cancellationToken)
     {
         var input = context.Transport.Input;
         var result = await input.ReadAtLeastAsync(length, cancellationToken).ConfigureAwait(false);
@@ -163,7 +160,7 @@ internal sealed class ConnectionAuthenticationMiddleware
             return (false, null);
         }
 
-        context.Features.Set(identity);
+        context.Identity = identity;
         await ReplyAsync(context, ConnectionAuthenticationProtocol.Accepted, cancellationToken).ConfigureAwait(false);
         return (true, identity);
     }
