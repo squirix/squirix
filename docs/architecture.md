@@ -14,7 +14,7 @@ The repository uses a **client/server library split** plus a standalone host too
 | Package | Purpose |
 | --- | --- |
 | `squirix` | Client SDK |
-| `squirix.server` | Server runtime library (embed in ASP.NET Core) |
+| `squirix.server` | Server runtime library for .NET applications |
 | `squirix.server.tool` | Standalone `squirix-server` global tool |
 
 The architectural boundary is two runtime roles — application client vs server node — not two packages total.
@@ -32,14 +32,14 @@ Wire compatibility is through the shared protobuf schema (and HTTP health/metric
 server to client.
 
 The SDK and server compile the same checked-in cache messages from the shared schema.
-The replication schema is private to the server and defines the messages used by the internal HTTP/2 endpoints.
+The replication schema is private to the server and defines the messages used by the binary peer transport.
 After editing either schema, regenerate the C# messages with the standalone protobuf compiler 35.1 and its standard includes.
 
 ```powershell
 ./tools/internal/generate-protobuf.ps1
 ```
 
-Peers use versioned HTTP/2 POST requests under `/squirix/peer/v1/` on the internal mTLS listener.
+Peers exchange versioned binary messages on the internal mTLS listener.
 Owner forwarding, log replication, elections and state transfer use this protocol. Upgrade all cluster members together when moving from the previous peer protocol.
 
 The shared transport code defines routing signals such as stale-owner markers.
@@ -47,7 +47,7 @@ Generated protobuf message types are internal to their assemblies.
 
 `Squirix.Server` owns data placement, partition ownership, static cluster topology, owner routing, server-side
 KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycle, backpressure, memory pressure,
-health/security/metrics endpoints, the binary cache listener, and internode HTTP/2. The separate `Squirix.Server.Host` executable owns the
+the management HTTP listener and the binary client and peer listeners. The separate `Squirix.Server.Host` executable owns the
 standalone process lifecycle.
 
 `Squirix` owns cache value/result types (`ICache<T>`, entry/result types, `ISquirixSerializer`). The exported v0.1 client
@@ -85,8 +85,8 @@ Within `Squirix.Server`, **Cluster** and **Node** are separate namespace roots:
 
 | Namespace | Responsibility |
 | --- | --- |
-| `Squirix.Server.Cluster` | Multi-node rules and peer communication: hash-ring ownership (`INodeLocator`), topology (`TopologyOptions`, peers), HTTP/2 peer transport (`ServerClientPool`), and call reliability (`ServerCallPolicy`). The cache dispatcher resolves key ownership first (`OwnerRouter`) and forwards non-owner client calls through this transport (`OwnerRpcForwarder`). |
-| `Squirix.Server.Node` | Single-process orchestration: ASP.NET Core hosting, cache pipeline decorators, background services, observability, backpressure, and memory pressure. `Node` does not own a `Cluster/` subtree. |
+| `Squirix.Server.Cluster` | Multi-node rules and peer communication: hash-ring ownership (`INodeLocator`), topology (`TopologyOptions`, peers), binary peer transport (`ServerClientPool`), and call reliability (`ServerCallPolicy`). The cache dispatcher resolves key ownership first (`OwnerRouter`) and forwards non-owner client calls through this transport (`OwnerRpcForwarder`). |
+| `Squirix.Server.Node` | Single-process orchestration: node lifecycle, cache pipeline decorators, background services, observability, backpressure, and memory pressure. `Node` does not own a `Cluster/` subtree. |
 
 `Squirix.Server.Cluster` is the home for all cluster-domain types; `Squirix.Server.Node` wires them into the host via DI
 (`RuntimeServiceRegistration`, cache pipeline registration) but does not define cluster semantics.
@@ -98,7 +98,7 @@ The current package boundary keeps server runtime, hosting, durability, endpoint
 validation, memory pressure, and observability in `Squirix.Server`. `Squirix` remains the lightweight client package and
 must not regain server hosting or durable runtime responsibilities.
 
-Server dependencies such as ASP.NET Core hosting, Kestrel, JWT authentication, journal services,
+Server dependencies such as socket hosting, JWT authentication, journal services,
 snapshots, recovery, and server-owned metrics belong in `Squirix.Server`. They must not be added to `Squirix`.
 
 Production clients use `ConnectAsync(...)` against external server endpoints, the shared `SquirixCache.proto` contract,

@@ -3,11 +3,11 @@
 This guide walks through running a squirix server and connecting a .NET client.
 
 Already using ASP.NET Core HybridCache? See [switching from Redis or Garnet to Squirix](distributed-cache.md#switch-from-redis-or-garnet-to-squirix)
-for the preview.11 adapter.
+for the Squirix adapter.
 
 Prerequisites:
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for the published preview.10 examples below.
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) to run the examples below.
 - Release packages built from the current source tree support both .NET 10 and [.NET 11](https://dotnet.microsoft.com/download/dotnet/11.0).
 - Building repository sources uses the SDK selected by [`global.json`](../global.json).
 - Docker Desktop with Linux containers for the Docker examples; the client example requires Compose 2.17 or newer.
@@ -22,11 +22,11 @@ handles its development JWT and certificate setup.
 ### NuGet global tool
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
+dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
 squirix-server run
 ```
 
-The NuGet commands in this guide use the published `0.1.0-preview.10` packages. See the [root README](../README.md) for the current package version.
+These commands use `0.2.0-preview.1`. See the [root README](../README.md) for the current package version.
 
 The host listens on `https://localhost:5001` by default (loopback bind), runs as an in-memory cache, and prints
 ready-to-use client and operational endpoint URLs. **No JWT is required** on this default URL — any local process can
@@ -39,10 +39,10 @@ To use journal/snapshot persistence instead, stop the in-memory server with Ctrl
 squirix-server run --persist --data-dir data
 ```
 
-Health probes use the same HTTPS listener (local tool default port **5001**):
+Health probes use the management HTTPS listener (local tool default port **5003**):
 
 ```bash
-curl https://localhost:5001/health
+curl https://localhost:5003/health
 ```
 
 To expose the Prometheus endpoint, start the server with `squirix-server run --metrics` and enable Prometheus export
@@ -86,10 +86,10 @@ change to the repository root before creating the app.
 dotnet new console --framework net10.0 -o SquirixDemo
 ```
 
-For the published preview.10 server tool, install the matching SDK package:
+For the server tool, install the matching SDK package:
 
 ```bash
-dotnet add SquirixDemo/SquirixDemo.csproj package squirix --version 0.1.0-preview.10
+dotnet add SquirixDemo/SquirixDemo.csproj package squirix --version 0.2.0-preview.1
 ```
 
 If you started the server from this checkout, run the following command from the repository root to reference the SDK from the same checkout:
@@ -193,6 +193,6 @@ Other optional runtime sections still use standard [file discovery](configuratio
 
 ## Next steps
 
-- Embed the server in ASP.NET Core: [server mode](server-mode.md)
+- Embed the server in a .NET application: [server mode](server-mode.md)
 - Tune cluster / memory-pressure / metrics settings: [configuration](configuration.md)
 - Understand routing and consistency: [clustering](clustering.md)

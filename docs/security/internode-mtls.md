@@ -26,7 +26,7 @@ Reasons for the split:
 
 - Application credentials must not be forwarded hop-by-hop inside the cluster.
 - Internode calls are machine-to-machine; trust is established with node certificates, not end-user JWTs.
-- Operational routes (`/health`, `/metrics`) stay on the primary listener with the existing auth model.
+- Operational routes (`/health`, `/metrics`) use the HTTPS management listener.
 - Spoofing internal owner-routing metadata on the primary listener is rejected unless the call arrives on the internal
   mTLS listener with a trusted peer certificate.
 
@@ -102,13 +102,12 @@ Cluster mTLS is configured only through environment variables (also used by cont
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` | Optional PFX password |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PATH` | PEM node certificate (requires key path) |
 | `SQUIRIX_CLUSTER_MTLS_KEY_PATH` | PEM node private key |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated internal HTTPS listener for internode HTTP/2 mTLS |
+| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated binary peer listener with mTLS |
 
 Provide **either** a PFX **or** PEM cert + key, not both. Startup validation fails fast when files are missing, when
 the internal port equals the primary port, or when the loaded node certificate CN does not match `Cluster.NodeId`.
 
-The primary Kestrel certificate (ASP.NET Core development certificate, `ASPNETCORE_Kestrel__Certificates__Default__*`
-in containers) is **independent** from cluster mTLS material. If a proxy terminates external TLS, its connection to
+The certificate for the client and management listeners (`SQUIRIX_TLS_CERTIFICATE_PATH`) is independent of peer mTLS. If a proxy terminates external TLS, its connection to
 the Squirix primary listener must still use HTTPS; TLS termination does not enable a cleartext Squirix listener.
 
 Outbound peer connections use `https://<peer-host>:<internal-port>`, where `<peer-host>` comes from each
@@ -121,7 +120,7 @@ Internode JWT propagation is **not** part of the product model. Cluster forwardi
 listener** instead:
 
 - Forwarding nodes present a **trusted client certificate** on the internal transport.
-- The internal HTTP/2 surface allows anonymous authorization policy because **TLS client authentication** is the gate.
+- The peer listener requires a verified TLS client certificate before dispatching a binary peer command.
 - External JWTs are **not** required for peer-to-peer forwarding when internode mTLS is enforced.
 - External callers still need JWT (when auth is enabled) on the **primary** listener; they cannot satisfy internal
   forwarding checks with JWT alone.

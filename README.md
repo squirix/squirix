@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/squirix/squirix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/squirix/squirix/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.10-004880?logo=nuget&logoColor=white)](https://www.nuget.org/profiles/squirix)
+[![NuGet](https://img.shields.io/badge/NuGet-0.2.0--preview.1-004880?logo=nuget&logoColor=white)](https://www.nuget.org/profiles/squirix)
 [![.NET 10 and 11](https://img.shields.io/badge/.NET-10%20and%2011-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet)
 [![Slack](https://img.shields.io/badge/Slack-join-4A154B?logo=slack&logoColor=white)](https://squirix.slack.com)
 
@@ -12,7 +12,7 @@ Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC);
 
 [Website](https://squirix.io/) · [Getting started](https://squirix.io/docs/getting-started/) · [Blog](https://squirix.io/blog/)
 
-**0.1.0-preview.10** — early preview, not production-ready. [Release notes](docs/release-notes/v0.1.0.md)
+**0.2.0-preview.1** — early preview, not production-ready. [Release notes](docs/release-notes/v0.2.0-preview.1.md)
 
 [![Powered by NDepend](docs/assets/powered-by-ndepend.png)](https://www.ndepend.com/)
 
@@ -28,7 +28,7 @@ All packages are published under the [squirix NuGet profile](https://www.nuget.o
 | [`squirix.extensions.caching`](https://www.nuget.org/packages/squirix.extensions.caching/) | `IDistributedCache` provider for HybridCache L2 |
 
 Release packages built from this source tree contain both `net10.0` and `net11.0` in the same package version.
-NuGet selects the library assembly that matches the application's target framework. The quick start below uses the published preview.10 on .NET 10.
+NuGet selects the library assembly that matches the application's target framework. The quick start below uses 0.2.0-preview.1 on .NET 10.
 
 ## Quick start
 
@@ -36,7 +36,7 @@ Use the .NET 10 SDK. In a terminal, trust the development HTTPS certificate and 
 
 ```bash
 dotnet dev-certs https --trust
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
+dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
 squirix-server run --urls https://localhost:5501
 ```
 
@@ -44,7 +44,7 @@ Leave the server running at `https://localhost:5501`. In a second terminal, crea
 
 ```bash
 dotnet new console --framework net10.0 -o SquirixDemo
-dotnet add SquirixDemo/SquirixDemo.csproj package squirix --version 0.1.0-preview.10
+dotnet add SquirixDemo/SquirixDemo.csproj package squirix --version 0.2.0-preview.1
 ```
 
 Replace `SquirixDemo/Program.cs` with:
@@ -94,7 +94,7 @@ The server stores entries in memory by default. To enable journal and snapshot p
 squirix-server run --urls https://localhost:5501 --persist --data-dir data
 ```
 
-For Docker, JWT authentication, and ASP.NET Core embedding, see [Getting started](docs/getting-started.md).
+For Docker, JWT authentication, and embedding a server node, see [Getting started](docs/getting-started.md).
 JWT-protected cache connections authenticate once per physical TLS transport; update SDK and server together.
 See [cache connection authentication](docs/security/connection-authentication.md) for the breaking transport change and proxy requirements.
 
@@ -114,7 +114,7 @@ and [Consistency](docs/consistency.md) for configuration and guarantees.
 
 ## Microsoft distributed caching
 
-The preview.11 adapter provides `IDistributedCache` and integrates with Microsoft HybridCache as its secondary cache.
+The caching adapter provides `IDistributedCache` and integrates with Microsoft HybridCache as its secondary cache.
 See the [provider guide](docs/distributed-cache.md) and the [HybridCache sample](samples/hybrid-cache/README.md).
 
 ## Examples

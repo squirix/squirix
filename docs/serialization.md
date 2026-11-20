@@ -11,7 +11,7 @@ Client and server packages keep **separate** serializer hosts:
 - **Client:** each `SquirixClient.ConnectAsync` session gets its own serializer from `SquirixClientOptions.Serializer`
   (or the built-in default when unset). The serializer instance is session-local; application JSON metadata registration is additive and process-wide.
 - **Server:** keeps structured values as the validated UTF-8 JSON bytes the client sent and uses a built-in JSON encoder for
-  the rare values it has to serialize itself. `AddSquirixServerAsync` / `SquirixServer.StartAsync`
+  the rare values it has to serialize itself. `SquirixServer.StartAsync`
   do not expose a serializer hook on `SquirixServerOptions`.
 
 ## Application value types
@@ -24,14 +24,14 @@ Native protobuf values such as strings do not need an application JSON context. 
 `[JsonSerializable(typeof(byte[]))]` to an application context before writing through `ICache<byte[]>` with the default
 serializer.
 
-The preview.11 [distributed cache adapter](distributed-cache.md) sends opaque bytes directly.
+The [distributed cache adapter](distributed-cache.md) sends opaque bytes directly.
 HybridCache owns its own serialization and passes its encoded bytes to the adapter.
 
 With the local HTTPS server running, create a .NET 10 console app and add the client:
 
 ```bash
 dotnet new console --framework net10.0 -o TypedCacheDemo
-dotnet add TypedCacheDemo/TypedCacheDemo.csproj package squirix --version 0.1.0-preview.10
+dotnet add TypedCacheDemo/TypedCacheDemo.csproj package squirix --version 0.2.0-preview.1
 ```
 
 Replace `TypedCacheDemo/Program.cs` with:

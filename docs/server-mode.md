@@ -1,128 +1,63 @@
 # Server mode
 
-Squirix servers run as a standalone `squirix-server` process or embedded in a custom ASP.NET Core host. Application
-data access always goes through the `Squirix` client SDK, even when client and server share a process.
+Run a Squirix node with the `squirix-server` tool or embed it using the `squirix.server` library.
+In both modes, applications access data through the Squirix client SDK over the binary TLS listener.
 
-When running either server host on .NET 10 on Linux or macOS, use .NET 10.0.15 or a later .NET 10 patch.
-Starting with preview.11, Squirix rejects older .NET 10 runtimes at startup because they can silently lose disk flush errors.
-
-For install, Docker, and first connection steps, see [getting started](getting-started.md). For package roles, see
-[client and server model](client-server.md).
+For the .NET 10 build on Linux and macOS, use .NET 10.0.15 or a later .NET 10 patch.
+Earlier .NET 10 builds can silently lose disk flush errors and are rejected at startup.
 
 ## Standalone host
 
-The `squirix-server` global tool uses the same runtime as the library host and listens on
-`https://localhost:5001` by default. See [NuGet global tool](getting-started.md#nuget-global-tool) for installation and
-startup commands, including durable mode.
+The global tool listens on `https://localhost:5001` for binary clients by default. The HTTP/1.1 management listener
+defaults to `https://127.0.0.1:5003`. Set `SQUIRIX_MANAGEMENT_URI` to select another HTTPS origin. By default its port
+is the client port plus two, or minus two if adding two would exceed the TCP port range.
 
-Starting with preview.11, the standalone host reads `appsettings.json` and `appsettings.{Environment}.json` at startup.
-Restart the host to apply changes to these files.
+See [getting started](getting-started.md#nuget-global-tool) for installation and startup and
+[containerization](containerization.md) for Docker. The standalone host loads `appsettings.json` and
+`appsettings.{Environment}.json` at startup. Restart the host to apply changes to those files.
 
-For Docker examples, see [containerization](containerization.md).
+The public and management listeners use the server certificate configured by `SQUIRIX_TLS_CERTIFICATE_PATH`
+and optionally `SQUIRIX_TLS_CERTIFICATE_PASSWORD`. A local .NET development certificate can be used on loopback.
+Multi-node clusters also use a dedicated mutual TLS listener for peer traffic. See
+[configuration](configuration.md#environment-variables) and [internode mTLS](security/internode-mtls.md).
 
-## Custom ASP.NET Core hosting
+## Embedded server
 
-Embed the server runtime from the **`squirix.server`** NuGet package:
-
-Create an ASP.NET Core project in a terminal:
-
-```bash
-dotnet dev-certs https --trust
-dotnet new web --framework net10.0 -o SquirixHost
-dotnet add SquirixHost/SquirixHost.csproj package squirix.server --version 0.1.0-preview.10
-```
-
-These commands use the published `0.1.0-preview.10` packages. See the [root README](../README.md) for the current version.
-
-Replace `SquirixHost/Program.cs` with:
-
-```csharp
-using System;
-using Microsoft.AspNetCore.Builder;
-using Squirix.Server;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Loads Squirix.settings.json from the working directory when present.
-_ = await builder.AddSquirixServerAsync(static options =>
-{
-    options.NodeId = "node-a";
-    options.Uri = new Uri("https://localhost:5001");
-    options.UsePersistence("data");
-});
-
-await using var app = builder.Build();
-_ = await app.MapSquirixServerAsync();
-await app.RunAsync();
-```
-
-Run `dotnet run --project SquirixHost --no-launch-profile`. The server listens at `https://localhost:5001`.
-The example enables persistence in `data`, relative to the server's working directory. Stop it with Ctrl+C.
-If port 5001 is unavailable, change `options.Uri` and use the same address in the client.
-
-`AddSquirixServerAsync(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
-HTTP/2 on one port). `MapSquirixServerAsync()` opens node storage (activated-topology check, journal startup repair, replica group logs) after
-`Build()` and maps health and metrics endpoints; call it once before `StartAsync` or `RunAsync`.
-
-## Loopback development default (not production posture)
-
-The standalone host defaults to `https://localhost:5001` for local development. Before exposing the primary
-listener or using a shared host, check the [loopback and JWT rules](configuration.md#loopback-trust-model).
-
-Multi-node clusters with remote peers also open a **second HTTPS listener** on
-`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for internode HTTP/2 with mutual TLS. External clients continue to use the primary
-port with JWT/OIDC connection authentication; cluster forwarding uses the internal port and per-node certificates (`CN` = `NodeId`). See
-[security/internode-mtls.md](security/internode-mtls.md).
-
-To use an explicit settings file, replace the registration call in the example above with:
-
-```csharp
-_ = await builder.AddSquirixServerAsync(settingsPath: "Squirix.settings.json");
-```
-
-The file must exist and contain valid cluster settings. Keep file loading enabled; `loadDiscoveredSettings: false`
-skips even an explicit `settingsPath`. The host loads `PrometheusMetrics` from the selected file. `MemoryPressure` and
-`Snapshot` use [standard file discovery](configuration.md#file-discovery).
-
-## Tests and samples
-
-`SquirixServer.StartAsync` loads discovered `Squirix.settings.json` / `squirix.settings.json`, or creates ephemeral
-defaults with a **free HTTPS port** when no such file exists. A discovered file that cannot be loaded or fails validation
-(unparsable JSON, no `Squirix.Cluster` section, invalid values) makes `StartAsync` throw. The returned handle does **not** expose the listen URI, so do **not** assume
-`https://localhost:5001` unless that origin is set as `Cluster.Uri` in an explicit settings file. Prefer
-`AddSquirixServerAsync` when the client must know the listen URI:
-
-To run both in one process, add the client package to the same web project:
+Create a console app and install both packages:
 
 ```bash
-dotnet add SquirixHost/SquirixHost.csproj package squirix --version 0.1.0-preview.10
+dotnet new console --framework net10.0 -o SquirixHost
+dotnet add SquirixHost/SquirixHost.csproj package squirix.server --version 0.2.0-preview.1
+dotnet add SquirixHost/SquirixHost.csproj package squirix --version 0.2.0-preview.1
 ```
 
-Stop the previous server, then replace `SquirixHost/Program.cs` with this complete example. It starts a server,
-writes and reads through the SDK, and disposes the client and host before exiting:
+Replace `SquirixHost/Program.cs` with this example. It starts one node, exercises the binary client and disposes
+the client before stopping the server:
 
 ```csharp
 using System;
 using System.Threading;
-using Microsoft.AspNetCore.Builder;
 using Squirix.Client;
 using Squirix.Server;
 
 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-var cancellationToken = timeout.Token;
-
-var builder = WebApplication.CreateBuilder(args);
-var listenUri = new Uri("https://localhost:5001");
-_ = await builder.AddSquirixServerAsync(options => options.Uri = listenUri);
-await using var app = builder.Build();
-_ = await app.MapSquirixServerAsync(cancellationToken);
-await app.StartAsync(cancellationToken);
-
-await using var client = await SquirixClient.ConnectAsync(listenUri, cancellationToken);
-var cache = await client.GetCacheAsync<string>("embedded-demo", cancellationToken);
-await cache.SetAsync("greeting", "hello", null, cancellationToken);
-var result = await cache.GetValueAsync("greeting", cancellationToken);
+var options = new SquirixServerOptions
+{
+    NodeId = "node-a",
+    Uri = new Uri("https://localhost:5001"),
+};
+await using var server = await SquirixServer.StartAsync(options, timeout.Token);
+await using var client = await SquirixClient.ConnectAsync(options.Uri, timeout.Token);
+var cache = await client.GetCacheAsync<string>("embedded-demo", timeout.Token);
+await cache.SetAsync("greeting", "hello", null, timeout.Token);
+var result = await cache.GetValueAsync("greeting", timeout.Token);
 Console.WriteLine(result.Found ? result.Value : "<missing>");
 ```
 
-Run `dotnet run --project SquirixHost --no-launch-profile`. Alongside the host logs, the example prints `hello`.
+Run `dotnet run --project SquirixHost`. Use a certificate trusted by the client, and stop other processes using
+the same ports first. Call `options.UsePersistence("data")` before startup to keep data across restarts.
+
+To supply settings from a specific file, use `Configurator.LoadAsync(path, cancellationToken)` to create the options
+and pass them to `SquirixServer.StartAsync(options, cancellationToken)`. The parameterless startup overload discovers
+`Squirix.settings.json` and chooses a free client port if no file is found. A discovered file that fails validation
+causes startup to fail. Configure a known origin when a client needs to connect to an embedded node.

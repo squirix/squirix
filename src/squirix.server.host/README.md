@@ -2,19 +2,19 @@
 
 NuGet global tool package for the **`squirix-server`** CLI (standalone process host).
 
-For the .NET 10 build on Linux and macOS, use ASP.NET Core Runtime 10.0.15 or a later .NET 10 patch.
+For the .NET 10 build on Linux and macOS, use .NET Runtime 10.0.15 or a later .NET 10 patch.
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
+dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
 squirix-server run
 squirix-server run --persist --data-dir data
 ```
 
-These commands install the published preview.10. See the [root README](../../README.md) for the current release.
+See the [root README](../../README.md) for release details.
 
 Tool packages built by the current release workflow contain both `net10.0` and `net11.0`.
 Add `--framework net11.0` to the install command to select the .NET 11 build of a package that includes it.
-The host requires the corresponding ASP.NET Core runtime.
+The host requires the corresponding .NET runtime.
 
 Or run from the repository root with the SDK selected by [global.json](../../global.json):
 
@@ -29,13 +29,10 @@ Run `squirix-server help` for operational commands and flags.
 ## Logging
 
 The host ships `appsettings.defaults.json` next to its executable and loads it as the lowest-priority configuration.
-The default level is `Information`, with `Microsoft.AspNetCore` set to `Warning` to avoid per-request framework logs.
+The default level is `Information`.
 These defaults apply to the global tool, published executable, repository runs and Docker images, regardless of the
 current working directory.
 
 The standard `appsettings.json` and `appsettings.{Environment}.json` in the working directory override the packaged
 defaults at startup. Restart the standalone host to apply changes to these files. Environment variables have higher
-priority. For example, set
-`Logging__LogLevel__Microsoft.AspNetCore=Information` to enable detailed framework request logs, or
-`Logging__LogLevel__Default=Warning` to reduce ordinary application messages. Warning, Error and Critical framework
-messages remain enabled by default. `Squirix.settings.json` continues to configure Squirix itself.
+priority. Set `Logging__LogLevel__Default=Warning` to reduce application logs. Use `Squirix.settings.json` to configure the node.

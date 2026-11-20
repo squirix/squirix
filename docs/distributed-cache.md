@@ -9,7 +9,7 @@ Evaluate it before production use.**
 If your HybridCache app uses Redis or Garnet through `AddStackExchangeRedisCache`, install the Squirix provider:
 
 ```shell
-dotnet add package squirix.extensions.caching --version 0.1.0-preview.11
+dotnet add package squirix.extensions.caching --version 0.2.0-preview.1
 ```
 
 Replace the `AddStackExchangeRedisCache(...)` registration with `AddSquirixCache`. Keep the existing `AddHybridCache()` registration.

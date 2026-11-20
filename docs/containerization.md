@@ -45,7 +45,7 @@ dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -p:SquirixPackAllFrameworks=true -o docker/nuget-packages
 docker build -f docker/Dockerfile.release -t squirix-server:local \
   --build-arg LOCAL_PACKAGES=true \
-  --build-arg SQUIRIX_VERSION=0.1.0-preview.10 .
+  --build-arg SQUIRIX_VERSION=0.2.0-preview.1 .
 ```
 
 Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). Its build arguments pin
@@ -107,15 +107,16 @@ docker run --rm \
   squirix-server run --urls https://0.0.0.0:5000 --persist --data-dir /data
 ```
 
-The primary listener on port **5000** inside the container is HTTPS (HTTP/1.1 and HTTP/2). Map `-p 5000:5000` for host
-access to binary cache calls, health, and metrics.
+Port **5000** carries the binary cache protocol over TLS. Port **5002** serves management HTTP/1.1 over TLS.
+For local management access with `docker run`, add `-p 127.0.0.1:5002:5002` to the command.
 
 Endpoints (three-node RF=3 `docker compose` example):
 
-- Node A HTTPS (binary cache/health/metrics): `https://localhost:5001` (host port maps to container **5000**)
+- Node A binary TLS: `https://localhost:5001` (host port maps to container **5000**)
 - Node B HTTPS: `https://localhost:5002`
 - Node C HTTPS: `https://localhost:5003`
-- Inside each container, the listen URL is port **5000** from the mounted `Squirix.settings.json`.
+- Management HTTPS on the host uses `https://localhost:5201`, `https://localhost:5202` and `https://localhost:5203` respectively.
+- The container binds client traffic on port **5000** from the mounted `Squirix.settings.json` and management traffic on **5002**.
 
 Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squirix-node-a:5000`,
 `https://squirix-node-b:5000`, `https://squirix-node-c:5000`). Host applications use the **published** ports
@@ -123,7 +124,7 @@ Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squi
 (see [configuration.md](configuration.md)).
 
 `Peers[].Uri` always carries the primary listener origin (port **5000** in the samples). The internode mTLS
-HTTP/2 peer endpoint is derived from that origin by swapping in `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`
+binary peer endpoint is derived from that origin by swapping in `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`
 (**5100**): keep each local peer entry aligned with its configured peer URI and never enter port `5100`
 in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 
@@ -146,8 +147,8 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 
 Both images bundle a self-signed development PFX at `/https/aspnetapp.pfx` with an empty export password. The source
 image certificate has SANs for `localhost`, `127.0.0.1`, and `squirix-node-a`, `squirix-node-b`, `squirix-node-c`.
-The release image additionally includes the `squirix-node-*-release` names. Kestrel loads the PFX via
-`ASPNETCORE_Kestrel__Certificates__Default__Path`.
+The release image includes the `squirix-node-*-release` names. The server loads the PFX from
+`SQUIRIX_TLS_CERTIFICATE_PATH`.
 
 For a real deployment, configure your own trusted certificate for the primary HTTPS listener as well as separate
 internode mTLS material. The bundled primary certificate does not cover arbitrary deployment hostnames.
@@ -158,7 +159,7 @@ container's exported public HTTPS certificate on the client machine. The public 
 Check health from the host.
 
 ```bash
-curl -k https://localhost:5001/health
+curl -k https://localhost:5201/health
 ```
 
 To enable the scrape, set `Squirix:PrometheusMetrics:enabled` to `true` in the mounted node settings and add
@@ -169,7 +170,7 @@ command: ["run", "--persist", "--data-dir", "/data", "--metrics"]
 ```
 
 ```bash
-curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
+curl -k -H "Authorization: Bearer <jwt>" https://localhost:5201/metrics
 ```
 
 Remote scrapes (including host → published container port) require authentication with a valid JWT bearer token.
