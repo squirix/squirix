@@ -4,11 +4,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -33,8 +33,8 @@ public sealed class NativePeerTransportTests
         ClusterIdentity? identity = null;
         var peers = ClusterIdentity.CreatePeers([new ClusterNode("nodeA", firstPort.HttpUri), new ClusterNode("nodeB", secondPort.HttpUri)], ref identity);
         using var owner = identity!;
-        using var first = await StartNodeAsync(firstPort, peers, owner, "nodeA", cancellationToken);
-        using var second = await StartNodeAsync(secondPort, peers, owner, "nodeB", cancellationToken);
+        await using var first = await StartNodeAsync(firstPort, peers, owner, "nodeA", cancellationToken);
+        await using var second = await StartNodeAsync(secondPort, peers, owner, "nodeB", cancellationToken);
         try
         {
             using var lease = first.Services.GetRequiredService<IServerClientPool>().LeaseChannel("nodeB", cancellationToken);
@@ -67,8 +67,8 @@ public sealed class NativePeerTransportTests
         ClusterIdentity? identity = null;
         var peers = ClusterIdentity.CreatePeers([new ClusterNode("nodeA", firstPort.HttpUri), new ClusterNode("nodeB", secondPort.HttpUri)], ref identity);
         using var owner = identity!;
-        using var first = await StartNodeAsync(firstPort, peers, owner, "nodeA", cancellationToken);
-        using var second = await StartNodeAsync(secondPort, peers, owner, "nodeB", cancellationToken);
+        await using var first = await StartNodeAsync(firstPort, peers, owner, "nodeA", cancellationToken);
+        await using var second = await StartNodeAsync(secondPort, peers, owner, "nodeB", cancellationToken);
         try
         {
             var address = peers[1].InterNodeUri!;
@@ -115,12 +115,12 @@ public sealed class NativePeerTransportTests
         }
     }
 
-    private static async Task<IHost> StartNodeAsync(HeldPort port, ServerPeer[] peers, ClusterIdentity identity, string name, CancellationToken cancellationToken)
+    private static async Task<ServerApplication> StartNodeAsync(HeldPort port, ServerPeer[] peers, ClusterIdentity identity, string name, CancellationToken cancellationToken)
     {
         var options = new TopologyOptions(peers) { NodeId = name, Uri = port.HttpUri };
         var material = await identity.ResolveNodeStartupForBindAsync(options, TestNodeProfile.Normal, null, cancellationToken);
-        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
-        await TestNodeServices.ConfigureBuilderAsync(builder.Services, options, Configure, cancellationToken);
+        var services = TestNodeBuilder.CreateServices();
+        await TestNodeServices.ConfigureBuilderAsync(services, options, Configure, cancellationToken);
         void Configure(CompositionArgs args)
         {
             args.MtlsOptions = material.Options;
@@ -128,17 +128,9 @@ public sealed class NativePeerTransportTests
             args.ManagementUri = new Uri("https://127.0.0.1:0");
         }
 
-        var host = builder.Build();
-        try
-        {
-            port.Dispose();
-            await host.StartAsync(cancellationToken);
-            return host;
-        }
-        catch
-        {
-            host.Dispose();
-            throw;
-        }
+        var host = services.BuildNode();
+        port.Dispose();
+        await SquirixServer.ApplicationHandle.StartWithRollbackAsync(host, static (_, _) => Task.CompletedTask, cancellationToken);
+        return host;
     }
 }

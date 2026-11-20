@@ -13,7 +13,8 @@ namespace Squirix.Server.Node.Hosting;
 /// <summary>Runs node services in registration order and drains them before closing their storage.</summary>
 internal sealed class ServerApplication : IAsyncDisposable
 {
-    private readonly NodeProvider _services;
+    private readonly IAsyncDisposable _owner;
+    private readonly bool _listenForSignals;
     private readonly IDisposable? _configuration;
     private readonly ServerLifetime _lifetime;
     private readonly ILogger<ServerApplication> _logger;
@@ -21,15 +22,17 @@ internal sealed class ServerApplication : IAsyncDisposable
     private readonly List<Task> _workers = [];
     private readonly List<PosixSignalRegistration> _signals = [];
 
-    private ServerApplication(NodeProvider services, IDisposable? configuration, ServerLifetime lifetime, ILogger<ServerApplication> logger)
+    private ServerApplication(IServiceProvider services, IAsyncDisposable owner, ServerLifetime lifetime, IDisposable? configuration, bool listenForSignals)
     {
-        _services = services;
+        Services = services;
         _configuration = configuration;
+        _owner = owner;
+        _listenForSignals = listenForSignals;
         _lifetime = lifetime;
-        _logger = logger;
+        _logger = services.Require<ILoggerFactory>().CreateLogger<ServerApplication>();
     }
 
-    internal IServiceProvider Services => _services;
+    internal IServiceProvider Services { get; }
 
     public async ValueTask DisposeAsync()
     {
@@ -38,7 +41,7 @@ internal sealed class ServerApplication : IAsyncDisposable
 
         try
         {
-            await _services.DisposeAsync().ConfigureAwait(false);
+            await _owner.DisposeAsync().ConfigureAwait(false);
         }
         finally
         {
@@ -51,16 +54,22 @@ internal sealed class ServerApplication : IAsyncDisposable
         _ = services.Own(static sp => new ServerLifetime(sp.Require<ILoggerFactory>().CreateLogger<ServerLifetime>()));
         _ = services.Own<INodeLifetime>(static provider => provider.Require<ServerLifetime>());
         var provider = new NodeProvider(services);
-        return new ServerApplication(provider, configuration, provider.Require<ServerLifetime>(), provider.Require<ILoggerFactory>().CreateLogger<ServerApplication>());
+        return FromProvider(provider, configuration, true);
     }
+
+    internal static ServerApplication FromProvider<T>(T provider, IDisposable? configuration = null, bool listenForSignals = false)
+        where T : class, IServiceProvider, IAsyncDisposable => new(provider, provider, provider.Require<ServerLifetime>(), configuration, listenForSignals);
 
     internal async Task StartAsync(CancellationToken cancellationToken)
     {
         using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.ApplicationStopping);
-        foreach (var signal in new[] { PosixSignal.SIGINT, PosixSignal.SIGQUIT, PosixSignal.SIGTERM })
-            _signals.Add(PosixSignalRegistration.Create(signal, OnSignal));
+        if (_listenForSignals)
+        {
+            foreach (var signal in new[] { PosixSignal.SIGINT, PosixSignal.SIGQUIT, PosixSignal.SIGTERM })
+                _signals.Add(PosixSignalRegistration.Create(signal, OnSignal));
+        }
 
-        foreach (var service in _services.All<INodeService>())
+        foreach (var service in Services.All<INodeService>())
         {
             startup.Token.ThrowIfCancellationRequested();
 

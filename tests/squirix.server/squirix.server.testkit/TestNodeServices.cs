@@ -2,13 +2,12 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Cluster;
 using Squirix.Server.Composition;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit;
@@ -55,23 +54,23 @@ internal static class TestNodeServices
         return services;
     }
 
+    internal static void AddLifetime(IServiceCollection services)
+    {
+        services.TryAddSingleton<Squirix.Server.Logging.ILoggerFactory>(static sp => new Logging.TestHostLoggerFactory(sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
+        services.TryAddSingleton(static sp => new ServerLifetime(sp.GetRequiredService<Squirix.Server.Logging.ILoggerFactory>().CreateLogger<ServerLifetime>()));
+        services.TryAddSingleton<INodeLifetime>(static sp => sp.GetRequiredService<ServerLifetime>());
+    }
+
     private static void Install(NodeServices node, IServiceCollection services)
     {
         _ = services.AddOptions();
-        _ = services.AddSingleton<Squirix.Server.Logging.ILoggerFactory>(static sp => new Logging.TestHostLoggerFactory(sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
-        _ = services.AddSingleton<INodeLifetime>(static sp => new TestLifetime(sp.GetRequiredService<IHostApplicationLifetime>()));
+        AddLifetime(services);
         _ = services.AddSingleton<INodeRequestScopes>(static sp => new RequestScopes(sp));
         foreach (var registration in node.Registrations)
         {
             if (registration.Instance is Func<JwtValidationOptions> configured)
             {
                 AddAuthentication(services, configured);
-                continue;
-            }
-
-            if (registration.Type == typeof(INodeService))
-            {
-                AddWorker(services, registration);
                 continue;
             }
 
@@ -94,61 +93,6 @@ internal static class TestNodeServices
             options.RequireHttpsMetadata = source.RequireHttpsMetadata;
         });
         _ = services.AddSingleton<Func<JwtValidationOptions>>(static sp => () => sp.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue);
-    }
-
-    private static void AddWorker(IServiceCollection services, NodeServices.Registration registration)
-    {
-        _ = services.AddKeyedSingleton<INodeService>(registration, (sp, _) => registration.Factory!(sp) is INodeService service ? service : throw new InvalidOperationException());
-        _ = services.AddSingleton(sp => sp.GetRequiredKeyedService<INodeService>(registration));
-        _ = services.AddSingleton<IHostedService>(sp => new WorkerAdapter(sp.GetRequiredKeyedService<INodeService>(registration)));
-    }
-
-    private sealed class WorkerAdapter : BackgroundService, IHostedLifecycleService
-    {
-        private readonly INodeService _service;
-
-        internal WorkerAdapter(INodeService service)
-        {
-            _service = service;
-        }
-
-        public override async Task StartAsync(CancellationToken cancellationToken)
-        {
-            await _service.StartAsync(cancellationToken).ConfigureAwait(false);
-            await base.StartAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        public override async Task StopAsync(CancellationToken cancellationToken)
-        {
-            await _service.StopAsync(cancellationToken).ConfigureAwait(false);
-            await base.StopAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        public Task StartedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task StoppedAsync(CancellationToken cancellationToken) => _service is JournalStopService journal ? journal.DrainAsync() : Task.CompletedTask;
-
-        public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-        protected override Task ExecuteAsync(CancellationToken stoppingToken) => (_service as NodeWorker)?.ExecuteTask ?? Task.CompletedTask;
-    }
-
-    private sealed class TestLifetime : INodeLifetime
-    {
-        private readonly IHostApplicationLifetime _lifetime;
-
-        internal TestLifetime(IHostApplicationLifetime lifetime)
-        {
-            _lifetime = lifetime;
-        }
-
-        public CancellationToken ApplicationStarted => _lifetime.ApplicationStarted;
-
-        public CancellationToken ApplicationStopping => _lifetime.ApplicationStopping;
-
-        public void StopApplication() => _lifetime.StopApplication();
     }
 
     private sealed class RequestScopes : INodeRequestScopes

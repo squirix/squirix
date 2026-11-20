@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
@@ -24,18 +23,14 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
     [Test]
     public async Task DefaultHostingSkipsPersistenceOptions(CancellationToken cancellationToken)
     {
-        var builder = Host.CreateApplicationBuilder(
-            new HostApplicationBuilderSettings
-            {
-                EnvironmentName = "Development",
-            });
+        var services = TestNodeBuilder.CreateServices();
 
-        _ = await builder.ConfigureNodeAsync(
+        _ = await services.ConfigureNodeAsync(
             static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 
-        using var app = builder.Build();
+        await using var app = services.BuildNode();
         _ = await Assert.That(app.Services.GetService<PersistenceOptions>()).IsNull();
     }
 
@@ -45,16 +40,12 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
     public async Task UsePersistenceRegistersItsOptions(CancellationToken cancellationToken)
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var builder = Host.CreateApplicationBuilder(
-            new HostApplicationBuilderSettings
-            {
-                EnvironmentName = "Development",
-            });
+        var services = TestNodeBuilder.CreateServices();
 
         var optionsConfigurator = new PersistenceOptionsConfigurator(port, Dir);
-        _ = await builder.ConfigureNodeAsync(optionsConfigurator.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
+        _ = await services.ConfigureNodeAsync(optionsConfigurator.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
 
-        using var app = builder.Build();
+        await using var app = services.BuildNode();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
         _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir);
     }

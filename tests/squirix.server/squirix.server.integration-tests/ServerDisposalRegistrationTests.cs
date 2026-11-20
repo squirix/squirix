@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
@@ -65,30 +65,12 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
         Action<CompositionArgs>? extra,
         CancellationToken cancellationToken)
     {
-        var applicationOptions = new HostApplicationBuilderSettings
+        var services = new ServiceCollection();
+        await TestNodeServices.ConfigureBuilderAsync(services, cluster, Configure, cancellationToken);
+        var offenders = new List<string>(services.Count);
+        foreach (var descriptor in services)
         {
-            Args = [],
-            ApplicationName = "Squirix.Server",
-        };
-        var builder = Host.CreateApplicationBuilder(applicationOptions);
-
-        // Snapshot instance-registration descriptors already present after CreateBuilder by reference identity.
-        // The ASP.NET Core host itself adds several IDisposable instance services (for example its EventSource
-        // logger); those are owned by the host framework and out of scope. Tracking descriptors by reference (not
-        // by ServiceType) ensures that if squirrelix composition later adds a disposable instance registration with
-        // the same ServiceType as a framework service, the duplicate is still flagged.
-        HashSet<object> preExisting = [with(ReferenceEqualityComparer.Instance)];
-        foreach (var descriptor in builder.Services)
-        {
-            if (descriptor.ImplementationInstance is not null)
-                _ = preExisting.Add(descriptor);
-        }
-
-        await TestNodeServices.ConfigureBuilderAsync(builder.Services, cluster, Configure, cancellationToken);
-        var offenders = new List<string>(builder.Services.Count);
-        foreach (var descriptor in builder.Services)
-        {
-            if (!preExisting.Contains(descriptor) && descriptor.ImplementationInstance is IDisposable or IAsyncDisposable)
+            if (descriptor.ImplementationInstance is IDisposable or IAsyncDisposable)
                 offenders.Add(descriptor.ServiceType.FullName ?? descriptor.ServiceType.Name);
         }
 

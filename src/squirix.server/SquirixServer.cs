@@ -125,22 +125,26 @@ public sealed class SquirixServer : IAsyncDisposable
         /// <returns>A handle owning the started application.</returns>
         internal static async ValueTask<ApplicationHandle> StartApplicationAsync(ServerApplication app, Func<ServerApplication, CancellationToken, Task> configure, CancellationToken cancellationToken)
         {
+            await StartWithRollbackAsync(app, configure, cancellationToken).ConfigureAwait(false);
+            return new ApplicationHandle(app);
+        }
+
+        internal static async Task StartWithRollbackAsync(ServerApplication app, Func<ServerApplication, CancellationToken, Task> configure, CancellationToken cancellationToken)
+        {
             ArgumentNullException.ThrowIfNull(app);
             ArgumentNullException.ThrowIfNull(configure);
-            var handle = new ApplicationHandle(app);
             var logger = app.Services.Require<ILoggerFactory>().CreateLogger<SquirixServer>();
 #pragma warning disable CA1031 // The original startup failure is rethrown; cleanup and its logging must never replace it.
             try
             {
                 await configure(app, cancellationToken).ConfigureAwait(false);
                 await app.StartAsync(cancellationToken).ConfigureAwait(false);
-                return handle;
             }
             catch
             {
                 try
                 {
-                    await handle.DisposeAsync().ConfigureAwait(false);
+                    await new ApplicationHandle(app).DisposeAsync().ConfigureAwait(false);
                 }
                 catch (Exception cleanupException)
                 {

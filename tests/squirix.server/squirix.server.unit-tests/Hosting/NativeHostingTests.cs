@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
@@ -30,9 +29,9 @@ public sealed class NativeHostingTests : IsolatedStorageTestBase
     {
         using var held = ListenPortPool.ServerUnitTests.HoldPort();
         var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port));
-        var builder = Host.CreateApplicationBuilder();
-        _ = await builder.ConfigureNodeAsync(options => options.Uri = uri, loadDiscoveredSettings: false, configureComposition: static args => args.ManagementUri = new Uri("https://127.0.0.1:0"), cancellationToken: cancellationToken);
-        using var host = builder.Build();
+        var services = TestNodeBuilder.CreateServices();
+        _ = await services.ConfigureNodeAsync(options => options.Uri = uri, loadDiscoveredSettings: false, configureComposition: static args => args.ManagementUri = new Uri("https://127.0.0.1:0"), cancellationToken: cancellationToken);
+        await using var host = services.BuildNode();
         await ServerHostingComposition.OpenStorageAsync(host.Services, cancellationToken);
         held.Dispose();
         await host.StartAsync(cancellationToken);
@@ -63,10 +62,10 @@ public sealed class NativeHostingTests : IsolatedStorageTestBase
     [Test]
     public async Task DataDirOverrideKeepsStrictFsyncDefault(CancellationToken cancellationToken)
     {
-        var builder = Host.CreateApplicationBuilder();
+        var services = TestNodeBuilder.CreateServices();
         var options = new PersistenceOptionsConfigurator(ListenPortPool.ServerUnitTests.AllocatePort(), Dir);
-        _ = await builder.ConfigureNodeAsync(options.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
-        using var host = builder.Build();
+        _ = await services.ConfigureNodeAsync(options.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
+        await using var host = services.BuildNode();
         var persistence = host.Services.GetRequiredService<PersistenceOptions>();
         _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir);
     }

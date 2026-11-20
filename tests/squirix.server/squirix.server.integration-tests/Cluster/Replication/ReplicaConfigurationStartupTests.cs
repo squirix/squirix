@@ -4,11 +4,11 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -174,8 +174,8 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task PublicHostDisablesFoundationMode(CancellationToken cancellationToken)
     {
-        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ApplicationName = "Squirix.Server" });
-        _ = await builder.ConfigureNodeAsync(
+        var services = TestNodeBuilder.CreateServices();
+        _ = await services.ConfigureNodeAsync(
             static options =>
             {
                 options.NodeId = "node-a";
@@ -184,7 +184,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             },
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
-        using var app = builder.Build();
+        await using var app = services.BuildNode();
         var features = app.Services.GetRequiredService<FeatureState>();
         _ = await Assert.That(features.FoundationOnly).IsFalse();
         _ = await Assert.That(features.NetworkReplicationEnabled).IsFalse();
@@ -243,9 +243,9 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             cancellationToken);
         using var identityScope = identity;
         using var material = certificate;
-        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ApplicationName = "Squirix.Server" });
+        var services = TestNodeBuilder.CreateServices();
 
-        _ = await builder.ConfigureNodeAsync(
+        _ = await services.ConfigureNodeAsync(
             options =>
             {
                 options.NodeId = nodes[0].NodeId;
@@ -266,13 +266,13 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             },
             cancellationToken);
         var hostedServices = 0;
-        foreach (var descriptor in builder.Services)
+        foreach (var descriptor in services)
         {
-            if (descriptor.ServiceType == typeof(IHostedService))
+            if (descriptor.ServiceType == typeof(INodeService))
                 hostedServices++;
         }
 
-        using var app = builder.Build();
+        await using var app = services.BuildNode();
         return (app.Services.GetRequiredService<TopologyOptions>(), hostedServices);
     }
 }
