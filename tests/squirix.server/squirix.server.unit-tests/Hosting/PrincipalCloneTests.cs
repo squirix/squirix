@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Claims;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
@@ -215,5 +214,4 @@ public sealed class PrincipalCloneTests
 
         public override ClaimsPrincipal Clone() => _allowClone ? new ChangingPrincipal(false) : this;
     }
-
 }

@@ -92,23 +92,26 @@ public sealed class MetricsAuthOrLoopbackFilterTests
         _ = await Assert.That(await CreateEndpoint(services).CanAccessDetailsAsync(null, null, CancellationToken.None)).IsFalse();
     }
 
-    private static NativeManagementEndpoint CreateEndpoint(IServiceProvider services) => new(
-        services,
-        services.GetService<NativeConnectionAuthenticationValidator>() is { } validator
-            ? validator.ValidateBearerAsync
-            : static (_, _) => ValueTask.FromResult(false));
+    private static NativeManagementEndpoint CreateEndpoint(IServiceProvider services)
+    {
+        var validator = services.GetService<NativeConnectionAuthenticationValidator>();
+        Func<string, CancellationToken, ValueTask<bool>> authenticate = validator == null ? static (_, _) => ValueTask.FromResult(false) : validator.ValidateBearerAsync;
+        return new NativeManagementEndpoint(services, authenticate);
+    }
 
     private static IPAddress RemoteAddress() => IPAddress.Parse("203.0.113.10");
 
     private static ServiceProvider CreateServices(TestJwtCredentials? credentials)
     {
         var services = new ServiceCollection();
-        _ = services.AddSquirixSecurityServices(credentials == null ? new SecurityOptions() : new SecurityOptions
+        var options = new SecurityOptions
         {
-            JwtAudience = credentials.Audience,
-            JwtIssuer = credentials.Issuer,
-            JwtSigningKey = Convert.ToBase64String(credentials.GetSigningKey()),
-        });
+            JwtAudience = credentials?.Audience,
+            JwtIssuer = credentials?.Issuer,
+            JwtSigningKey = credentials == null ? null : Convert.ToBase64String(credentials.GetSigningKey()),
+        };
+
+        _ = services.AddSquirixSecurityServices(options);
         return services.BuildServiceProvider();
     }
 }

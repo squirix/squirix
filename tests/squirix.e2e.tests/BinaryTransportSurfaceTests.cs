@@ -42,7 +42,9 @@ public sealed class BinaryTransportSurfaceTests
         _ = await Assert.That(health.StatusCode).IsEqualTo(HttpStatusCode.OK);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(
             LoopbackClient.GetAsync(new Uri(uri, "/health"), cancellationToken),
-            TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
+            TimeSpan.FromSeconds(15),
+            TimeProvider.System,
+            cancellationToken);
 
         using var legacy = new HttpRequestMessage(HttpMethod.Post, new Uri(management, "/squirix.cache.v2.SquirixCacheService/GetValue"));
         legacy.Content = new ByteArrayContent([0, 0, 0, 0, 0]);
@@ -64,7 +66,9 @@ public sealed class BinaryTransportSurfaceTests
         options.Endpoints.Add(management);
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixTransportException, ISquirixClient>(
             SquirixClient.ConnectAsync(options, handler, cancellationToken),
-            TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
+            TimeSpan.FromSeconds(15),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.FailedPrecondition);
 
         options.Endpoints.Add(cluster.GetUri("nodeA"));
