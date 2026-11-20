@@ -165,7 +165,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         byte[]? payload = null;
         if (firstLine >= 0)
         {
-            ReadOnlySpan<byte> start = request[..firstLine];
+            var start = request[..firstLine];
             if (start.StartsWith("GET /.well-known/openid-configuration HTTP/1."u8))
                 payload = discovery;
             else if (start.StartsWith("GET /.well-known/jwks HTTP/1."u8))
