@@ -9,7 +9,7 @@ internal sealed class BinaryRequestContext
 {
     internal required string Path { get; init; }
 
-    internal required IServiceProvider RequestServices { get; init; }
+    internal IServiceProvider? RequestServices { get; init; }
 
     internal string? ConnectionId { get; init; }
 

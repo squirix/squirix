@@ -488,7 +488,7 @@ public sealed class ConnectionPrefaceTests
         var services = new ServiceCollection();
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
-        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider);
         await using var connection = new ProbeConnection();
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
@@ -520,7 +520,7 @@ public sealed class ConnectionPrefaceTests
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
         var clock = new FakeTimeProvider();
-        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), clock, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), clock, provider);
         await using var connection = new ProbeConnection();
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
@@ -549,7 +549,7 @@ public sealed class ConnectionPrefaceTests
         var services = new ServiceCollection();
         _ = services.AddOptions();
         await using var provider = services.BuildServiceProvider();
-        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider);
         await using var connection = new ProbeConnection();
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);

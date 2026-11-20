@@ -17,18 +17,25 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
     private readonly IOptionsMonitor<JwtValidationOptions> _options;
     private readonly TimeProvider _clock;
     private readonly IServiceScopeFactory _scopes;
+    private readonly bool _hasAuthorizationHook;
+    private readonly bool _hasTokenObserver;
     private readonly JsonWebTokenHandler _handler = new() { MapInboundClaims = true };
     private readonly ConnectionTrustHistory _history = new();
     private readonly SemaphoreSlim _pending = new(256, 256);
 
-    internal NativeConnectionAuthenticationValidator(IOptionsMonitor<JwtValidationOptions> options, TimeProvider clock, IServiceScopeFactory scopes)
+    internal NativeConnectionAuthenticationValidator(IOptionsMonitor<JwtValidationOptions> options, TimeProvider clock, IServiceProvider services)
     {
         _options = options;
         _clock = clock;
-        _scopes = scopes;
+        _scopes = services.GetRequiredService<IServiceScopeFactory>();
+        var registrations = services.GetRequiredService<IServiceProviderIsService>();
+        _hasAuthorizationHook = registrations.IsService(typeof(IBinaryAuthorizationHook));
+        _hasTokenObserver = registrations.IsService(typeof(IConnectionTokenObserver));
     }
 
     public void Dispose() => _pending.Dispose();
+
+    internal AsyncServiceScope? CreateRequestScope() => _hasAuthorizationHook ? _scopes.CreateAsyncScope() : null;
 
     internal bool TryEnter() => _pending.Wait(0, CancellationToken.None);
 
@@ -82,7 +89,7 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
             return FrameStatus.Unauthenticated;
 
         request.User = principal;
-        var hook = request.RequestServices.GetService<IBinaryAuthorizationHook>();
+        var hook = request.RequestServices?.GetService<IBinaryAuthorizationHook>();
         return hook == null ? FrameStatus.Ok : await hook.AuthorizeAsync(request).ConfigureAwait(false);
     }
 
@@ -146,7 +153,9 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
         if (!result.IsValid || result.ClaimsIdentity == null || result.SecurityToken == null)
             return null;
 
-        var principal = await ObservePrincipalAsync(new ClaimsPrincipal(result.ClaimsIdentity), connection, cancellationToken).ConfigureAwait(false);
+        var principal = new ClaimsPrincipal(result.ClaimsIdentity);
+        if (_hasTokenObserver)
+            principal = await ObservePrincipalAsync(principal, connection, cancellationToken).ConfigureAwait(false);
         if (principal == null || !ReferenceEquals(options, _options.CurrentValue))
             return null;
 

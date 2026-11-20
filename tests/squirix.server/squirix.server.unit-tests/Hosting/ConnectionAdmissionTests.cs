@@ -60,7 +60,7 @@ public sealed class ConnectionAdmissionTests
             TokenValidationParameters = new TokenValidationParameters { ValidAudience = credentials.Audience, ValidateIssuerSigningKey = true },
         };
         _ = await Assert.That(cache.TryAdd(Options.DefaultName, options)).IsTrue();
-        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider);
         var token = TestJwtHelper.CreateBearerToken(credentials);
         _ = await Assert.That(await validator.ValidateBearerAsync(token, cancellationToken)).IsTrue();
     }
@@ -78,7 +78,7 @@ public sealed class ConnectionAdmissionTests
         var configuration = new OpenIdConnectConfiguration();
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddSeconds(10)), options, configuration, null, static () => { });
-        using var validator = new NativeConnectionAuthenticationValidator(monitor, clock, provider.GetRequiredService<IServiceScopeFactory>());
+        using var validator = new NativeConnectionAuthenticationValidator(monitor, clock, provider);
         var pending = validator.IsCurrentAsync(connection!, cancellationToken);
         await gate.Requested.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(pending.IsCompleted).IsFalse();

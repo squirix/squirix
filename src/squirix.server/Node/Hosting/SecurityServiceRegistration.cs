@@ -92,7 +92,7 @@ internal static class SecurityServiceRegistration
             options.RequireHttpsMetadata = requireHttps;
         });
         _ = services.AddSingleton(static provider => new NativeConnectionAuthenticationValidator(
-            provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>()));
+            provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider));
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()

@@ -105,7 +105,7 @@ internal static class BinaryEndpoint
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(connection.ConnectionClosed, connection.CloseRequested);
         var accessor = services.GetRequiredService<BinaryRequestAccessor>();
         var operations = services.GetRequiredService<BinaryDispatch>();
-        var state = new CallState(connection, services, validator, accessor, operations);
+        var state = new CallState(connection, validator, accessor, operations);
         var log = services.GetRequiredService<ILogger<BinaryConnectionPump>>();
         var pump = new BinaryConnectionPump(
             connection.Transport,
@@ -127,18 +127,17 @@ internal static class BinaryEndpoint
         var operation = Unsafe.BitCast<int, BinaryOperation>(operationId);
         var deadlineUtc = (TimeProvider.System.GetUtcNow() + timeout).UtcDateTime;
         using var deadline = new TimedCancellation(timeout, TimeProvider.System, state.Connection.ConnectionClosed);
-        var scope = state.Services.CreateAsyncScope();
-        await using var scopeLifetime = scope.ConfigureAwait(false);
-        var call = new BinaryRequestContext
-        {
-            Connection = state.Connection,
-            RequestServices = scope.ServiceProvider,
-            RequestAborted = deadline.Token,
-            Path = operationId < OperationPaths.Length ? OperationPaths[operationId] : OperationPaths[0],
-        };
-        state.Accessor.Current = call;
+        var scope = state.Validator?.CreateRequestScope();
         try
         {
+            var call = new BinaryRequestContext
+            {
+                Connection = state.Connection,
+                RequestServices = scope?.ServiceProvider,
+                RequestAborted = deadline.Token,
+                Path = operationId < OperationPaths.Length ? OperationPaths[operationId] : OperationPaths[0],
+            };
+            state.Accessor.Current = call;
             var failure = state.Validator == null ? FrameStatus.Ok : await state.Validator.AuthorizeAsync(state.Connection.Identity!, call, deadline.Token).ConfigureAwait(false);
             deadline.Token.ThrowIfCancellationRequested();
             if (failure != FrameStatus.Ok)
@@ -165,6 +164,8 @@ internal static class BinaryEndpoint
         finally
         {
             state.Accessor.Current = null;
+            if (scope is { } requestScope)
+                await requestScope.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -185,7 +186,6 @@ internal static class BinaryEndpoint
 
     private sealed record CallState(
         BinaryConnection Connection,
-        IServiceProvider Services,
         NativeConnectionAuthenticationValidator? Validator,
         BinaryRequestAccessor Accessor,
         BinaryDispatch Operations);
