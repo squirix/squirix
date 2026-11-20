@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO.Pipelines;
 using System.Net;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -41,6 +42,20 @@ internal sealed class BinaryConnection : IDisposable
     {
         _draining.Dispose();
         _closed.Dispose();
+    }
+
+    internal async ValueTask CompleteTransportAsync()
+    {
+        try
+        {
+            await Transport.Input.CompleteAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            // StreamPipeWriter flushes retained bytes on normal completion. An aborted session must discard them.
+            var error = _closed.IsCancellationRequested ? new OperationCanceledException(ConnectionClosed) : null;
+            await Transport.Output.CompleteAsync(error).ConfigureAwait(false);
+        }
     }
 
     // The pump observes cancellation before returning from its synchronous abort callback.

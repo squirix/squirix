@@ -40,8 +40,7 @@ internal sealed class NativeBinaryEndpoint
         }
         finally
         {
-            await pipe.Input.CompleteAsync().ConfigureAwait(false);
-            await pipe.Output.CompleteAsync().ConfigureAwait(false);
+            await connection.CompleteTransportAsync().ConfigureAwait(false);
         }
     }
 

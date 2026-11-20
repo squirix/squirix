@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.IO;
 using System.Net;
 using System.Net.Security;
 using System.Runtime.CompilerServices;
@@ -36,26 +37,15 @@ internal sealed class NativePeerEndpoint
         _replication = replication;
     }
 
-    internal async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
+    internal static async ValueTask ReadHeaderAsync(Stream stream, Memory<byte> header, TimeProvider clock, CancellationToken graceful)
     {
-        ArgumentNullException.ThrowIfNull(remote);
-        if (stream.NegotiatedApplicationProtocol != PeerFrames.Protocol || stream.RemoteCertificate is not X509Certificate2 certificate)
-            return;
-        using var buffer = MemoryPool<byte>.Shared.Rent(PeerFrames.RequestBytes);
-        var header = buffer.Memory[..PeerFrames.RequestBytes];
-        while (!graceful.IsCancellationRequested)
-        {
-            await stream.ReadExactlyAsync(header, graceful).ConfigureAwait(false);
-            if (!_verifier.TryVerify(certificate, out _))
-                return;
-            var frame = PeerFrames.ReadRequest(header.Span);
-            if (!await ProcessAsync(stream, frame, certificate, graceful, abort).ConfigureAwait(false))
-                return;
-        }
+        using var idle = new TimedCancellation(PeerFrames.IdleTimeout, clock, graceful);
+        await stream.ReadExactlyAsync(header, idle.Token).ConfigureAwait(false);
     }
 
-    private static async Task WriteAsync(SslStream stream, BinaryResponse reply, CancellationToken cancellationToken)
+    internal static async Task WriteAsync(Stream stream, BinaryResponse reply, TimeProvider clock, CancellationToken abort)
     {
+        using var writing = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, clock, abort);
         var length = reply.Payload?.CalculateSize() ?? 0;
         if (length > EntryLimits.MaxSendMessageSizeBytes)
         {
@@ -68,11 +58,29 @@ internal sealed class NativePeerEndpoint
         {
             PeerFrames.WriteReply(packet, Unsafe.BitCast<FrameStatus, int>(reply.Status), length);
             reply.Payload?.WriteTo(packet.AsSpan(PeerFrames.ReplyBytes, length));
-            await stream.WriteAsync(packet.AsMemory(0, PeerFrames.ReplyBytes + length), cancellationToken).ConfigureAwait(false);
+            await stream.WriteAsync(packet.AsMemory(0, PeerFrames.ReplyBytes + length), writing.Token).ConfigureAwait(false);
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(packet, true);
+        }
+    }
+
+    internal async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
+    {
+        ArgumentNullException.ThrowIfNull(remote);
+        if (stream.NegotiatedApplicationProtocol != PeerFrames.Protocol || stream.RemoteCertificate is not X509Certificate2 certificate)
+            return;
+        using var buffer = MemoryPool<byte>.Shared.Rent(PeerFrames.RequestBytes);
+        var header = buffer.Memory[..PeerFrames.RequestBytes];
+        while (!graceful.IsCancellationRequested)
+        {
+            await ReadHeaderAsync(stream, header, TimeProvider.System, graceful).ConfigureAwait(false);
+            if (!_verifier.TryVerify(certificate, out _))
+                return;
+            var frame = PeerFrames.ReadRequest(header.Span);
+            if (!await ProcessAsync(stream, frame, certificate, graceful, abort).ConfigureAwait(false))
+                return;
         }
     }
 
@@ -111,7 +119,7 @@ internal sealed class NativePeerEndpoint
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !abort.IsCancellationRequested)
         {
-            await WriteAsync(stream, new BinaryResponse(FrameStatus.DeadlineExceeded), abort).ConfigureAwait(false);
+            await WriteAsync(stream, new BinaryResponse(FrameStatus.DeadlineExceeded), TimeProvider.System, abort).ConfigureAwait(false);
             return false;
         }
         finally
@@ -120,7 +128,7 @@ internal sealed class NativePeerEndpoint
             ArrayPool<byte>.Shared.Return(meta, true);
         }
 
-        await WriteAsync(stream, reply, abort).ConfigureAwait(false);
+        await WriteAsync(stream, reply, TimeProvider.System, abort).ConfigureAwait(false);
         return true;
     }
 

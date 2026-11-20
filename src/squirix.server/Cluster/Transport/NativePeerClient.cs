@@ -158,6 +158,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
                 offset += PeerFrames.Text.GetBytes(state, packet.AsSpan(offset));
                 request.WriteTo(packet.AsSpan(offset, size));
                 cancellationToken.ThrowIfCancellationRequested();
+                stream.RequestStarted = Stopwatch.GetTimestamp();
                 sent = true;
                 await stream.WriteAsync(packet.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
                 reply = await ReadReplyAsync(stream, parser, packet.AsMemory(0, PeerFrames.ReplyBytes), cancellationToken).ConfigureAwait(false);
@@ -318,6 +319,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         {
         }
 
+        /// <summary>Gets or sets the timestamp before the last request was sent, a lower bound for when the peer started its idle timer.</summary>
+        internal long RequestStarted { get; set; }
+
         /// <summary>Gets a value indicating whether the idle socket has neither a pending shutdown nor an unexpected frame.</summary>
         internal bool CanReuse
         {
@@ -325,7 +329,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             {
                 try
                 {
-                    return InnerStream is NetworkStream network && !network.Socket.Poll(0, SelectMode.SelectRead);
+                    return Stopwatch.GetElapsedTime(RequestStarted) < PeerFrames.IdleTimeout / 2 && InnerStream is NetworkStream network && !network.Socket.Poll(0, SelectMode.SelectRead);
                 }
                 catch (Exception error) when (error is SocketException or ObjectDisposedException)
                 {

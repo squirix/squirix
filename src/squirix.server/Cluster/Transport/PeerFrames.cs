@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Core;
 using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -14,6 +15,7 @@ internal static class PeerFrames
 {
     internal const int RequestBytes = 24;
     internal const int ReplyBytes = 12;
+    internal static readonly TimeSpan IdleTimeout = RpcAttemptTimeout.PerAttempt;
     internal static readonly SslApplicationProtocol Protocol = new("squirix-peer/1");
     internal static readonly UTF8Encoding Text = new(false, true);
     private const uint Magic = 0x53515031;
