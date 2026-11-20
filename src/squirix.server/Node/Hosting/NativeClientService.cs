@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Security;
@@ -29,6 +30,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
     private readonly X509Certificate2? _suppliedCertificate;
     private readonly CancellationTokenSource _graceful = new();
     private readonly CancellationTokenSource _abort = new();
+    private long _connectionSequence;
     private int _disposeStarted;
     private Task _run = Task.CompletedTask;
     private MtlsCertificate.Hold? _peerMaterial;
@@ -63,7 +65,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
 
         try
         {
-            AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024), listeners);
+            AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024, NextConnectionId), listeners);
             var managementIndex = listeners.Count;
             AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 64), listeners, managementAddresses);
             if (listeners[managementIndex].Socket.LocalEndPoint is IPEndPoint boundManagement)
@@ -292,6 +294,8 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
     }
 
     private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
+
+    private string NextConnectionId() => Interlocked.Increment(ref _connectionSequence).ToString("x", CultureInfo.InvariantCulture);
 
     private async ValueTask<(Uri Uri, IPAddress[]? Addresses)> ResolveManagementBindingAsync(X509Certificate2 certificate, int peerPort, CancellationToken cancellationToken)
     {

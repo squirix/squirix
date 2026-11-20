@@ -21,7 +21,7 @@ public sealed class BinaryConnectionCompletionTests
     {
         await using var destination = new MemoryStream();
         var pipe = new NativeBinaryEndpoint.StreamPipe(destination);
-        using var connection = new BinaryConnection(pipe, null, null, CancellationToken.None, CancellationToken.None);
+        using var connection = new BinaryConnection("completion", pipe, null, null, CancellationToken.None, CancellationToken.None);
         pipe.Output.GetSpan(1)[0] = 42;
         pipe.Output.Advance(1);
         if (abort)

@@ -16,25 +16,27 @@ internal sealed class NativeBinaryEndpoint
 {
     private readonly Func<BinaryConnection, Task> _dispatch;
     private readonly IPEndPoint _local;
+    private readonly Func<string> _nextConnectionId;
 
-    internal NativeBinaryEndpoint(IServiceProvider services, IPEndPoint local, bool mutationReplay)
+    internal NativeBinaryEndpoint(IServiceProvider services, IPEndPoint local, bool mutationReplay, Func<string> nextConnectionId)
     {
         _local = local;
+        _nextConnectionId = nextConnectionId;
         _dispatch = BinaryEndpoint.Create(services, mutationReplay);
     }
 
-    internal static NativeTlsListener CreateListener(Socket socket, SslServerAuthenticationOptions tls, IServiceProvider services, bool mutationReplay, int capacity)
+    internal static NativeTlsListener CreateListener(Socket socket, SslServerAuthenticationOptions tls, IServiceProvider services, bool mutationReplay, int capacity, Func<string> nextConnectionId)
     {
         if (socket.LocalEndPoint is not IPEndPoint local)
             throw new InvalidOperationException("The public TLS endpoint must be bound before accepting clients.");
-        var endpoint = new NativeBinaryEndpoint(services, local, mutationReplay);
+        var endpoint = new NativeBinaryEndpoint(services, local, mutationReplay, nextConnectionId);
         return new NativeTlsListener(socket, tls, endpoint.ServeAsync, services.GetRequiredService<ILogger<NativeTlsListener>>(), capacity);
     }
 
     private async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
     {
         var pipe = new StreamPipe(stream);
-        using var connection = new BinaryConnection(pipe, _local, remote, graceful, abort);
+        using var connection = new BinaryConnection(_nextConnectionId(), pipe, _local, remote, graceful, abort);
         try
         {
             await _dispatch(connection).ConfigureAwait(false);

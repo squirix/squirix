@@ -674,7 +674,7 @@ public sealed class ConnectionPrefaceTests
         internal ProbeConnection()
         {
             Transport = new TransportPipe(Incoming.Reader, Outgoing.Writer);
-            Native = new BinaryConnection(Transport, null, null, CancellationToken.None, CancellationToken.None);
+            Native = new BinaryConnection("preface", Transport, null, null, CancellationToken.None, CancellationToken.None);
         }
 
         internal Pipe Incoming { get; } = new();
