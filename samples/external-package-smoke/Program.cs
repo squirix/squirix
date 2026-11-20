@@ -34,6 +34,7 @@ internal static class Program
         try
         {
             Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot.FullName);
+            Environment.SetEnvironmentVariable("SQUIRIX_MANAGEMENT_URI", "https://127.0.0.1:0");
 
             var endpoint = await LoadConfiguredEndpointAsync(CancellationToken.None).ConfigureAwait(false);
             var server = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
