@@ -20,11 +20,8 @@ internal sealed class BackpressureMetrics
     /// <summary>Holds the admission gate the gauges read, so every field of this type stays readonly.</summary>
     private readonly ObserverSlot _slot = new();
 
-    internal BackpressureMetrics(Meter? meter)
+    internal BackpressureMetrics(Meter meter)
     {
-        if (meter == null)
-            return;
-
         _bypassTotalCtr = meter.CreateCounter<long>("squirix_backpressure_bypass_total");
         _queueCancellationsTotalCtr = meter.CreateCounter<long>("squirix_backpressure_queue_cancellations_total");
         _queueTimeoutsTotalCtr = meter.CreateCounter<long>("squirix_backpressure_queue_timeouts_total");
@@ -47,7 +44,13 @@ internal sealed class BackpressureMetrics
             description: "Current number of client buckets tracked for backpressure state; zero unless a per-client limit is set");
     }
 
+    private BackpressureMetrics()
+    {
+    }
+
     internal bool Enabled => _bypassTotalCtr != null;
+
+    internal static BackpressureMetrics Create(Meter? meter) => meter == null ? new BackpressureMetrics() : new BackpressureMetrics(meter);
 
     internal void AddBypass(string transport, string operation)
     {

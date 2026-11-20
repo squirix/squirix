@@ -28,10 +28,7 @@ internal static class RuntimeServiceRegistration
     {
         internal IServiceCollection AddSquirixRuntimeServices(bool metricsEnabled)
         {
-            _ = services.AddSingleton<RemoteInvocationContextAccessor>();
-            _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
-            _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
-            _ = services.AddHttpContextAccessor();
+            _ = services.AddRequestContextServices();
             _ = services.AddSingleton<IBackpressureClientIdResolver>(static sp => sp.GetRequiredService<AdmissionOptions>().HasPerClientLimits
                 ? new HttpContextClientIdResolver(sp.GetRequiredService<IHttpContextAccessor>())
                 : SharedClientIdResolver.Instance);
@@ -64,6 +61,15 @@ internal static class RuntimeServiceRegistration
 
             _ = services.AddRequestRoutingServices();
 
+            return services;
+        }
+
+        private IServiceCollection AddRequestContextServices()
+        {
+            _ = services.AddSingleton<RemoteInvocationContextAccessor>();
+            _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
+            _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
+            _ = services.AddHttpContextAccessor();
             return services;
         }
 
@@ -134,7 +140,7 @@ internal static class RuntimeServiceRegistration
             // The per-host Meter instance is owned by the host composition, which registers it through the factory
             // overload (so the DI container disposes it on shutdown) before AddSquirixRuntimeServices runs. This
             // method only registers the metrics types against that shared meter.
-            _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => BackpressureMetrics.Create(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
             _ = services.AddSingleton(static sp => new ReplicationMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
             _ = services.AddSingleton(static sp => new ReplicaCatchUpMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
             _ = services.AddSingleton(static sp => new ServerCallPolicyMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));

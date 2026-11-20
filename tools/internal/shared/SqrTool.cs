@@ -12,7 +12,7 @@ internal static class SqrTool
 {
     /// <summary>Finds the nearest directory above the tool file that holds squirix.slnx or the client project.</summary>
     /// <returns>The repository root, or the current directory when no root is found.</returns>
-    public static string ResolveRepoRoot()
+    internal static string ResolveRepoRoot()
     {
         var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
         var startDir = !string.IsNullOrWhiteSpace(entryDir) ? entryDir : Environment.CurrentDirectory;
@@ -33,7 +33,7 @@ internal static class SqrTool
 
     /// <summary>Finds the dotnet executable: DOTNET_ROOT first, then the host running the tool, then PATH.</summary>
     /// <returns>The full path of the dotnet executable, or null when none is found.</returns>
-    public static string? ResolveDotnetPath()
+    internal static string? ResolveDotnetPath()
     {
         var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
         var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
@@ -73,7 +73,7 @@ internal static class SqrTool
     /// <param name="args">The arguments, passed one by one without shell quoting.</param>
     /// <param name="cancellationToken">Cancels the wait for the process to exit.</param>
     /// <returns>The exit code of the process, or 1 when it does not start.</returns>
-    public static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)
+    internal static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
         {
