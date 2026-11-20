@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Security;
@@ -44,9 +45,9 @@ internal sealed class NativeBinaryEndpoint
         }
     }
 
-    private sealed class StreamPipe : IDuplexPipe
+    internal sealed class StreamPipe : IDuplexPipe
     {
-        internal StreamPipe(SslStream stream)
+        internal StreamPipe(Stream stream)
         {
             Input = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
             Output = PipeWriter.Create(stream, new StreamPipeWriterOptions(leaveOpen: true));

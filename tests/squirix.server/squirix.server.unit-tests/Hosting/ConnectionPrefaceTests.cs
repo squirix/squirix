@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.IO;
 using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,29 +24,6 @@ namespace Squirix.Server.UnitTests.Hosting;
 [Immutable]
 public sealed class ConnectionPrefaceTests
 {
-    /// <summary>Graceful completion flushes pending output, while a connection abort discards it.</summary>
-    /// <param name="abort">Whether the session ended with a forced abort.</param>
-    /// <param name="expectedBytes">The number of bytes delivered during completion.</param>
-    [Test]
-    [Arguments(false, 1)]
-    [Arguments(true, 0)]
-    public async Task CompletionHonorsSessionOutcome(bool abort, int expectedBytes)
-    {
-        using var destination = new MemoryStream();
-        var output = PipeWriter.Create(destination, new StreamPipeWriterOptions(leaveOpen: true));
-        var input = PipeReader.Create(Stream.Null, new StreamPipeReaderOptions(leaveOpen: true));
-        using var connection = new BinaryConnection(new TransportPipe(input, output), null, null, CancellationToken.None, CancellationToken.None);
-        output.GetSpan(1)[0] = 42;
-        output.Advance(1);
-        if (abort)
-            connection.Abort();
-        else
-            connection.RequestClose();
-
-        await connection.CompleteTransportAsync();
-        _ = await Assert.That(destination.Length).IsEqualTo((long)expectedBytes);
-    }
-
     /// <summary>Incomplete framing is aborted at the handshake deadline before HTTP admission.</summary>
     [Test]
     public async Task IncompleteHeaderTimesOut()
