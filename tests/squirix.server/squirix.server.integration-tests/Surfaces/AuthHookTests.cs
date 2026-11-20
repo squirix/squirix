@@ -198,6 +198,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
     {
         private readonly HookProbe _probe;
         private readonly EventScope _scope;
+
         internal ScopedEvents(HookProbe probe, EventScope scope)
         {
             _probe = probe;
