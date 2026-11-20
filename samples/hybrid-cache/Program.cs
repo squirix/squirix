@@ -10,9 +10,10 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        if (args is not [var key] || string.Equals(key, "--help", StringComparison.Ordinal))
+        var write = args is ["set", _];
+        if (!write && args is not ["get", _])
         {
-            await Console.Error.WriteLineAsync("Usage: <key>").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Usage: set <key> | get <key>").ConfigureAwait(false);
             return args is ["--help"] ? 0 : 2;
         }
 
@@ -37,12 +38,21 @@ internal static class Program
             Expiration = TimeSpan.FromMinutes(5),
             LocalCacheExpiration = TimeSpan.FromSeconds(2),
         };
-        var value = await cache.GetOrCreateAsync(
-            $"message:{key}",
-            static _ => ValueTask.FromResult($"created by process {Environment.ProcessId}"),
+        var cacheKey = $"message:{args[1]}";
+        if (write)
+        {
+            var value = $"created by process {Environment.ProcessId}";
+            await cache.SetAsync(cacheKey, value, policy, cancellationToken: timeout.Token).ConfigureAwait(false);
+            await Console.Out.WriteLineAsync(value).ConfigureAwait(false);
+            return 0;
+        }
+
+        var existing = await cache.GetOrCreateAsync(
+            cacheKey,
+            static _ => ValueTask.FromResult("cache miss"),
             policy,
             cancellationToken: timeout.Token).ConfigureAwait(false);
-        await Console.Out.WriteLineAsync(value).ConfigureAwait(false);
+        await Console.Out.WriteLineAsync(existing).ConfigureAwait(false);
         return 0;
     }
 }
