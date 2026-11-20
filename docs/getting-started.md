@@ -49,7 +49,7 @@ To expose the Prometheus endpoint, start the server with `squirix-server run --m
 in [the settings file](configuration.md#prometheus-metrics-squirixsettingsjson).
 
 ```bash
-curl https://localhost:5001/metrics
+curl https://localhost:5003/metrics
 ```
 
 `/metrics` accepts loopback connections without a token even when JWT authentication is enabled.
@@ -57,8 +57,8 @@ curl https://localhost:5001/metrics
 If the server cannot bind to port 5001, or the client reports a TLS chain error such as `PartialChain`,
 check that the CLI started successfully and that the endpoint belongs to that process. A container or another
 server already using the port may answer the health probe with a different certificate. If port 5001 is in use,
-start the CLI with `squirix-server run --urls https://localhost:5443` (if 5443 is free), then use that URL in the
-health probes and the client example. Keep TLS verification enabled.
+start the CLI with `squirix-server run --urls https://localhost:5443` (if 5443 is free). Use port 5443 in the
+client example and the management URL printed by the CLI for health probes (port 5445 by default). Keep TLS verification enabled.
 
 ### Docker
 
