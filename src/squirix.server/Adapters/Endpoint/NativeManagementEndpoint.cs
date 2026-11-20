@@ -119,7 +119,7 @@ internal sealed partial class NativeManagementEndpoint
         var lines = headers.Split("\r\n");
         var start = lines[0].Split(' ');
         var badRequest = Response.Empty("400 Bad Request");
-        if (start.Length != 3 || start[2] is not ("HTTP/1.1" or "HTTP/1.0") || !start[1].StartsWith('/'))
+        if (start.Length != 3 || start[2] is not ("HTTP/1.1" or "HTTP/1.0") || start[1] is not ['/', ..])
             return (null, badRequest);
 
         var head = string.Equals(start[0], "HEAD", StringComparison.Ordinal);

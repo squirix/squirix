@@ -12,7 +12,7 @@ internal static class Program
         var put = args is ["put", _, _];
         if (!put && args is not ["get", _])
         {
-            await Console.Error.WriteLineAsync("Usage: put <key> <message> | get <key>").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Usage: put <key> <message> | get <key>".AsMemory(), CancellationToken.None).ConfigureAwait(false);
             return args is ["--help"] ? 0 : 2;
         }
 
@@ -41,11 +41,11 @@ internal static class Program
         var result = await cache.GetValueAsync(args[1], timeout.Token).ConfigureAwait(false);
         if (!result.Found || result.Value is not { } banner)
         {
-            await Console.Error.WriteLineAsync("Key not found.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Key not found.".AsMemory(), timeout.Token).ConfigureAwait(false);
             return 1;
         }
 
-        await Console.Out.WriteLineAsync(banner.Message).ConfigureAwait(false);
+        await Console.Out.WriteLineAsync(banner.Message.AsMemory(), timeout.Token).ConfigureAwait(false);
         return 0;
     }
 }

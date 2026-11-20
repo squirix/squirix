@@ -243,7 +243,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
             var principal = request.User!;
             var connection = request.Connection;
-            if (!ReferenceEquals(request, _accessor.Current) || !request.Path.StartsWith('/') ||
+            if (!ReferenceEquals(request, _accessor.Current) || request.Path is not ['/', ..] ||
                 connection?.RemoteEndPoint is not { Port: > 0 } remote ||
                 !IPAddress.IsLoopback(remote.Address.IsIPv4MappedToIPv6 ? remote.Address.MapToIPv4() : remote.Address) ||
                 connection.LocalEndPoint is not { Port: > 0 })

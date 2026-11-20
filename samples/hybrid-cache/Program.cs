@@ -13,7 +13,7 @@ internal static class Program
         var write = args is ["set", _];
         if (!write && args is not ["get", _])
         {
-            await Console.Error.WriteLineAsync("Usage: set <key> | get <key>").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Usage: set <key> | get <key>".AsMemory(), CancellationToken.None).ConfigureAwait(false);
             return args is ["--help"] ? 0 : 2;
         }
 
@@ -43,7 +43,7 @@ internal static class Program
         {
             var value = $"created by process {Environment.ProcessId}";
             await cache.SetAsync(cacheKey, value, policy, cancellationToken: timeout.Token).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync(value).ConfigureAwait(false);
+            await Console.Out.WriteLineAsync(value.AsMemory(), timeout.Token).ConfigureAwait(false);
             return 0;
         }
 
@@ -52,7 +52,7 @@ internal static class Program
             static _ => ValueTask.FromResult("cache miss"),
             policy,
             cancellationToken: timeout.Token).ConfigureAwait(false);
-        await Console.Out.WriteLineAsync(existing).ConfigureAwait(false);
+        await Console.Out.WriteLineAsync(existing.AsMemory(), timeout.Token).ConfigureAwait(false);
         return 0;
     }
 }
