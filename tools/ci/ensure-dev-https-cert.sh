@@ -18,7 +18,7 @@ distinguished_name = subject
 basicConstraints = critical,CA:FALSE
 keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
-subjectAltName = DNS:localhost
+subjectAltName = DNS:localhost,IP:127.0.0.1,IP:::1
 EOF
     openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
         -config "${cert_dir}/localhost.cnf" -extensions v3 \
