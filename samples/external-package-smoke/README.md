@@ -9,7 +9,7 @@ packed `squirix` and `squirix.server` NuGet packages instead.
 ## Prerequisites
 
 - The .NET SDK selected by [global.json](../../global.json), including when building this sample from the repository.
-- A trusted ASP.NET Core development HTTPS certificate: `dotnet dev-certs https --trust`.
+- A trusted .NET SDK development HTTPS certificate: `dotnet dev-certs https --trust`.
 - A free local port 51907, as configured in [Squirix.settings.json](Squirix.settings.json).
 
 ## Build the packages

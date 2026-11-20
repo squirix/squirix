@@ -67,7 +67,7 @@ internal static class NodeOptionsRegistration
         // which would leak the loaded X509 certificates. The material is shared: the internode client pool retains its
         // own hold for its owned outbound handlers and releases it only once their connections are closed, so the
         // certificates are freed by the last holder, whichever order the container disposes them in. The testkit peer
-        // handlers take a hold too. Kestrel takes none: the host stops it before DI disposes the material.
+        // handlers take a hold too. The host stops the native peer listener before disposing its services.
         _ = services.AddSingleton(_ => args.Certificate);
     }
 
