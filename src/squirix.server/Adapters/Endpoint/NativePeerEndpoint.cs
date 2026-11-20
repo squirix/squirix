@@ -154,7 +154,7 @@ internal sealed class NativePeerEndpoint
                 return new BinaryResponse(FrameStatus.Unimplemented);
             services.GetRequiredService<RingAgreement>().EnsureInboundAgreement(fingerprint, peer);
             var call = new BinaryRequestContext { Path = fullPath, RequestAborted = cancellationToken, RequestServices = services, TraceParent = parent, TraceState = state };
-            var request = new BinaryDispatch.Request(call, DateTime.MaxValue, parent, state, Task.CompletedTask, true);
+            var request = new BinaryDispatch.Request(call, DateTime.MaxValue, Task.CompletedTask, true);
             return await services.GetRequiredService<BinaryDispatch>().ExecuteAsync(operation, body, in request).ConfigureAwait(false);
         }
 

@@ -147,7 +147,7 @@ internal static class BinaryEndpoint
             if (!TryReadTrace(call, frame.Control, ref body))
                 return new BinaryResponse(FrameStatus.InvalidArgument);
 
-            var callContext = new BinaryDispatch.Request(call, deadlineUtc, call.TraceParent, call.TraceState, predecessor);
+            var callContext = new BinaryDispatch.Request(call, deadlineUtc, predecessor);
             return await state.Operations.ExecuteAsync(operation, body, in callContext).ConfigureAwait(false);
         }
         catch (ServerCallException error)

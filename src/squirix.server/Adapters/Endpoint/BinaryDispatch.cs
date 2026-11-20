@@ -81,7 +81,7 @@ internal sealed class BinaryDispatch
         try
         {
             using var invocation = _scopes.EnterRemoteInvocation(context.Forwarded);
-            using var activity = ServerCallCorrelation.StartActivity(path, context.TraceParent, context.TraceState);
+            using var activity = ServerCallCorrelation.StartActivity(path, call.TraceParent, call.TraceState);
             using var log = _correlation.BeginLogScope(path);
             using var deadline = context.Forwarded ? null : ServerRpcDeadlineContext.Push(context.Deadline, TimeProvider.System);
             var (decision, lease) = await _admission.AcquireAsync(path, call.RequestAborted).ConfigureAwait(false);
@@ -122,5 +122,5 @@ internal sealed class BinaryDispatch
         }
     }
 
-    internal readonly record struct Request(BinaryRequestContext Call, DateTime Deadline, string? TraceParent, string? TraceState, Task Predecessor, bool Forwarded = false);
+    internal readonly record struct Request(BinaryRequestContext Call, DateTime Deadline, Task Predecessor, bool Forwarded = false);
 }
