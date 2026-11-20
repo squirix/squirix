@@ -37,7 +37,8 @@ public sealed class BinaryMutationOrderTests
         var mutations = new ConcurrentQueue<int>();
         await WriteRequestsAsync(connection.Incoming.Writer, stop.Token);
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             async (frame, _, _, predecessor) =>
             {
                 if (frame.Id == RejectedWrite)
@@ -55,7 +56,8 @@ public sealed class BinaryMutationOrderTests
                 return new BinaryResponse(FrameStatus.Ok);
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {

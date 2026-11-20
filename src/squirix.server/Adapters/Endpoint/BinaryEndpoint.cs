@@ -146,7 +146,13 @@ internal static class BinaryEndpoint
         var operations = services.GetRequiredService<BinaryDispatch>();
         var state = new CallState(connection, services, identity, policy, accessor, operations, graceful);
         var log = services.GetRequiredService<ILogger<BinaryConnectionPump>>();
-        var pump = new BinaryConnectionPump(connection, (frame, bytes, elapsed, predecessor) => ProcessAsync(state, frame, bytes, elapsed, predecessor), log, TimeProvider.System);
+        var pump = new BinaryConnectionPump(
+            connection.Transport,
+            connection.Abort,
+            (frame, bytes, elapsed, predecessor) => ProcessAsync(state, frame, bytes, elapsed, predecessor),
+            log,
+            TimeProvider.System,
+            connection.ConnectionClosed);
         await pump.RunAsync(stop).ConfigureAwait(false);
     }
 

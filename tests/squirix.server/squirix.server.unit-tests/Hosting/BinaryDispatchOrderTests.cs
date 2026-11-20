@@ -34,7 +34,8 @@ public sealed class BinaryDispatchOrderTests
         var observedValue = 0;
         var value = 0;
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             async (frame, _, _, predecessor) =>
             {
                 if (frame.Id == 1)
@@ -52,7 +53,8 @@ public sealed class BinaryDispatchOrderTests
                 return new BinaryResponse(FrameStatus.Ok);
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {

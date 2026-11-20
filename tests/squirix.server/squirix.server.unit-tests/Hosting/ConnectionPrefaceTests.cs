@@ -65,14 +65,16 @@ public sealed class ConnectionPrefaceTests
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var dispatched = false;
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (_, _, _, _) =>
             {
                 dispatched = true;
                 return ValueTask.FromResult(default(BinaryResponse));
             },
             NullLogger.Instance,
-            clock);
+            clock,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -111,14 +113,16 @@ public sealed class ConnectionPrefaceTests
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var dispatched = 0;
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (_, _, _, _) =>
             {
                 dispatched++;
                 return ValueTask.FromResult(default(BinaryResponse));
             },
             NullLogger.Instance,
-            clock);
+            clock,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -161,10 +165,12 @@ public sealed class ConnectionPrefaceTests
 
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (frame, _, _, _) => frame.Id == 2 ? new ValueTask<BinaryResponse>(delayed.Task) : ValueTask.FromResult(default(BinaryResponse)),
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -208,10 +214,12 @@ public sealed class ConnectionPrefaceTests
         _ = await connection.Incoming.Writer.FlushAsync(stop.Token);
         var large = new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFrom(new byte[Frames.MaxBatchBytes]) };
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (frame, _, _, _) => ValueTask.FromResult(frame.Id == 1 ? new BinaryResponse(FrameStatus.Ok, large) : default),
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -253,7 +261,8 @@ public sealed class ConnectionPrefaceTests
         var dispatched = 0;
         var allDispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (_, _, _, _) =>
             {
                 if (Interlocked.Increment(ref dispatched) == pendingCalls)
@@ -261,7 +270,8 @@ public sealed class ConnectionPrefaceTests
                 return new ValueTask<BinaryResponse>(reply.Task);
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -298,7 +308,8 @@ public sealed class ConnectionPrefaceTests
 
         _ = await input.FlushAsync(guard.Token);
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             async (frame, _, _, _) =>
             {
                 if (frame.Id == 1)
@@ -307,7 +318,8 @@ public sealed class ConnectionPrefaceTests
                 return new BinaryResponse(FrameStatus.Ok);
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -344,10 +356,12 @@ public sealed class ConnectionPrefaceTests
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         stop.CancelAfter(TimeSpan.FromSeconds(5));
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             static (_, _, _, _) => ValueTask.FromResult(default(BinaryResponse)),
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
@@ -395,7 +409,8 @@ public sealed class ConnectionPrefaceTests
         Frames.Write(data.AsSpan(remainderLength), 3, 0, 1);
         var bodyIntact = false;
         var pump = new BinaryConnectionPump(
-            connection,
+            connection.Transport,
+            connection.Abort,
             (frame, body, _, _) =>
             {
                 if (frame.Id == 2)
@@ -404,7 +419,8 @@ public sealed class ConnectionPrefaceTests
                 return ValueTask.FromResult(default(BinaryResponse));
             },
             NullLogger.Instance,
-            TimeProvider.System);
+            TimeProvider.System,
+            connection.ConnectionClosed);
         var processing = pump.RunAsync(stop.Token);
         try
         {
