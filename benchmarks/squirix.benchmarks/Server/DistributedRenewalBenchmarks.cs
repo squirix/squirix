@@ -108,7 +108,7 @@ public class DistributedRenewalBenchmarks
 
             _ = await _cluster.StartAllAsync(StartOptions, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             _handler = LoopbackHttp.CreateHandler();
-            _client = new BinaryCacheClient(first.HttpUri, null, _handler);
+            _client = new BinaryCacheClient(first.HttpUri, null, _handler.SslOptions);
             var payload = ByteString.CopyFrom(new byte[PayloadBytes]);
             _key = _cluster["nodeA"].FindKeyOwnedBy(CacheName, "nodeA");
             var request = new SetDistributedAsyncRequest

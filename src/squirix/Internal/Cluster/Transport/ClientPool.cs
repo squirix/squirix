@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Net.Security;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -94,6 +95,14 @@ internal sealed class ClientPool : IClientPool
         return primaryNodeId;
     }
 
+    private static SslClientAuthenticationOptions? ReadTlsOptions(HttpMessageHandler? handler)
+    {
+        while (handler is DelegatingHandler { InnerHandler: { } inner })
+            handler = inner;
+
+        return (handler as SocketsHttpHandler)?.SslOptions;
+    }
+
     private static void RecordSecondaryWarmupFailures(string primaryNodeId, Dictionary<string, Exception> failuresByNode)
     {
         // Unreachable secondary peers are tolerated once a primary is known; diagnostics record each skip.
@@ -166,6 +175,7 @@ internal sealed class ClientPool : IClientPool
         HttpMessageHandler? handler,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
+        var tlsOptions = ReadTlsOptions(handler);
         var ids = new string[peers.Length];
         for (var i = 0; i < peers.Length; i++)
         {
@@ -173,7 +183,7 @@ internal sealed class ClientPool : IClientPool
             BinaryCacheClient.RequireHttps(peer.Uri);
             var policy = policyFactory.Invoke(peer.NodeId);
 #pragma warning disable CA2000 // The pool owns clients published in its per-peer registry and disposes all of them.
-            _clients[peer.NodeId] = new NodeClient(new BinaryCacheClient(peer.Uri, bearerTokenProvider, handler), policy);
+            _clients[peer.NodeId] = new NodeClient(new BinaryCacheClient(peer.Uri, bearerTokenProvider, tlsOptions), policy);
 #pragma warning restore CA2000
             ids[i] = peer.NodeId;
         }
@@ -224,7 +234,7 @@ internal sealed class ClientPool : IClientPool
                 if (failure == null)
                     return;
 
-                if (failure is SquirixTransportException { StatusCode: CacheTransportStatusCode.Unauthenticated })
+                if (failure is SquirixTransportException { StatusCode: CacheTransportStatusCode.Unauthenticated or CacheTransportStatusCode.FailedPrecondition })
                     throw failure;
                 lastFailure = failure;
                 remaining = deadlineUtc - time.GetUtcNow();

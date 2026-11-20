@@ -3,7 +3,6 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
-using System.Net.Http;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
@@ -24,7 +23,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 {
     private readonly Uri _endpoint;
     private readonly Func<CancellationToken, ValueTask<string>>? _tokenProvider;
-    private readonly HttpMessageHandler? _handler;
+    private readonly SslClientAuthenticationOptions? _tlsOptions;
     private readonly Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>>? _invoke;
     private readonly Channel<bool> _connect = Channel.CreateBounded<bool>(1);
     private Connection? _connection;
@@ -33,12 +32,12 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
     internal BinaryCacheClient(
         Uri endpoint,
         Func<CancellationToken, ValueTask<string>>? tokenProvider,
-        HttpMessageHandler? handler,
+        SslClientAuthenticationOptions? tlsOptions,
         Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>>? invoke = null)
     {
         _endpoint = endpoint;
         _tokenProvider = tokenProvider;
-        _handler = handler;
+        _tlsOptions = tlsOptions;
         _invoke = invoke;
         _ = _connect.Writer.TryWrite(true);
     }
@@ -194,7 +193,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 Volatile.Write(ref _connection, null);
             }
 
-            var connected = await Connection.ConnectAsync(_endpoint, _tokenProvider, _handler, token).ConfigureAwait(false);
+            var connected = await Connection.ConnectAsync(_endpoint, _tokenProvider, _tlsOptions, token).ConfigureAwait(false);
             Volatile.Write(ref _connection, connected);
             return connected;
         }
@@ -253,7 +252,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         }
 
         internal static async Task<Connection> ConnectAsync(
-            Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, HttpMessageHandler? handler, CancellationToken token)
+            Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, CancellationToken token)
         {
             var socket = new TcpClient { NoDelay = true };
             SslStream? tls = null;
@@ -261,7 +260,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             {
                 await socket.ConnectAsync(endpoint.IdnHost, endpoint.Port, token).ConfigureAwait(false);
                 tls = new SslStream(socket.GetStream());
-                await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, handler), token).ConfigureAwait(false);
+                await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, tlsOptions), token).ConfigureAwait(false);
                 var supportsMutationReplay = await NegotiateAsync(tls, provider, token).ConfigureAwait(false);
                 return new Connection(socket, tls, supportsMutationReplay);
             }
@@ -340,17 +339,13 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         private static SquirixTransportException UnknownOutcome(Exception? cause = null) =>
             new(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownDetail.Value, cause));
 
-        private static SslClientAuthenticationOptions CreateTlsOptions(Uri endpoint, HttpMessageHandler? handler)
+        private static SslClientAuthenticationOptions CreateTlsOptions(Uri endpoint, SslClientAuthenticationOptions? tlsOptions)
         {
-            while (handler is DelegatingHandler { InnerHandler: { } inner })
-                handler = inner;
-
-            var existing = (handler as SocketsHttpHandler)?.SslOptions;
             return new SslClientAuthenticationOptions
             {
                 TargetHost = endpoint.IdnHost,
-                RemoteCertificateValidationCallback = existing?.RemoteCertificateValidationCallback,
-                CertificateRevocationCheckMode = existing?.CertificateRevocationCheckMode ?? System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck,
+                RemoteCertificateValidationCallback = tlsOptions?.RemoteCertificateValidationCallback,
+                CertificateRevocationCheckMode = tlsOptions?.CertificateRevocationCheckMode ?? System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck,
             };
         }
 
@@ -365,8 +360,10 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 preface[4] = provider == null ? noCredentials : bearerCredentials;
                 await tls.WriteAsync(preface.AsMemory(0, Frames.PrefaceBytes), token).ConfigureAwait(false);
                 await tls.ReadExactlyAsync(preface.AsMemory(0, 1), token).ConfigureAwait(false);
-                if (preface[0] is not (Frames.Accepted or Frames.AcceptedWithMutationReplay))
+                if (preface[0] == Frames.Rejected)
                     throw new ConnectionRejectedException();
+                if (preface[0] is not (Frames.Accepted or Frames.AcceptedWithMutationReplay))
+                    throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, "The endpoint does not speak the Squirix cache protocol."));
                 if (provider != null)
                     _ = await ConnectionAuthentication.AuthenticateAsync(tls, provider, token).ConfigureAwait(false);
                 return preface[0] == Frames.AcceptedWithMutationReplay;
