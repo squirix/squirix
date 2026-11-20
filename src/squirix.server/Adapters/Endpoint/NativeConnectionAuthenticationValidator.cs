@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,7 +49,8 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
             return false;
         try
         {
-            return await ValidateTokenAsync(token, null, cancellationToken).ConfigureAwait(false) != null;
+            var accepted = await ValidateTokenAsync(token, null, cancellationToken).ConfigureAwait(false);
+            return accepted != null && HasAuthenticatedIdentity(accepted.Principal);
         }
         finally
         {
@@ -131,20 +133,26 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
         var lifetime = (options.ConfigurationManager as BaseConfigurationManager)?.LastKnownGoodLifetime ?? TimeSpan.Zero;
         var parameters = options.TokenValidationParameters.Clone();
         parameters.ConfigurationManager = options.ConfigurationManager as BaseConfigurationManager;
+        if (parameters.ConfigurationManager == null && configuration != null)
+        {
+            parameters.ValidIssuers = new List<string>(parameters.ValidIssuers ?? []) { configuration.Issuer };
+            var signingKeys = new List<SecurityKey>(parameters.IssuerSigningKeys ?? []);
+            signingKeys.AddRange(configuration.SigningKeys);
+            parameters.IssuerSigningKeys = signingKeys;
+        }
+
         var result = await _handler.ValidateTokenAsync(raw, parameters).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (!result.IsValid || result.ClaimsIdentity == null || result.SecurityToken == null)
             return null;
 
-        ClaimsPrincipal? principal = new ClaimsPrincipal(result.ClaimsIdentity);
-        var scope = _scopes.CreateAsyncScope();
-        await using var scopeLifetime = scope.ConfigureAwait(false);
-        var observer = scope.ServiceProvider.GetService<IConnectionTokenObserver>();
-        if (observer != null)
-            principal = await observer.OnValidatedAsync(principal, scope.ServiceProvider, connection, cancellationToken).ConfigureAwait(false);
+        var principal = await ObservePrincipalAsync(new ClaimsPrincipal(result.ClaimsIdentity), connection, cancellationToken).ConfigureAwait(false);
+        if (principal == null || !ReferenceEquals(options, _options.CurrentValue))
+            return null;
 
-        if (principal == null || !ReferenceEquals(options, _options.CurrentValue) ||
-            !ReferenceEquals(configuration, await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false)))
+        var currentConfiguration = await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(options, _options.CurrentValue) || !ReferenceEquals(configuration, currentConfiguration))
             return null;
 
         var (notBefore, expires) = Lifetime(result.SecurityToken, parameters.ClockSkew);
@@ -153,6 +161,16 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
 
         var now = _clock.GetUtcNow().UtcDateTime;
         return now < notBefore || now >= expires ? null : new ValidatedToken(principal, notBefore, expires, options, configuration, historical);
+    }
+
+    private async ValueTask<ClaimsPrincipal?> ObservePrincipalAsync(ClaimsPrincipal principal, BinaryConnection? connection, CancellationToken cancellationToken)
+    {
+        var scope = _scopes.CreateAsyncScope();
+        await using var scopeLifetime = scope.ConfigureAwait(false);
+        var observer = scope.ServiceProvider.GetService<IConnectionTokenObserver>();
+        return observer == null
+            ? principal
+            : await observer.OnValidatedAsync(principal, scope.ServiceProvider, connection, cancellationToken).ConfigureAwait(false);
     }
 
     private sealed record ValidatedToken(

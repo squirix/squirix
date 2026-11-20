@@ -1,10 +1,12 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Security.Claims;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Hosting;
@@ -92,6 +94,30 @@ public sealed class MetricsAuthOrLoopbackFilterTests
         _ = await Assert.That(await CreateEndpoint(services).CanAccessDetailsAsync(null, null, CancellationToken.None)).IsFalse();
     }
 
+    /// <summary>Remote management denies a JWT when the observer returns an unauthenticated identity.</summary>
+    [Test]
+    public async Task RejectsUnauthenticatedObserverPrincipal()
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        await using var services = CreateServices(credentials, static registrations =>
+            registrations.AddScoped<IConnectionTokenObserver>(static _ => new UnauthenticatedObserver()));
+        var endpoint = CreateEndpoint(services);
+        var token = TestJwtHelper.CreateBearerToken(credentials);
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsFalse();
+    }
+
+    /// <summary>Options reloaded while the scoped observer is disposed invalidate the current authentication.</summary>
+    [Test]
+    public async Task RejectsReloadDuringObserverDisposal()
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        await using var services = CreateServices(credentials, static registrations =>
+            registrations.AddScoped<IConnectionTokenObserver>(static provider => new OptionsResetObserver(provider.GetRequiredService<IOptionsMonitorCache<JwtValidationOptions>>())));
+        var endpoint = CreateEndpoint(services);
+        var token = TestJwtHelper.CreateBearerToken(credentials);
+        _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsFalse();
+    }
+
     private static NativeManagementEndpoint CreateEndpoint(IServiceProvider services)
     {
         var validator = services.GetService<NativeConnectionAuthenticationValidator>();
@@ -101,7 +127,7 @@ public sealed class MetricsAuthOrLoopbackFilterTests
 
     private static IPAddress RemoteAddress() => IPAddress.Parse("203.0.113.10");
 
-    private static ServiceProvider CreateServices(TestJwtCredentials? credentials)
+    private static ServiceProvider CreateServices(TestJwtCredentials? credentials, Action<IServiceCollection>? configure = null)
     {
         var services = new ServiceCollection();
         var options = new SecurityOptions
@@ -112,6 +138,32 @@ public sealed class MetricsAuthOrLoopbackFilterTests
         };
 
         _ = services.AddSquirixSecurityServices(options);
+        configure?.Invoke(services);
         return services.BuildServiceProvider();
+    }
+
+    private sealed class UnauthenticatedObserver : IConnectionTokenObserver
+    {
+        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<ClaimsPrincipal?>(new ClaimsPrincipal(new ClaimsIdentity()));
+    }
+
+    private sealed class OptionsResetObserver : IConnectionTokenObserver, IAsyncDisposable
+    {
+        private readonly IOptionsMonitorCache<JwtValidationOptions> _cache;
+
+        internal OptionsResetObserver(IOptionsMonitorCache<JwtValidationOptions> cache)
+        {
+            _cache = cache;
+        }
+
+        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<ClaimsPrincipal?>(principal);
+
+        public ValueTask DisposeAsync()
+        {
+            _ = _cache.TryRemove(Options.DefaultName);
+            return ValueTask.CompletedTask;
+        }
     }
 }

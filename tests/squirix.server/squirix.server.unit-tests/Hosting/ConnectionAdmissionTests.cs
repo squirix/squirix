@@ -7,8 +7,10 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -36,6 +38,32 @@ public sealed class ConnectionAdmissionTests
     [Test]
     public async Task UnchangedLookupWithinBoundsIsAccepted(CancellationToken cancellationToken) =>
         _ = await Assert.That(await AdmitAfterLookupAsync(2, cancellationToken)).IsTrue();
+
+    /// <summary>A metadata manager can supply the issuer and signing key without inheriting the IdentityModel base class.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AcceptsIssuerAndKeyFromNonBaseManager(CancellationToken cancellationToken)
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        var configuration = new OpenIdConnectConfiguration { Issuer = credentials.Issuer };
+        configuration.SigningKeys.Add(new SymmetricSecurityKey(credentials.GetSigningKey()));
+        var gate = new ConfigurationGate();
+        gate.Complete(configuration);
+
+        var services = new ServiceCollection();
+        _ = services.AddOptions();
+        await using var provider = services.BuildServiceProvider();
+        var cache = provider.GetRequiredService<IOptionsMonitorCache<JwtValidationOptions>>();
+        var options = new JwtValidationOptions
+        {
+            ConfigurationManager = gate,
+            TokenValidationParameters = new TokenValidationParameters { ValidAudience = credentials.Audience, ValidateIssuerSigningKey = true },
+        };
+        _ = await Assert.That(cache.TryAdd(Options.DefaultName, options)).IsTrue();
+        using var validator = new NativeConnectionAuthenticationValidator(provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>(), TimeProvider.System, provider.GetRequiredService<IServiceScopeFactory>());
+        var token = TestJwtHelper.CreateBearerToken(credentials);
+        _ = await Assert.That(await validator.ValidateBearerAsync(token, cancellationToken)).IsTrue();
+    }
 
     private static async Task<bool> AdmitAfterLookupAsync(int change, CancellationToken cancellationToken)
     {
