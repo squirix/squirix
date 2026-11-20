@@ -52,8 +52,8 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <summary>Bounds every wait for an election and every client call; the timeouts below elect within seconds.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
-    /// <summary>Allows the configured ping delay and timeout plus heartbeat ticks and scheduling delays on a loaded runner.</summary>
-    private static readonly TimeSpan KeepAliveDetectionBound = PeerChannels.KeepAlivePingDelay + PeerChannels.KeepAlivePingTimeout + TimeSpan.FromSeconds(30);
+    /// <summary>Allows peer failure detection and scheduling delays on a loaded runner.</summary>
+    private static readonly TimeSpan KeepAliveDetectionBound = TimeSpan.FromSeconds(33);
 
     /// <summary>The election timeout of the owner under <see cref="OwnerLeadsOptions" />: shorter than <see cref="OthersElectionTimeout" />, so a cut-off owner steps down before its successor is elected.</summary>
     private static readonly TimeSpan OwnerElectionTimeout = TimeSpan.FromSeconds(4);

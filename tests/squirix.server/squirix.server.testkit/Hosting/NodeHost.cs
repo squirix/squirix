@@ -92,7 +92,6 @@ internal static class NodeHost
             args.PersistenceOptions = _options.PersistenceOptions;
             args.MetricsEnabled = _options.MetricsEnabled;
             args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions { Enabled = _options.PrometheusMetricsEnabled };
-            args.PeerHandlerFactory = _options.PeerHandlerFactory;
             args.BackpressureOptions = _options.BackpressureOptions;
             args.MemoryPressureOptions = _options.MemoryPressureOptions;
             args.SecurityOptions = _options.SecurityOptions;

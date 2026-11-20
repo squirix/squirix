@@ -17,6 +17,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Transport;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -138,8 +139,8 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new IdleCallPolicy(),
-            OwnedHandlerFactory = (_, _, _) => handler,
         };
+        args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => handler);
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = new Uri("https://localhost:6500") };
         return new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }
@@ -182,8 +183,8 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
             Received.Add(TransferReplicaStateRequest.Parser.ParseFrom(body));
             var payload = Reply.ToByteArray();
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Version = HttpVersion.Version20, Content = new ByteArrayContent(payload) };
-            response.Content.Headers.ContentType = new MediaTypeHeaderValue(PeerProtocol.MediaType);
-            response.Headers.Add(PeerProtocol.StatusHeader, "0");
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue(HttpPeerTestProtocol.MediaType);
+            response.Headers.Add(HttpPeerTestProtocol.StatusHeader, "0");
             return response;
         }
     }

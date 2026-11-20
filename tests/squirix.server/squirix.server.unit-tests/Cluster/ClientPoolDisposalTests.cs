@@ -17,6 +17,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Transport;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Squirix.Testing;
@@ -58,7 +59,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             connections.AbortAll();
             return ValueTask.FromResult<Stream>(new MemoryStream());
         };
-        ServerClientPool.TrackFactoryConnections(handler, connections);
+        HttpPeerTestArgs.TrackFactoryConnections(handler, connections);
 
         _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(GetAsync(handler, new Uri("https://localhost:1/"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
@@ -75,7 +76,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var inner = new MemoryStream();
         using var handler = new SocketsHttpHandler();
         handler.ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(inner);
-        ServerClientPool.TrackFactoryConnections(handler, connections);
+        HttpPeerTestArgs.TrackFactoryConnections(handler, connections);
         var context = Unsafe.As<SocketsHttpConnectionContext>(RuntimeHelpers.GetUninitializedObject(typeof(SocketsHttpConnectionContext)));
         var callback = ThrowHelper.Required(handler.ConnectCallback, "Expected the tracked connect callback.");
 
@@ -108,17 +109,19 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var args = new ServerClientPoolArgs
         {
             PolicyFactory = static _ => new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _, connections) =>
-            {
-                tracked = connections;
-                return OpenConnection(connections, created);
-            },
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
             ShutdownBudget = TimeSpan.FromSeconds(10),
             TimeProvider = clock,
         };
+        args = HttpPeerTestArgs.WithHandlers(
+            args,
+            (_, _, connections) =>
+            {
+                tracked = connections;
+                return OpenConnection(connections, created);
+            });
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log, log);
         var lease = pool.LeaseChannel("n0", cancellationToken);
         Task disposing;
@@ -157,7 +160,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         handler.ConnectCallback = Bind.To<(TcpListener Listener, TaskCompletionSource Connected), Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>>(
             (listener, connected),
             static shared => (_, token) => ConnectSignallingAsync(shared.Listener, shared.Connected, token));
-        ServerClientPool.TrackFactoryConnections(handler, connections);
+        HttpPeerTestArgs.TrackFactoryConnections(handler, connections);
 
         var request = GetAsync(handler, new Uri("https://localhost:1/"), cancellationToken);
         using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
@@ -182,7 +185,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var middle = new PassThroughHandler(sockets);
         using var outer = new PassThroughHandler(middle);
 
-        ServerClientPool.TrackFactoryConnections(outer, new TrackedConnections());
+        HttpPeerTestArgs.TrackFactoryConnections(outer, new TrackedConnections());
 
         _ = await Assert.That(ReferenceEquals(sockets.ConnectCallback, original)).IsFalse();
     }
@@ -293,10 +296,10 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             var args = new ServerClientPoolArgs
             {
                 PolicyFactory = nodeId => string.Equals(nodeId, "n0", StringComparison.Ordinal) ? stuck : healthy,
-                OwnedHandlerFactory = (_, _, _) => Track(created),
                 ShutdownBudget = TimeSpan.FromSeconds(10),
                 TimeProvider = clock,
             };
+            args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => Track(created));
             var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), log, log);
 
             var disposing = pool.DisposeAsync().AsTask();
@@ -464,13 +467,13 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var args = new ServerClientPoolArgs
         {
             PolicyFactory = static _ => new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _, connections) => OpenConnection(connections, created),
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
             ShutdownBudget = TimeSpan.FromSeconds(10),
             TimeProvider = clock,
         };
+        args = HttpPeerTestArgs.WithHandlers(args, (_, _, connections) => OpenConnection(connections, created));
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log, log);
 
         var disposing = pool.DisposeAsync().AsTask();
@@ -496,8 +499,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _, _) => Track(created),
         };
+        args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => Track(created));
         var pool = new ServerClientPool(BuildPeers(3), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
         await pool.DisposeAsync();
 
@@ -561,7 +564,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         listener.Start();
         var connections = new TrackedConnections();
         using var handler = new SocketsHttpHandler();
-        ServerClientPool.TrackFactoryConnections(handler, connections);
+        HttpPeerTestArgs.TrackFactoryConnections(handler, connections);
 
         var request = GetAsync(
             handler,
@@ -616,17 +619,19 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var args = new ServerClientPoolArgs
         {
             PolicyFactory = static _ => new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _, connections) =>
-            {
-                tracked = connections;
-                return OpenConnection(connections, created);
-            },
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
             ShutdownBudget = TimeSpan.FromSeconds(10),
             TimeProvider = clock,
         };
+        args = HttpPeerTestArgs.WithHandlers(
+            args,
+            (_, _, connections) =>
+            {
+                tracked = connections;
+                return OpenConnection(connections, created);
+            });
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log, log);
         var disposing = pool.DisposeAsync().AsTask();
         await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
@@ -653,7 +658,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var terminal = new TrackingHandler();
         using var handler = new PassThroughHandler(terminal);
 
-        ServerClientPool.TrackFactoryConnections(handler, connections);
+        HttpPeerTestArgs.TrackFactoryConnections(handler, connections);
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
@@ -672,11 +677,11 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = _ => ++calls == 2 ? throw new InvalidOperationException("policy failure") : new RecordingPolicy(null),
-            OwnedHandlerFactory = (_, _, _) => Track(created),
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
         };
+        args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => Track(created));
         var metrics = new ServerClientPoolMetrics(meter);
         var peers = BuildPeers(2);
 
@@ -695,9 +700,9 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     public void SecondPoolRejectsTrackedHandler()
     {
         using var handler = new SocketsHttpHandler();
-        ServerClientPool.TrackFactoryConnections(handler, new TrackedConnections());
+        HttpPeerTestArgs.TrackFactoryConnections(handler, new TrackedConnections());
 
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(handler, static h => ServerClientPool.TrackFactoryConnections(h, new TrackedConnections()));
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(handler, static h => HttpPeerTestArgs.TrackFactoryConnections(h, new TrackedConnections()));
     }
 
     /// <summary>Advances the fake clock until <paramref name="task" /> completes; the wait timers register at unpredictable moments, so one advance is not enough.</summary>
@@ -792,16 +797,18 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     private static ServerClientPoolArgs MtlsArgs(
         MtlsCertificate certificate,
         Func<string, HttpMessageHandler>? peerHandlerFactory,
-        Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler>? ownedHandlerFactory) => new()
+        Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler>? ownedHandlerFactory)
+    {
+        var args = new ServerClientPoolArgs
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new RecordingPolicy(null),
-            PeerHandlerFactory = peerHandlerFactory,
-            OwnedHandlerFactory = ownedHandlerFactory,
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
         };
+        return HttpPeerTestArgs.WithHandlers(args, ownedHandlerFactory, peerHandlerFactory);
+    }
 
     /// <summary>Creates a tracked handler with one connection that never closes, as a handshake stalled past the shutdown budget.</summary>
     /// <param name="connections">The pool's connection gate.</param>

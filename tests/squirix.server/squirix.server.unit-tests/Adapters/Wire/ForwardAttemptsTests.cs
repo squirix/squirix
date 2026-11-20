@@ -18,6 +18,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Transport;
 using Squirix.Server.UnitTests.Adapters.Wire.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Binary;
@@ -397,9 +398,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         {
             TimeProvider = clock,
             PolicyFactory = static _ => new IdleCallPolicy(),
-            OwnedHandlerFactory = (_, _, _) => createHandler(),
             ForwardConnectTimeout = connectTimeout,
         };
+        args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => createHandler());
         return new ServerClientPool([new ServerPeer { NodeId = Owner, Uri = uri }], args, new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }
 

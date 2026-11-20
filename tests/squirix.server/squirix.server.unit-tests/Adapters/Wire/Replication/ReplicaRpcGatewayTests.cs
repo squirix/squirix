@@ -14,6 +14,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Transport;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Binary;
 using TUnit.Assertions;
@@ -203,8 +204,8 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = static _ => new IdleCallPolicy(),
-            OwnedHandlerFactory = (_, _, _) => handler,
         };
+        args = HttpPeerTestArgs.WithHandlers(args, (_, _, _) => handler);
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = new Uri("https://localhost:6500") };
         return new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }

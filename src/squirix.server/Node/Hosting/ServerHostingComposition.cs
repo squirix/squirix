@@ -218,14 +218,13 @@ internal static class ServerHostingComposition
     /// </remarks>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
-    /// <param name="nativeProtocol">Use the native peer transport.</param>
-    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args, bool nativeProtocol)
+    /// <param name="args">Hosting composition overrides for this node.</param>
+    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args)
     {
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddHealthChecks().Add(
             new HealthCheckRegistration("ring_agreement", static sp => new RingAgreementHealthCheck(sp.GetRequiredService<RingAgreement>()), HealthStatus.Unhealthy, ["ready"]));
-        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight, nativeProtocol);
+        _ = services.AddSquirixClusterTransport(cluster, null, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
 
         // Activated hosts expire entries through committed records and the replica sweep; every other host expires by its local clock.
@@ -285,7 +284,7 @@ internal static class ServerHostingComposition
         }
 
         _ = builder.Services.AddSquirixRuntimeServices(args.MetricsEnabled);
-        AddSquirixClusterStack(builder.Services, cluster, args, true);
+        AddSquirixClusterStack(builder.Services, cluster, args);
         RegisterPersistenceAndReplication(builder.Services, cluster, persistence, mtlsOptions, args);
 
         _ = builder.Services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled);

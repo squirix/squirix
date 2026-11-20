@@ -1,11 +1,10 @@
 using System;
-using System.Net.Http;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 
 [Immutable]
-internal sealed class ServerClientPoolArgs
+internal sealed record ServerClientPoolArgs
 {
     internal MtlsCertificate? Certificate { get; init; }
 
@@ -15,7 +14,7 @@ internal sealed class ServerClientPoolArgs
     /// </summary>
     internal TimeSpan? ForwardConnectTimeout { get; init; }
 
-    internal bool NativeProtocol { get; init; }
+    internal Func<string, Uri, PeerHandshakeVerifier?, TrackedConnections, TimeSpan, PeerChannels>? ChannelsOverride { get; init; }
 
     internal bool InterNodeMtlsEnabled { get; init; }
 
@@ -23,16 +22,7 @@ internal sealed class ServerClientPoolArgs
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
-    /// <summary>
-    /// Gets an optional replacement for the handlers the pool creates and owns itself, given the mTLS material
-    /// (<see langword="null" /> for plain HTTPS), the peer node id and the pool's connection gate (test seam for handler ownership).
-    /// </summary>
-    internal Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler>? OwnedHandlerFactory { get; init; }
-
-    /// <summary>Gets an optional per-peer mTLS handler factory; the handlers it returns stay owned by its caller and are not disposed with the pool, but a <see cref="System.Net.Http.SocketsHttpHandler" /> among them has its connections tracked and aborted on disposal. The factory must return a fresh, unstarted handler per call: the pool replaces the handler's connect callback, and a handler that already belongs to a pool is rejected.</summary>
     internal Func<string, PeerSocketOptions>? SocketOptions { get; init; }
-
-    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
 
     internal required Func<string, IServerCallPolicy> PolicyFactory { get; init; }
 

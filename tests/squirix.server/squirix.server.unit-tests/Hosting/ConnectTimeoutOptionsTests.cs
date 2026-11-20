@@ -69,7 +69,7 @@ public sealed class ConnectTimeoutOptionsTests : IsolatedStorageTestBase
     [Arguments(-NegativeOffsetTicks, false)]
     public async Task ConnectTimeoutLowerBoundIsEnforced(long ticksFromMinimum, bool valid)
     {
-        var options = new SquirixServerOptions { ForwardConnectTimeout = BoundedDial.MinTimeout + TimeSpan.FromTicks(ticksFromMinimum) };
+        var options = new SquirixServerOptions { ForwardConnectTimeout = ForwardingCallPolicyDefaults.MinConnectTimeout + TimeSpan.FromTicks(ticksFromMinimum) };
 
         var result = options.TryValidate(out var errors);
 

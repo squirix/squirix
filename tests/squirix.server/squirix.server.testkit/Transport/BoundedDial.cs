@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Cluster.Transport;
+namespace Squirix.Server.TestKit.Transport;
 
 /// <summary>Bounds the dial of a connection, the part before any TLS handshake, and reports a dial that timed out as a failed connect.</summary>
 /// <remarks>

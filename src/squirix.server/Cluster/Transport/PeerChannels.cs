@@ -1,63 +1,24 @@
 using System;
-using System.Net.Http;
 using System.Threading;
+using System.Threading.Tasks;
+using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>The two channels of one peer: one for client calls forwarded to the peer, one for every other internode call.</summary>
-/// <remarks>
-/// <para>
-/// A forward bounds its dial with the short forward connect timeout (<see cref="BoundedDial" />), so a peer whose host is down fails the
-/// connect, which sent nothing, before the deadline of a forward that has at least the leader refusal margin left (the timeout is at most half of
-/// it), and another member may take the call. Both channels bound the
-/// whole connect, TLS handshake included, by a long timeout: a short one aborts the slow but healthy handshakes of a loaded host. Replication,
-/// elections and probes never get the short dial bound: they retry on their own schedule.
-/// </para>
-/// <para>
-/// The forward channel also pings its connections with HTTP/2 keepalive (<see cref="KeepAlivePingDelay" />), so a peer whose host went silent
-/// without closing the connection is detected while the connection is idle and the next forward dials anew instead of waiting out its
-/// per-attempt timeout on the dead one. The lease channel sends no pings. A factory-supplied handler that sets its own keepalive keeps it, and
-/// with it its own detection time.
-/// </para>
-/// <para>
-/// Both channels get their own handler, created the same way: from the peer handler factory under mTLS when it supplies one, else owned by the
-/// pool. Both count their connections in the pool's tracked connections.
-/// </para>
-/// </remarks>
+/// <summary>Owns separate channels for forwarded client operations and internode calls.</summary>
 [Immutable]
 internal sealed class PeerChannels
 {
-    /// <summary>
-    /// How long a connection of the forward channel may receive nothing before the handler pings the peer, whether or not a call is in flight
-    /// (<see cref="HttpKeepAlivePingPolicy.Always" />), so a connection that went silent is found while it is idle, before the next forward is
-    /// written to it. It is the shortest delay the handler accepts.
-    /// </summary>
-    /// <remarks>
-    /// The handler checks its connections once per second (a quarter of the shorter of the two bounds, but at least a second), so a ping goes
-    /// out up to a tick after the delay and its timeout is noticed up to a tick after it expired: a silent connection is closed after
-    /// <see cref="KeepAlivePingDelay" /> plus <see cref="KeepAlivePingTimeout" /> plus up to two ticks, four to five seconds, so a forward
-    /// written to it meanwhile usually ends as the 3-second per-attempt timeout. Such a forward, and one failed by the closed connection, are
-    /// ambiguous; the first one after the connection is closed dials anew, fails at the dial bound and falls back to another member. An idle
-    /// connection costs one ping and its acknowledgement per second.
-    /// </remarks>
-    internal static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(1);
-
-    /// <summary>How long the handler waits for the acknowledgement of a ping before it closes the connection.</summary>
-    /// <remarks>
-    /// Two seconds, not the one-second minimum: a ping that is answered late because the peer or this process paused (a garbage collection, a
-    /// starved thread pool) does not close a healthy connection, at the price of one more second before a dead one is found.
-    /// </remarks>
-    internal static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(2);
-
-    /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
+    private static readonly PeerChannels Disabled = new(UnavailablePeerClient.Instance, UnavailablePeerClient.Instance, null, null);
 
-    private readonly IDisposable _forward;
-    private readonly IDisposable _replication;
+    private readonly IDisposable? _forward;
+    private readonly IDisposable? _replication;
 
-    private PeerChannels(IPeerClient forward, IPeerClient replication, IDisposable forwardOwner, IDisposable replicationOwner)
+    internal PeerChannels(IPeerClient forward, IPeerClient replication, IDisposable? forwardOwner, IDisposable? replicationOwner)
     {
         Forward = forward;
         Replication = replication;
@@ -66,17 +27,8 @@ internal sealed class PeerChannels
     }
 
     internal IPeerClient Forward { get; }
-
     internal IPeerClient Replication { get; }
 
-    /// <summary>Creates both channels of a peer; when the second fails, the first is disposed before the failure propagates.</summary>
-    /// <param name="nodeId">The peer node identifier.</param>
-    /// <param name="address">The address both channels dial.</param>
-    /// <param name="args">The pool arguments.</param>
-    /// <param name="verifier">The check of peer certificates under mTLS; <see langword="null" /> without enabled material.</param>
-    /// <param name="connections">The pool's tracked connections.</param>
-    /// <param name="forwardConnectTimeout">The dial timeout of the forward channel.</param>
-    /// <returns>The channels.</returns>
     internal static PeerChannels Create(
         string nodeId,
         Uri address,
@@ -85,116 +37,39 @@ internal sealed class PeerChannels
         TrackedConnections connections,
         TimeSpan forwardConnectTimeout)
     {
-        if (args.NativeProtocol && args.Certificate is { Enabled: true } material && verifier != null)
-        {
-            var owner = new NativePeerClient((address, nodeId), material, verifier, connections, forwardConnectTimeout, args.RingFingerprint, args.SocketOptions?.Invoke(nodeId));
-            var internode = new NativePeerClient((address, nodeId), material, verifier, connections, ConnectTimeout, null, args.SocketOptions?.Invoke(nodeId));
-            return new PeerChannels(owner, internode, owner, internode);
-        }
+        if (!args.InterNodeMtlsEnabled)
+            return Disabled;
 
-        HttpClient? forward = null;
-        HttpClient? replication = null;
+        if (args.Certificate is not { Enabled: true } material || verifier == null)
+            throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport.");
+
+        var options = args.SocketOptions?.Invoke(nodeId);
+        var forward = new NativePeerClient((address, nodeId), material, verifier, connections, forwardConnectTimeout, args.RingFingerprint, options);
         try
         {
-            forward = CreateClient(address, nodeId, args, verifier, connections, forwardConnectTimeout);
-            replication = CreateClient(address, nodeId, args, verifier, connections, null);
-            var created = new PeerChannels(new PeerClient(forward, args.RingFingerprint), new PeerClient(replication, null), forward, replication);
-            forward = null;
-            replication = null;
-            return created;
+            var replication = new NativePeerClient((address, nodeId), material, verifier, connections, ConnectTimeout, null, options);
+            return new PeerChannels(forward, replication, forward, replication);
         }
-        finally
+        catch
         {
-            forward?.Dispose();
-            replication?.Dispose();
+            forward.Dispose();
+            throw;
         }
     }
 
-    /// <summary>Disposes both channels; a failure of the first does not leave the second undisposed.</summary>
-    /// <returns>The first failure, or <see langword="null" /> when both channels were disposed.</returns>
     internal Exception? Close()
     {
-        var forward = Isolated.Run(_forward, static channel => channel.Dispose());
-        var lease = Isolated.Run(_replication, static channel => channel.Dispose());
-        return forward ?? lease;
+        var forward = Isolated.Run(_forward, static channel => channel?.Dispose());
+        var replication = Isolated.Run(_replication, static channel => channel?.Dispose());
+        return forward ?? replication;
     }
 
-    /// <summary>Bounds the connect of the sockets handler a peer handler sends through.</summary>
-    /// <param name="peerHandler">The peer handler; one that is not, or does not wrap, a <see cref="SocketsHttpHandler" /> keeps its connect as it is.</param>
-    /// <param name="owned">Whether the pool created the handler; a factory-supplied handler keeps a finite connect timeout it chose itself.</param>
-    /// <param name="dialTimeout">
-    /// The bound of the dial alone, before any TLS handshake (<see cref="BoundedDial" />); <see langword="null" /> for none. Only the forward
-    /// channel has one, and only it pings with keepalive; a factory-supplied handler that sets its own keepalive delay keeps its keepalive.
-    /// </param>
-    /// <param name="timeProvider">The clock the dial bound counts down on.</param>
-    private static void BoundConnect(HttpMessageHandler peerHandler, bool owned, TimeSpan? dialTimeout, TimeProvider timeProvider)
+    [Immutable]
+    private sealed class UnavailablePeerClient : IPeerClient
     {
-        var current = peerHandler;
-        while (current is DelegatingHandler { InnerHandler: { } next })
-            current = next;
+        internal static readonly UnavailablePeerClient Instance = new();
 
-        if (current is not SocketsHttpHandler socketsHandler)
-            return;
-
-        if (owned || socketsHandler.ConnectTimeout == Timeout.InfiniteTimeSpan)
-            socketsHandler.ConnectTimeout = ConnectTimeout;
-
-        if (dialTimeout is not { } dial)
-            return;
-
-        BoundedDial.Apply(socketsHandler, dial, timeProvider);
-        if (!owned && socketsHandler.KeepAlivePingDelay != Timeout.InfiniteTimeSpan)
-            return;
-        socketsHandler.KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always;
-        socketsHandler.KeepAlivePingDelay = KeepAlivePingDelay;
-        socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
-    }
-
-    private static HttpClient CreateClient(
-        Uri address,
-        string nodeId,
-        ServerClientPoolArgs args,
-        PeerHandshakeVerifier? verifier,
-        TrackedConnections connections,
-        TimeSpan? dialTimeout)
-    {
-        var factory = args.OwnedHandlerFactory ?? ((certificate, expectedPeerNodeId, tracked) =>
-            ServerClientPool.PeerEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
-        HttpMessageHandler? ownedHandler = null;
-        try
-        {
-            HttpMessageHandler peerHandler;
-            if (args.InterNodeMtlsEnabled)
-            {
-                if (args.Certificate is not { Enabled: true } certificate)
-                    throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport.");
-
-                var factoryHandler = args.PeerHandlerFactory?.Invoke(nodeId);
-                if (factoryHandler != null)
-                {
-                    ServerClientPool.TrackFactoryConnections(factoryHandler, connections);
-                    peerHandler = factoryHandler;
-                }
-                else
-                {
-                    ownedHandler = factory.Invoke(certificate, nodeId, connections);
-                    peerHandler = ownedHandler;
-                }
-            }
-            else
-            {
-                ownedHandler = factory.Invoke(null, nodeId, connections);
-                peerHandler = ownedHandler;
-            }
-
-            BoundConnect(peerHandler, ownedHandler != null, dialTimeout, args.TimeProvider);
-            var client = new HttpClient(peerHandler, ownedHandler != null) { BaseAddress = address, Timeout = Timeout.InfiniteTimeSpan };
-            ownedHandler = null;
-            return client;
-        }
-        finally
-        {
-            ownedHandler?.Dispose();
-        }
+        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+            where T : IMessage<T> => Task.FromException<T>(new ServerCallException(FrameStatus.Unavailable, "Peer transport is unavailable without cluster mTLS."));
     }
 }

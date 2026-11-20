@@ -9,6 +9,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Transport;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -76,12 +77,12 @@ public sealed class PeerChannelsTests
         {
             TimeProvider = TimeProvider.System,
             PolicyFactory = policyFactory,
-            PeerHandlerFactory = peerHandlerFactory,
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
             ForwardConnectTimeout = TopologyOptions.DefaultForwardConnectTimeout,
         };
+        args = HttpPeerTestArgs.WithHandlers(args, peerHandlerFactory: peerHandlerFactory);
 
         await using var pool = new ServerClientPool(
             [new ServerPeer { NodeId = Peer, Uri = new Uri("https://localhost:6500") }],

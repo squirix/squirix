@@ -4,9 +4,10 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Cluster.Transport;
+namespace Squirix.Server.TestKit.Transport;
 
 /// <summary>A connection that a handler outside the pool's ownership dialed through its own connect callback, tracked in the pool's connection gate until the stream is disposed.</summary>
 /// <remarks>The wrapper only forwards; the wrapped stream stays the transport, so a redirecting connect callback keeps working unchanged.</remarks>

@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
@@ -30,8 +29,6 @@ internal sealed class CompositionArgs
     internal bool MetricsEnabled { get; set; }
 
     internal MtlsOptions? MtlsOptions { get; set; }
-
-    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; set; }
 
     internal PersistenceOptions? PersistenceOptions { get; set; }
 

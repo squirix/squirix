@@ -5,7 +5,7 @@
   Intended layer stack (outer → inner, dependencies flow downward only):
 
     TestKit.Hosting / TestKit.Benchmarks (composition & perf harness)
-      → TestKit.Mtls (focused cluster-transport kit)   TestKit.Replication (focused storage kit)
+      → TestKit.Mtls / TestKit.Transport (peer fixtures)   TestKit.Replication (storage fixtures)
         → TestKit (root: generic asserts and kits)
           → TestKit.IO / TestKit.Networking (product-free file and port helpers)
             → TestKit.Diagnostics (product-free logging)
@@ -73,6 +73,12 @@
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Hosting.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Benchmarks.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Replication.*" />
+
+  <!-- Peer doubles can use transport contracts and deadline context without depending on host or storage. -->
+  <Disallowed From="Squirix.Server.TestKit.Transport.*" To="Squirix.Server.TestKit.Hosting.*" />
+  <Disallowed From="Squirix.Server.TestKit.Transport.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.TestKit.Transport.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.TestKit.Transport.*" To="Squirix.Server.Storage.*" />
 
   <!-- Replication kits drive follower logs below the node composition layer. -->
   <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.Adapters.*" />

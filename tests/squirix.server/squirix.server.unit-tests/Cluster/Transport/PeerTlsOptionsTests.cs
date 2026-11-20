@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
@@ -16,9 +15,9 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>Unit tests for outbound cluster gRPC transport handler configuration.</summary>
+/// <summary>Unit tests for outbound peer TLS configuration.</summary>
 [Immutable]
-public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
+public sealed class PeerTlsOptionsTests : ServerUnitTestBase
 {
     /// <summary>Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -63,14 +62,10 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             "node-a");
 
         using var testKitHandler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
-        using var productHandler = ServerClientPool.PeerEndpoints.CreateMtlsHandler(
-            material.NodeCertificate!,
-            new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, new EventRecordingLogger()),
-            "node-b",
-            new TrackedConnections());
+        var productTls = NativePeerClient.CreateTlsOptions("localhost", "node-b", material, new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, new EventRecordingLogger()));
 
-        await AssertClientContextAsync(testKitHandler, material.NodeCertificate!);
-        await AssertClientContextAsync(productHandler, material.NodeCertificate!);
+        await AssertClientContextAsync(testKitHandler.SslOptions, material.NodeCertificate!);
+        await AssertClientContextAsync(productTls, material.NodeCertificate!);
     }
 
     /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
@@ -116,12 +111,8 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             "node-a");
         using var wrongPeer = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x");
         var log = new EventRecordingLogger();
-        using var handler = ServerClientPool.PeerEndpoints.CreateMtlsHandler(
-            material.NodeCertificate!,
-            new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, log),
-            "node-b",
-            new TrackedConnections());
-        var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
+        var tls = NativePeerClient.CreateTlsOptions("localhost", "node-b", material, new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, log));
+        var callback = ThrowHelper.Required(tls.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
 
         _ = await Assert.That(callback(this, wrongPeer, null, SslPolicyErrors.None)).IsFalse();
         _ = await Assert.That(callback(this, wrongPeer, null, SslPolicyErrors.None)).IsFalse();
@@ -129,15 +120,15 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(refusedLogEventId)).IsEqualTo(1);
     }
 
-    private static async Task AssertClientContextAsync(SocketsHttpHandler handler, X509Certificate2 certificate)
+    private static async Task AssertClientContextAsync(SslClientAuthenticationOptions tls, X509Certificate2 certificate)
     {
         if (OperatingSystem.IsWindows())
         {
-            _ = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNull();
+            _ = await Assert.That(tls.ClientCertificateContext).IsNull();
             return;
         }
 
-        var context = await Assert.That(handler.SslOptions.ClientCertificateContext).IsNotNull();
+        var context = await Assert.That(tls.ClientCertificateContext).IsNotNull();
         _ = await Assert.That(context.TargetCertificate).IsEqualTo(certificate);
     }
 }
