@@ -33,6 +33,7 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
     private Task _run = Task.CompletedTask;
     private MtlsCertificate.Hold? _peerMaterial;
     private X509Certificate2? _certificate;
+    private X509Certificate2Collection? _additionalCertificates;
 
     internal NativeClientService(IServiceProvider services, TopologyOptions topology, bool mutationReplay, Uri? managementUri, X509Certificate2? suppliedCertificate)
     {
@@ -50,8 +51,11 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         cancellationToken.ThrowIfCancellationRequested();
         _certificate = AcquireCertificate();
         ValidateCertificate(_certificate);
-        var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, null, true) };
-        var managementUri = _managementUri ?? ResolveManagementUri(_topology.Uri);
+        var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, _additionalCertificates, true) };
+        var material = _services.GetRequiredService<MtlsCertificate>();
+        var peerPort = material.Enabled ? _services.GetRequiredService<MtlsOptions>().InternalListenPort : 0;
+        var (managementUri, managementAddresses) = await ResolveManagementBindingAsync(_certificate, peerPort, cancellationToken).ConfigureAwait(false);
+        var logger = _services.GetRequiredService<ILogger<NativeClientService>>();
         _ = _services.GetService<PrometheusMetricsScraper>();
         var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync, _services.GetRequiredService<ILogger<NativeManagementEndpoint>>());
         var listeners = new List<(Socket Socket, NativeTlsListener Listener)>();
@@ -61,23 +65,20 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         {
             AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024), listeners);
             var managementIndex = listeners.Count;
-            AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 64), listeners);
+            AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 64), listeners, managementAddresses);
             if (listeners[managementIndex].Socket.LocalEndPoint is IPEndPoint boundManagement)
                 ManagementUri = new UriBuilder(managementUri) { Port = boundManagement.Port }.Uri;
-            var material = _services.GetRequiredService<MtlsCertificate>();
             if (material.Enabled)
             {
                 _peerMaterial = material.Retain();
-                var port = _services.GetRequiredService<MtlsOptions>().InternalListenPort;
-                var internalUri = new UriBuilder(_topology.Uri) { Port = port }.Uri;
+                var internalUri = new UriBuilder(_topology.Uri) { Port = peerPort }.Uri;
                 var feature = _services.GetRequiredService<FeatureState>();
-                var peer = new NativePeerEndpoint(_services, port, feature.NetworkReplicationEnabled || feature.FoundationOnly);
+                var peer = new NativePeerEndpoint(_services, peerPort, feature.NetworkReplicationEnabled || feature.FoundationOnly);
                 var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.GetRequiredService<ILogger<PeerHandshakeVerifier>>());
                 var handshake = new InboundPeerHandshake(verifier, material.NodeCertificate!, MtlsTopology.GetRemotePeerNodeIds(_topology));
                 AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.GetRequiredService<ILogger<NativeTlsListener>>(), 256), listeners);
             }
 
-            var logger = _services.GetRequiredService<ILogger<NativeClientService>>();
             foreach (var (socket, _) in listeners)
                 LogListening(logger, socket.LocalEndPoint);
             foreach (var (_, listener) in listeners)
@@ -126,10 +127,28 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         {
             _peerMaterial?.Dispose();
             _certificate?.Dispose();
+            if (_additionalCertificates != null)
+            {
+                foreach (var certificate in _additionalCertificates)
+                    certificate.Dispose();
+            }
+
             _graceful.Dispose();
             _abort.Dispose();
         }
     }
+
+    internal static Uri ResolveDefaultManagementUri(Uri primary, int peerPort, bool certificateMatchesLocalhost)
+    {
+        var port = primary.Port <= 65533 ? primary.Port + 2 : primary.Port - 2;
+        if (port == peerPort)
+            port = primary.Port <= 65532 ? primary.Port + 3 : primary.Port - 3;
+        var host = certificateMatchesLocalhost ? "localhost" : IPAddress.Loopback.ToString();
+        return new UriBuilder(Uri.UriSchemeHttps, host, port).Uri;
+    }
+
+    [LoggerMessage(EventId = 3037, Level = LogLevel.Warning, Message = "The TLS certificate does not cover the default management origin {ManagementUri}. Set SQUIRIX_MANAGEMENT_URI to a bound address covered by the certificate")]
+    private static partial void LogManagementCertificateMismatch(ILogger logger, Uri managementUri);
 
     [LoggerMessage(EventId = 3036, Level = LogLevel.Information, Message = "Listening on {Endpoint}")]
     private static partial void LogListening(ILogger logger, EndPoint? endpoint);
@@ -152,13 +171,28 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         }
     }
 
-    private static Uri ResolveManagementUri(Uri primary)
+    private static Uri? ReadManagementUri()
     {
         var configured = EnvVariables.ReadString("SQUIRIX_MANAGEMENT_URI");
-        var defaultPort = primary.Port <= 65533 ? primary.Port + 2 : primary.Port - 2;
-        return configured == null
-            ? new UriBuilder(Uri.UriSchemeHttps, IPAddress.Loopback.ToString(), defaultPort).Uri
-            : ParseManagementUri(configured);
+        return configured == null ? null : ParseManagementUri(configured);
+    }
+
+    private static async ValueTask<IPAddress[]?> ResolveManagementAddressesAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        var host = uri.DnsSafeHost;
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(host, out _))
+            return null;
+
+        var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+        if (addresses.Length == 0)
+            throw new InvalidOperationException($"The management host {host} resolved to no addresses.");
+        foreach (var address in addresses)
+        {
+            if (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
+                throw new InvalidOperationException($"The management host {host} resolved to a wildcard address.");
+        }
+
+        return addresses;
     }
 
     private static Uri ParseManagementUri(string configured)
@@ -168,14 +202,23 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         return valid ? uri! : throw new InvalidOperationException("SQUIRIX_MANAGEMENT_URI requires an HTTPS origin.");
     }
 
-    private static void AddListeners(Uri uri, Func<Socket, NativeTlsListener> create, List<(Socket Socket, NativeTlsListener Listener)> listeners)
+    private static void AddListeners(
+        Uri uri,
+        Func<Socket, NativeTlsListener> create,
+        List<(Socket Socket, NativeTlsListener Listener)> listeners,
+        IPAddress[]? resolvedAddresses = null)
     {
+        if (resolvedAddresses != null)
+        {
+            foreach (var resolved in resolvedAddresses)
+                Add(resolved);
+            return;
+        }
+
         var host = uri.DnsSafeHost;
         if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
         {
             Add(IPAddress.Loopback);
-            if (uri.Port == 0 && listeners[^1].Socket.LocalEndPoint is IPEndPoint bound)
-                uri = new UriBuilder(uri) { Port = bound.Port }.Uri;
             if (Socket.OSSupportsIPv6)
                 Add(IPAddress.IPv6Loopback);
             return;
@@ -191,6 +234,8 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
             try
             {
                 listeners.Add((bound, create(bound)));
+                if (uri.Port == 0 && bound.LocalEndPoint is IPEndPoint endpoint)
+                    uri = new UriBuilder(uri) { Port = endpoint.Port }.Uri;
             }
             catch
             {
@@ -223,12 +268,8 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
         }
     }
 
-    private static X509Certificate2 LoadCertificate()
+    private static X509Certificate2 LoadDevelopmentCertificate()
     {
-        var path = EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PATH");
-        if (!string.IsNullOrWhiteSpace(path))
-            return X509CertificateLoader.LoadPkcs12FromFile(path, EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PASSWORD"));
-
         using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
         store.Open(OpenFlags.OpenExistingOnly);
         X509Certificate2? selected = null;
@@ -252,6 +293,16 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
 
     private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
 
+    private async ValueTask<(Uri Uri, IPAddress[]? Addresses)> ResolveManagementBindingAsync(X509Certificate2 certificate, int peerPort, CancellationToken cancellationToken)
+    {
+        var configured = _managementUri ?? ReadManagementUri();
+        var uri = configured ?? ResolveDefaultManagementUri(_topology.Uri, peerPort, certificate.MatchesHostname("localhost"));
+        if (configured == null && !certificate.MatchesHostname(uri.IdnHost))
+            LogManagementCertificateMismatch(_services.GetRequiredService<ILogger<NativeClientService>>(), uri);
+        var addresses = await ResolveManagementAddressesAsync(uri, cancellationToken).ConfigureAwait(false);
+        return (uri, addresses);
+    }
+
     private async Task RunListenerAsync(NativeTlsListener listener)
     {
         try
@@ -267,7 +318,28 @@ internal sealed partial class NativeClientService : IHostedService, IAsyncDispos
     }
 
 #pragma warning disable CA2000 // Both branches transfer ownership of the returned certificate to the listener service.
-    private X509Certificate2 AcquireCertificate() => _suppliedCertificate == null ? LoadCertificate() : new X509Certificate2(_suppliedCertificate);
+    private X509Certificate2 AcquireCertificate()
+    {
+        if (_suppliedCertificate != null)
+            return new X509Certificate2(_suppliedCertificate);
+
+        var path = EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PATH");
+        if (string.IsNullOrWhiteSpace(path))
+            return LoadDevelopmentCertificate();
+
+        var certificates = X509CertificateLoader.LoadPkcs12CollectionFromFile(path, EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PASSWORD"));
+        _additionalCertificates = certificates;
+        foreach (var certificate in certificates)
+        {
+            if (!certificate.HasPrivateKey)
+                continue;
+
+            certificates.Remove(certificate);
+            return certificate;
+        }
+
+        throw new InvalidOperationException("The TLS certificate requires a private key.");
+    }
 #pragma warning restore CA2000
 
     private ValueTask<bool> AuthenticateManagementAsync(string bearer, CancellationToken cancellationToken)

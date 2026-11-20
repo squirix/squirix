@@ -71,6 +71,24 @@ public sealed class NativeHostingTests : IsolatedStorageTestBase
         _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir);
     }
 
+    /// <summary>The default management origin uses loopback and avoids the peer port.</summary>
+    /// <param name="clientPort">The configured client listener port.</param>
+    /// <param name="peerPort">The configured peer listener port.</param>
+    /// <param name="matchesLocalhost">Whether the certificate is valid for localhost.</param>
+    /// <param name="managementPort">The expected management port.</param>
+    /// <param name="managementHost">The expected management host.</param>
+    [Test]
+    [Arguments(7400, 0, true, 7402, "localhost")]
+    [Arguments(7400, 7402, false, 7403, "127.0.0.1")]
+    [Arguments(65535, 65533, true, 65532, "localhost")]
+    public async Task DefaultManagementOriginAvoidsPeerPort(int clientPort, int peerPort, bool matchesLocalhost, int managementPort, string managementHost)
+    {
+        var client = new UriBuilder(Uri.UriSchemeHttps, "node.example.org", clientPort).Uri;
+        var management = NativeClientService.ResolveDefaultManagementUri(client, peerPort, matchesLocalhost);
+        _ = await Assert.That(management.Port).IsEqualTo(managementPort);
+        _ = await Assert.That(management.Host).IsEqualTo(managementHost);
+    }
+
     [Immutable]
     private sealed class PersistenceOptionsConfigurator
     {

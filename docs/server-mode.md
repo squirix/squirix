@@ -9,8 +9,12 @@ Earlier .NET 10 builds can silently lose disk flush errors and are rejected at s
 ## Standalone host
 
 The global tool listens on `https://localhost:5001` for binary clients by default. The HTTP/1.1 management listener
-defaults to `https://127.0.0.1:5003`. Set `SQUIRIX_MANAGEMENT_URI` to select another HTTPS origin. By default its port
-is the client port plus two, or minus two if adding two would exceed the TCP port range.
+binds to loopback by default. With a certificate for `localhost`, the default origin is `https://localhost:5003`.
+Otherwise the default host is `127.0.0.1`. The default port is two above the client port, or two below it near the
+end of the TCP port range. An adjacent port is selected if that default would overlap the configured peer port.
+Set `SQUIRIX_MANAGEMENT_URI` to select a specific HTTPS origin covered by the server certificate. A DNS name binds
+only to its resolved addresses on the node. The server logs a warning if its certificate does not cover the
+default management origin.
 
 See [getting started](getting-started.md#nuget-global-tool) for installation and startup and
 [containerization](containerization.md) for Docker. The standalone host loads `appsettings.json` and
