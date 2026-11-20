@@ -36,6 +36,10 @@ internal sealed class NodeHostStartOptions
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
 
+    internal bool MetricsEnabled { get; init; }
+
+    internal bool PrometheusMetricsEnabled { get; init; }
+
     internal SecurityOptions? SecurityOptions { get; init; }
 
     /// <summary>Gets the server certificate of the node's HTTPS endpoints, used instead of the development certificate; the caller owns and disposes it.</summary>

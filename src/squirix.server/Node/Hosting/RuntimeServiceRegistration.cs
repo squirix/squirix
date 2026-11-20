@@ -26,7 +26,7 @@ internal static class RuntimeServiceRegistration
 {
     extension(IServiceCollection services)
     {
-        internal IServiceCollection AddSquirixRuntimeServices()
+        internal IServiceCollection AddSquirixRuntimeServices(bool metricsEnabled)
         {
             _ = services.AddSingleton<RemoteInvocationContextAccessor>();
             _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextAccessor>());
@@ -47,14 +47,15 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
-                sp.GetRequiredService<Meter>()));
+                sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
             _ = services.AddSingleton<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>()));
             _ = services.AddSingleton<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());
             _ = services.AddLocalCacheServices();
 
-            _ = services.AddHostedServices();
+            if (metricsEnabled)
+                _ = services.AddMetricsHostedServices();
             _ = services.AddSingleton<ILocalCacheRecovery<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(
@@ -88,9 +89,10 @@ internal static class RuntimeServiceRegistration
             return services;
         }
 
-        private IServiceCollection AddHostedServices()
+        private IServiceCollection AddMetricsHostedServices()
         {
-            _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>(), sp.GetRequiredService<Meter>()));
+            _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>(), sp.GetRequiredKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => new MemoryPressureMetrics(sp.GetRequiredKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
             _ = services.AddHostedService(static sp => new MemoryPressureMetricsService(
                 sp.GetRequiredService<TopologyOptions>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>(),
@@ -132,14 +134,12 @@ internal static class RuntimeServiceRegistration
             // The per-host Meter instance is owned by the host composition, which registers it through the factory
             // overload (so the DI container disposes it on shutdown) before AddSquirixRuntimeServices runs. This
             // method only registers the metrics types against that shared meter.
-            _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new CacheMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new MemoryPressureMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new ReplicationMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new ReplicaCatchUpMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new ServerCallPolicyMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new ServerClientPoolMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new ServerRpcTimeoutMetrics(sp.GetRequiredService<Meter>()));
+            _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => new ReplicationMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => new ReplicaCatchUpMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => new ServerCallPolicyMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => new ServerClientPoolMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => new ServerRpcTimeoutMetrics(sp.GetKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
             _ = services.AddSingleton(static sp => new ServerCallPolicyInstrumentation(
                 sp.GetRequiredService<ServerCallPolicyMetrics>(),
                 sp.GetRequiredService<ServerRpcTimeoutMetrics>()));

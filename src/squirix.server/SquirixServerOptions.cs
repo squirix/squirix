@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Observability.Metrics;
 
 namespace Squirix.Server;
 
@@ -65,6 +67,18 @@ public sealed class SquirixServerOptions
 
     /// <summary>Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.</summary>
     public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = Array.Empty<SquirixServerPeerOptions>();
+
+    /// <summary>Gets or sets a value indicating whether this host collects Squirix metrics. Defaults to disabled.</summary>
+    [JsonIgnore]
+    public bool MetricsEnabled { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the built-in Prometheus endpoint is enabled. Defaults to <see langword="false" />.</summary>
+    [JsonIgnore]
+    public bool PrometheusMetricsEnabled { get; set; }
+
+    /// <summary>Gets or sets the built-in Prometheus endpoint path. Defaults to <c language="csharp">/metrics</c>.</summary>
+    [JsonIgnore]
+    public string PrometheusMetricsPath { get; set; } = PrometheusMetricsEndpointOptions.DefaultPath;
 
     /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }
@@ -229,7 +243,8 @@ public sealed class SquirixServerOptions
 
         return options.Journal.GroupCommitMaxWait > TimeSpan.Zero && !options.PersistenceEnabled
             ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
-            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout);
+            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout) ??
+              PrometheusEndpointOptionsValidator.ValidatePath(options.PrometheusMetricsEnabled, options.PrometheusMetricsPath);
     }
 
     private static void Validate(SquirixServerOptions options)

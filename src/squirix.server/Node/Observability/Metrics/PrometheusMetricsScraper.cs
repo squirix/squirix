@@ -16,24 +16,22 @@ namespace Squirix.Server.Node.Observability.Metrics;
 [Immutable]
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
-    internal static readonly PrometheusMetricsScraper Instance = new(false);
-
     private const int ExpectedLineLength = 64;
     private readonly Lock _creationLock = new();
     private readonly MeterListener _listener;
     private readonly ConcurrentDictionary<string, MetricSeries> _metrics = new(StringComparer.Ordinal);
     private readonly List<MetricSeries> _metricsInOrder = [];
 
-    private PrometheusMetricsScraper(bool isolated)
+    internal PrometheusMetricsScraper(Meter? meter)
     {
-        _listener = CreateListener();
-        if (!isolated)
+        _listener = CreateListener(meter);
+        if (meter != null)
             _listener.Start();
     }
 
     public void Dispose() => _listener.Dispose();
 
-    internal static PrometheusMetricsScraper CreateIsolated() => new(true);
+    internal static PrometheusMetricsScraper CreateIsolated() => new(null);
 
     /// <summary>Records one measurement into the series identified by the metric name and the public label set.</summary>
     /// <param name="metric">The instrument name.</param>
@@ -91,23 +89,6 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         }
     }
 
-    private static MeterListener CreateListener()
-    {
-        var listener = new MeterListener
-        {
-            InstrumentPublished = static (instrument, listener) =>
-            {
-                if (string.Equals(instrument.Meter.Name, "Squirix", StringComparison.OrdinalIgnoreCase))
-                    listener.EnableMeasurementEvents(instrument);
-            },
-        };
-
-        listener.SetMeasurementEventCallback<long>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
-        listener.SetMeasurementEventCallback<int>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
-        listener.SetMeasurementEventCallback<double>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
-        return listener;
-    }
-
     private static void AppendNumber(StringBuilder destination, double value)
     {
         if (double.IsNaN(value))
@@ -118,6 +99,23 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             _ = destination.Append("-Inf");
         else
             _ = destination.Append(CultureInfo.InvariantCulture, $"{value}");
+    }
+
+    private MeterListener CreateListener(Meter? meter)
+    {
+        var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, listener) =>
+            {
+                if (ReferenceEquals(instrument.Meter, meter))
+                    listener.EnableMeasurementEvents(instrument);
+            },
+        };
+
+        listener.SetMeasurementEventCallback<long>((inst, m, tags, _) => RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
+        listener.SetMeasurementEventCallback<int>((inst, m, tags, _) => RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
+        listener.SetMeasurementEventCallback<double>((inst, m, tags, _) => RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
+        return listener;
     }
 
     private MetricSeries GetOrAddMetric(string metric)

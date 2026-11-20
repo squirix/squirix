@@ -14,6 +14,27 @@ namespace Squirix.Server.UnitTests.Observability;
 [Immutable]
 public sealed class PrometheusMetricsSettingsTests : ServerUnitTestBase
 {
+    /// <summary>Verifies public server options check the scrape path when Prometheus export is enabled.</summary>
+    /// <param name="enabled">Whether Prometheus export is enabled.</param>
+    /// <param name="path">The configured scrape path.</param>
+    /// <param name="expectedError">The validation error, or null on success.</param>
+    [Test]
+    [Arguments(true, "", "Prometheus metrics Path must be non-empty when the endpoint is enabled.")]
+    [Arguments(true, " ", "Prometheus metrics Path must be non-empty when the endpoint is enabled.")]
+    [Arguments(true, "metrics", "Prometheus metrics Path must start with '/'.")]
+    [Arguments(true, "/custom-metrics", null)]
+    [Arguments(false, "metrics", null)]
+    public async Task PublicOptionsValidateEnabledExportPath(bool enabled, string path, string? expectedError)
+    {
+        var options = new SquirixServerOptions { PrometheusMetricsEnabled = enabled, PrometheusMetricsPath = path };
+        var valid = options.TryValidate(out var errors);
+
+        _ = await Assert.That(valid).IsEqualTo(expectedError == null);
+        _ = await Assert.That(errors.Count).IsEqualTo(expectedError == null ? 0 : 1);
+        if (expectedError != null)
+            _ = await Assert.That(errors[0]).IsEqualTo(expectedError);
+    }
+
     /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

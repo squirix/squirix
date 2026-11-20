@@ -137,7 +137,7 @@ class Cluster:
                 # Static ownership keeps the full owner responsible for the regression's refused write.
                 "AutomaticFailoverEnabled": self.scenario == "chaos", "QuorumReadsEnabled": self.scenario == "chaos",
                 "DataDirectory": "/data",
-            }}}
+            }, "PrometheusMetrics": {"enabled": True}}}
             (directory / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
             environment = {
                 "SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT": "5001",
@@ -164,7 +164,7 @@ class Cluster:
                 arguments += ["-e", f"{key}={value}"]
             self.created.append(name)
             command(*arguments, self.args.image, "dotnet", "/app/server/Squirix.Server.Host.dll", "run",
-                    "--settings", "/config/settings.json", "--persist", "--enable-replication")
+                    "--settings", "/config/settings.json", "--persist", "--enable-replication", "--metrics")
         self.ips = [command("docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", n).strip() for n in self.nodes]
         self.record("nodes-started", addresses=self.ips)
         time.sleep(10)

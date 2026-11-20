@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Squirix.Server.Attributes;
@@ -10,17 +9,16 @@ namespace Squirix.Server.Node.Observability;
 [ThreadSafe]
 internal sealed class ReplicaCatchUpMetrics
 {
-    private readonly Counter<long> _sessionsTotal;
-    private readonly Counter<long> _transfersTotal;
+    private readonly Counter<long>? _sessionsTotal;
+    private readonly Counter<long>? _transfersTotal;
 
-    internal ReplicaCatchUpMetrics(Meter meter)
+    internal ReplicaCatchUpMetrics(Meter? meter)
     {
-        ArgumentNullException.ThrowIfNull(meter);
-        _sessionsTotal = meter.CreateCounter<long>(
+        _sessionsTotal = meter?.CreateCounter<long>(
             "squirix_replication_catch_up_sessions_total",
             "{session}",
             "Entry catch-up sessions the replica group owner ran for its followers, by outcome");
-        _transfersTotal = meter.CreateCounter<long>(
+        _transfersTotal = meter?.CreateCounter<long>(
             "squirix_replication_state_transfers_total",
             "{transfer}",
             "State transfers the replica group owner attempted for followers it cannot catch up from its log, by outcome and refusal code");
@@ -32,6 +30,9 @@ internal sealed class ReplicaCatchUpMetrics
     /// <param name="outcome">The closed session outcome name.</param>
     internal void ReportSession(string nodeId, string groupId, string outcome)
     {
+        if (_sessionsTotal == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },
@@ -48,6 +49,9 @@ internal sealed class ReplicaCatchUpMetrics
     /// <param name="reason">The closed refusal code of the follower; empty when it did not refuse.</param>
     internal void ReportTransfer(string nodeId, string groupId, string outcome, string reason)
     {
+        if (_transfersTotal == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },

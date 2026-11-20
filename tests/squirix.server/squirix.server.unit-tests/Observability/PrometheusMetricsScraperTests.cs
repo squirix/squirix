@@ -132,11 +132,11 @@ public sealed class PrometheusMetricsScraperTests
     public async Task ScrapeCapturesObservableGaugeValue()
     {
         const string metricName = "squirix_test_observable_gauge_current";
-        _ = PrometheusMetricsScraper.Instance;
         using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
         _ = meter.CreateObservableGauge(metricName, static () => 42);
 
-        var body = PrometheusMetricsScraper.Instance.Scrape();
+        var body = scraper.Scrape();
 
         var lastValue = await Assert.That(FindMetricLastValue(body, metricName)).IsNotNull();
         _ = await Assert.That(lastValue).IsEqualTo(42d);
@@ -152,15 +152,15 @@ public sealed class PrometheusMetricsScraperTests
     {
         const string baseName = "squirix_test_collision";
         const string suffixedName = baseName + "_last";
-        _ = PrometheusMetricsScraper.Instance;
         using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
         var baseCounter = meter.CreateCounter<double>(baseName);
         var suffixedCounter = meter.CreateCounter<double>(suffixedName);
 
         baseCounter.Add(1);
         suffixedCounter.Add(2);
 
-        var body = PrometheusMetricsScraper.Instance.Scrape();
+        var body = scraper.Scrape();
 
         _ = await Assert.That(CountSeriesLines(body, suffixedName)).IsEqualTo(1);
         _ = await Assert.That(body).Contains(suffixedName + " 2", StringComparison.Ordinal);
@@ -179,13 +179,13 @@ public sealed class PrometheusMetricsScraperTests
     [Arguments("squirix_test_nonfinite_neginf", double.NegativeInfinity, "-Inf")]
     public async Task ScrapeFormatsNonFiniteValues(string metricName, double value, string expected)
     {
-        _ = PrometheusMetricsScraper.Instance;
         using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
         var counter = meter.CreateCounter<double>(metricName);
 
         counter.Add(value);
 
-        var body = PrometheusMetricsScraper.Instance.Scrape();
+        var body = scraper.Scrape();
 
         _ = await Assert.That(body).Contains(metricName + "_last " + expected, StringComparison.Ordinal);
     }
@@ -198,14 +198,14 @@ public sealed class PrometheusMetricsScraperTests
     public async Task ScrapePreservesTabInLabelValueLiterally()
     {
         const string metricName = "squirix_test_tab_label";
-        _ = PrometheusMetricsScraper.Instance;
         using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
         var counter = meter.CreateCounter<double>(metricName);
         var measurementTags = new KeyValuePair<string, object?>[] { new("scheme", "a\tb") };
 
         counter.Add(1, measurementTags);
 
-        var body = PrometheusMetricsScraper.Instance.Scrape();
+        var body = scraper.Scrape();
 
         _ = await Assert.That(body).Contains(metricName + "{scheme=\"a\tb\"} ", StringComparison.Ordinal);
         _ = await Assert.That(body).DoesNotContain(@"\t", StringComparison.Ordinal);
@@ -219,14 +219,14 @@ public sealed class PrometheusMetricsScraperTests
     public async Task ScrapeReflectsDecreasedGaugeLastValue()
     {
         const string metricName = "squirix_test_gauge_last_delta";
-        _ = PrometheusMetricsScraper.Instance;
         using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
         var gauge = meter.CreateCounter<double>(metricName);
 
         gauge.Add(5);
         gauge.Add(3);
 
-        var body = PrometheusMetricsScraper.Instance.Scrape();
+        var body = scraper.Scrape();
 
         var lastValue = await Assert.That(FindMetricLastValue(body, metricName)).IsNotNull();
         _ = await Assert.That(lastValue).IsEqualTo(3d);
@@ -239,8 +239,8 @@ public sealed class PrometheusMetricsScraperTests
     [Test]
     public async Task ScrapeSanitizesNames()
     {
-        _ = PrometheusMetricsScraper.Instance;
         using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
         var dotted = meter.CreateCounter<double>("squirix.Test.Sanitize.Upper9");
         var colon = meter.CreateCounter<double>("squirix:test:sanitize");
         var tagged = meter.CreateCounter<double>("squirix_test_sanitize_tags");
@@ -249,11 +249,29 @@ public sealed class PrometheusMetricsScraperTests
         colon.Add(2);
         tagged.Add(3, taggedTags);
 
-        var body = PrometheusMetricsScraper.Instance.Scrape();
+        var body = scraper.Scrape();
 
         _ = await Assert.That(body).Contains("squirix_Test_Sanitize_Upper9", StringComparison.Ordinal);
         _ = await Assert.That(body).Contains("squirix:test:sanitize", StringComparison.Ordinal);
         _ = await Assert.That(body).Contains("squirix_test_sanitize_tags{a_b=\"v\"} ", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies that a scrape includes only measurements of the meter owned by that server.</summary>
+    [Test]
+    public async Task ScrapeIsScopedToOneMeter()
+    {
+        using var meter = new Meter("Squirix");
+        using var otherMeter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
+        var own = meter.CreateCounter<long>("squirix_test_local");
+        var other = otherMeter.CreateCounter<long>("squirix_test_other");
+
+        own.Add(4);
+        other.Add(8);
+        var body = scraper.Scrape();
+
+        _ = await Assert.That(body).Contains("squirix_test_local 4", StringComparison.Ordinal);
+        _ = await Assert.That(body).DoesNotContain("squirix_test_other", StringComparison.Ordinal);
     }
 
     /// <summary>Finite extremes and negative zero keep the exact invariant representation under a decimal-comma culture.</summary>

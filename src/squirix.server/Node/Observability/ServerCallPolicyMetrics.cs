@@ -8,14 +8,17 @@ namespace Squirix.Server.Node.Observability;
 [Immutable]
 internal sealed class ServerCallPolicyMetrics
 {
-    private readonly Histogram1Label _backoffSeconds;
-    private readonly Counter1Label _backoffsTotal;
-    private readonly Counter1Label _busyRejectsTotal;
-    private readonly Counter1Label _drainRejectsTotal;
-    private readonly Counter2Labels _retriesTotal;
+    private readonly Histogram1Label? _backoffSeconds;
+    private readonly Counter1Label? _backoffsTotal;
+    private readonly Counter1Label? _busyRejectsTotal;
+    private readonly Counter1Label? _drainRejectsTotal;
+    private readonly Counter2Labels? _retriesTotal;
 
-    internal ServerCallPolicyMetrics(Meter meter)
+    internal ServerCallPolicyMetrics(Meter? meter)
     {
+        if (meter == null)
+            return;
+
         _backoffSeconds = new Histogram1Label(meter.CreateHistogram<double>("squirix_call_policy_backoff_seconds"), "peer");
         _backoffsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_call_policy_backoffs_total"), "peer");
         _busyRejectsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_call_policy_busy_rejects_total"), "peer");
@@ -23,15 +26,15 @@ internal sealed class ServerCallPolicyMetrics
         _retriesTotal = new Counter2Labels(meter.CreateCounter<long>("squirix_call_policy_retries_total"), "peer", "reason");
     }
 
-    internal void IncrementBackoffLabel(string peer, int increment) => _backoffsTotal.Add(peer, increment);
+    internal void IncrementBackoffLabel(string peer, int increment) => _backoffsTotal?.Add(peer, increment);
 
-    internal void IncrementBusyRejectsTotal(string peer, int increment) => _busyRejectsTotal.Add(peer, increment);
+    internal void IncrementBusyRejectsTotal(string peer, int increment) => _busyRejectsTotal?.Add(peer, increment);
 
-    internal void IncrementDrainRejectsTotal(string peer, int increment) => _drainRejectsTotal.Add(peer, increment);
+    internal void IncrementDrainRejectsTotal(string peer, int increment) => _drainRejectsTotal?.Add(peer, increment);
 
-    internal void IncrementRetriesTotal(string peer, string reason, int increment = 1) => _retriesTotal.Add(peer, reason, increment);
+    internal void IncrementRetriesTotal(string peer, string reason, int increment = 1) => _retriesTotal?.Add(peer, reason, increment);
 
-    internal void ObserveBackoffSeconds(string peer, TimeSpan value) => _backoffSeconds.Observe(peer, value);
+    internal void ObserveBackoffSeconds(string peer, TimeSpan value) => _backoffSeconds?.Observe(peer, value);
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)

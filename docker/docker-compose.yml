@@ -20,7 +20,7 @@ services:
       - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:
-      - "5001:5000" # HTTPS gRPC + /health + /metrics
+      - "5001:5000" # Binary cache and health over TLS
     volumes:
       - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodea-data:/data

@@ -21,26 +21,28 @@ internal sealed class ReplicationMetrics
     private const string GroupTag = "group";
     private const string IndexUnit = "{index}";
 
-    private readonly Counter<long> _compactionsTotal;
-    private readonly Counter<long> _compactionSkippedTotal;
+    private readonly Counter<long>? _compactionsTotal;
+    private readonly Counter<long>? _compactionSkippedTotal;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, GroupObservation> _groups = [with(StringComparer.Ordinal)];
-    private readonly Counter<long> _idempotencyRefusalsTotal;
-    private readonly Counter<long> _inconsistentRecordsTotal;
-    private readonly Counter<long> _mismatchTotal;
-    private readonly Counter1Label _reportsTotal;
-    private readonly Counter1Label _unknownCommitsTotal;
+    private readonly Counter<long>? _idempotencyRefusalsTotal;
+    private readonly Counter<long>? _inconsistentRecordsTotal;
+    private readonly Counter<long>? _mismatchTotal;
+    private readonly Counter1Label? _reportsTotal;
+    private readonly Counter1Label? _unknownCommitsTotal;
 
     private GroupObservation[]? _groupSnapshot;
 
-    internal ReplicationMetrics(Meter meter)
+    internal ReplicationMetrics(Meter? meter)
     {
-        ArgumentNullException.ThrowIfNull(meter);
+        CommitBatches = new ReplicaCommitBatchMetrics(meter);
+        if (meter == null)
+            return;
+
         _reportsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_replication_status_reports_total", "{report}", "Replica status read-path reports"), "node");
         _unknownCommitsTotal = new Counter1Label(
             meter.CreateCounter<long>("squirix_replication_unknown_commit_total", "{commit}", "Commits that ended with an unknown outcome after the local append, by record kind"),
             "operation");
-        CommitBatches = new ReplicaCommitBatchMetrics(meter);
         _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
         _compactionsTotal = meter.CreateCounter<long>("squirix_replication_log_compactions_total", "{compaction}", "Compactions of the replica group log this node owns, by outcome");
         _compactionSkippedTotal = meter.CreateCounter<long>(
@@ -99,6 +101,9 @@ internal sealed class ReplicationMetrics
     /// <param name="outcome">The closed compaction outcome name: compacted, or compacted_past_follower when a follower was left behind.</param>
     internal void ReportCompaction(string nodeId, string groupId, string outcome)
     {
+        if (_compactionsTotal == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },
@@ -113,6 +118,9 @@ internal sealed class ReplicationMetrics
     /// <param name="groupId">The replica group identifier.</param>
     internal void ReportIdempotencyRefusal(string nodeId, string groupId)
     {
+        if (_idempotencyRefusalsTotal == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },
@@ -126,6 +134,9 @@ internal sealed class ReplicationMetrics
     /// <param name="groupId">The replica group identifier.</param>
     internal void ReportInconsistentRecord(string nodeId, string groupId)
     {
+        if (_inconsistentRecordsTotal == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },
@@ -136,7 +147,7 @@ internal sealed class ReplicationMetrics
 
     /// <summary>Counts one commit that ended with an unknown outcome after the local append.</summary>
     /// <param name="kind">The kind of the record the commit carried.</param>
-    internal void ReportUnknownCommit(GroupRecordKind kind) => _unknownCommitsTotal.Add(LeaderView.OperationName(kind));
+    internal void ReportUnknownCommit(GroupRecordKind kind) => _unknownCommitsTotal?.Add(LeaderView.OperationName(kind));
 
     /// <summary>Counts one pass that found the owned replica group log past a threshold but did not compact it.</summary>
     /// <param name="nodeId">The observing node identifier.</param>
@@ -144,6 +155,9 @@ internal sealed class ReplicationMetrics
     /// <param name="reason">The closed compaction outcome name that stopped the compaction.</param>
     internal void ReportCompactionSkipped(string nodeId, string groupId, string reason)
     {
+        if (_compactionSkippedTotal == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },
@@ -178,6 +192,9 @@ internal sealed class ReplicationMetrics
     /// <param name="verdict">The evaluated readiness verdict.</param>
     internal void ReportGroup(in ReplicaStatusSnapshot snapshot, ReplicaReadinessVerdict verdict)
     {
+        if (_reportsTotal == null)
+            return;
+
         _reportsTotal.Add(snapshot.NodeId);
 
         var observation = new GroupObservation(
@@ -210,6 +227,9 @@ internal sealed class ReplicationMetrics
 
     private void AddMismatch(string nodeId, string groupId, string reason)
     {
+        if (_mismatchTotal == null)
+            return;
+
         var tags = new TagList
         {
             { "node", nodeId },

@@ -300,6 +300,8 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         ExtraScope = scope,
         PartitionFabric = fabric,
         PersistenceOptions = new PersistenceOptions { JournalMaxSegmentMb = 64, ReplicaLogCompactionEntries = Threshold },
+        MetricsEnabled = true,
+        PrometheusMetricsEnabled = true,
         ServicesConfigure = services => SetMaintenanceInterval(services, maintenanceInterval),
     };
 

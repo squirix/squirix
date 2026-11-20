@@ -155,10 +155,20 @@ internode mTLS material. The bundled primary certificate does not cover arbitrar
 For local development probes, use `curl -k` from the host. To connect with the .NET client from the host, trust the
 container's exported public HTTPS certificate on the client machine. The public client API uses normal TLS validation.
 
-Example probes from the host:
+Check health from the host.
 
 ```bash
 curl -k https://localhost:5001/health
+```
+
+To enable the scrape, set `Squirix:PrometheusMetrics:enabled` to `true` in the mounted node settings and add
+`--metrics` to that node's Compose `command` before starting it.
+
+```yaml
+command: ["run", "--persist", "--data-dir", "/data", "--metrics"]
+```
+
+```bash
 curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 ```
 

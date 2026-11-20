@@ -17,7 +17,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private readonly ConcurrentDictionary<string, ClientState> _clients = new(StringComparer.Ordinal);
     private readonly BackpressureMetrics _metrics;
     private readonly RateLimiter? _nodeRateLimiter;
-    private readonly IDisposable _observerRegistration;
+    private readonly IDisposable? _observerRegistration;
     private readonly AdmissionOptions _options;
 
     /// <summary>The one client entry all callers share while no per-client limit is set, so admission keeps no per-client state.</summary>
@@ -40,7 +40,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _options.Validate();
 
         // Registered before the semaphore is created, so a refused registration leaves nothing to dispose.
-        _observerRegistration = _metrics.RegisterObservers(() => InFlight, () => QueueDepth, () => TrackedClients);
+        if (_metrics.Enabled)
+            _observerRegistration = _metrics.RegisterObservers(() => InFlight, () => QueueDepth, () => TrackedClients);
         _slots = new AsyncSemaphore(_options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst, _timeProvider);
         _sharedClient = _options.HasPerClientLimits ? null : new ClientState(_options, _timeProvider, false);
@@ -95,7 +96,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _observerRegistration.Dispose();
+        _observerRegistration?.Dispose();
         _slots.Dispose();
         _sweeper.Dispose();
     }
@@ -351,7 +352,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (!queueReserved && !TryReserveQueue(transport, operation))
             return (Decision.Rejected(QueueFullReason), Lease.Empty);
 
-        var started = Stopwatch.GetTimestamp();
+        var started = _metrics.Enabled ? Stopwatch.GetTimestamp() : 0;
         try
         {
             // The timeout runs on the gate time provider, like the slowdown delay, so tests can drive it with a fake clock.
@@ -384,8 +385,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                 return (Decision.Rejected("gate_disposed"), Lease.Empty);
             }
 
-            var queueWait = Stopwatch.GetElapsedTime(started);
-            _metrics.RecordQueueWait(queueWait, transport, operation);
+            if (_metrics.Enabled)
+                _metrics.RecordQueueWait(Stopwatch.GetElapsedTime(started), transport, operation);
             return (Decision.Accepted(), AcquireLease(clientId, client));
         }
         catch (OperationCanceledException)

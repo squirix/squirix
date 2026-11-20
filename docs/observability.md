@@ -1,6 +1,6 @@
 # Observability
 
-squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTelemetry tracing.
+Squirix nodes expose HTTP health endpoints and support opt-in metrics and server-side OpenTelemetry tracing.
 
 ## Health routes
 
@@ -25,7 +25,8 @@ Full field reference: [diagnostics.md](diagnostics.md).
 
 ## Metrics
 
-`GET /metrics` — Prometheus text exposition (enabled by default; configurable in settings).
+Start the server with `squirix-server run --metrics` to enable metrics collection. To expose the Prometheus scrape
+endpoint at `/metrics`, also [enable Prometheus export in the settings file](configuration.md#prometheus-metrics-squirixsettingsjson).
 
 Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must authenticate with a valid
 JWT bearer token. An unauthenticated remote request receives `401`, even if JWT authentication is not configured.

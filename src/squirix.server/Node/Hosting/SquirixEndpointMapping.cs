@@ -29,8 +29,8 @@ internal static class SquirixEndpointMapping
         MapHealthEndpoints(app);
 
         var metricsOptions = app.Services.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
-        if (metricsOptions.Enabled)
-            app.MapSquirixMetrics(metricsOptions.Path);
+        if (metricsOptions.Enabled && app.Services.GetService<PrometheusMetricsScraper>() is { } scraper)
+            app.MapSquirixMetrics(metricsOptions.Path, scraper);
 
         var mtlsOptions = app.Services.GetRequiredService<MtlsOptions>();
         var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificate>();

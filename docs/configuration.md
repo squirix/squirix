@@ -19,20 +19,19 @@ See [containerization.md](containerization.md) for dev and release image layouts
 The standalone `squirix-server` host, `await builder.AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()` load
 `Squirix:Cluster` through `Configurator` when a settings file is discovered or supplied. `StartAsync()`
 then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServerAsync` pipeline as the standalone executable.
-Optional runtime sections (`MemoryPressure`, `Snapshot`, and `PrometheusMetrics`) independently use standard file
-discovery. An explicit `--settings custom.json` selects `Cluster` from that file but does not redirect those runtime
-loaders. This is a current limitation: keep all sections in `Squirix.settings.json` in the process working directory
-when they must be applied together. `validate-config --settings custom.json --strict` validates optional sections in
-the named file, but does not prove the running host will load them from that path.
+The host also loads `Squirix:PrometheusMetrics` from the selected settings file. An explicit `--settings custom.json`
+selects both sections from that file. `MemoryPressure` and `Snapshot` use standard file discovery independently.
+Keep all sections in `Squirix.settings.json` in the working directory to apply them together.
+`validate-config --settings custom.json --strict` validates optional sections in the named file.
 
 Relative settings and data paths are resolved against the process working directory, not the settings file directory.
 Use paths without `.` or `..` segments, for example `config/node.json` and `data`; paths such as `./data` are rejected.
-CLI listen, persistence, data-directory, and replication overrides are applied after loading cluster settings. In custom
-hosts, the configuration callback runs after the discovered cluster settings baseline.
+CLI listen, persistence, data-directory, replication, and metrics flags apply after loading settings.
+In custom hosts, the configuration callback runs after file settings have been loaded.
 
 In a custom ASP.NET Core host, `AddSquirixServerAsync` configures the public TLS listener for binary cache connections.
 Configure cluster topology and optional persistence in its `SquirixServerOptions` callback. After building the app,
-call `await app.MapSquirixServerAsync()` to open node storage and map health, metrics, and any configured internode endpoints.
+call `await app.MapSquirixServerAsync()` to open node storage and map health and any configured metrics or internode endpoints.
 
 ## Remote client (`SquirixClientOptions`)
 
@@ -387,15 +386,13 @@ during startup.
 
 ## Node settings file (`Squirix.settings.json`)
 
-Except for `Squirix:Cluster:Backpressure` and `Squirix:Cluster:Journal`, which are properties of `SquirixServerOptions`, the optional sections below are
-**not** properties on `SquirixServerOptions`. In v0.1 public hosting, only some of them are merged from the settings file
-at startup:
+The following optional settings are available at startup.
 
 | Section | Loaded from `Squirix.settings.json`? | Notes |
 | --- | --- | --- |
 | `MemoryPressure` | Yes | Merged when present |
 | `Snapshot` | Yes | Merged when present |
-| `PrometheusMetrics` | Yes | Merged when present |
+| `PrometheusMetrics` | Yes | Enables HTTP export when metrics collection is on. Disabled by default |
 | Persistence knobs (`PersistenceOptions`) | No | Host defaults when `--persist` / `UsePersistence()`; not a JSON section today |
 | Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
 | Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
@@ -591,7 +588,8 @@ never queued. Forwarded owner calls are never queued on the owner (see above). A
 
 ### Journal metrics exporter
 
-When persistence is enabled, the journal segment count and size gauges are refreshed from disk every 5 seconds. The interval
+When persistence and metrics collection are enabled, the journal segment count and size gauges are refreshed from disk
+every 5 seconds. The interval
 is fixed and not loaded from `Squirix.settings.json`.
 
 <!-- markdownlint-disable-next-line MD033 -->
@@ -599,12 +597,16 @@ is fixed and not loaded from `Squirix.settings.json`.
 
 ### Prometheus metrics (`PrometheusMetrics`)
 
-The optional `PrometheusMetrics` section configures the built-in Prometheus-compatible HTTP scrape endpoint mapped by
-`MapSquirixServerAsync()`.
+Squirix server metrics collection is disabled by default. Enable it at startup with `squirix-server run --metrics`,
+or set `SquirixServerOptions.MetricsEnabled` in the embedded hosting configuration callback.
+
+Prometheus HTTP export is a separate opt-in. Set `Squirix:PrometheusMetrics:enabled` to `true` in the settings file
+or set `SquirixServerOptions.PrometheusMetricsEnabled` in the callback. The server exposes the scrape endpoint
+when both collection and export are enabled. Use `PrometheusMetricsPath` in the callback to customize the path.
 
 | Field     | Type   | Default in node host | Validation                                              |
 | --------- | ------ | -------------------- | ------------------------------------------------------- |
-| `Enabled` | bool   | `true`               | Any boolean                                             |
+| `Enabled` | bool   | `false`              | Any boolean                                             |
 | `Path`    | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true` |
 
 Example fragment:
@@ -627,8 +629,8 @@ the same JWT bearer token used for cache routes (see
 **Loopback trust assumption:** anonymous loopback scrapes assume the host is **single-tenant** and that any local
 process reaching `127.0.0.1` / `::1` is trusted. On **shared or multi-tenant** hosts, another tenant's process can
 scrape `/metrics` without JWT and read operational data. Mitigations: bind the primary listener to loopback only when
-appropriate, disable the HTTP scrape (`PrometheusMetrics.enabled: false`) and export through OpenTelemetry /
-`MeterListener` instead, or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
+appropriate, leave `PrometheusMetrics.enabled` set to `false` and export through OpenTelemetry or `MeterListener`,
+or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
 scrapes — the tradeoff is intentional for same-host Prometheus ergonomics.
 
 Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`

@@ -40,7 +40,7 @@ public sealed class OperationalEndpointAuthTests : ServerSurfaceTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(nodeId, uri),
-            _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            _ => new BlackBoxStartOptions { MetricsEnabled = true, PrometheusMetricsEnabled = true, Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackUrl), cancellationToken);

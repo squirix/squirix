@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
@@ -20,14 +21,14 @@ internal static class CachePipelineRegistration
     /// <summary>Service key of the owner-local cache chain below replication: the target of replicated applies and of direct local calls.</summary>
     internal const string LocalChainKey = "local-chain";
 
-    internal static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, bool persistenceEnabled = false)
+    internal static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, bool persistenceEnabled = false, bool metricsEnabled = false)
     {
         _ = services.AddSingleton(static sp => new ClientCache<object?>(
             sp.GetRequiredService<ILocalCacheReadOperations<object?>>(),
             sp.GetRequiredService<ILocalCacheMutationOperations<object?>>()));
 
         AddOwnershipGuardLayer(services, persistenceEnabled);
-        AddCacheDecoratorChain(services);
+        AddCacheDecoratorChain(services, metricsEnabled);
         _ = services.AddSingleton<ILogicalNamespacedCache<object?>>(static sp => sp.GetRequiredService<TracingCacheDecorator<object?>>());
         _ = services.AddSingleton<IDistributedCacheAccess>(static sp => new NodeDistributedCacheAccess(
             ResolveLocalCache(sp),
@@ -105,18 +106,26 @@ internal static class CachePipelineRegistration
     /// Validation stays outside Backpressure so invalid requests are rejected before taking an admission slot.
     /// </summary>
     /// <param name="services">Service collection receiving the decorator chain registrations.</param>
-    private static void AddCacheDecoratorChain(IServiceCollection services)
+    /// <param name="metricsEnabled">Whether to wrap the cache with operation metrics.</param>
+    private static void AddCacheDecoratorChain(IServiceCollection services, bool metricsEnabled)
     {
         _ = services.AddSingleton(static sp => CreateAdmissionDecorator(
             ResolveLocalCache(sp),
             sp.GetRequiredService<PressureGate>(),
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             HasRecordedOutcome(sp)));
-        _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
-            sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
-            sp.GetRequiredService<CacheMetrics>()));
+        if (metricsEnabled)
+        {
+            _ = services.AddSingleton(static sp => new CacheMetrics(sp.GetRequiredKeyedService<Meter>(ServerHostingComposition.MetricsMeterName)));
+            _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
+                sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
+                sp.GetRequiredService<CacheMetrics>()));
+        }
+
         _ = services.AddSingleton(static sp => new BackpressureCacheDecorator<object?>(
-            sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
+            sp.GetService<MetricsCacheDecorator<object?>>() is { } metrics
+                ? metrics
+                : sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
             sp.GetRequiredService<IBackpressureGate>(),
             sp.GetRequiredService<IBackpressureClientIdResolver>()));
         _ = services.AddSingleton(static sp =>

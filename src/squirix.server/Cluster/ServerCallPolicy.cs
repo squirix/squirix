@@ -217,7 +217,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private ServerCallException CreateBudgetExceeded()
         {
-            _rpcMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
+            _rpcMetrics.TimeoutsTotal?.Add(_peer, "overall", "deadline_budget");
             return new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.");
         }
 
@@ -308,7 +308,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (cancelKind != ServerCancelScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
-            _rpcMetrics.TimeoutsTotal.Add(_peer, "attempt", "operation_canceled");
+            _rpcMetrics.TimeoutsTotal?.Add(_peer, "attempt", "operation_canceled");
             _metrics.IncrementRetriesTotal(_peer, "operation_canceled");
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
         }
@@ -332,7 +332,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (rx.StatusCode == FrameStatus.Cancelled || rx.StatusCode == FrameStatus.DeadlineExceeded)
             {
                 var reason = rx.StatusCode == FrameStatus.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
-                _rpcMetrics.TimeoutsTotal.Add(_peer, "attempt", reason);
+                _rpcMetrics.TimeoutsTotal?.Add(_peer, "attempt", reason);
                 _metrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
             }
@@ -387,7 +387,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 };
             }
 
-            _rpcMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
+            _rpcMetrics.TimeoutsTotal?.Add(_peer, "overall", "deadline_budget");
             throw new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.");
         }
 

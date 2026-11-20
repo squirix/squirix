@@ -35,7 +35,7 @@ internal static class NodeOptionsRegistration
         if (args.PersistenceOptions != null)
             await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, cancellationToken).ConfigureAwait(false);
 
-        var prometheusMetrics = await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var prometheusMetrics = args.PrometheusMetricsOptions ?? await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<PrometheusMetricsEndpointOptions, PrometheusEndpointOptionsValidator>(services, prometheusMetrics);
         return services;
     }

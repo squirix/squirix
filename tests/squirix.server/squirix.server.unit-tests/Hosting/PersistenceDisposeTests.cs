@@ -73,7 +73,8 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         var services = new ServiceCollection();
         _ = services.AddLogging();
         _ = services.AddSingleton(TimeProvider.System);
-        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
+        _ = services.AddKeyedSingleton(ServerHostingComposition.MetricsMeterName, meter);
+        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
         _ = services.AddSingleton(static sp => new ReplicaGroupRegistry(
             sp.GetRequiredService<PersistenceOptions>().DataDir,
             ["group-a"],
@@ -220,7 +221,8 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         });
 
         _ = services.AddSingleton(TimeProvider.System);
-        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
+        _ = services.AddKeyedSingleton(ServerHostingComposition.MetricsMeterName, meter);
+        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
         return services.BuildServiceProvider();
     }
 }

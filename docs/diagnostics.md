@@ -249,13 +249,13 @@ recovery/trusted replay, and internal data-structure correctness, but it is not 
 
 ## Metrics route
 
-When enabled (default), the host exposes a Prometheus-compatible text scrape endpoint on the **primary HTTPS listener**:
+When enabled, the host exposes a Prometheus-compatible text scrape endpoint on the **primary HTTPS listener**:
 
 - `GET /metrics` (default path; configurable)
 
-The scrape surface is a lightweight exporter over the `Squirix` .NET meter. Disable it or change the path through
-`PrometheusMetrics` in `Squirix.settings.json`. See
-[configuration](configuration.md#prometheus-metrics-squirixsettingsjson).
+The endpoint exports measurements from the `Squirix` .NET meter. Start the server with `squirix-server run --metrics`
+and [enable Prometheus export in the settings file](configuration.md#prometheus-metrics-squirixsettingsjson)
+to expose it.
 
 Access control is enforced on every request:
 
@@ -276,8 +276,8 @@ environment where local processes are trusted.
 
 **Mitigations when that assumption does not hold:**
 
-- Disable the HTTP scrape endpoint (`PrometheusMetrics.enabled: false`) and use OpenTelemetry or `MeterListener`
-  exporters with your platform's auth model.
+- Leave `PrometheusMetrics.enabled` set to `false` to disable HTTP scraping. With collection enabled, use
+  OpenTelemetry or `MeterListener` exporters with your platform's auth model.
 - Keep the primary listener on loopback only when the node must not accept remote clients (see
   [server-mode.md](server-mode.md#loopback-development-default-not-production-posture)).
 - Run one squirix node per dedicated VM or container with network policies that limit who can reach the listener.

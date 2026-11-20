@@ -335,6 +335,8 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
             ElectionTiming = WipedCluster.Timing,
             PartitionFabric = fabric,
             PersistenceOptions = persistence,
+            MetricsEnabled = true,
+            PrometheusMetricsEnabled = true,
             ServicesConfigure = serviceCollection =>
             {
                 SetMaintenanceInterval(serviceCollection);
