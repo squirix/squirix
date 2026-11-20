@@ -61,7 +61,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
     private async Task AssertBlockedUntilReplayAsync(ITestNodeHost node, RecoveryReplayDelaySignal replayDelay, CancellationToken cancellationToken)
     {
         _ = await Assert.That(await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
-        _ = await Assert.That(await GetLiveStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
+        _ = await Assert.That(await GetLiveStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
 
         var cache = GetCache(node);
         var beforeReplay = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, cancellationToken);

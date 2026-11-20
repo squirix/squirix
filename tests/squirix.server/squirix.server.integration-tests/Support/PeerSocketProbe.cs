@@ -66,7 +66,15 @@ internal sealed class PeerSocketProbe
         await using var stream = new SslStream(socket.GetStream());
         _tls.TargetHost = _address.DnsSafeHost;
         _tls.ApplicationProtocols = [PeerFrames.Protocol];
-        await stream.AuthenticateAsClientAsync(_tls, cancellationToken);
+        try
+        {
+            await stream.AuthenticateAsClientAsync(_tls, cancellationToken);
+        }
+        catch (System.Security.Authentication.AuthenticationException error)
+        {
+            throw new IOException("The peer refused the TLS handshake.", error);
+        }
+
         if (stream.NegotiatedApplicationProtocol != PeerFrames.Protocol)
             throw new IOException("The peer protocol was not negotiated.");
 

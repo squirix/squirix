@@ -96,8 +96,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         using var handler = await CreateCaTrustingHandlerAsync("node-b", peers, cancellationToken);
         var client = new PeerSocketProbe(interNodeUrl, handler.SslOptions);
 
-        var ex = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(ex is System.IO.IOException or System.Security.Authentication.AuthenticationException).IsTrue();
+        var ex = await NodeAsyncAssert.ThrowsAnyAsync<System.IO.IOException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(ex).IsNotNull();
     }
 
     /// <summary>Verifies a ring fingerprint header on the public listener cannot fence a node when it is not sent by a trusted peer.</summary>
