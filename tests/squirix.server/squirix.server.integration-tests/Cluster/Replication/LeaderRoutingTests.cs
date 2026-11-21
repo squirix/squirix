@@ -6,7 +6,6 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
@@ -590,7 +589,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         return leader;
     }
 
-    private static IntegrationStartOptions Options(string scope, bool failover, Action<IServiceCollection>? configure = null, bool shortElection = false) => new()
+    private static IntegrationStartOptions Options(string scope, bool failover, Action<TestServiceCollection>? configure = null, bool shortElection = false) => new()
     {
         ReplicaCount = 3,
         UsePersistence = true,

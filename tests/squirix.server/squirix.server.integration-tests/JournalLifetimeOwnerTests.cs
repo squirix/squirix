@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -124,7 +123,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
         /// <summary>Wraps the journal host registration so the host owns a throwing journal from its first resolution.</summary>
         /// <param name="services">The node service collection.</param>
         /// <exception cref="InvalidOperationException">The composition registers no journal host factory.</exception>
-        internal void Configure(IServiceCollection services)
+        internal void Configure(TestServiceCollection services)
         {
             for (var i = services.Count - 1; i >= 0; i--)
             {
@@ -134,7 +133,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
                 if (services[i].ImplementationFactory is not { } factory)
                     throw new InvalidOperationException("the journal host is not registered through a factory.");
 
-                services[i] = ServiceDescriptor.Singleton(typeof(JournalCoordinatorHost), new ThrowingHostFactory(factory, this).Create);
+                services[i] = TestServiceRegistration.Singleton(typeof(JournalCoordinatorHost), new ThrowingHostFactory(factory, this).Create);
                 return;
             }
 
@@ -185,10 +184,10 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
     [Immutable]
     private sealed class ThrowingHostFactory
     {
-        private readonly Func<IServiceProvider, object> _inner;
+        private readonly Func<IServiceProvider, object?> _inner;
         private readonly ThrowingJournalRegistration _registration;
 
-        internal ThrowingHostFactory(Func<IServiceProvider, object> inner, ThrowingJournalRegistration registration)
+        internal ThrowingHostFactory(Func<IServiceProvider, object?> inner, ThrowingJournalRegistration registration)
         {
             _inner = inner;
             _registration = registration;

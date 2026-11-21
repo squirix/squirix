@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Composition;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -105,7 +104,7 @@ public sealed class TestNodeHostShutdownTests
     public async Task ShutdownDisposesAppWhenStopThrows(CancellationToken cancellationToken)
     {
         var services = TestNodeBuilder.CreateServices();
-        _ = services.AddSingleton<DisposalProbe>();
+        _ = services.AddSingleton(static _ => new DisposalProbe());
         _ = services.AddSingleton<INodeService>(static _ => new FailingStopService());
         var app = services.BuildNode();
         var appProbe = app.Services.GetRequiredService<DisposalProbe>();

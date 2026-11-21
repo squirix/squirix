@@ -2,8 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -64,7 +62,7 @@ internal sealed class ElectionRoundCounter
     /// <summary>Replaces the vote gateway of a node with one that counts the pre-vote calls it makes and delegates to the product gateway.</summary>
     /// <param name="services">The node service collection.</param>
     /// <exception cref="ArgumentNullException"><paramref name="services" /> is <see langword="null" />.</exception>
-    internal void Register(IServiceCollection services)
+    internal void Register(TestServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         _ = services.RemoveAll<IReplicaVoteGateway>().AddSingleton<IReplicaVoteGateway>(sp => new CountingVoteGateway(sp.GetRequiredService<ReplicaRpcGateway>(), this));

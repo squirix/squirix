@@ -2,8 +2,6 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
@@ -47,51 +45,35 @@ public sealed class ConnectionAdmissionTests
         var gate = new ConfigurationGate();
         gate.Complete(configuration);
 
-        var services = new ServiceCollection();
-        _ = services.AddOptions();
-        await using var provider = services.BuildServiceProvider();
-        var cache = provider.GetRequiredService<IOptionsMonitorCache<JwtValidationOptions>>();
+        await using var provider = new TestServiceCollection().BuildServiceProvider();
         var options = new JwtValidationOptions
         {
             Metadata = gate,
             Audience = credentials.Audience,
         };
-        _ = await Assert.That(cache.TryAdd(Options.DefaultName, options)).IsTrue();
-        using var validator = new NativeConnectionAuthenticationValidator(() => provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue, TimeProvider.System, provider);
+        using var validator = new NativeConnectionAuthenticationValidator(() => options, TimeProvider.System, provider);
         var token = TestJwtHelper.CreateBearerToken(credentials);
         _ = await Assert.That(await validator.ValidateBearerAsync(token, cancellationToken)).IsTrue();
     }
 
     private static async Task<bool> AdmitAfterLookupAsync(int change, CancellationToken cancellationToken)
     {
-        var services = new ServiceCollection();
-        _ = services.AddOptions();
-        await using var provider = services.BuildServiceProvider();
-        var cache = provider.GetRequiredService<IOptionsMonitorCache<JwtValidationOptions>>();
-        var monitor = provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>();
+        await using var provider = new TestServiceCollection().BuildServiceProvider();
         var gate = new ConfigurationGate();
         var options = new JwtValidationOptions { Metadata = gate };
-        _ = await Assert.That(cache.TryAdd(Options.DefaultName, options)).IsTrue();
         var configuration = new JwtMetadata();
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var connection = AuthenticatedConnection.Create(new ClaimsPrincipal(), (DateTime.UnixEpoch, DateTime.UnixEpoch.AddSeconds(10)), options, configuration, null, static () => { });
-        using var validator = new NativeConnectionAuthenticationValidator(() => monitor.CurrentValue, clock, provider);
+        using var validator = new NativeConnectionAuthenticationValidator(() => Volatile.Read(ref options), clock, provider);
         var pending = validator.IsCurrentAsync(connection!, cancellationToken);
         await gate.Requested.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(pending.IsCompleted).IsFalse();
         if (change == 0)
-        {
             clock.Advance(TimeSpan.FromSeconds(10));
-        }
         else if (change == 1)
-        {
-            _ = await Assert.That(cache.TryRemove(Options.DefaultName)).IsTrue();
-            _ = await Assert.That(cache.TryAdd(Options.DefaultName, new JwtValidationOptions { Metadata = gate })).IsTrue();
-        }
+            Volatile.Write(ref options, new JwtValidationOptions { Metadata = gate });
         else
-        {
             clock.Advance(TimeSpan.FromSeconds(9));
-        }
 
         gate.Complete(configuration);
         return await pending;

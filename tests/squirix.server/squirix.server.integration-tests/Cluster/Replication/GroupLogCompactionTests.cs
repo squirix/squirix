@@ -6,7 +6,6 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -317,7 +316,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <summary>Replaces the group log maintenance schedule.</summary>
     /// <param name="services">The node service collection.</param>
     /// <param name="interval">The delay between two maintenance passes.</param>
-    private static void SetMaintenanceInterval(IServiceCollection services, TimeSpan interval)
+    private static void SetMaintenanceInterval(TestServiceCollection services, TimeSpan interval)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {

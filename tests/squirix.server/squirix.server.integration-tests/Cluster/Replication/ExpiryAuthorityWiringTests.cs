@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Composition;
@@ -52,7 +51,7 @@ public sealed class ExpiryAuthorityWiringTests : NodeIntegrationTestBase
     {
         var sweepRegistered = false;
         var localSweepRegistered = false;
-        foreach (var service in host.GetRequiredService<IEnumerable<INodeService>>())
+        foreach (var service in host.GetServices<INodeService>())
         {
             sweepRegistered |= service is ReplicaExpirationSweepService;
             localSweepRegistered |= service is LocalExpirationSweepService;

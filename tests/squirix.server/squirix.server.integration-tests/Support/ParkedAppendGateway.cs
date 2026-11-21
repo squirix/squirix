@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -37,7 +37,7 @@ internal sealed class ParkedAppendGateway : IReplicaRpcGateway
     /// <param name="followerNodeId">The follower the entries are sent to.</param>
     /// <param name="release">Completed by the test to let the parked batches through.</param>
     /// <returns>The services callback.</returns>
-    internal static Action<IServiceCollection> CreateConfigure(string groupId, string followerNodeId, TaskCompletionSource release)
+    internal static Action<TestServiceCollection> CreateConfigure(string groupId, string followerNodeId, TaskCompletionSource release)
     {
         ArgumentNullException.ThrowIfNull(release);
         return CreateConfigure(groupId, nodeId => string.Equals(nodeId, followerNodeId, StringComparison.Ordinal), token => release.Task.WaitAsync(token));
@@ -48,7 +48,7 @@ internal sealed class ParkedAppendGateway : IReplicaRpcGateway
     /// <param name="parkFollower">Selects the followers whose nonempty appends are parked.</param>
     /// <param name="park">Waits for the barrier or cancellation.</param>
     /// <returns>The services callback.</returns>
-    internal static Action<IServiceCollection> CreateConfigure(string groupId, Predicate<string> parkFollower, Func<CancellationToken, Task> park)
+    internal static Action<TestServiceCollection> CreateConfigure(string groupId, Predicate<string> parkFollower, Func<CancellationToken, Task> park)
     {
         return services =>
         {

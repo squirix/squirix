@@ -1,5 +1,4 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Node.Services;
 
 namespace Squirix.Server.TestKit.Hosting;

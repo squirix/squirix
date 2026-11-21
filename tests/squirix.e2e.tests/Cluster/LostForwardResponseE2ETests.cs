@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
@@ -144,7 +143,7 @@ public sealed class LostForwardResponseE2ETests
             _probe = probe;
         }
 
-        internal void Configure(string nodeId, IServiceCollection services)
+        internal void Configure(string nodeId, TestServiceCollection services)
         {
             if (string.Equals(nodeId, "nodeA", StringComparison.Ordinal))
                 _probe.Register(services);

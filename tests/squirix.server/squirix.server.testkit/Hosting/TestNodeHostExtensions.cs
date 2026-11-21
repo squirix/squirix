@@ -1,7 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -61,6 +61,15 @@ internal static class TestNodeHostExtensions
         {
             ArgumentNullException.ThrowIfNull(host);
             return host.Services.GetRequiredService<T>();
+        }
+
+        /// <summary>Resolves all registrations of a service in node registration order.</summary>
+        /// <typeparam name="T">Service type.</typeparam>
+        /// <returns>The registered services.</returns>
+        internal IEnumerable<T> GetServices<T>()
+        {
+            ArgumentNullException.ThrowIfNull(host);
+            return host.Services.GetServices<T>();
         }
 
         /// <summary>Resolves a service from the node's root service provider, if registered.</summary>

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -103,8 +102,8 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
     private (MemoryAdmissionCacheDecorator<T> Decorator, PhysicalCache<T> Cache) Create<T>(long maxEstimatedCacheBytes, ICacheEntrySizeEstimator<T> estimator)
     {
         var physical = new PhysicalCache<T>(TimeProvider.System, estimator);
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 99, CriticalPressureThresholdPercent = 100 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(physical), "node-a", _testMeter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 99, CriticalPressureThresholdPercent = 100 };
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), "node-a", _testMeter);
         return (new MemoryAdmissionCacheDecorator<T>(new ClientCache<T>(physical, physical), gate, estimator), physical);
     }
 }

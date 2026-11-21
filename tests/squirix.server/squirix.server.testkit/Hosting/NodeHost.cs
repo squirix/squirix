@@ -1,8 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -16,7 +14,7 @@ internal static class NodeHost
 {
     internal static async Task<ServerApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions options, CancellationToken cancellationToken)
     {
-        var services = TestNodeBuilder.CreateServices(options.ConfigureLogging);
+        var services = TestNodeBuilder.CreateServices(options.ConsoleLogging);
 
         var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
         await TestNodeServices.ConfigureBuilderAsync(services, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
@@ -62,9 +60,9 @@ internal static class NodeHost
             args.FoundationOnly = _options.FoundationOnly;
         }
 
-        internal void ConfigureServices(IServiceCollection services) => ComposeServices(_options, _nodeId)?.Invoke(services);
+        internal void ConfigureServices(TestServiceCollection services) => ComposeServices(_options, _nodeId)?.Invoke(services);
 
-        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
+        private static Action<TestServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
         {
             if (options.TimeProvider == null && options.ElectionTiming == null)
                 return options.ServicesConfigure;

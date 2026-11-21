@@ -1,62 +1,42 @@
 using System;
 using Squirix.Server.Logging;
-using HostLogging = Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.TestKit.Logging;
 
-/// <summary>Forwards node events to the providers configured by a test host.</summary>
+/// <summary>Writes debug and higher node events to the console when enabled for a test host.</summary>
 internal sealed class TestHostLoggerFactory : IServerLoggerFactory
 {
-    private readonly HostLogging.ILoggerFactory _factory;
-    private readonly bool _ownsFactory;
+    private readonly bool _consoleLogging;
 
-    internal TestHostLoggerFactory(HostLogging.ILoggerFactory factory, bool ownsFactory = false)
+    internal TestHostLoggerFactory(bool consoleLogging = true)
     {
-        _factory = factory;
-        _ownsFactory = ownsFactory;
+        _consoleLogging = consoleLogging;
     }
 
-    public IServerLogger CreateLogger(string categoryName) => new Sink(_factory.CreateLogger(categoryName));
+    public IServerLogger CreateLogger(string categoryName) => _consoleLogging ? new ConsoleLogger(categoryName) : NullLogger.Instance;
 
     public void Dispose()
     {
-        if (_ownsFactory)
-            _factory.Dispose();
     }
 
-    private sealed class Sink : IServerLogger
+    private sealed class ConsoleLogger : IServerLogger
     {
-        private readonly HostLogging.ILogger _target;
+        private readonly string _categoryName;
 
-        internal Sink(HostLogging.ILogger target)
+        internal ConsoleLogger(string categoryName)
         {
-            _target = target;
+            _categoryName = categoryName;
         }
 
         public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => _target.BeginScope(state);
+            where TState : notnull => null;
 
-        public bool IsEnabled(ServerLogLevel logLevel) => _target.IsEnabled(ToHostLevel(logLevel));
+        public bool IsEnabled(ServerLogLevel logLevel) => logLevel is >= ServerLogLevel.Debug and < ServerLogLevel.None;
 
-#pragma warning disable ZA0401 // The test bridge forwards already-structured state to the selected host provider.
         public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            var level = ToHostLevel(logLevel);
-            if (_target.IsEnabled(level))
-                _target.Log(level, new HostLogging.EventId(eventId.Id, eventId.Name), state, exception, formatter);
+            if (IsEnabled(logLevel))
+                Console.WriteLine($"{logLevel}: {_categoryName}[{eventId.Id}] {formatter(state, exception)}{(exception == null ? null : $"{Environment.NewLine}{exception}")}");
         }
-#pragma warning restore ZA0401
-
-        private static HostLogging.LogLevel ToHostLevel(ServerLogLevel level) => level switch
-        {
-            ServerLogLevel.Trace => HostLogging.LogLevel.Trace,
-            ServerLogLevel.Debug => HostLogging.LogLevel.Debug,
-            ServerLogLevel.Information => HostLogging.LogLevel.Information,
-            ServerLogLevel.Warning => HostLogging.LogLevel.Warning,
-            ServerLogLevel.Error => HostLogging.LogLevel.Error,
-            ServerLogLevel.Critical => HostLogging.LogLevel.Critical,
-            ServerLogLevel.None => HostLogging.LogLevel.None,
-            _ => throw new ArgumentOutOfRangeException(nameof(level), level, "Unsupported log level."),
-        };
     }
 }

@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;

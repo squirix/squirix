@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -159,9 +158,8 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
             var accounting = new IMemoryUsageAccountingCreateExpectations();
             _ = accounting.Setups.ReadEstimatedBytes().ReturnValue(currentBytes);
             _ = accounting.Setups.RecordAdmissionRejection();
-            var options = Options.Create(
-                new PressureOptions { MaxEstimatedCacheBytes = LimitBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-            var gate = new PressureGate(new StateEvaluator(options.Value), accounting.Instance(), "node-a", owner._testMeter);
+            var options = new PressureOptions { MaxEstimatedCacheBytes = LimitBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+            var gate = new PressureGate(new StateEvaluator(options), accounting.Instance(), "node-a", owner._testMeter);
             Cache = new MemoryAdmissionCacheDecorator<string>(
                 inner.Instance(),
                 gate,

@@ -1,7 +1,8 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Composition;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -50,13 +51,14 @@ public sealed class DevelopmentCertificateTests
         _ = await Assert.That(ResolveNodeCertificate(services)).IsNull();
     }
 
-    private static ServiceProvider BuildServices()
+    private static NodeProvider BuildServices()
     {
-        var services = new ServiceCollection();
-        DevelopmentCertificate.AddTo(services);
+        var services = new TestServiceCollection();
+        if (DevelopmentCertificate.Shared is { } shared)
+            _ = services.AddSingleton(_ => new DevelopmentCertificate.NodeCertificate(shared));
         return services.BuildServiceProvider();
     }
 
-    private static X509Certificate2? ResolveNodeCertificate(ServiceProvider provider)
+    private static X509Certificate2? ResolveNodeCertificate(NodeProvider provider)
         => provider.GetService<DevelopmentCertificate.NodeCertificate>()?.Value;
 }

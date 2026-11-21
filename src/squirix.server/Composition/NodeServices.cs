@@ -10,6 +10,8 @@ internal sealed class NodeServices
 
     internal IReadOnlyList<Registration> Registrations => _registrations;
 
+    internal void AddRegistration(Registration registration) => _registrations.Add(registration);
+
     internal NodeServices Use<T>(T instance)
         where T : notnull
     {

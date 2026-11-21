@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -91,7 +90,7 @@ internal static class FailoverSteps
         string testName,
         Func<string, TimeProvider?>? nodeClock = null,
         PartitionFabric? fabric = null,
-        Action<string, IServiceCollection>? services = null,
+        Action<string, TestServiceCollection>? services = null,
         int replicaCount = 3,
         (int Entries, TimeSpan Interval)? compaction = null,
         TestElectionTiming? timing = null)

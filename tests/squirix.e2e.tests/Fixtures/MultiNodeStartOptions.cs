@@ -1,6 +1,6 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Attributes;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -51,7 +51,7 @@ internal sealed class MultiNodeStartOptions
     internal TestNodeSecurityOptions? Security { get; init; }
 
     /// <summary>Gets an optional per-node hook that registers additional services, receiving the node identifier.</summary>
-    internal Action<string, IServiceCollection>? ServicesConfigure { get; init; }
+    internal Action<string, TestServiceCollection>? ServicesConfigure { get; init; }
 
     /// <summary>Gets the shared node time source applied to every node; null keeps the real system clock.</summary>
     internal TimeProvider? TimeProvider { get; init; }

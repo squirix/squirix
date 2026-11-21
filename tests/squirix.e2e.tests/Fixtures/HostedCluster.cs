@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.Server.TestKit;
@@ -63,7 +62,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         TestNodeSecurityOptions? security = null,
         bool persistence = false,
         TimeProvider? timeProvider = null,
-        Action<string, IServiceCollection>? configure = null,
+        Action<string, TestServiceCollection>? configure = null,
         CancellationToken cancellationToken = default)
     {
         var options = new MultiNodeStartOptions { Security = security, TimeProvider = timeProvider, ServicesConfigure = configure };

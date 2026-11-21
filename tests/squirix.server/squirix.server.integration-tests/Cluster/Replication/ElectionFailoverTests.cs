@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Composition;
@@ -109,7 +107,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         var host = await cluster.StartNodeAsync(OwnerId, options, cancellationToken);
 
         var electionRegistered = false;
-        foreach (var service in host.GetRequiredService<IEnumerable<INodeService>>())
+        foreach (var service in host.GetServices<INodeService>())
             electionRegistered |= service is ReplicaElectionService;
 
         _ = await Assert.That(electionRegistered).IsFalse();

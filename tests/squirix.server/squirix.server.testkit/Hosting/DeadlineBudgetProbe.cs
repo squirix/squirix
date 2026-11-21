@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Node.Observability;
 
@@ -27,7 +26,7 @@ public sealed class DeadlineBudgetProbe
 
     /// <summary>Registers the recording interceptor after the correlation interceptor on the node.</summary>
     /// <param name="services">The node service collection.</param>
-    public void Register(IServiceCollection services)
+    internal void Register(TestServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         _ = services.AddSingleton(new BinaryCallObserver(_ => Record(ServerRpcDeadlineContext.CurrentBudget?.Remaining)));

@@ -3,9 +3,9 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
@@ -70,8 +70,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
     public async Task JournalDisposedBeforeStorageOwners(CancellationToken cancellationToken)
     {
         using var meter = new Meter("test-persistence-dispose-order");
-        var services = new ServiceCollection();
-        _ = services.AddLogging();
+        var services = new TestServiceCollection();
         _ = services.AddSingleton(TimeProvider.System);
         _ = services.AddSingleton(meter);
         _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
@@ -204,17 +203,16 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         host.Attach(expectations.Instance());
     }
 
-    private async Task<ServiceProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)
+    private async Task<NodeProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)
     {
         var provider = BuildUnopenedProvider(meter, log);
         await PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken);
         return provider;
     }
 
-    private ServiceProvider BuildUnopenedProvider(Meter meter, EventRecordingLogger? log)
+    private NodeProvider BuildUnopenedProvider(Meter meter, EventRecordingLogger? log)
     {
-        var services = new ServiceCollection();
-        _ = services.AddLogging();
+        var services = new TestServiceCollection();
 
         _ = services.AddSingleton(TimeProvider.System);
         _ = services.AddSingleton(meter);

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Threading;
@@ -32,7 +31,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node_latch_ephemeral", new IntegrationStartOptions(), cancellationToken);
         var node = cluster["node_latch_ephemeral"];
 
-        var registrations = node.GetRequiredService<IEnumerable<ReadinessCheck>>();
+        var registrations = node.GetServices<ReadinessCheck>();
         var hasJournalCheck = false;
         foreach (var registration in registrations)
             hasJournalCheck |= string.Equals(registration.Name, JournalMaintenanceCheck, StringComparison.Ordinal);

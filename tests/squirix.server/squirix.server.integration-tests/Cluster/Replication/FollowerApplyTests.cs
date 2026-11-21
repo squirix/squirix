@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -13,6 +12,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -142,7 +142,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
 
     /// <summary>Replaces the group log maintenance schedule, so no pass persists an applied index within a test.</summary>
     /// <param name="services">The node service collection.</param>
-    private static void SetManualMaintenance(IServiceCollection services)
+    private static void SetManualMaintenance(TestServiceCollection services)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {

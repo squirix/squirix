@@ -45,7 +45,7 @@ internal static class ClusterSeeding
     {
         try
         {
-            foreach (var service in node.GetService<IEnumerable<INodeService>>() ?? [])
+            foreach (var service in node.GetServices<INodeService>())
             {
                 if (service is ReplicaGroupBootstrapService { ExecuteTask: { } start })
                     starts.Add(start);

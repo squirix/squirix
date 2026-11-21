@@ -5,13 +5,13 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
+using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -69,8 +69,23 @@ public sealed class MetricsAuthOrLoopbackFilterTests
         await using var services = CreateServices(
             credentials,
             static registrations =>
-                registrations.AddScoped<IConnectionTokenObserver>(static provider =>
-                    new OptionsResetObserver(provider.GetRequiredService<IOptionsMonitorCache<JwtValidationOptions>>())));
+            {
+                var original = registrations.FindLast(static entry => entry.ServiceType == typeof(Func<JwtValidationOptions>));
+                var configured = ThrowHelper.Required(original?.ImplementationInstance as Func<JwtValidationOptions>, "JWT options were not registered.");
+                var current = configured();
+                _ = registrations.AddSingleton<Func<JwtValidationOptions>>(() => Volatile.Read(ref current));
+                _ = registrations.AddScoped<IConnectionTokenObserver>(_ =>
+                    new OptionsResetObserver(() =>
+                    {
+                        var source = configured();
+                        Volatile.Write(ref current, new JwtValidationOptions
+                        {
+                            Audience = source.Audience,
+                            Issuer = source.Issuer,
+                            SigningKey = source.SigningKey,
+                        });
+                    }));
+            });
         var endpoint = CreateEndpoint(services);
         var token = TestJwtHelper.CreateBearerToken(credentials);
         _ = await Assert.That(await endpoint.CanAccessDetailsAsync(RemoteAddress(), token, CancellationToken.None)).IsFalse();
@@ -130,9 +145,9 @@ public sealed class MetricsAuthOrLoopbackFilterTests
         return new NativeManagementEndpoint(services, authenticate, NullLogger<NativeManagementEndpoint>.Instance);
     }
 
-    private static ServiceProvider CreateServices(TestJwtCredentials? credentials, Action<IServiceCollection>? configure = null)
+    private static NodeProvider CreateServices(TestJwtCredentials? credentials, Action<TestServiceCollection>? configure = null)
     {
-        var services = new ServiceCollection();
+        var services = new TestServiceCollection();
         var options = new SecurityOptions
         {
             JwtAudience = credentials?.Audience,
@@ -149,16 +164,16 @@ public sealed class MetricsAuthOrLoopbackFilterTests
 
     private sealed class OptionsResetObserver : IConnectionTokenObserver, IAsyncDisposable
     {
-        private readonly IOptionsMonitorCache<JwtValidationOptions> _cache;
+        private readonly Action _reset;
 
-        internal OptionsResetObserver(IOptionsMonitorCache<JwtValidationOptions> cache)
+        internal OptionsResetObserver(Action reset)
         {
-            _cache = cache;
+            _reset = reset;
         }
 
         public ValueTask DisposeAsync()
         {
-            _ = _cache.TryRemove(Options.DefaultName);
+            _reset();
             return ValueTask.CompletedTask;
         }
 

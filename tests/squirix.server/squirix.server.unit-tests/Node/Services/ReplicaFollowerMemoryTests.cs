@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -80,8 +79,8 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         ILocalCacheStats stats = copy.Cache;
         var filledBytes = stats.EstimatedBytes;
         var filledEntries = stats.EntryCount;
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = filledBytes });
-        var gateOfNode = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(copy.Cache), "n2", meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = filledBytes };
+        var gateOfNode = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(copy.Cache), "n2", meter);
         var admission = new MemoryAdmissionCacheDecorator<object?>(copy.Local, gateOfNode, estimator);
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

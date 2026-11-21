@@ -2,7 +2,6 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit;
