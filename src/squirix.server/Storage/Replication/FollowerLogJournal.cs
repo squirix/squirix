@@ -16,7 +16,7 @@ namespace Squirix.Server.Storage.Replication;
 /// only through the mutator methods below.
 /// </remarks>
 [Immutable]
-internal sealed class FollowerLogJournal
+internal sealed class FollowerLogJournal : IDisposable
 {
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
@@ -42,7 +42,7 @@ internal sealed class FollowerLogJournal
     /// <summary>Gets or sets the snapshot and copy task that own the standby slot under the log gate.</summary>
     internal (Guid Snapshot, Task? Copy) PreparedWal { get; set; }
 
-    /// <summary>Gets the standby preparation shutdown signal, owned by the follower log.</summary>
+    /// <summary>Gets the standby preparation shutdown signal, owned by the journal.</summary>
     internal CancellationTokenSource WalShutdown { get; } = new();
 
     internal IFollowerLogSnapshotStore Snapshot { get; }
@@ -59,6 +59,8 @@ internal sealed class FollowerLogJournal
     internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) SnapshotWalPosition { get; set; }
 
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
+
+    public void Dispose() => WalShutdown.Dispose();
 
     /// <summary>Enumerates retained committed frame locations newest first without preparing unvisited locations.</summary>
     /// <param name="commitIndex">The durable committed boundary.</param>

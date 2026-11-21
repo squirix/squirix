@@ -432,7 +432,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             // Closing the registry makes a later durable operation fail fast instead of parking on a closed handle.
             _ = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
-            _journal.WalShutdown.Dispose();
+            _journal.Dispose();
             _durability.Dispose();
             _journal.Metadata.Dispose();
             _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);

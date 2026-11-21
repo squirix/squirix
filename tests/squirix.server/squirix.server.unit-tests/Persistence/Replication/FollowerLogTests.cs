@@ -363,7 +363,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-journal-sparse-prefix");
         var paths = FollowerLogPaths.Create(dir, GroupId);
         using var metadata = new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, GroupId, new CountingFollowerLogFaultHooks(), NullLogger.Instance);
-        var journal = new FollowerLogJournal(paths, new GroupSnapshotStore(dir, GroupId), metadata);
+        using var journal = new FollowerLogJournal(paths, new GroupSnapshotStore(dir, GroupId), metadata);
         foreach (var index in new ulong[] { 12, 3, 9, 6 })
             journal.AddEntry(new FollowerLogEntry(index, 1, ReadOnlyMemory<byte>.Empty), long.CreateChecked(index), 1);
 
