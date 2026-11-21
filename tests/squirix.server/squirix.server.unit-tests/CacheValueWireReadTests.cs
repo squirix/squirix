@@ -3,11 +3,9 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Google.Protobuf;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Binary;
@@ -20,7 +18,7 @@ namespace Squirix.Server.UnitTests;
 
 /// <summary>Maps cache values from the wire into stored values.</summary>
 [Immutable]
-public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
+public sealed class CacheValueWireReadTests : ServerUnitTestBase
 {
     private const string ObjectText = """{"Id":5,"Name":"multi","Tags":["t"]}""";
 
@@ -28,12 +26,12 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     [Test]
     public async Task ObjectReadsScalarKinds()
     {
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<object>(new CacheValue { StringValue = "obj" })).IsEqualTo("obj");
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<object>(new CacheValue { BoolValue = true }) is true).IsTrue();
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<object>(new CacheValue { Int64Value = 9L })).IsTypeOf<long>();
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<object>(new CacheValue { DoubleValue = 2.5d })).IsEqualTo(2.5d);
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<object>(new CacheValue { NullValue = NullValue.NullValue })).IsNull();
-        var intEntry = new NodeCacheEntry<object?> { Value = 3, Version = 1 }.MapToProto().MapFromProto<object?>();
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { StringValue = "obj" })).IsEqualTo("obj");
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { BoolValue = true }) is true).IsTrue();
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { Int64Value = 9L })).IsTypeOf<long>();
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { DoubleValue = 2.5d })).IsEqualTo(2.5d);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { NullValue = NullValue.NullValue })).IsNull();
+        var intEntry = new NodeCacheEntry<object?> { Value = 3, Version = 1 }.MapToWire().MapFromWire<object?>();
         _ = await Assert.That(intEntry.Value).IsTypeOf<long>();
         _ = await Assert.That(intEntry.Value).IsEqualTo(3L);
     }
@@ -44,11 +42,11 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         var wire = JsonValueKit.Wire(ObjectText);
 
-        var read = ServerProtoEx.MapCacheValue<object>(wire);
+        var read = ServerWireMapping.MapCacheValue<object>(wire);
 
         var value = (await Assert.That(read).IsTypeOf<JsonUtf8Value>())!;
         _ = await Assert.That(Encoding.UTF8.GetString(value.Bytes.Span)).IsEqualTo(ObjectText);
-        _ = await Assert.That(value.Bytes.Span.Overlaps(wire.JsonUtf8.Memory.Span, out var offset)).IsTrue();
+        _ = await Assert.That(value.Bytes.Span.Overlaps(wire.JsonUtf8.Span, out var offset)).IsTrue();
         _ = await Assert.That(offset).IsEqualTo(0);
     }
 
@@ -65,7 +63,7 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         var entry = new CacheEntryWire { Value = JsonValueKit.Wire(json) };
 
-        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<object?>());
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
@@ -74,13 +72,13 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     [Test]
     public async Task MalformedJsonBytesAreInvalidArguments()
     {
-        var bom = new CacheEntryWire { Value = new CacheValue { JsonUtf8 = ByteString.CopyFrom(0xEF, 0xBB, 0xBF, 0x7B, 0x7D) } };
-        var utf8 = new CacheEntryWire { Value = new CacheValue { JsonUtf8 = ByteString.CopyFrom(0x22, 0xFF, 0x22) } };
+        var bom = new CacheEntryWire { Value = new CacheValue { JsonUtf8 = new byte[] { 0xEF, 0xBB, 0xBF, 0x7B, 0x7D } } };
+        var utf8 = new CacheEntryWire { Value = new CacheValue { JsonUtf8 = new byte[] { 0x22, 0xFF, 0x22 } } };
         var deep = new CacheEntryWire { Value = JsonValueKit.Wire(new string('[', 65) + new string(']', 65)) };
 
         foreach (var entry in new[] { bom, utf8, deep })
         {
-            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<object?>());
             _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         }
     }
@@ -91,7 +89,7 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         foreach (var entry in new[] { new CacheEntryWire(), new CacheEntryWire { Value = new CacheValue() } })
         {
-            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
+            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<object?>());
             _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         }
     }
@@ -100,19 +98,19 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     [Test]
     public async Task TypedReadsExactScalars()
     {
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<string>(new CacheValue { StringValue = "hello" })).IsEqualTo("hello");
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<bool>(new CacheValue { BoolValue = true })).IsTrue();
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<long>(new CacheValue { Int64Value = 99L })).IsEqualTo(99L);
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<int>(new CacheValue { Int64Value = 7L })).IsEqualTo(7);
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<double>(new CacheValue { DoubleValue = 1.5d })).IsEqualTo(1.5d);
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<string>(CacheValueWireNull())).IsNull();
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<string>(new CacheValue { StringValue = "hello" })).IsEqualTo("hello");
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<bool>(new CacheValue { BoolValue = true })).IsTrue();
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<long>(new CacheValue { Int64Value = 99L })).IsEqualTo(99L);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<int>(new CacheValue { Int64Value = 7L })).IsEqualTo(7);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<double>(new CacheValue { DoubleValue = 1.5d })).IsEqualTo(1.5d);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<string>(CacheValueWireNull())).IsNull();
     }
 
     /// <summary>A typed cache deserializes an object from JSON text.</summary>
     [Test]
     public async Task TypedReadsObjectFromJson()
     {
-        var payload = ServerProtoEx.MapCacheValue<SamplePayload>(JsonValueKit.Wire(ObjectText));
+        var payload = ServerWireMapping.MapCacheValue<SamplePayload>(JsonValueKit.Wire(ObjectText));
 
         _ = await Assert.That(payload).IsNotNull();
         _ = await Assert.That(payload!.Id).IsEqualTo(5);
@@ -126,7 +124,7 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         var buffer = new CacheEntryWire { Value = JsonValueKit.Wire(ObjectText) }.ToByteArray();
         var parsed = CacheEntryWire.Parser.ParseFrom(buffer);
-        var entry = parsed.MapFromProto<object?>();
+        var entry = parsed.MapFromWire<object?>();
 
         buffer.AsSpan().Fill(byte.MaxValue);
 
@@ -140,7 +138,7 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         var source = new NodeCacheEntry<ValuePayload> { Value = new ValuePayload { Value = "x" }, Version = 1 };
 
-        var roundTrip = source.MapToProto().MapFromProto<ValuePayload>();
+        var roundTrip = source.MapToWire().MapFromWire<ValuePayload>();
 
         _ = await Assert.That(roundTrip.Value!.Value).IsEqualTo("x");
     }
@@ -157,7 +155,7 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
             Expiration = TimeSpan.FromMinutes(5),
         };
 
-        var roundTrip = source.MapToProto().MapFromProto<SamplePayload>();
+        var roundTrip = source.MapToWire().MapFromWire<SamplePayload>();
 
         _ = await Assert.That(roundTrip.Value!.Id).IsEqualTo(7);
         _ = await Assert.That(roundTrip.Value.Name).IsEqualTo("alpha");
@@ -175,9 +173,9 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     [Arguments("-0.0")]
     public async Task NumberElementKeepsDigits(string text)
     {
-        var wire = new NodeCacheEntry<JsonElement> { Value = JsonElement.Parse(text), Version = 1 }.MapToProto();
+        var wire = new NodeCacheEntry<JsonElement> { Value = JsonElement.Parse(text), Version = 1 }.MapToWire();
 
-        var roundTrip = wire.MapFromProto<JsonElement>();
+        var roundTrip = wire.MapFromWire<JsonElement>();
 
         _ = await Assert.That(roundTrip.Value.GetRawText()).IsEqualTo(text);
     }
@@ -187,10 +185,10 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     public async Task DecimalKeepsPrecision()
     {
         const decimal precise = 12345678901234567.123456789m;
-        var wire = new NodeCacheEntry<decimal> { Value = precise, Version = 1 }.MapToProto();
+        var wire = new NodeCacheEntry<decimal> { Value = precise, Version = 1 }.MapToWire();
 
-        _ = await Assert.That(wire.MapFromProto<decimal>().Value).IsEqualTo(precise);
-        var asObject = wire.MapFromProto<object?>();
+        _ = await Assert.That(wire.MapFromWire<decimal>().Value).IsEqualTo(precise);
+        var asObject = wire.MapFromWire<object?>();
         var json = (await Assert.That(asObject.Value).IsTypeOf<JsonUtf8Value>())!;
         _ = await Assert.That(json.ToJsonElement().GetDecimal()).IsEqualTo(precise);
     }
@@ -201,17 +199,17 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     {
         const long big = 9_007_199_254_740_993L;
 
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<decimal>(new CacheValue { Int64Value = big })).IsEqualTo(big);
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<double>(new CacheValue { Int64Value = 3L })).IsEqualTo(3d);
-        var element = ServerProtoEx.MapCacheValue<JsonElement>(new CacheValue { Int64Value = big });
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<decimal>(new CacheValue { Int64Value = big })).IsEqualTo(big);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<double>(new CacheValue { Int64Value = 3L })).IsEqualTo(3d);
+        var element = ServerWireMapping.MapCacheValue<JsonElement>(new CacheValue { Int64Value = big });
         _ = await Assert.That(element.GetRawText()).IsEqualTo(big.ToString(CultureInfo.InvariantCulture));
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<JsonElement>(new CacheValue { StringValue = "s" })).IsNotDefault();
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<JsonElement>(new CacheValue { StringValue = "s" })).IsNotDefault();
     }
 
     /// <summary>An int64 outside the int range does not read as an int.</summary>
     [Test]
     public void OutOfRangeIntegerDoesNotReadAsInt() =>
-        _ = NodeExceptionAssert.For<JsonException>().Throws(new CacheValue { Int64Value = int.MaxValue + 1L }, static wire => _ = ServerProtoEx.MapCacheValue<int>(wire));
+        _ = NodeExceptionAssert.For<JsonException>().Throws(new CacheValue { Int64Value = int.MaxValue + 1L }, static wire => _ = ServerWireMapping.MapCacheValue<int>(wire));
 
     /// <summary>An explicit epoch deadline and a relative expiration are both preserved.</summary>
     [Test]
@@ -220,11 +218,11 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
         var wire = new CacheEntryWire
         {
             Value = new CacheValue { StringValue = "exp" },
-            ExpiresUtc = new Timestamp { Seconds = 0, Nanos = 0 },
-            Expiration = Duration.FromTimeSpan(TimeSpan.FromSeconds(9)),
+            ExpiresUtc = DateTime.UnixEpoch,
+            Expiration = TimeSpan.FromSeconds(9),
         };
 
-        var entry = wire.MapFromProto<string>();
+        var entry = wire.MapFromWire<string>();
 
         _ = await Assert.That(entry.Value).IsEqualTo("exp");
         _ = await Assert.That(entry.ExpiresUtc).IsEqualTo(DateTime.UnixEpoch);

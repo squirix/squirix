@@ -3,14 +3,13 @@ using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -50,7 +49,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = "must-not-store", Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = "must-not-store", Version = 1 }.MapToWire(),
                 },
                 cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
@@ -82,7 +81,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "seeded-secret", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "seeded-secret", Version = 1 }.MapToWire(),
             },
             cancellationToken: cancellationToken);
         _ = await Assert.That(seeded).IsNotNull();
@@ -117,11 +116,11 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
         var client = channel;
         var request = new GetReplicaStatusRequest
         {
-            Header = new ReplicationEnvelopeHeader
+            Header = new EnvelopeHeader
             {
                 SchemaVersion = EnvelopeSchema.Version,
                 GroupId = "g1",
-                TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
+                TopologyFingerprint = new byte[] { 1, 2, 3, 4 },
                 ConfigurationGeneration = 1,
                 Term = 1,
                 LeaderNodeId = "node-b",

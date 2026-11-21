@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
 using Squirix.Transport.Binary;
@@ -64,7 +63,7 @@ internal sealed class PeerChannels
     [Immutable]
     private sealed class UnavailablePeerClient : IPeerClient
     {
-        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-            where T : IMessage<T> => Task.FromException<T>(new ServerCallException(FrameStatus.Unavailable, "Peer transport is unavailable without cluster mTLS."));
+        public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage => Task.FromException<T>(new ServerCallException(FrameStatus.Unavailable, "Peer transport is unavailable without cluster mTLS."));
     }
 }

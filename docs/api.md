@@ -115,11 +115,11 @@ server package to handle these failures. See [retry and failover behavior](boots
 
 ## Wire contract
 
-The SDK and server share the `SquirixCache.proto` schema. See [Architecture](architecture.md) for details on regenerating the C# messages.
+The SDK and server share a versioned binary cache codec. See [Architecture](architecture.md) for the client and peer protocol boundaries.
 
 The binary protocol exposes **13** cache operations:
 
-| Wire RPC (`SquirixCache.proto`) | SDK API | Notes |
+| Wire RPC | SDK API | Notes |
 | :-------------------------------- | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
 | `SetEntry` | `SetAsync` | Upsert via `CacheEntryWire` |
 | `TryAddEntry` | `TryAddAsync` / `AddAsync` | Insert-if-absent via `CacheEntryWire`; `AddAsync` throws when the key exists |
@@ -129,7 +129,7 @@ The binary protocol exposes **13** cache operations:
 | `GetOrAdd` | `GetOrAddAsync` | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically; no value on add |
 | `Update` | `UpdateAsync` | Update value if key exists via `CacheEntryWire` (value field only) |
 | `Remove` | `RemoveAsync` | Removes an entry and reports whether it was present. |
-| `Touch` | `TouchAsync` | Relative expiration (`Duration`) |
+| `Touch` | `TouchAsync` | Relative expiration in .NET ticks |
 | `RemoveExpiration` | `ICache<T>.RemoveExpirationAsync` | Clears an existing expiration. |
 | `SetDistributed` | `IDistributedCache.SetAsync` | Stores opaque bytes and their expiration policy. |
 | `GetDistributed` | `IDistributedCache.GetAsync` | Reads the current value and renews sliding expiration when applicable. |
@@ -149,7 +149,7 @@ error). The management listener serves health and metrics. Cache operations use 
 
 ### Value encoding
 
-Cache messages use the proto package `squirix.cache.v2`. Internode replication uses `squirix.replication`.
+Cache values carry an explicit kind so an empty binary value and a present null stay distinct from a cache miss.
 
 | Kind | Used for |
 | :--- | :------- |

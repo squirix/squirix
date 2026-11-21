@@ -114,9 +114,9 @@ public sealed class SynchronousBinaryConnectionTests
 
     private static async Task<int> ReadDistributedGetIdAsync(SslStream stream, CancellationToken cancellationToken)
     {
-        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
+        var header = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes);
         await stream.ReadExactlyAsync(header, cancellationToken);
-        var (id, size, control) = Frames.Read(header, Frames.MaxRequestBytes);
+        var (id, size, control) = Frames.ReadRequest(header);
         _ = await Assert.That(Frames.ReadOperationId(control)).IsEqualTo(Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.GetDistributed));
         var body = GC.AllocateUninitializedArray<byte>(size);
         await stream.ReadExactlyAsync(body, cancellationToken);
@@ -127,8 +127,8 @@ public sealed class SynchronousBinaryConnectionTests
     {
         var reply = new GetDistributedAsyncResponse { Found = found };
         var size = reply.CalculateSize();
-        var frame = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes + size);
-        Frames.WriteMessage(frame, id, size, 0, reply);
+        var frame = GC.AllocateUninitializedArray<byte>(Frames.ReplyBytes + size);
+        Frames.WriteReplyMessage(frame, id, size, 0, reply);
         return stream.WriteAsync(frame, cancellationToken);
     }
 

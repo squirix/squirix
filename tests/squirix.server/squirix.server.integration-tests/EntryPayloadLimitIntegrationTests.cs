@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Binary;
@@ -39,7 +39,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
                 },
                 cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
@@ -72,7 +72,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToWire(),
             },
             cancellationToken: cancellationToken);
 
@@ -84,7 +84,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToWire(),
                 },
                 cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
@@ -95,7 +95,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
         var getResponse = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsTrue();
-        _ = await Assert.That(getResponse.Value.StringValue).IsEqualTo("small");
+        _ = await Assert.That(getResponse.Value!.StringValue).IsEqualTo("small");
     }
 
     /// <summary>Verifies gRPC insert above the limit returns ResourceExhausted and does not persist.</summary>
@@ -116,7 +116,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "grpc-over-limit",
-                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
                 },
                 cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
@@ -146,7 +146,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = "grpc-update-over-limit",
-                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToWire(),
             },
             cancellationToken: cancellationToken);
 
@@ -158,7 +158,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "grpc-update-over-limit",
-                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToWire(),
                 },
                 cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
@@ -170,6 +170,6 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
         var getResponse = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-update-over-limit" }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsTrue();
-        _ = await Assert.That(getResponse.Value.StringValue).IsEqualTo("small");
+        _ = await Assert.That(getResponse.Value!.StringValue).IsEqualTo("small");
     }
 }

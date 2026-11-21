@@ -1,12 +1,12 @@
 using System;
 using System.Buffers;
+using System.IO;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Storage.Codecs;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -28,43 +28,41 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     public async Task BinaryMappingsOwnTheirBuffers()
     {
         byte[] source = [0, 255, 128, 34, 0];
-        var wire = new NodeCacheEntry<object?>(source).MapToProto();
-        _ = await Assert.That(wire.Value.KindCase).IsEqualTo(CacheValue.KindOneofCase.BinaryValue);
+        var wire = new NodeCacheEntry<object?>(source).MapToWire();
+        _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.BinaryValue);
         source[0] = 42;
-        var decoded = ServerProtoEx.MapCacheValue<byte[]>(wire.Value)!;
-        var untyped = (await Assert.That(ServerProtoEx.MapCacheValue<object>(wire.Value)).IsTypeOf<byte[]>())!;
+        var decoded = ServerWireMapping.MapCacheValue<byte[]>(wire.Value)!;
+        var untyped = (await Assert.That(ServerWireMapping.MapCacheValue<object>(wire.Value)).IsTypeOf<byte[]>())!;
         _ = await Assert.That(decoded.AsSpan().SequenceEqual(new byte[] { 0, 255, 128, 34, 0 })).IsTrue();
         decoded[1] = 42;
         untyped[2] = 42;
-        _ = await Assert.That(wire.Value.BinaryValue[0]).IsEqualTo(byte.MinValue);
-        _ = await Assert.That(wire.Value.BinaryValue[1]).IsEqualTo(byte.MaxValue);
-        _ = await Assert.That(wire.Value.BinaryValue[2]).IsEqualTo(byte.CreateChecked(128));
+        _ = await Assert.That(wire.Value.BinaryValue.Span[0]).IsEqualTo(byte.MinValue);
+        _ = await Assert.That(wire.Value.BinaryValue.Span[1]).IsEqualTo(byte.MaxValue);
+        _ = await Assert.That(wire.Value.BinaryValue.Span[2]).IsEqualTo(byte.CreateChecked(128));
         _ = await Assert.That(untyped[1]).IsEqualTo(byte.MaxValue);
     }
 
-    /// <summary>Empty binary retains its discriminator across protobuf serialization.</summary>
+    /// <summary>Empty binary retains its discriminator across binary serialization.</summary>
     [Test]
     public async Task EmptyBinaryRetainsPresence()
     {
         byte[] empty = [];
-        var wire = new NodeCacheEntry<object?>(empty).MapToProto().Value;
-        _ = await Assert.That(wire.ToByteArray().AsSpan().SequenceEqual(new byte[] { 0x3A, 0 })).IsTrue();
+        var wire = new NodeCacheEntry<object?>(empty).MapToWire().Value;
+        _ = await Assert.That(wire!.ToByteArray().AsSpan().SequenceEqual(new byte[] { 0x07, 0 })).IsTrue();
         var parsed = CacheValue.Parser.ParseFrom(wire.ToByteArray());
         _ = await Assert.That(parsed.KindCase).IsEqualTo(CacheValue.KindOneofCase.BinaryValue);
-        _ = await Assert.That(ServerProtoEx.MapCacheValue<byte[]>(parsed)!.Length).IsEqualTo(0);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<byte[]>(parsed)!.Length).IsEqualTo(0);
     }
 
     /// <summary>Binary cannot be coerced into another typed value or confused with an unknown discriminator.</summary>
     [Test]
     public async Task IncompatibleAndUnknownKindsAreRejected()
     {
-        var binary = new CacheValue { BinaryValue = ByteString.Empty };
-        var mismatch = NodeExceptionAssert.For<ServerCallException>().Throws(binary, static value => _ = ServerProtoEx.MapCacheValue<string>(value));
+        var binary = new CacheValue { BinaryValue = ReadOnlyMemory<byte>.Empty };
+        var mismatch = NodeExceptionAssert.For<ServerCallException>().Throws(binary, static value => _ = ServerWireMapping.MapCacheValue<string>(value));
         _ = await Assert.That(mismatch.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
-        byte[] futureKind = [0x42, 0];
-        var unknown = CacheValue.Parser.ParseFrom(futureKind);
-        var invalid = NodeExceptionAssert.For<ServerCallException>().Throws(unknown, static value => _ = ServerProtoEx.MapCacheValue<object>(value));
-        _ = await Assert.That(invalid.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        byte[] futureKind = [0x08];
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(futureKind, static value => _ = CacheValue.Parser.ParseFrom(value));
     }
 
     /// <summary>The existing Bytes=3 disk fixture round-trips exactly and does not alias the encoded buffer.</summary>
@@ -97,19 +95,19 @@ public sealed class BinaryValueTests : ServerUnitTestBase
         _ = await Assert.That(CacheEntryCodec.IsWellFormed(truncated)).IsFalse();
     }
 
-    /// <summary>A truncated protobuf bytes field is rejected before any server value can be materialized.</summary>
+    /// <summary>A truncated wire bytes field is rejected before any server value can be materialized.</summary>
     [Test]
     public void TruncatedBinaryWireIsRejected()
     {
-        byte[] truncated = [0x3A, 2, 0];
-        _ = NodeExceptionAssert.For<InvalidProtocolBufferException>().Throws(truncated, static value => _ = CacheValue.Parser.ParseFrom(value));
+        byte[] truncated = [0x07, 2, 0];
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(truncated, static value => _ = CacheValue.Parser.ParseFrom(value));
     }
 
     /// <summary>Opaque bytes cannot silently pass through the scalar JSON fallback.</summary>
     [Test]
     public async Task BinaryCannotUseScalarJsonFallback()
     {
-        var wire = new CacheValue { BinaryValue = ByteString.CopyFrom(255) };
+        var wire = new CacheValue { BinaryValue = new byte[] { 255 } };
         var destination = new ArrayBufferWriter<byte>();
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws((wire, destination), static state => CacheValueWire.WriteScalarJson(state.wire, state.destination));
         _ = await Assert.That(destination.WrittenCount).IsEqualTo(0);

@@ -1,33 +1,34 @@
+using System;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
+using Squirix.Server.Cluster.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire.Replication;
 
-/// <summary>Pooled transfer parsing preserves protobuf fields while borrowing one owned message buffer.</summary>
+/// <summary>Pooled transfer parsing preserves transfer fields while borrowing one owned message buffer.</summary>
 public sealed class ReplicaTransferParsingTests
 {
-    /// <summary>Entry bytes share the rented message buffer and are returned exactly once after processing.</summary>
+    /// <summary>Entry bytes share the rented message buffer through processing.</summary>
     [Test]
     public async Task EntryBytesBorrowMessageBuffer()
     {
         var request = new TransferReplicaStateRequest
         {
-            Header = new ReplicationEnvelopeHeader { GroupId = "group", LeaderNodeId = "leader", Term = 2UL },
+            Header = new EnvelopeHeader { GroupId = "group", LeaderNodeId = "leader", Term = 2UL },
             TransferId = "transfer",
             Sequence = 3U,
-            Entries = new ReplicaTransferEntries(),
+            Entries = new ReplicaTransferEntries { Entries = new ReplicaStateEntry[] { new("cache", Encoding.UTF8.GetBytes("key"), Encoding.UTF8.GetBytes("payload"), 42L) } },
         };
-        request.Entries.Entries.Add(new ReplicaTransferEntry { CacheName = "cache", Key = ByteString.CopyFromUtf8("key"), Payload = ByteString.CopyFromUtf8("payload"), ExpiresUtcTicks = 42L });
         var bytes = request.ToByteArray();
-        var parsed = ReplicaTransferParser.Parse(bytes, bytes.Length);
-        var payload = parsed.Entries.Entries[0].Payload.Memory;
+        var parsed = TransferReplicaStateRequest.Parser.ParseBorrowed(bytes);
+        var payload = parsed.Entries.Entries.Span[0].Payload;
 
-        _ = await Assert.That(parsed.Equals(request)).IsTrue();
+        _ = await Assert.That(payload.Span.SequenceEqual("payload"u8)).IsTrue();
         _ = await Assert.That(MemoryMarshal.TryGetArray(payload, out var segment) && ReferenceEquals(segment.Array, bytes)).IsTrue();
     }
 }

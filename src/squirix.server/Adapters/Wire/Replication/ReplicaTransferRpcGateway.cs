@@ -37,7 +37,7 @@ internal sealed class ReplicaTransferRpcGateway : IReplicaTransferGateway
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var response = await lease.Client.SendAsync("replication/TransferReplicaState", request, TransferReplicaStateResponse.Parser, lease.Token).ConfigureAwait(false);
+        var response = await lease.Client.SendAsync(PeerOperation.TransferReplicaState, request, TransferReplicaStateResponse.Parser, lease.Token).ConfigureAwait(false);
         return ReplicaTransferWire.Reply(response);
     }
 }

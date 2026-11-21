@@ -42,7 +42,7 @@ internal sealed class ServerCallException : Exception
 
     internal string? FindTrailer(string key)
     {
-        foreach (var trailer in Error.Trailers)
+        foreach (var trailer in System.Runtime.InteropServices.CollectionsMarshal.AsSpan(Error.Trailers))
         {
             if (trailer.ValueCase == BinaryCallError.Types.Trailer.ValueOneofCase.Text && string.Equals(trailer.Key, key, StringComparison.OrdinalIgnoreCase))
                 return trailer.Text;

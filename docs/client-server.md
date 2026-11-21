@@ -68,14 +68,13 @@ See [Getting started](getting-started.md) for both setup paths.
 | **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, binary cache hosting, health/metrics |
 | **`squirix-server` (host)** | Standalone process lifecycle and CLI |
 
-`Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through protobuf
-contracts and shared proto source.
+`Squirix.Server` does not reference the `Squirix` client assembly. Both assemblies compile the shared binary cache codec.
 
 ## Features in 0.1
 
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
-- Binary TLS transport (shared `SquirixCache.proto` contract)
+- Binary TLS transport with a shared cache codec
 - Health, readiness and metrics on a dedicated HTTP/1.1 management listener over TLS
 - Opt-in journal-based durability with recovery on startup (`UsePersistence()` / `--persist`)
 - Snapshots and journal retention

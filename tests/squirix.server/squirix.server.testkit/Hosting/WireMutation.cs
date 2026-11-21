@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Wire.Cache;
 
@@ -82,12 +82,12 @@ internal sealed class WireMutation
         return new WireOutcome(response.Added, null);
     }
 
-    private static CacheEntryWire Entry(string value) => new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto();
+    private static CacheEntryWire Entry(string value) => new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire();
 
     private static async Task<WireOutcome> GetOrAddAsync(CacheWireClient client, GetOrAddAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
     {
         var response = await client.GetOrAddAsync(request, deadline, cancellationToken).ConfigureAwait(false);
-        return new WireOutcome(response.Added, response is { Found: true, Added: false } ? ServerProtoEx.MapCacheValue<string>(response.Value) : null);
+        return new WireOutcome(response.Added, response is { Found: true, Added: false } ? ServerWireMapping.MapCacheValue<string>(response.Value) : null);
     }
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");

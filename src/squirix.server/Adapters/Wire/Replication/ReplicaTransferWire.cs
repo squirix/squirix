@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Transport.Binary;
 
@@ -83,13 +82,13 @@ internal static class ReplicaTransferWire
         switch (message.Step)
         {
             case ReplicaTransferStep.Snapshot:
-                request.Snapshot = new ReplicaTransferSnapshot { Offset = ulong.CreateChecked(message.Offset), Chunk = UnsafeByteOperations.UnsafeWrap(message.Chunk) };
+                request.Snapshot = new ReplicaTransferSnapshot { Offset = ulong.CreateChecked(message.Offset), Chunk = message.Chunk };
                 break;
             case ReplicaTransferStep.Wipe:
                 request.Wipe = new ReplicaTransferWipe();
                 break;
             case ReplicaTransferStep.Entries:
-                request.Entries = MapEntries(message.Entries.Span);
+                request.Entries = new ReplicaTransferEntries { Entries = message.Entries };
                 break;
             case ReplicaTransferStep.End:
                 request.End = new ReplicaTransferEnd { EntryCount = message.EntryCount, EntriesCrc32C = message.EntriesCrc };
@@ -117,13 +116,13 @@ internal static class ReplicaTransferWire
         if (begin.SnapshotBytes > int.MaxValue)
             return OutOfRange(receiver, request, "Begin", "snapshot-length-out-of-range");
 
-        var envelope = request.Header;
+        var envelope = RequiredHeader(request);
         var baseline = new ReplicaTransferBaseline(
             begin.Index,
             begin.IndexTerm,
             int.CreateChecked(begin.SnapshotBytes),
             begin.SnapshotChecksum,
-            envelope.TopologyFingerprint.Memory,
+            envelope.TopologyFingerprint,
             envelope.ConfigurationGeneration,
             begin.CeilingChecked);
         return await receiver.BeginAsync(SenderOf(request), baseline, cancellationToken).ConfigureAwait(false);
@@ -149,46 +148,23 @@ internal static class ReplicaTransferWire
     /// <returns>The batch reply or a checksum refusal for an out-of-range sequence.</returns>
     private static async Task<ReplicaTransferReply> EntriesAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
-        if (request.Sequence > int.MaxValue)
-            return OutOfRange(receiver, request, "Entries", "sequence-number-out-of-range");
-
-        var wire = request.Entries.Entries;
-        var entries = new ReplicaStateEntry[wire.Count];
-        for (var i = 0; i < entries.Length; i++)
-        {
-            var entry = wire[i];
-            entries[i] = new ReplicaStateEntry(entry.CacheName, entry.Key.Memory, entry.Payload.Memory, entry.ExpiresUtcTicks);
-        }
-
-        return await receiver.EntriesAsync(SenderOf(request), int.CreateChecked(request.Sequence), entries, cancellationToken).ConfigureAwait(false);
+        return request.Sequence > int.MaxValue
+            ? OutOfRange(receiver, request, "Entries", "sequence-number-out-of-range")
+            : await receiver.EntriesAsync(SenderOf(request), int.CreateChecked(request.Sequence), request.Entries.Entries, cancellationToken).ConfigureAwait(false);
     }
 
-    private static ReplicaTransferEntries MapEntries(ReadOnlySpan<ReplicaStateEntry> entries)
-    {
-        var batch = new ReplicaTransferEntries();
-        for (var i = 0; i < entries.Length; i++)
-        {
-            batch.Entries.Add(
-                new ReplicaTransferEntry
-                {
-                    CacheName = entries[i].CacheName,
-                    Key = UnsafeByteOperations.UnsafeWrap(entries[i].Key),
-                    Payload = UnsafeByteOperations.UnsafeWrap(entries[i].Payload),
-                    ExpiresUtcTicks = entries[i].ExpiresUtcTicks,
-                });
-        }
+    private static EnvelopeHeader RequiredHeader(TransferReplicaStateRequest request) => request.Header ?? MissingHeader();
 
-        return batch;
-    }
+    private static EnvelopeHeader MissingHeader() => throw new ServerCallException(FrameStatus.InvalidArgument, "Missing replication header.");
 
     /// <summary>Names the transfer of a request with the sender the adapter verified against the peer certificate and the term of the envelope.</summary>
     /// <param name="request">The request whose envelope the caller verified.</param>
     /// <returns>The transfer identity every step and the abort are bound to.</returns>
     private static ReplicaTransferHeader SenderOf(TransferReplicaStateRequest request) => new(
-        request.Header.GroupId,
+        RequiredHeader(request).GroupId,
         request.TransferId,
-        request.Header.LeaderNodeId,
-        request.Header.Term);
+        RequiredHeader(request).LeaderNodeId,
+        RequiredHeader(request).Term);
 
     /// <summary>Reports a numeric wire validation failure without changing the held transfer or stored copy.</summary>
     /// <param name="receiver">The receiver that records the diagnostic.</param>
@@ -197,7 +173,7 @@ internal static class ReplicaTransferWire
     /// <param name="reason">The numeric bound that failed validation.</param>
     /// <returns>The existing checksum refusal with term zero.</returns>
     private static ReplicaTransferReply OutOfRange(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, string step, string reason) =>
-        receiver.Refuse(request.Header.GroupId, 0UL, RefusalCodes.ChecksumMismatch, SenderOf(request), reason, step);
+        receiver.Refuse(RequiredHeader(request).GroupId, 0UL, RefusalCodes.ChecksumMismatch, SenderOf(request), reason, step);
 
     /// <summary>Forwards a wipe step only when its sequence fits the receiver's numeric range.</summary>
     /// <param name="receiver">The local transfer receiver.</param>
@@ -219,7 +195,7 @@ internal static class ReplicaTransferWire
         {
             _ when r.Sequence > int.MaxValue => OutOfRange(receiver, r, "Snapshot", "sequence-number-out-of-range"),
             _ when s.Offset > long.MaxValue => OutOfRange(receiver, r, "Snapshot", "snapshot-offset-out-of-range"),
-            _ => await receiver.SnapshotAsync(SenderOf(r), int.CreateChecked(r.Sequence), long.CreateChecked(s.Offset), s.Chunk.Memory, cancellationToken).ConfigureAwait(false),
+            _ => await receiver.SnapshotAsync(SenderOf(r), int.CreateChecked(r.Sequence), long.CreateChecked(s.Offset), s.Chunk, cancellationToken).ConfigureAwait(false),
         };
     }
 }

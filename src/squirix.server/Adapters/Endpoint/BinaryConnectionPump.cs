@@ -134,7 +134,7 @@ internal sealed class BinaryConnectionPump
                 throw new OperationCanceledException("The binary input pipe canceled a read.");
             }
 
-            while (buffer.Length >= Frames.HeaderBytes && !stop.IsCancellationRequested)
+            while (buffer.Length >= Frames.RequestBytes && !stop.IsCancellationRequested)
             {
                 if (!_slots.Reader.TryRead(out var slot))
                 {
@@ -143,7 +143,7 @@ internal sealed class BinaryConnectionPump
                 }
 
                 var header = buffer;
-                buffer = buffer.Slice(Frames.HeaderBytes);
+                buffer = buffer.Slice(Frames.RequestBytes);
                 consumed = examined = buffer.Start;
                 var frame = FrameIO.ReadHeader(in header);
                 if (buffer.Length < frame.Size)
@@ -526,12 +526,12 @@ internal sealed class BinaryConnectionPump
                 status = FrameStatus.ResourceExhausted;
             }
 
-            var length = Frames.HeaderBytes + size;
+            var length = Frames.ReplyBytes + size;
             var target = writer.GetSpan(length);
             if (size == 0 || payload == null)
-                Frames.Write(target, frame.Id, 0, Unsafe.BitCast<FrameStatus, int>(status));
+                Frames.WriteReply(target, frame.Id, 0, Unsafe.BitCast<FrameStatus, int>(status));
             else
-                Frames.WriteMessage(target, frame.Id, size, Unsafe.BitCast<FrameStatus, int>(status), payload);
+                Frames.WriteReplyMessage(target, frame.Id, size, Unsafe.BitCast<FrameStatus, int>(status), payload);
 
             writer.Advance(length);
             return length;
@@ -540,12 +540,12 @@ internal sealed class BinaryConnectionPump
         internal static (int Id, int Size, int Control) ReadHeader(in ReadOnlySequence<byte> buffer)
         {
             var first = buffer.FirstSpan;
-            if (first.Length >= Frames.HeaderBytes)
-                return Frames.Read(first, Frames.MaxRequestBytes);
+            if (first.Length >= Frames.RequestBytes)
+                return Frames.ReadRequest(first);
 
-            Span<byte> header = stackalloc byte[Frames.HeaderBytes];
-            buffer.Slice(0, Frames.HeaderBytes).CopyTo(header);
-            return Frames.Read(header, Frames.MaxRequestBytes);
+            Span<byte> header = stackalloc byte[Frames.RequestBytes];
+            buffer.Slice(0, Frames.RequestBytes).CopyTo(header);
+            return Frames.ReadRequest(header);
         }
     }
 

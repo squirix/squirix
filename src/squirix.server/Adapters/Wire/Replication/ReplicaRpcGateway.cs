@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -28,7 +27,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var response = await lease.Client.SendAsync("replication/AppendReplicaEntries", MapRequest(in header, in batch), AppendReplicaEntriesResponse.Parser, lease.Token).ConfigureAwait(false);
+        var response = await lease.Client.SendAsync(PeerOperation.AppendReplicaEntries, MapRequest(in header, in batch), AppendReplicaEntriesResponse.Parser, lease.Token).ConfigureAwait(false);
         return MapAppendResponse(response);
     }
 
@@ -37,7 +36,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var response = await lease.Client.SendAsync("replication/PreVote", MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
+        var response = await lease.Client.SendAsync(PeerOperation.PreVote, MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
         return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 
@@ -46,18 +45,18 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var response = await lease.Client.SendAsync("replication/RequestVote", MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
+        var response = await lease.Client.SendAsync(PeerOperation.RequestVote, MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
         return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 
     /// <summary>Maps the replication envelope identity to its wire message.</summary>
     /// <param name="header">The envelope identity.</param>
     /// <returns>The wire header.</returns>
-    internal static ReplicationEnvelopeHeader MapHeader(in ReplicaRpcHeader header) => new()
+    internal static EnvelopeHeader MapHeader(in ReplicaRpcHeader header) => new()
     {
         SchemaVersion = EnvelopeSchema.Version,
         GroupId = header.GroupId,
-        TopologyFingerprint = WrapFingerprint(in header),
+        TopologyFingerprint = header.TopologyFingerprint,
         ConfigurationGeneration = header.ConfigurationGeneration,
         Term = header.Term,
         LeaderNodeId = header.LeaderNodeId,
@@ -77,48 +76,25 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     /// <param name="header">The replication header.</param>
     /// <param name="batch">The batch to send.</param>
     /// <returns>The wire request.</returns>
-    internal static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)
+    internal static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch) => new()
     {
-        var request = new AppendReplicaEntriesRequest
-        {
-            Header = MapHeader(in header),
-            PrevLogIndex = batch.PrevLogIndex,
-            PrevLogTerm = batch.PrevLogTerm,
-            LeaderCommitIndex = batch.LeaderCommitIndex,
-        };
-        var entries = batch.Entries;
-        for (var i = 0; i < entries.Count; i++)
-        {
-            // Wrapped, not copied: an entry payload is an owned buffer that nothing mutates once it was encoded or read from the log.
-            var item = new ReplicaLogEntry
-            {
-                LogIndex = entries[i].LogIndex,
-                Term = entries[i].Term,
-                CanonicalPayload = UnsafeByteOperations.UnsafeWrap(entries[i].Payload),
-            };
-            request.Entries.Add(item);
-        }
-
-        return request;
-    }
-
-    /// <summary>Wraps the topology fingerprint of a header without copying it.</summary>
-    /// <param name="header">The envelope identity.</param>
-    /// <returns>The wire bytes, backed by the fingerprint memory of the header.</returns>
-    /// <remarks>The fingerprint is created once per topology, held by the header for the host lifetime and never written afterwards.</remarks>
-    private static ByteString WrapFingerprint(in ReplicaRpcHeader header) => UnsafeByteOperations.UnsafeWrap(header.TopologyFingerprint);
+        Header = MapHeader(in header),
+        PrevLogIndex = batch.PrevLogIndex,
+        PrevLogTerm = batch.PrevLogTerm,
+        LeaderCommitIndex = batch.LeaderCommitIndex,
+        Entries = batch.Entries,
+    };
 
     private static ReplicaVoteRequest MapVoteRequest(in ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm)
     {
-        // A candidate claims no leadership: the voter ignores the leader identity, so none is sent and the caller's value,
-        // which may be null, never reaches the protobuf setter.
+        // A candidate makes no claim to leadership in a vote request.
         return new ReplicaVoteRequest
         {
-            Header = new ReplicationEnvelopeHeader
+            Header = new EnvelopeHeader
             {
                 SchemaVersion = EnvelopeSchema.Version,
                 GroupId = header.GroupId,
-                TopologyFingerprint = WrapFingerprint(in header),
+                TopologyFingerprint = header.TopologyFingerprint,
                 ConfigurationGeneration = header.ConfigurationGeneration,
                 Term = header.Term,
                 LeaderNodeId = string.Empty,

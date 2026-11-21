@@ -1,16 +1,16 @@
 using System;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Rocks;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.UnitTests;
 
 internal static class SingleNodeClientPool
 {
-    internal static IClientPool Create(Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> transport, CallPolicy policy)
+    internal static IClientPool Create(Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> transport, CallPolicy policy)
     {
 #pragma warning disable CA2000 // The mock pool delegates disposal to this client.
         var client = new BinaryCacheClient(new Uri("https://localhost"), null, null, transport);

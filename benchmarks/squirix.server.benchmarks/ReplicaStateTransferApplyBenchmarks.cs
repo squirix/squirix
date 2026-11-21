@@ -4,7 +4,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -69,18 +68,13 @@ public class ReplicaStateTransferApplyBenchmarks
     }
 
     /// <summary>Parses a message of entries as the transport hands it to the receiver.</summary>
-    /// <remarks>
-    /// Most of the transfer garbage on a follower is here: Google.Protobuf copies every payload into a new <see cref="ByteString" />, about one value size per entry,
-    /// because the transport buffer is valid only during deserialization. This is the generated-parser baseline for <see cref="ParsePooledMessage" />,
-    /// which instead holds one pooled message buffer through the RPC.
-    /// </remarks>
     /// <returns>The number of entries parsed.</returns>
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke * EntriesPerMessage)]
     public int ParseMessage()
     {
         var parsed = 0;
         for (var i = 0; i < MessagesPerInvoke; i++)
-            parsed += TransferReplicaStateRequest.Parser.ParseFrom(_message).Entries.Entries.Count;
+            parsed += TransferReplicaStateRequest.Parser.ParseFrom(_message).Entries.Entries.Length;
 
         return parsed;
     }
@@ -93,8 +87,8 @@ public class ReplicaStateTransferApplyBenchmarks
         var parsed = 0;
         for (var i = 0; i < MessagesPerInvoke; i++)
         {
-            var request = ReplicaTransferParser.Parse(_message, _message.Length);
-            parsed += request.Entries.Entries.Count;
+            var request = TransferReplicaStateRequest.Parser.ParseBorrowed(_message);
+            parsed += request.Entries.Entries.Length;
         }
 
         return parsed;
@@ -128,16 +122,14 @@ public class ReplicaStateTransferApplyBenchmarks
         _sink = new ReplicaStateSink(appliers, _committers, local, new ReplicaGroupEntries(physical, new SingleGroupLocator()), _host.Coordinator, new HealthySnapshots());
 
         _entries = new ReplicaStateEntry[EntriesPerMessage];
-        var wire = new ReplicaTransferEntries();
         for (var i = 0; i < _entries.Length; i++)
         {
             var key = Encoding.UTF8.GetBytes($"key-{i:D6}");
             var payload = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>(new string('x', ValueChars)));
             _entries[i] = new ReplicaStateEntry(CacheName, key, payload, 0);
-            wire.Entries.Add(new ReplicaTransferEntry { CacheName = CacheName, Key = ByteString.CopyFrom(key), Payload = ByteString.CopyFrom(payload) });
         }
 
-        _message = new TransferReplicaStateRequest { TransferId = "t", Sequence = 1, Entries = wire }.ToByteArray();
+        _message = new TransferReplicaStateRequest { TransferId = "t", Sequence = 1, Entries = new ReplicaTransferEntries { Entries = _entries } }.ToByteArray();
     }
 
     /// <summary>Writes a message of entries through the sink, the journal chain and the cache.</summary>

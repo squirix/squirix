@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -40,7 +40,7 @@ public sealed class PemNodeCertificateTests : NodeIntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "pem-forwarded-value", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "pem-forwarded-value", Version = 1 }.MapToWire(),
             },
             cancellationToken: cancellationToken);
 

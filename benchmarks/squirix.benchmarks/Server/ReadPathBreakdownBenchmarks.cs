@@ -69,7 +69,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
                 static (state, ct) => GetValueViaClientAsync(state.Client, state.CacheName, state.Key, ct),
                 (node.Client, CacheName, Key: _keys[i]),
                 CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(response.Found ? response.Value.StringValue : string.Empty);
+            _consumer.Consume(response.Found ? response.Value!.StringValue : string.Empty);
         }
 
         return;

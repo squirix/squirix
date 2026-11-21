@@ -205,8 +205,13 @@ internal sealed class GroupSnapshotCheckpointStore
             read += count;
         }
 
-        if (!GroupSnapshotStore.TryDecodePublished(bytes.Span, _maximum, out var snapshot, out _, materialize))
-            return null;
+        if (!GroupSnapshotStore.TryDecodePublished(bytes.Span, _maximum, out var snapshot, out var version, materialize))
+        {
+            return version != 0 && version != GroupSnapshotStore.PublishedVersion
+                ? throw new InvalidDataException($"Replica group snapshot at '{path}' uses format version {version}; version {GroupSnapshotStore.PublishedVersion} is required. Start with an empty data directory.")
+                : null;
+        }
+
         return string.Equals(snapshot.GroupId, _groupId, StringComparison.Ordinal)
             ? snapshot
             : throw new InvalidDataException("The published snapshot belongs to a different group.");

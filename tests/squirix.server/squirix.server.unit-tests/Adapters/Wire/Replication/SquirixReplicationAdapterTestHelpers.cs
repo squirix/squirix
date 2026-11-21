@@ -25,7 +25,7 @@ internal static class SquirixReplicationAdapterTestHelpers
     internal static TopologyOptions CreateTopology(bool automaticFailoverEnabled = false) =>
         new(new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }) { AutomaticFailoverEnabled = automaticFailoverEnabled };
 
-    internal static ReplicationEnvelopeHeader CreateValidHeader(string? senderNodeId = "node-a") => new()
+    internal static EnvelopeHeader CreateValidHeader(string senderNodeId = "node-a") => new()
     {
         SchemaVersion = EnvelopeSchema.Version,
         SenderNodeId = senderNodeId,

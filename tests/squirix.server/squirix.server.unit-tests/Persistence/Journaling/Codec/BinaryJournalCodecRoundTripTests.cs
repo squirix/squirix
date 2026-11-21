@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 [Immutable]
 public sealed class BinaryJournalCodecRoundTripTests
 {
-    private static readonly byte[] IdempotencyResponseFixture = [0x08, 0x01];
+    private static readonly byte[] IdempotencyResponseFixture = [0x01];
 
     private static readonly byte[] TruncatedFrameBody = [0x01, 0x02, 0x03, 0x04];
 
@@ -151,7 +151,7 @@ public sealed class BinaryJournalCodecRoundTripTests
     [Arguments(2, "07000000000000007B0000000000000004020005000C000000C3A96BF09F988005006F702DC3A90000010203")]
     [Arguments(3, "07000000000000007B00000000000000020200050000000000C3A96BF09F9880")]
     [Arguments(4, "07000000000000007B00000000000000050200050010000000C3A96BF09F988005006F702DC3A9070066702DF09F9880")]
-    [Arguments(5, "07000000000000007B00000000000000030200050016000000C3A96BF09F9880050069642DC3A9070066702DF09F9880020000000801")]
+    [Arguments(5, "07000000000000007B00000000000000030200050015000000C3A96BF09F9880050069642DC3A9070066702DF09F98800100000001")]
     [Arguments(6, "07000000000000007B00000000000000060200050009000000C3A96BF09F9880050069642DC3A90000")]
     public async Task EncodeKeepsFrameBytes(int caseIndex, string expectedHex)
     {
@@ -322,7 +322,9 @@ public sealed class BinaryJournalCodecRoundTripTests
             // flags (2) + version (8) + empty tags (2) + string "value" (1 + 4 + 5).
             JournalOperationKind.Put => 58,
             JournalOperationKind.Remove => 36,
-            JournalOperationKind.IdempotencyOutcome => 103,
+
+            // 25 prefix + (2 + 32) operation id + (2 + 36) fingerprint + (4 + 1) response.
+            JournalOperationKind.IdempotencyOutcome => 102,
             JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.SnapshotCut
                 or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(
                     nameof(operation),

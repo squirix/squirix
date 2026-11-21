@@ -68,6 +68,15 @@ internal sealed class RingAgreement
         throw RingMismatchFailure.Mismatch();
     }
 
+    /// <summary>Checks a raw ring digest without constructing a diagnostic string for matching peers.</summary>
+    /// <param name="peerDigest">The digest received from the peer.</param>
+    /// <param name="peerNodeId">The calling peer node id.</param>
+    internal void EnsureInboundDigestAgreement(ReadOnlySpan<byte> peerDigest, string peerNodeId)
+    {
+        if (!peerDigest.SequenceEqual(_local.Digest.Span))
+            EnsureInboundAgreement(Convert.ToHexString(peerDigest), peerNodeId);
+    }
+
     /// <summary>Records that a key owner refused a forwarded call because its ring differs from the ring of this node.</summary>
     /// <param name="peerNodeId">The key owner node id.</param>
     internal void ReportOutboundMismatch(string peerNodeId) => Record(peerNodeId, RingMismatchDirection.Outbound, UnknownFingerprint);

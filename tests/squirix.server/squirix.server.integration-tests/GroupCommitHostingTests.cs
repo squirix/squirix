@@ -1,11 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
@@ -134,8 +133,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             var after = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
 
             // Whatever state the burst left, Set, Remove or Touch last, the restart replays the journal to exactly that state.
-            _ = await Assert.That(after.Found).IsEqualTo(before.Found);
-            _ = await Assert.That(after.Value).IsEqualTo(before.Value);
+            _ = await Assert.That(after.ToByteArray().AsSpan().SequenceEqual(before.ToByteArray())).IsTrue();
         }
     }
 
@@ -159,7 +157,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         OperationId = Guid.NewGuid().ToString("N"),
         CacheName = CacheName,
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
     };
 
     private static JournalCoordinator GetJournal(ServerApplication app) =>
@@ -173,7 +171,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             0 => client.SetEntryAsync(CreateSet(key, $"value-{index}"), cancellationToken: cancellationToken),
             1 => client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken),
             _ => client.TouchAsync(
-                new TouchAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Expiration = Duration.FromTimeSpan(TimeSpan.FromHours(1)) },
+                new TouchAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Expiration = TimeSpan.FromHours(1) },
                 cancellationToken: cancellationToken),
         };
     }

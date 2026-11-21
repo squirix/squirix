@@ -1,8 +1,6 @@
 using System;
-using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -51,30 +49,29 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
         _ = await Assert.That((status.CurrentTerm, status.LastLogIndex)).IsEqualTo((0UL, 0UL));
     }
 
-    /// <summary>Parsed protobuf payloads outlive overwritten RPC input and are retained without a second payload copy.</summary>
-    /// <param name="segmented">Whether parsing crosses multiple transport segments.</param>
+    /// <summary>Parsed binary payloads outlive overwritten RPC input and are retained without a second payload copy.</summary>
+    /// <param name="offset">The starting offset of the frame in the transport buffer.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task ParsedPayloadIsRetainedWithoutCopy(bool segmented, CancellationToken cancellationToken)
+    [Arguments(0)]
+    [Arguments(5)]
+    public async Task ParsedPayloadIsRetainedWithoutCopy(int offset, CancellationToken cancellationToken)
     {
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var firstPayload = CanonicalPayload(1, 6);
         var secondPayload = CanonicalPayload(2, 7);
         var original = AppendRequest(follower, 1, 6, firstPayload);
-        original.Entries.Add(new ReplicaLogEntry { LogIndex = 2, Term = 7, CanonicalPayload = ByteString.CopyFrom(secondPayload) });
-        var wire = original.ToByteArray();
-        var payloadOffset = wire.AsSpan().IndexOf(firstPayload);
-        _ = await Assert.That(payloadOffset).IsGreaterThan(0);
-        var request = AppendReplicaEntriesRequest.Parser.ParseFrom(Sequence(wire, segmented, payloadOffset + (firstPayload.Length / 2)));
-        var firstMemory = request.Entries[0].CanonicalPayload.Memory;
-        var secondMemory = request.Entries[1].CanonicalPayload.Memory;
+        original.Entries = [.. original.Entries, new(2, 7, secondPayload)];
+        var length = original.CalculateSize();
+        var wire = new byte[offset + length + 3];
+        original.WriteTo(wire.AsSpan(offset, length));
+        var request = AppendReplicaEntriesRequest.Parser.ParseFrom(wire, offset, length);
+        var firstMemory = request.Entries[0].Payload;
+        var secondMemory = request.Entries[1].Payload;
         Array.Fill<byte>(wire, 255);
 
         var response = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.Context);
-        request.Entries[0].CanonicalPayload = ByteString.Empty;
-        request.Entries.Clear();
+        request.Entries = [];
 
         _ = await Assert.That((response.Success, response.LastLogIndex)).IsEqualTo((true, 2UL));
         var tail = await GroupLog(follower).GetUncommittedTailAsync(cancellationToken);
@@ -86,42 +83,12 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
         _ = await Assert.That(tail[1].Payload.Span.SequenceEqual(secondPayload)).IsTrue();
     }
 
-    private static ReadOnlySequence<byte> Sequence(byte[] wire, bool segmented, int split)
-    {
-        if (!segmented)
-            return new ReadOnlySequence<byte>(wire);
-
-        var first = new PayloadSegment(wire.AsMemory(0, split));
-        var last = first.Append(wire.AsMemory(split));
-        return new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length);
-    }
-
     private static byte[] CanonicalPayload(ulong logIndex, ulong term)
     {
         var record = new ReplicaLogRecord(logIndex, term, "op", "cache", new byte[] { 1 }, "UserMutation", "cache", new byte[] { 1 }, "Set", new byte[] { 2 }, ReadOnlyMemory<byte>.Empty, 0, 0, 0);
         return ReplicaLogCodec.Encode(in record);
     }
 
-    private static AppendReplicaEntriesRequest AppendRequest(FollowerScope follower, ulong logIndex, ulong term, byte[] payload)
-    {
-        var request = new AppendReplicaEntriesRequest { Header = follower.Header, PrevLogIndex = 0, PrevLogTerm = 0, LeaderCommitIndex = 0 };
-        request.Entries.Add(new ReplicaLogEntry { LogIndex = logIndex, Term = term, CanonicalPayload = ByteString.CopyFrom(payload) });
-        return request;
-    }
-
-    [Mutable]
-    private sealed class PayloadSegment : ReadOnlySequenceSegment<byte>
-    {
-        internal PayloadSegment(ReadOnlyMemory<byte> memory)
-        {
-            Memory = memory;
-        }
-
-        internal PayloadSegment Append(ReadOnlyMemory<byte> memory)
-        {
-            var next = new PayloadSegment(memory) { RunningIndex = RunningIndex + Memory.Length };
-            Next = next;
-            return next;
-        }
-    }
+    private static AppendReplicaEntriesRequest AppendRequest(FollowerScope follower, ulong logIndex, ulong term, byte[] payload) =>
+        new() { Header = follower.Header, Entries = [new(logIndex, term, payload)] };
 }

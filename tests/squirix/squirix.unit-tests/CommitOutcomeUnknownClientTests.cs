@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
@@ -10,6 +9,7 @@ using Squirix.Internal.Cluster.Transport;
 using Squirix.Testing;
 using Squirix.TestKit;
 using Squirix.Transport;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -95,7 +95,7 @@ public sealed class CommitOutcomeUnknownClientTests
 
         internal List<string> OperationIds { get; } = [];
 
-        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+        internal Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> InvokeAsync =>
             (_, request, _, _) => HandleAsync(request);
 
         private static string ExtractOperationId<TRequest>(TRequest request) => request switch
@@ -110,13 +110,13 @@ public sealed class CommitOutcomeUnknownClientTests
             _ => string.Empty,
         };
 
-        private static async Task<IMessage> FailAfterReleaseAsync(Task release, SquirixTransportException failure)
+        private static async Task<WireMessage> FailAfterReleaseAsync(Task release, SquirixTransportException failure)
         {
             await release.ConfigureAwait(false);
             throw failure;
         }
 
-        private Task<IMessage> HandleAsync(IMessage request)
+        private Task<WireMessage> HandleAsync(WireMessage request)
         {
             var failure = new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
             Failures.Add(failure);

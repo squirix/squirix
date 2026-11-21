@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
@@ -12,7 +11,6 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -20,58 +18,23 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
-/// <summary>A relative expiration beyond the normalized duration range saturates instead of failing the request.</summary>
+/// <summary>A relative expiration up to TimeSpan.MaxValue reaches the cache unchanged.</summary>
 public sealed class HugeExpirationTests : DisposableServerUnitTestBase
 {
     private const string OperationId = "0123456789abcdef0123456789abcdef";
     private const string Self = "node-a";
     private const string CacheName = "c";
     private const string Key = "k";
-    private const long MaxTicksSeconds = long.MaxValue / TimeSpan.TicksPerSecond;
-    private const long FourMillionDaysSeconds = 4_000_000L * 86_400L;
+    private const long FourMillionDaysTicks = 4_000_000L * TimeSpan.TicksPerDay;
 
     private readonly Meter _testMeter = new("test-huge-expiration");
 
-    /// <summary>The largest normalized duration converts like the protobuf conversion.</summary>
+    /// <summary>Touch with an extended expiration reaches the cache with the exact duration.</summary>
+    /// <param name="ticks">The expiration in ticks.</param>
     [Test]
-    public async Task NormalizedLimitConvertsExactly()
-    {
-        var limit = new Duration { Seconds = ProtoDuration.MaxSeconds };
-
-        _ = await Assert.That(ProtoDuration.ToTimeSpan(limit)).IsEqualTo(limit.ToTimeSpan());
-    }
-
-    /// <summary>A duration beyond the limit saturates to the maximum time span.</summary>
-    /// <param name="seconds">The wire seconds.</param>
-    /// <param name="nanos">The wire nanoseconds.</param>
-    [Test]
-    [Arguments(MaxTicksSeconds, 0)]
-    [Arguments(FourMillionDaysSeconds, 0)]
-    [Arguments(long.MaxValue, 999_999_999)]
-    public async Task HugeDurationSaturates(long seconds, int nanos)
-    {
-        var converted = ProtoDuration.ToTimeSpan(new Duration { Seconds = seconds, Nanos = nanos });
-
-        _ = await Assert.That(converted).IsEqualTo(TimeSpan.MaxValue);
-    }
-
-    /// <summary>A time span beyond the limit is sent as the largest normalized duration.</summary>
-    [Test]
-    public async Task HugeTimeSpanClampsToLimit()
-    {
-        _ = await Assert.That(ProtoDuration.FromTimeSpan(TimeSpan.MaxValue).Seconds).IsEqualTo(ProtoDuration.MaxSeconds);
-        _ = await Assert.That(ProtoDuration.FromTimeSpan(TimeSpan.FromDays(4_000_000)).Seconds).IsEqualTo(ProtoDuration.MaxSeconds);
-        _ = await Assert.That(ProtoDuration.FromTimeSpan(TimeSpan.FromMinutes(1))).IsEqualTo(Duration.FromTimeSpan(TimeSpan.FromMinutes(1)));
-    }
-
-    /// <summary>Touch with an out-of-range expiration reaches the cache with a saturated expiration.</summary>
-    /// <param name="seconds">The wire seconds.</param>
-    /// <param name="nanos">The wire nanoseconds.</param>
-    [Test]
-    [Arguments(MaxTicksSeconds, 0)]
-    [Arguments(FourMillionDaysSeconds, 0)]
-    [Arguments(long.MaxValue, 999_999_999)]
-    public async Task TouchSaturates(long seconds, int nanos)
+    [Arguments(FourMillionDaysTicks)]
+    [Arguments(long.MaxValue)]
+    public async Task TouchPreservesExpiration(long ticks)
     {
         TimeSpan? seen = null;
         var api = new ICacheApiCreateExpectations<object?>();
@@ -83,21 +46,19 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
             });
 
         var response = await CreateAdapter(api.Instance()).Mutations.TouchAsync(
-            new TouchAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Expiration = new Duration { Seconds = seconds, Nanos = nanos } },
+            new TouchAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Expiration = TimeSpan.FromTicks(ticks) },
             CancellationToken.None);
 
         _ = await Assert.That(response.Found).IsTrue();
-        _ = await Assert.That(seen).IsEqualTo(TimeSpan.MaxValue);
+        _ = await Assert.That(seen).IsEqualTo(TimeSpan.FromTicks(ticks));
     }
 
-    /// <summary>SetEntry with an out-of-range expiration reaches the cache with a saturated expiration.</summary>
-    /// <param name="seconds">The wire seconds.</param>
-    /// <param name="nanos">The wire nanoseconds.</param>
+    /// <summary>SetEntry with an extended expiration reaches the cache with the exact duration.</summary>
+    /// <param name="ticks">The expiration in ticks.</param>
     [Test]
-    [Arguments(MaxTicksSeconds, 0)]
-    [Arguments(FourMillionDaysSeconds, 0)]
-    [Arguments(long.MaxValue, 999_999_999)]
-    public async Task SetEntrySaturates(long seconds, int nanos)
+    [Arguments(FourMillionDaysTicks)]
+    [Arguments(long.MaxValue)]
+    public async Task SetEntryPreservesExpiration(long ticks)
     {
         TimeSpan? seen = null;
         var api = new ICacheApiCreateExpectations<object?>();
@@ -109,20 +70,18 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
             });
 
         _ = await CreateAdapter(api.Instance()).Mutations.SetEntryAsync(
-            new SetEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(new Duration { Seconds = seconds, Nanos = nanos }) },
+            new SetEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(TimeSpan.FromTicks(ticks)) },
             CancellationToken.None);
 
-        _ = await Assert.That(seen).IsEqualTo(TimeSpan.MaxValue);
+        _ = await Assert.That(seen).IsEqualTo(TimeSpan.FromTicks(ticks));
     }
 
-    /// <summary>TryAddEntry with an out-of-range expiration reaches the cache with a saturated expiration.</summary>
-    /// <param name="seconds">The wire seconds.</param>
-    /// <param name="nanos">The wire nanoseconds.</param>
+    /// <summary>TryAddEntry with an extended expiration reaches the cache with the exact duration.</summary>
+    /// <param name="ticks">The expiration in ticks.</param>
     [Test]
-    [Arguments(MaxTicksSeconds, 0)]
-    [Arguments(FourMillionDaysSeconds, 0)]
-    [Arguments(long.MaxValue, 999_999_999)]
-    public async Task AddEntrySaturates(long seconds, int nanos)
+    [Arguments(FourMillionDaysTicks)]
+    [Arguments(long.MaxValue)]
+    public async Task AddEntryPreservesExpiration(long ticks)
     {
         TimeSpan? seen = null;
         var api = new ICacheApiCreateExpectations<object?>();
@@ -134,17 +93,17 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
             });
 
         var response = await CreateAdapter(api.Instance()).Mutations.AddEntryIfAbsentAsync(
-            new TryAddEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(new Duration { Seconds = seconds, Nanos = nanos }) },
+            new TryAddEntryAsyncRequest { CacheName = CacheName, Key = Key, OperationId = OperationId, Entry = CreateEntry(TimeSpan.FromTicks(ticks)) },
             CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsTrue();
-        _ = await Assert.That(seen).IsEqualTo(TimeSpan.MaxValue);
+        _ = await Assert.That(seen).IsEqualTo(TimeSpan.FromTicks(ticks));
     }
 
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static CacheEntryWire CreateEntry(Duration expiration) => new() { Value = JsonValueKit.Wire("{\"__v\":\"v\"}"), Expiration = expiration };
+    private static CacheEntryWire CreateEntry(TimeSpan expiration) => new() { Value = JsonValueKit.Wire("{\"__v\":\"v\"}"), Expiration = expiration };
 
     private static RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
     {

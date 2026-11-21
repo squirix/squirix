@@ -6,9 +6,9 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
 using Squirix.Transport;
@@ -27,7 +27,7 @@ public sealed class AsyncBinaryCompletionTests
         BinaryOperation.GetDistributed,
         new GetDistributedAsyncRequest { CacheName = "default", Key = "read" },
         new GetDistributedAsyncResponse(),
-        new GetDistributedAsyncResponse { Found = true, Value = ByteString.CopyFromUtf8("cached") },
+        new GetDistributedAsyncResponse { Found = true, Value = Encoding.UTF8.GetBytes("cached") },
         static (peer, request, options) => peer.GetDistributedAsync(request, in options),
         false);
 
@@ -223,8 +223,8 @@ public sealed class AsyncBinaryCompletionTests
         bool callerCancels,
         bool keepOtherCall,
         CancellationToken token)
-        where TRequest : IMessage<TRequest>
-        where TResponse : IMessage<TResponse>
+        where TRequest : WireMessage
+        where TResponse : WireMessage
     {
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(token);
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(caller.Token);
@@ -268,7 +268,8 @@ public sealed class AsyncBinaryCompletionTests
         _ = await Assert.That(second.IsCompleted).IsFalse();
         await ReplyAsync(stream, firstId, operation.LateReply, token);
         await ReplyAsync(stream, secondId, operation.Reply, token);
-        _ = await Assert.That(await second.WaitAsync(token)).IsEqualTo(operation.Reply);
+        var result = await second.WaitAsync(token);
+        _ = await Assert.That(result.ToByteArray().AsSpan().SequenceEqual(operation.Reply.ToByteArray())).IsTrue();
         await RoundTripAsync(client, stream, operation.Code, operation.Request, operation.Reply, operation.Send, token);
     }
 
@@ -280,35 +281,36 @@ public sealed class AsyncBinaryCompletionTests
         TResponse reply,
         Func<BinaryCacheClient, TRequest, BinaryCallOptions, Task<TResponse>> send,
         CancellationToken token)
-        where TRequest : IMessage<TRequest>
-        where TResponse : IMessage<TResponse>
+        where TRequest : WireMessage
+        where TResponse : WireMessage
     {
         var pending = send(client, request, LiveCallOptions(token));
         var id = await ReadRequestAsync(stream, operation, request, token);
         await ReplyAsync(stream, id, reply, token);
-        _ = await Assert.That(await pending.WaitAsync(token)).IsEqualTo(reply);
+        var result = await pending.WaitAsync(token);
+        _ = await Assert.That(result.ToByteArray().AsSpan().SequenceEqual(reply.ToByteArray())).IsTrue();
     }
 
     private static BinaryCallOptions LiveCallOptions(CancellationToken token) => new(DateTime.UtcNow.AddSeconds(15), token, token);
 
-    private static async Task<int> ReadRequestAsync(SslStream stream, BinaryOperation operation, IMessage expected, CancellationToken token)
+    private static async Task<int> ReadRequestAsync(SslStream stream, BinaryOperation operation, WireMessage expected, CancellationToken token)
     {
-        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
+        var header = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes);
         await stream.ReadExactlyAsync(header, token);
-        var (id, size, control) = Frames.Read(header, Frames.MaxRequestBytes);
+        var (id, size, control) = Frames.ReadRequest(header);
         _ = await Assert.That(Frames.ReadOperationId(control)).IsEqualTo(Unsafe.BitCast<BinaryOperation, int>(operation));
         var body = GC.AllocateUninitializedArray<byte>(size);
         await stream.ReadExactlyAsync(body, token);
-        var payload = (control & Frames.TracedRequest) == 0 ? ByteString.CopyFrom(body) : BinaryTracedRequest.Parser.ParseFrom(body).Payload;
-        _ = await Assert.That(payload).IsEqualTo(expected.ToByteString());
+        var payload = (control & Frames.TracedRequest) == 0 ? body : BinaryTracedRequest.Parser.ParseFrom(body).Payload;
+        _ = await Assert.That(payload.Span.SequenceEqual(expected.ToByteArray())).IsTrue();
         return id;
     }
 
-    private static ValueTask ReplyAsync(SslStream stream, int id, IMessage reply, CancellationToken token)
+    private static ValueTask ReplyAsync(SslStream stream, int id, WireMessage reply, CancellationToken token)
     {
         var size = reply.CalculateSize();
-        var frame = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes + size);
-        Frames.WriteMessage(frame, id, size, 0, reply);
+        var frame = GC.AllocateUninitializedArray<byte>(Frames.ReplyBytes + size);
+        Frames.WriteReplyMessage(frame, id, size, 0, reply);
         return stream.WriteAsync(frame, token);
     }
 

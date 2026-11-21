@@ -1,14 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
@@ -120,9 +118,9 @@ internal sealed class RoutedCacheOperations<T>
             if (entry == null)
                 return new GetEntryAsyncResponse { Found = false };
 
-            var response = new GetEntryAsyncResponse { Found = true, Entry = entry.MapToProto() };
+            var response = new GetEntryAsyncResponse { Found = true, Entry = entry.MapToWire(false) };
             if (entry.ExpiresUtc is { } expiresUtc)
-                response.Remaining = Duration.FromTimeSpan(RemainingUntil(expiresUtc));
+                response.Remaining = RemainingUntil(expiresUtc);
 
             return response;
         }
@@ -139,7 +137,7 @@ internal sealed class RoutedCacheOperations<T>
                 return response;
 
             response.HasExpiration = true;
-            response.Remaining = Duration.FromTimeSpan(RemainingUntil(expiresUtc));
+            response.Remaining = RemainingUntil(expiresUtc);
             return response;
         }
 
@@ -149,7 +147,7 @@ internal sealed class RoutedCacheOperations<T>
             var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             var response = new GetValueAsyncResponse { Found = result.Found };
             if (result.Found)
-                response.Value = ServerProtoEx.CacheValueToProto(result.Value);
+                response.Value = ServerWireMapping.CacheValueToWire(result.Value);
 
             return response;
         }
@@ -203,21 +201,19 @@ internal sealed class RoutedCacheOperations<T>
             cancellationToken);
 
         internal Task<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken) =>
-            SetDistributedAsync(request, request.Value.Memory, cancellationToken);
-
-        internal Task<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken) =>
             _router.ExecuteAsync(
                 request.CacheName,
                 request.Key,
-                (Adapter: this, Request: request, Payload: payload),
+                (Adapter: this, Request: request, OriginalValue: request.Value),
                 static (s, owner, ct) =>
                 {
-                    // Only the local handler borrows the connection buffer. A forwarding request owns its bytes.
-                    if (s.Request.Value.IsEmpty && !s.Payload.IsEmpty)
-                        s.Request.Value = ByteString.CopyFrom(s.Payload.Span);
+                    // The first forward takes ownership. A reroute reuses the same owned bytes.
+                    if (!s.OriginalValue.IsEmpty && s.Request.Value.Equals(s.OriginalValue))
+                        s.Request.Value = s.OriginalValue.ToArray();
+
                     return s.Adapter._forwarder.SetDistributedAsync(owner, s.Request, ct);
                 },
-                static (s, ct) => s.Adapter._handlers.SetDistributedAsyncCoreAsync(s.Request, s.Payload, ct),
+                static (s, ct) => s.Adapter._handlers.SetDistributedAsyncCoreAsync(s.Request, s.Request.Value, ct),
                 cancellationToken);
 
         internal Task<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -279,7 +275,7 @@ internal sealed class RoutedCacheOperations<T>
                 var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(
                     operationId,
                     request.Key,
-                    request.Entry.MapFromProto<T>(),
+                    request.Entry.MapFromWire<T>(),
                     cancellationToken).ConfigureAwait(false);
                 return new TryAddAsyncResponse { Added = added };
             }
@@ -297,7 +293,7 @@ internal sealed class RoutedCacheOperations<T>
                 // The add runs first, with the operation id: a retry whose RPC record is gone replays the recorded outcome of the add instead
                 // of reading the value its first attempt added and answering that nothing was added. An add over a present key without a
                 // recorded outcome is refused before it reaches the journal or the replica group.
-                var entry = request.Entry.MapFromProto<T>();
+                var entry = request.Entry.MapFromWire<T>();
 
                 // The response of an add that took effect carries no value and is known before the add is applied.
                 var (added, existing) = await api.AddOrGetAsync(operationId, request.Key, entry, cancellationToken)
@@ -307,7 +303,7 @@ internal sealed class RoutedCacheOperations<T>
                     : existing.Found switch
                     {
                         false => new GetOrAddAsyncResponse { Added = false, Found = false },
-                        _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerProtoEx.CacheValueToProto(existing.Value) },
+                        _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerWireMapping.CacheValueToWire(existing.Value) },
                     };
             }
 
@@ -380,7 +376,7 @@ internal sealed class RoutedCacheOperations<T>
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                     operationId,
                     request.Key,
-                    request.Entry.MapFromProto<T>(),
+                    request.Entry.MapFromWire<T>(),
                     cancellationToken).ConfigureAwait(false);
                 return new SetAsyncResponse();
             }
@@ -397,7 +393,7 @@ internal sealed class RoutedCacheOperations<T>
                 var found = await _cacheOperations.ForCache(cacheName).TouchAsync(
                     operationId,
                     request.Key,
-                    ServerProtoEx.RequireDuration(request.Expiration),
+                    request.Expiration ?? MissingExpiration(),
                     cancellationToken).ConfigureAwait(false);
                 return new TouchAsyncResponse { Found = found };
             }
@@ -414,7 +410,7 @@ internal sealed class RoutedCacheOperations<T>
                 var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
                     operationId,
                     request.Key,
-                    request.Entry.MapFromProto<T>().Value,
+                    request.Entry.MapFromWire<T>().Value,
                     cancellationToken).ConfigureAwait(false);
                 return new UpdateAsyncResponse { Updated = updated };
             }
@@ -422,6 +418,8 @@ internal sealed class RoutedCacheOperations<T>
             private static GetOrAddAsyncResponse AddedResponse() => new() { Added = true, Found = true };
 
             private static RemoveAsyncResponse RemoveResponse(bool result) => new() { Removed = result };
+
+            private static TimeSpan MissingExpiration() => throw new ServerCallException(FrameStatus.InvalidArgument, "Missing expiration.");
         }
     }
 }

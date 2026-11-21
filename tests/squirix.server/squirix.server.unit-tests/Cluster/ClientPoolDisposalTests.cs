@@ -6,7 +6,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -857,7 +856,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         public void Dispose() => Disposed = true;
 
-        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-            where T : IMessage<T> => throw new NotSupportedException();
+        public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage => throw new NotSupportedException();
     }
 }

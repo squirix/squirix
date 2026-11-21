@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
@@ -53,7 +52,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
 
         _ = await Assert.That(response.Added).IsFalse();
         _ = await Assert.That(response.Found).IsTrue();
-        _ = await Assert.That(response.Value.StringValue).IsEqualTo("existing");
+        _ = await Assert.That(response.Value!.StringValue).IsEqualTo("existing");
     }
 
     /// <inheritdoc />
@@ -64,7 +63,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         CacheName = "c",
         Key = "k",
         OperationId = OperationId,
-        Entry = new CacheEntryWire { Value = JsonValueKit.Wire("{\"__v\":\"added\"}"), Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) },
+        Entry = new CacheEntryWire { Value = JsonValueKit.Wire("{\"__v\":\"added\"}"), Expiration = TimeSpan.FromMinutes(1) },
     };
 
     private static RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)

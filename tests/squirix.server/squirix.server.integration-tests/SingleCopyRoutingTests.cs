@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Wire;
@@ -65,7 +65,7 @@ public sealed class SingleCopyRoutingTests : NodeIntegrationTestBase
         var expiration = await clientA.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
 
         _ = await Assert.That(value.Found).IsTrue();
-        _ = await Assert.That(value.Value.StringValue).IsEqualTo("owner-value");
+        _ = await Assert.That(value.Value!.StringValue).IsEqualTo("owner-value");
         _ = await Assert.That(entry.Found).IsTrue();
         _ = await Assert.That(expiration.HasExpiration).IsTrue();
     }
@@ -75,6 +75,6 @@ public sealed class SingleCopyRoutingTests : NodeIntegrationTestBase
         OperationId = RpcOperationIdentity.New(),
         CacheName = "default",
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToProto(),
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToWire(),
     };
 }

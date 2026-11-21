@@ -3,11 +3,10 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -47,13 +46,13 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
         BinaryPrimitives.WriteInt64LittleEndian(expiredPayload.AsSpan(sizeof(long)), 987654321L);
 
         await SequenceAssert.EqualAsync(
-            Oracle(ReplicaMutationKinds.Set, entry.MapToProto().ToByteArray(), operationId, cacheName, key),
+            Oracle(ReplicaMutationKinds.Set, entry.MapToWire().ToByteArray(), operationId, cacheName, key),
             ReplicaOperationFingerprints.Set(operationId, cacheName, key, entry));
         await SequenceAssert.EqualAsync(
-            Oracle(ReplicaMutationKinds.TryAdd, entry.MapToProto().ToByteArray(), operationId, cacheName, key),
+            Oracle(ReplicaMutationKinds.TryAdd, entry.MapToWire().ToByteArray(), operationId, cacheName, key),
             ReplicaOperationFingerprints.AddIfAbsent(operationId, cacheName, key, entry));
         await SequenceAssert.EqualAsync(
-            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToProto<object?>(null).ToByteArray(), operationId, cacheName, key),
+            Oracle(ReplicaMutationKinds.Update, ServerWireMapping.CacheValueToWire<object?>(null).ToByteArray(), operationId, cacheName, key),
             ReplicaOperationFingerprints.Update(operationId, cacheName, key, null));
         await SequenceAssert.EqualAsync(
             Oracle(ReplicaMutationKinds.Remove, [], operationId, cacheName, key),
@@ -69,7 +68,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
             ReplicaOperationFingerprints.Expire(cacheName, key, entry.Version, 987654321L));
     }
 
-    /// <summary>String mutations hash the same protobuf bytes around the stack and chunk boundaries.</summary>
+    /// <summary>String mutations hash the same wire bytes around the stack and chunk boundaries.</summary>
     /// <param name="valueLength">The length of the string value.</param>
     [Test]
     [Arguments(0)]
@@ -82,7 +81,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     public async Task EntryFingerprintsMatchSerializedBytes(int valueLength)
     {
         var entry = new NodeCacheEntry<object?> { Value = new string('x', valueLength), Version = 1, Expiration = TimeSpan.FromMinutes(1) };
-        var bytes = entry.MapToProto().ToByteArray();
+        var bytes = entry.MapToWire().ToByteArray();
 
         var set = ReplicaOperationFingerprints.Set(OperationId, CacheName, Key, entry);
         var add = ReplicaOperationFingerprints.AddIfAbsent(OperationId, CacheName, Key, entry);
@@ -90,7 +89,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.Set, bytes), set);
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.TryAdd, bytes), add);
         await SequenceAssert.EqualAsync(
-            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToProto(entry.Value).ToByteArray()),
+            Oracle(ReplicaMutationKinds.Update, ServerWireMapping.CacheValueToWire(entry.Value).ToByteArray()),
             ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, entry.Value));
     }
 
@@ -115,7 +114,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     public async Task UpdateFingerprintMatchesSerializedBytes(int jsonLength)
     {
         object value = jsonLength == 0 ? 42L : JsonValueKit.Create(ArrayOfOnes(jsonLength));
-        var bytes = ServerProtoEx.CacheValueToProto(value).ToByteArray();
+        var bytes = ServerWireMapping.CacheValueToWire(value).ToByteArray();
 
         var fingerprint = ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, value);
 
@@ -143,7 +142,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     private static byte[] Oracle(string kind, byte[] payload, string operationId = OperationId, string cacheName = CacheName, string key = Key)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendField(hash, cacheName);
+        AppendField(hash, "squirix-mutation-v2");
         AppendField(hash, operationId);
         AppendField(hash, cacheName);
         AppendField(hash, key);

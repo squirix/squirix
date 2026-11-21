@@ -10,13 +10,16 @@ namespace Squirix.Server.Cluster.Replication;
 internal sealed class ReplicaTransferOptions
 {
     /// <summary>
-    /// The payload bytes one transfer message may carry: 7 MiB, which leaves one MiB of the 8 MiB gRPC message limit for the envelope and the framing.
+    /// The payload bytes one transfer message may carry: 7 MiB, which leaves one MiB of the 8 MiB peer message limit for the envelope and the framing.
     /// A snapshot chunk counts its bytes; an entry batch counts, per entry, the UTF-8 bytes of the cache name, the key and the payload plus <see cref="EntryFramingBytes" />.
     /// </summary>
     internal const int MessageBudgetBytes = EntryLimits.MaxSendMessageSizeBytes - (1024 * 1024);
 
-    /// <summary>The bytes the wire adds to one entry of a batch beyond its cache name, key and payload: field tags, lengths and the deadline.</summary>
+    /// <summary>The budget reserved per entry for its lengths and deadline, in addition to its cache name, key and payload.</summary>
     internal const int EntryFramingBytes = 32;
+
+    /// <summary>The largest entry count that can fit in a transfer message under its per-entry budget.</summary>
+    internal const int MaxMessageEntries = MessageBudgetBytes / EntryFramingBytes;
 
     /// <summary>Gets the longest time a transfer may stay silent before the group is released; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The timeout is not positive.</exception>
