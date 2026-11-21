@@ -148,7 +148,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             connection = await GetConnectionAsync(options.CancellationToken).ConfigureAwait(false);
             var preventReplay = !connection.SupportsMutationReplay &&
                                 operation is not (BinaryOperation.GetEntry or BinaryOperation.GetValue or BinaryOperation.GetExpiration or BinaryOperation.GetDistributed);
-            var result = await connection.CallAsync(control, wireRequest, bodySize, parser, options, preventReplay, operation == BinaryOperation.Remove).ConfigureAwait(false);
+            var result = await connection.CallAsync(control, wireRequest, bodySize, parser, options, preventReplay).ConfigureAwait(false);
             return result as T ?? ThrowUnexpectedResponse<T>();
         }
         catch (Exception error) when (error is AuthenticationException or ConnectionRejectedException)
@@ -253,7 +253,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             return new Connection(socket, tls, replay);
         }
 
-        internal async ValueTask<IMessage> CallAsync(int control, IMessage request, int bodySize, MessageParser parser, BinaryCallOptions options, bool preventReplay, bool directCompletion)
+        internal async ValueTask<IMessage> CallAsync(int control, IMessage request, int bodySize, MessageParser parser, BinaryCallOptions options, bool preventReplay)
         {
             var token = options.CancellationToken;
             int id;
@@ -275,12 +275,11 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
 
             // After a caller cancels, keep the slot until the response is consumed or the connection closes.
-            var registration = directCompletion ? pending.RegisterCancellation() : default;
+            var registration = pending.RegisterCancellation();
             BinaryClientReply result;
             try
             {
-                var completion = pending.Completion.Task;
-                result = await (directCompletion ? completion : completion.WaitAsync(token)).ConfigureAwait(false);
+                result = await new ValueTask<BinaryClientReply>(pending.Completion.Task).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!options.CallerToken.IsCancellationRequested)
             {
