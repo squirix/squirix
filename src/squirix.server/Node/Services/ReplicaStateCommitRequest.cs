@@ -14,7 +14,7 @@ internal sealed class ReplicaStateCommitRequest<TState> : ReplicaCommitRequest
 {
     private readonly Func<TState, byte[]> _fingerprint;
     private readonly Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> _prepare;
-    private readonly TState _state;
+    private readonly TState _arguments;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaStateCommitRequest{TState}" /> class.</summary>
     /// <param name="write">The cache scope, the client operation identifier, and the cache key of the write.</param>
@@ -30,7 +30,7 @@ internal sealed class ReplicaStateCommitRequest<TState> : ReplicaCommitRequest
     {
         ArgumentNullException.ThrowIfNull(fingerprint);
         ArgumentNullException.ThrowIfNull(prepare);
-        _state = state;
+        _arguments = state;
         _fingerprint = fingerprint;
         _prepare = prepare;
     }
@@ -42,10 +42,10 @@ internal sealed class ReplicaStateCommitRequest<TState> : ReplicaCommitRequest
         record = default;
         return log == null || log.Idempotency.Lookup(Scope, OperationId, [], out _) == GroupIdempotencyLookup.Miss
             ? GroupIdempotencyLookup.Miss
-            : log.Idempotency.Lookup(Scope, OperationId, _fingerprint(_state), out record);
+            : log.Idempotency.Lookup(Scope, OperationId, _fingerprint(_arguments), out record);
     }
 
     /// <inheritdoc />
     internal override ValueTask<PreparedReplicaMutation> PrepareAsync(ReplicaMutationFactory factory, ulong index, CancellationToken cancellationToken) =>
-        _prepare(factory, _state, index, cancellationToken);
+        _prepare(factory, _arguments, index, cancellationToken);
 }
