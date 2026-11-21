@@ -443,10 +443,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     public async ValueTask<(FollowerLogStatus Status, bool CanCommit)> GetCommitReadinessAsync(ulong term, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var status = CaptureStatus();
-        var canCommit = status is { Readiness: FollowerLogReadiness.Ready, MemberState: GroupMemberState.Complete } && status.CurrentTerm <= term &&
-                        (status.LastLogIndex == status.CommitIndex || _journal.HasUncommittedTerm(status.CommitIndex, term));
-        return (status, canCommit);
+        return FollowerLogRead.GetCommitReadiness(_journal, this, term);
     }
 
     /// <inheritdoc />
@@ -474,10 +471,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         // One gate acquisition: a commit advancing between the status and the tail would pair the status with a shorter tail.
-        var status = CaptureStatus();
-        return status.LastLogIndex == status.CommitIndex
-            ? new FollowerLogTail(status, 0UL, [])
-            : new FollowerLogTail(status, FollowerLogRead.GetTerm(_journal, this, status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
+        return FollowerLogRead.GetLeaderTail(_journal, this);
     }
 
     /// <inheritdoc />
@@ -533,14 +527,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     public async Task<ulong> ObserveTermAsync(ulong term, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (Refuses || term <= _meta.CurrentTerm)
-            return _meta.CurrentTerm;
-
-        // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
-        var observed = _meta with { CurrentTerm = term, VotedFor = string.Empty };
-        await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(_journal, this, observed, cancellationToken).ConfigureAwait(false);
-        FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in observed);
-        return term;
+        return await FollowerLogElection.ObserveTermAsync(_journal, this, term, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

@@ -51,7 +51,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         _certificate = AcquireCertificate();
-        ValidateCertificate(_certificate);
+        ListenerCertificate.Validate(_certificate);
         var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, _additionalCertificates, true) };
         var material = _services.Require<MtlsCertificate>();
         var peerPort = material.Enabled ? _services.Require<MtlsOptions>().InternalListenPort : 0;
@@ -160,24 +160,6 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
             Events.LogListeningEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(endpoint));
     }
 
-    private static void ValidateCertificate(X509Certificate2 certificate)
-    {
-        if (!certificate.HasPrivateKey)
-            throw new InvalidOperationException("The TLS server certificate requires a private key.");
-        foreach (var extension in certificate.Extensions)
-        {
-            if (extension is not X509EnhancedKeyUsageExtension usage)
-                continue;
-            foreach (var purpose in usage.EnhancedKeyUsages)
-            {
-                if (string.Equals(purpose.Value, MtlsCertificateIdentity.ServerAuthOid, StringComparison.Ordinal) || string.Equals(purpose.Value, "2.5.29.37.0", StringComparison.Ordinal))
-                    return;
-            }
-
-            throw new InvalidOperationException("The TLS certificate does not permit server authentication.");
-        }
-    }
-
     private static Uri? ReadManagementUri()
     {
         var configured = EnvVariables.ReadString("SQUIRIX_MANAGEMENT_URI");
@@ -275,31 +257,6 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         }
     }
 
-    private static X509Certificate2 LoadDevelopmentCertificate()
-    {
-        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-        store.Open(OpenFlags.OpenExistingOnly);
-        X509Certificate2? selected = null;
-        var now = TimeProvider.System.GetUtcNow().UtcDateTime;
-        foreach (var candidate in store.Certificates)
-        {
-            if (candidate.HasPrivateKey && candidate.NotBefore.ToUniversalTime() <= now && now < candidate.NotAfter.ToUniversalTime() &&
-                candidate.Extensions["1.3.6.1.4.1.311.84.1.1"] != null && (selected == null || candidate.NotAfter > selected.NotAfter))
-            {
-                selected?.Dispose();
-                selected = candidate;
-            }
-            else
-            {
-                candidate.Dispose();
-            }
-        }
-
-        return selected ?? ThrowMissingCertificate();
-    }
-
-    private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
-
     private string NextConnectionId() => Interlocked.Increment(ref _connectionSequence).ToString("x", CultureInfo.InvariantCulture);
 
     private async ValueTask<(Uri Uri, IPAddress[]? Addresses)> ResolveManagementBindingAsync(X509Certificate2 certificate, int peerPort, CancellationToken cancellationToken)
@@ -334,7 +291,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
 
         var path = EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PATH");
         if (string.IsNullOrWhiteSpace(path))
-            return LoadDevelopmentCertificate();
+            return ListenerCertificate.LoadDevelopment();
 
         var certificates = X509CertificateLoader.LoadPkcs12CollectionFromFile(path, EnvVariables.ReadString("SQUIRIX_TLS_CERTIFICATE_PASSWORD"));
         _additionalCertificates = certificates;
@@ -355,6 +312,52 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
     {
         var validator = _services.Find<NativeConnectionAuthenticationValidator>();
         return validator == null ? ValueTask.FromResult(false) : validator.ValidateBearerAsync(bearer, cancellationToken);
+    }
+
+    private static class ListenerCertificate
+    {
+        internal static void Validate(X509Certificate2 certificate)
+        {
+            if (!certificate.HasPrivateKey)
+                throw new InvalidOperationException("The TLS server certificate requires a private key.");
+            foreach (var extension in certificate.Extensions)
+            {
+                if (extension is not X509EnhancedKeyUsageExtension usage)
+                    continue;
+                foreach (var purpose in usage.EnhancedKeyUsages)
+                {
+                    if (string.Equals(purpose.Value, MtlsCertificateIdentity.ServerAuthOid, StringComparison.Ordinal) || string.Equals(purpose.Value, "2.5.29.37.0", StringComparison.Ordinal))
+                        return;
+                }
+
+                throw new InvalidOperationException("The TLS certificate does not permit server authentication.");
+            }
+        }
+
+        internal static X509Certificate2 LoadDevelopment()
+        {
+            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.OpenExistingOnly);
+            X509Certificate2? selected = null;
+            var now = TimeProvider.System.GetUtcNow().UtcDateTime;
+            foreach (var candidate in store.Certificates)
+            {
+                if (candidate.HasPrivateKey && candidate.NotBefore.ToUniversalTime() <= now && now < candidate.NotAfter.ToUniversalTime() &&
+                    candidate.Extensions["1.3.6.1.4.1.311.84.1.1"] != null && (selected == null || candidate.NotAfter > selected.NotAfter))
+                {
+                    selected?.Dispose();
+                    selected = candidate;
+                }
+                else
+                {
+                    candidate.Dispose();
+                }
+            }
+
+            return selected ?? ThrowMissingCertificate();
+        }
+
+        private static X509Certificate2 ThrowMissingCertificate() => throw new InvalidOperationException("Configure SQUIRIX_TLS_CERTIFICATE_PATH or install a development HTTPS certificate.");
     }
 
     private static class Events
