@@ -27,7 +27,7 @@ internal sealed class JournalMetricsExporterService : NodeWorker
 
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
 
-    private readonly ILogger<JournalMetricsExporterService> _log;
+    private readonly IServerLogger<JournalMetricsExporterService> _log;
 
     private readonly string _nodeId;
     private readonly PersistenceOptions _opt;
@@ -39,7 +39,7 @@ internal sealed class JournalMetricsExporterService : NodeWorker
     internal JournalMetricsExporterService(
         PersistenceOptions opt,
         TopologyOptions cluster,
-        ILogger<JournalMetricsExporterService> log,
+        IServerLogger<JournalMetricsExporterService> log,
         Meter meter)
     {
         _opt = opt;

@@ -123,7 +123,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(transport.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(transport.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(logged?.Cause).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
         _ = await Assert.That(memory.Snapshot).IsEmpty();

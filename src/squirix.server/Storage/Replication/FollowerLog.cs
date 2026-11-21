@@ -61,7 +61,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private readonly GroupIdempotencyState _idempotency;
 
     private readonly FollowerLogJournal _journal;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly FollowerLogMirror _mirror;
 
     private ulong _commitHint;
@@ -83,7 +83,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </summary>
     private int _readiness = FollowerLogReadinessValue.Unknown;
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, FollowerLogOptions options)
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, IServerLogger<FollowerLog> log, FollowerLogOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentNullException.ThrowIfNull(composition);
@@ -106,7 +106,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         Idempotency = _idempotency;
     }
 
-    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, ILogger<FollowerLog> log, TimeProvider timeProvider)
+    internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, IServerLogger<FollowerLog> log, TimeProvider timeProvider)
         : this(persistenceRoot, groupId, composition, log, new FollowerLogOptions { TimeProvider = timeProvider, ShutdownTimeProvider = TimeProvider.System })
     {
     }
@@ -115,7 +115,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         string persistenceRoot,
         string groupId,
         GroupComposition composition,
-        ILogger<FollowerLog> log,
+        IServerLogger<FollowerLog> log,
         IFollowerLogFaultHooks faultHooks,
         TimeProvider timeProvider)
         : this(

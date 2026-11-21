@@ -38,7 +38,7 @@ internal sealed class ReplicaGroupBootstrapService : NodeWorker
     private readonly ReplicaGroupBootstrap _bootstrap;
     private readonly ReplicaGroupCommitters _committers;
     private readonly INodeLifetime _lifetime;
-    private readonly ILogger<ReplicaGroupBootstrapService> _log;
+    private readonly IServerLogger<ReplicaGroupBootstrapService> _log;
     private readonly ReplicaBootstrapPacer _pacer;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupBootstrapService" /> class.</summary>
@@ -53,7 +53,7 @@ internal sealed class ReplicaGroupBootstrapService : NodeWorker
     internal ReplicaGroupBootstrapService(
         ReplicaGroupBootstrap bootstrap,
         (ReplicaPeerContact Contact, INodeLifetime Lifetime, ReplicaGroupCommitters Committers, ReplicaApplySignal ApplySignal) schedule,
-        ILogger<ReplicaGroupBootstrapService> log,
+        IServerLogger<ReplicaGroupBootstrapService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(bootstrap);

@@ -82,7 +82,7 @@ public sealed class ServerDisposeTests
 
         var entry = log.Find(HostStopFailedEventId);
 
-        _ = await Assert.That(entry?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(entry?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(entry?.Cause).IsNotNull();
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
         _ = await Assert.That(probe.DependencyDisposedAtStop).IsFalse();
@@ -133,7 +133,7 @@ public sealed class ServerDisposeTests
     private static async Task<SquirixServer.ApplicationHandle> StartHandleAsync(ShutdownProbe probe, EventRecordingLogger? log, Func<ValueTask>? drain = null)
     {
         var services = new NodeServices();
-        _ = services.Own<ILoggerFactory>(_ => log == null ? NullLoggerFactory.Instance : new FixedLoggerFactory(log));
+        _ = services.Own<IServerLoggerFactory>(_ => log == null ? NullLoggerFactory.Instance : new FixedLoggerFactory(log));
 
         _ = services.Own(_ => new ProbeDependency(probe));
         _ = services.Own<INodeService>(serviceProvider => new ProbeHostedService(probe, serviceProvider.Require<ProbeDependency>()));

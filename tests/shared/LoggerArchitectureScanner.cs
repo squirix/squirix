@@ -26,9 +26,9 @@ public static class LoggerArchitectureScanner
     private const string GenericLoggerInterfaceName = "Microsoft.Extensions.Logging.ILogger`1";
     private const string LoggerFactoryInterfaceName = "Microsoft.Extensions.Logging.ILoggerFactory";
     private const string LoggerProviderInterfaceName = "Microsoft.Extensions.Logging.ILoggerProvider";
-    private const string NodeLogger = "Squirix.Server.Logging.ILogger";
-    private const string NodeGenericLogger = "Squirix.Server.Logging.ILogger`1";
-    private const string NodeFactory = "Squirix.Server.Logging.ILoggerFactory";
+    private const string NodeLogger = "Squirix.Server.Logging.IServerLogger";
+    private const string NodeGenericLogger = "Squirix.Server.Logging.IServerLogger`1";
+    private const string NodeFactory = "Squirix.Server.Logging.IServerLoggerFactory";
     private const string NodeEvent = "Squirix.Server.Logging.LogEvent";
     private const string LoggerMessageAttributeName = "Microsoft.Extensions.Logging.LoggerMessageAttribute";
     private const string CompilerGeneratedAttributeName = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";

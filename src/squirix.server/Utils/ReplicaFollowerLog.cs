@@ -6,106 +6,106 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for follower replication and catch-up.</summary>
 internal static class ReplicaFollowerLog
 {
-    internal static void FollowerLogLeakedOnShutdownTimeout(ILogger logger, string groupId, TimeSpan budget, int faultedInFlightWaiters)
+    internal static void FollowerLogLeakedOnShutdownTimeout(IServerLogger logger, string groupId, TimeSpan budget, int faultedInFlightWaiters)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.FollowerLogLeakedOnShutdownTimeoutEvent.Write(logger, LogLevel.Error, null, (groupId, budget, faultedInFlightWaiters));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.FollowerLogLeakedOnShutdownTimeoutEvent.Write(logger, ServerLogLevel.Error, null, (groupId, budget, faultedInFlightWaiters));
     }
 
-    internal static void ReplicaFollowerSenderLeakedOnShutdown(ILogger logger, TimeSpan budget)
+    internal static void ReplicaFollowerSenderLeakedOnShutdown(IServerLogger logger, TimeSpan budget)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.FollowerSenderLeakedOnShutdownEvent.Write(logger, LogLevel.Error, null, ValueTuple.Create(budget));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.FollowerSenderLeakedOnShutdownEvent.Write(logger, ServerLogLevel.Error, null, ValueTuple.Create(budget));
     }
 
-    internal static void ReplicaFollowerSenderCloseFailed(ILogger logger, Exception exception)
+    internal static void ReplicaFollowerSenderCloseFailed(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaFollowerSenderCloseFailedEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaFollowerSenderCloseFailedEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create());
     }
 
-    internal static void ReplicaFollowerCaughtUp(ILogger logger, string groupId, string nodeId, ulong heldThrough, int entries)
+    internal static void ReplicaFollowerCaughtUp(IServerLogger logger, string groupId, string nodeId, ulong heldThrough, int entries)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaFollowerCaughtUpEvent.Write(logger, LogLevel.Information, null, (groupId, nodeId, heldThrough, entries));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaFollowerCaughtUpEvent.Write(logger, ServerLogLevel.Information, null, (groupId, nodeId, heldThrough, entries));
     }
 
-    internal static void ReplicaCatchUpCompacted(ILogger logger, string groupId, string nodeId)
+    internal static void ReplicaCatchUpCompacted(IServerLogger logger, string groupId, string nodeId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaCatchUpCompactedEvent.Write(logger, LogLevel.Warning, null, (groupId, nodeId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaCatchUpCompactedEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, nodeId));
     }
 
-    internal static void ReplicaCatchUpStopped(ILogger logger, string groupId, string nodeId, string outcome)
+    internal static void ReplicaCatchUpStopped(IServerLogger logger, string groupId, string nodeId, string outcome)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaCatchUpStoppedEvent.Write(logger, LogLevel.Warning, null, (groupId, nodeId, outcome));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaCatchUpStoppedEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, nodeId, outcome));
     }
 
-    internal static void ReplicaCatchUpCorrupt(ILogger logger, string groupId, string nodeId)
+    internal static void ReplicaCatchUpCorrupt(IServerLogger logger, string groupId, string nodeId)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ReplicaCatchUpCorruptEvent.Write(logger, LogLevel.Error, null, (groupId, nodeId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ReplicaCatchUpCorruptEvent.Write(logger, ServerLogLevel.Error, null, (groupId, nodeId));
     }
 
-    internal static void ReplicaFollowerDemoted(ILogger logger, string groupId, string nodeId, ulong logIndex)
+    internal static void ReplicaFollowerDemoted(IServerLogger logger, string groupId, string nodeId, ulong logIndex)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaFollowerDemotedEvent.Write(logger, LogLevel.Warning, null, (groupId, nodeId, logIndex));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaFollowerDemotedEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, nodeId, logIndex));
     }
 
-    internal static void ReplicaCatchUpInterrupted(ILogger logger, string groupId, string nodeId, string outcome)
+    internal static void ReplicaCatchUpInterrupted(IServerLogger logger, string groupId, string nodeId, string outcome)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaCatchUpInterruptedEvent.Write(logger, LogLevel.Debug, null, (groupId, nodeId, outcome));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaCatchUpInterruptedEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, nodeId, outcome));
     }
 
-    internal static void ReplicaFollowerApplyStopped(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaFollowerApplyStopped(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ReplicaFollowerApplyStoppedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ReplicaFollowerApplyStoppedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaFollowerApplyRetry(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaFollowerApplyRetry(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaFollowerApplyRetryEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaFollowerApplyRetryEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaFollowerApplyNoLog(ILogger logger, string groupId)
+    internal static void ReplicaFollowerApplyNoLog(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaFollowerApplyNoLogEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaFollowerApplyNoLogEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(groupId));
     }
 
-    internal static void FollowerLogAppendUnconfirmed(ILogger logger, Exception exception, string groupId)
+    internal static void FollowerLogAppendUnconfirmed(IServerLogger logger, Exception exception, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.FollowerLogAppendUnconfirmedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.FollowerLogAppendUnconfirmedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void FollowerLogTruncateUnconfirmed(ILogger logger, Exception exception, string groupId)
+    internal static void FollowerLogTruncateUnconfirmed(IServerLogger logger, Exception exception, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.FollowerLogTruncateUnconfirmedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.FollowerLogTruncateUnconfirmedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void FollowerLogMirrorFailed(ILogger logger, Exception exception, string groupId)
+    internal static void FollowerLogMirrorFailed(IServerLogger logger, Exception exception, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.FollowerLogMirrorFailedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.FollowerLogMirrorFailedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void FollowerLogMirrorFailedOnDispose(ILogger logger, Exception exception, string groupId)
+    internal static void FollowerLogMirrorFailedOnDispose(IServerLogger logger, Exception exception, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.FollowerLogMirrorFailedOnDisposeEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.FollowerLogMirrorFailedOnDisposeEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void FollowerLogOpenedNotComplete(ILogger logger, string groupId, string memberState)
+    internal static void FollowerLogOpenedNotComplete(IServerLogger logger, string groupId, string memberState)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.FollowerLogOpenedNotCompleteEvent.Write(logger, LogLevel.Information, null, (groupId, memberState));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.FollowerLogOpenedNotCompleteEvent.Write(logger, ServerLogLevel.Information, null, (groupId, memberState));
     }
 
     private static class Events

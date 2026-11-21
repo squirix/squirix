@@ -53,7 +53,7 @@ public sealed class SquirixServer : IAsyncDisposable
         try
         {
 #pragma warning disable RS0030 // The standalone composition root supplies the console writer to its injected logging factory.
-            _ = services.Own<ILoggerFactory>(_ => new ServerLoggerFactory(configuration, Console.Out.WriteLine));
+            _ = services.Own<IServerLoggerFactory>(_ => new ServerLoggerFactory(configuration, Console.Out.WriteLine));
 #pragma warning restore RS0030
             await NodeConfiguration.ConfigureNodeAsync(services, options, null, cancellationToken).ConfigureAwait(false);
         }
@@ -133,7 +133,7 @@ public sealed class SquirixServer : IAsyncDisposable
         {
             ArgumentNullException.ThrowIfNull(app);
             ArgumentNullException.ThrowIfNull(configure);
-            var logger = app.Services.Require<ILoggerFactory>().CreateLogger<SquirixServer>();
+            var logger = app.Services.Require<IServerLoggerFactory>().CreateLogger<SquirixServer>();
 #pragma warning disable CA1031 // The original startup failure is rethrown; cleanup and its logging must never replace it.
             try
             {
@@ -156,7 +156,7 @@ public sealed class SquirixServer : IAsyncDisposable
 #pragma warning restore CA1031
         }
 
-        private static void LogCleanupFailure(ILogger logger, Exception cleanupException)
+        private static void LogCleanupFailure(IServerLogger logger, Exception cleanupException)
         {
             // A failing logger must not replace the startup failure that is being rethrown, and a logging
             // failure has nowhere else to go without global state, so it is discarded by design.
@@ -170,7 +170,7 @@ public sealed class SquirixServer : IAsyncDisposable
 #pragma warning disable CA1031 // A failed stop is logged and disposal continues; any other failure is delivered to every caller through the shared task.
             try
             {
-                var logger = _app.Services.Require<ILoggerFactory>().CreateLogger<SquirixServer>();
+                var logger = _app.Services.Require<IServerLoggerFactory>().CreateLogger<SquirixServer>();
                 try
                 {
                     // Journal draining has its own durability budget after the other services have stopped.

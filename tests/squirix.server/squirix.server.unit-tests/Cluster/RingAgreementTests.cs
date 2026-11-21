@@ -73,7 +73,7 @@ public sealed class RingAgreementTests : ServerUnitTestBase
         _ = await Assert.That(agreement.IsFenced).IsTrue();
         _ = await Assert.That(agreement.FirstMismatch).IsEqualTo(new RingMismatchReport("n2", RingMismatchDirection.Inbound, other));
         _ = await Assert.That(log.Count(MismatchLoggedEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(MismatchLoggedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(MismatchLoggedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
     }
 
     /// <summary>An outbound mismatch fences the node with an unknown peer fingerprint.</summary>

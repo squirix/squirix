@@ -14,7 +14,7 @@ internal sealed class LogEvent
 
     internal LogEvent(int id, string name, string template)
     {
-        Id = new EventId(id, name);
+        Id = new ServerLogEventId(id, name);
         Template = template;
         var names = new List<string>();
         var format = new StringBuilder(template.Length);
@@ -45,13 +45,13 @@ internal sealed class LogEvent
         _names = [.. names];
     }
 
-    internal EventId Id { get; }
+    internal ServerLogEventId Id { get; }
 
     internal string Template { get; }
 
     internal int FieldCount => _names.Length;
 
-    internal void Write<T>(ILogger logger, LogLevel level, Exception? exception, T values)
+    internal void Write<T>(IServerLogger logger, ServerLogLevel level, Exception? exception, T values)
         where T : struct, ITuple
     {
         var state = new LogEventState<T>(this, values);

@@ -32,7 +32,7 @@ internal sealed class RecoveryService<T> : INodeService
     private readonly AsyncManualResetEvent _asyncManualResetEvent;
     private readonly CacheExpiryAuthority _expiry;
     private readonly ILocalCacheRecovery<T> _localCache;
-    private readonly ILogger<RecoveryService<T>> _log;
+    private readonly IServerLogger<RecoveryService<T>> _log;
     private readonly Ledger _manifestStore;
     private readonly PersistenceOptions _opt;
     private readonly RecoveryOptions _options;
@@ -40,7 +40,7 @@ internal sealed class RecoveryService<T> : INodeService
     private readonly TimeProvider _timeProvider;
     private Task? _replayTask;
 
-    internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, INodeLifetime? applicationLifetime = null)
+    internal RecoveryService(RecoveryOptions options, IServerLogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, INodeLifetime? applicationLifetime = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(log);

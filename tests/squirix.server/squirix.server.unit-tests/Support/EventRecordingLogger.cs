@@ -16,19 +16,19 @@ namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Logger double recording the event id, level, exception and formatted message of every entry.</summary>
 [ThreadSafe]
-internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>, ILogger<JournalEventLoop>,
-    ILogger<ReplicaApplyService>, ILogger<ReplicaLogCompactionService>, ILogger<ReplicaExpirationSweepService>, ILogger<LocalExpirationSweepService>, ILogger<ReplicaGroupReadinessService>,
-    ILogger<ReplicaElectionService>, ILogger<ReplicaGroupBootstrapService>, ILogger<ReplicaGroupAppliers>, ILogger<RecoveryService<object?>>, ILogger<ReplicaTransferReceiver>, ILogger<ReplicaStateTransfers>
+internal sealed class EventRecordingLogger : IServerLogger<DurableMutationExecutor>, IServerLogger<FollowerLog>, IServerLogger<Ledger>, IServerLogger<ReplicaGroupCommitter>, IServerLogger<ServerClientPool>, IServerLogger<RingAgreement>, IServerLogger<JournalEventLoop>,
+    IServerLogger<ReplicaApplyService>, IServerLogger<ReplicaLogCompactionService>, IServerLogger<ReplicaExpirationSweepService>, IServerLogger<LocalExpirationSweepService>, IServerLogger<ReplicaGroupReadinessService>,
+    IServerLogger<ReplicaElectionService>, IServerLogger<ReplicaGroupBootstrapService>, IServerLogger<ReplicaGroupAppliers>, IServerLogger<RecoveryService<object?>>, IServerLogger<ReplicaTransferReceiver>, IServerLogger<ReplicaStateTransfers>
 {
     private readonly ConcurrentDictionary<(int EventId, string Fragment), TaskCompletionSource> _awaited = new();
-    private readonly ConcurrentQueue<(int EventId, LogLevel Level, Exception? Cause, string Message)> _events = new();
+    private readonly ConcurrentQueue<(int EventId, ServerLogLevel Level, Exception? Cause, string Message)> _events = new();
 
     public IDisposable? BeginScope<TState>(TState state)
         where TState : notnull => null;
 
-    public bool IsEnabled(LogLevel logLevel) => true;
+    public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+    public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
         var message = formatter(state, exception);
         _events.Enqueue((eventId.Id, logLevel, exception, message));
@@ -66,9 +66,9 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
     internal int Count(int eventId)
     {
         var count = 0;
-        foreach (var recorded in _events)
+        foreach (var (id, _, _, _) in _events)
         {
-            if (recorded.EventId == eventId)
+            if (id == eventId)
                 count++;
         }
 
@@ -82,9 +82,9 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
     internal int Count(int eventId, string fragment)
     {
         var count = 0;
-        foreach (var recorded in _events)
+        foreach (var (id, _, _, message) in _events)
         {
-            if (recorded.EventId == eventId && recorded.Message.Contains(fragment, StringComparison.Ordinal))
+            if (id == eventId && message.Contains(fragment, StringComparison.Ordinal))
                 count++;
         }
 
@@ -94,12 +94,12 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
     /// <summary>Finds the first entry with <paramref name="eventId" />.</summary>
     /// <param name="eventId">Event id to look for.</param>
     /// <returns>The level and exception of the entry, or <see langword="null" /> when the event was not logged.</returns>
-    internal (LogLevel Level, Exception? Cause)? Find(int eventId)
+    internal (ServerLogLevel Level, Exception? Cause)? Find(int eventId)
     {
-        foreach (var recorded in _events)
+        foreach (var (id, level, cause, _) in _events)
         {
-            if (recorded.EventId == eventId)
-                return (recorded.Level, recorded.Cause);
+            if (id == eventId)
+                return (level, cause);
         }
 
         return null;
@@ -110,10 +110,10 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
     /// <returns>The formatted message, or <see langword="null" /> when the event was not logged.</returns>
     internal string? FindMessage(int eventId)
     {
-        foreach (var recorded in _events)
+        foreach (var (id, _, _, message) in _events)
         {
-            if (recorded.EventId == eventId)
-                return recorded.Message;
+            if (id == eventId)
+                return message;
         }
 
         return null;
@@ -121,9 +121,9 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
 
     private bool Logged(int eventId, string fragment)
     {
-        foreach (var recorded in _events)
+        foreach (var (id, _, _, message) in _events)
         {
-            if (recorded.EventId == eventId && recorded.Message.Contains(fragment, StringComparison.Ordinal))
+            if (id == eventId && message.Contains(fragment, StringComparison.Ordinal))
                 return true;
         }
 

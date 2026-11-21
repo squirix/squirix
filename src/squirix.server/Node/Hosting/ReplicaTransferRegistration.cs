@@ -31,14 +31,14 @@ internal static class ReplicaTransferRegistration
             sp.Require<IReplicaStateSink>(),
             sp.Find<ReplicaTransferOptions>() ?? new ReplicaTransferOptions(),
             sp.Require<TimeProvider>(),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaTransferReceiver>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaTransferReceiver>(),
             sp.Require<TopologyOptions>().NodeId));
         _ = services.Own(static sp => new ReplicaStateTransfers(
             sp.Require<IReplicaTransferGateway>(),
             new ReplicaGroupEntries(sp.Require<ILocalCacheSnapshotReader<object?>>(), sp.Require<INodeLocator>()),
             sp.Require<IJournalCoordinator>(),
             sp.Find<ReplicaTransferOptions>() ?? new ReplicaTransferOptions(),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaStateTransfers>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaStateTransfers>(),
             sp.Require<ReplicaCatchUpMetrics>())
         {
             ChecksumRetryOptions = sp.Find<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),

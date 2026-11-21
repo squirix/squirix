@@ -74,7 +74,7 @@ internal sealed class TrackedConnections
     /// <summary>Releases the hold once every connection ended; the task never faults, a failure is logged and the hold is kept.</summary>
     /// <param name="hold">The hold on the material the connections read.</param>
     /// <param name="logger">The logger of the outcome.</param>
-    internal void ReleaseWhenDrained(MtlsCertificate.Hold hold, ILogger logger) => LateRelease = ReleaseWhenDrainedAsync(hold, logger);
+    internal void ReleaseWhenDrained(MtlsCertificate.Hold hold, IServerLogger logger) => LateRelease = ReleaseWhenDrainedAsync(hold, logger);
 
     /// <summary>Tracks one more connection unless new connections are refused.</summary>
     /// <returns><see langword="true" /> when the connection was admitted and must <see cref="Exit" />.</returns>
@@ -93,7 +93,7 @@ internal sealed class TrackedConnections
     /// <returns>A task that completes when no connection is open.</returns>
     internal ValueTask WaitAsync(CancellationToken cancellationToken) => _gate.WaitAsync(cancellationToken);
 
-    private async Task ReleaseWhenDrainedAsync(MtlsCertificate.Hold hold, ILogger logger)
+    private async Task ReleaseWhenDrainedAsync(MtlsCertificate.Hold hold, IServerLogger logger)
     {
         var failure = await _gate.WaitAsync(CancellationToken.None).AsTask().CaptureFailureAsync().ConfigureAwait(false);
         if (failure != null)

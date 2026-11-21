@@ -56,9 +56,9 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         var material = _services.Require<MtlsCertificate>();
         var peerPort = material.Enabled ? _services.Require<MtlsOptions>().InternalListenPort : 0;
         var (managementUri, managementAddresses) = await ResolveManagementBindingAsync(_certificate, peerPort, cancellationToken).ConfigureAwait(false);
-        var logger = _services.Require<ILoggerFactory>().CreateLogger<NativeClientService>();
+        var logger = _services.Require<IServerLoggerFactory>().CreateLogger<NativeClientService>();
         _ = _services.Find<PrometheusMetricsScraper>();
-        var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync, _services.Require<ILoggerFactory>().CreateLogger<NativeManagementEndpoint>());
+        var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeManagementEndpoint>());
         var listeners = new List<(Socket Socket, NativeTlsListener Listener)>();
         var sessions = new List<Task>();
 
@@ -66,7 +66,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         {
             AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024, NextConnectionId), listeners);
             var managementIndex = listeners.Count;
-            AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.Require<ILoggerFactory>().CreateLogger<NativeTlsListener>(), 64), listeners, managementAddresses);
+            AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), 64), listeners, managementAddresses);
             if (listeners[managementIndex].Socket.LocalEndPoint is IPEndPoint boundManagement)
                 ManagementUri = new UriBuilder(managementUri) { Port = boundManagement.Port }.Uri;
             if (material.Enabled)
@@ -75,9 +75,9 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
                 var internalUri = new UriBuilder(_topology.Uri) { Port = peerPort }.Uri;
                 var feature = _services.Require<FeatureState>();
                 var peer = new NativePeerEndpoint(_services, peerPort, feature.NetworkReplicationEnabled || feature.FoundationOnly);
-                var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.Require<ILoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
+                var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.Require<IServerLoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
                 var handshake = new InboundPeerHandshake(verifier, material.NodeCertificate!, MtlsTopology.GetRemotePeerNodeIds(_topology));
-                AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.Require<ILoggerFactory>().CreateLogger<NativeTlsListener>(), 256), listeners);
+                AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), 256), listeners);
             }
 
             foreach (var (socket, _) in listeners)
@@ -148,16 +148,16 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         return new UriBuilder(Uri.UriSchemeHttps, host, port).Uri;
     }
 
-    private static void LogManagementCertificateMismatch(ILogger logger, Uri managementUri)
+    private static void LogManagementCertificateMismatch(IServerLogger logger, Uri managementUri)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.LogManagementCertificateMismatchEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(managementUri));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.LogManagementCertificateMismatchEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(managementUri));
     }
 
-    private static void LogListening(ILogger logger, EndPoint? endpoint)
+    private static void LogListening(IServerLogger logger, EndPoint? endpoint)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.LogListeningEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(endpoint));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.LogListeningEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(endpoint));
     }
 
     private static Uri? ReadManagementUri()
@@ -264,7 +264,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         var configured = _managementUri ?? ReadManagementUri();
         var uri = configured ?? ResolveDefaultManagementUri(_topology.Uri, peerPort, certificate.MatchesHostname("localhost"));
         if (configured == null && !certificate.MatchesHostname(uri.IdnHost))
-            LogManagementCertificateMismatch(_services.Require<ILoggerFactory>().CreateLogger<NativeClientService>(), uri);
+            LogManagementCertificateMismatch(_services.Require<IServerLoggerFactory>().CreateLogger<NativeClientService>(), uri);
         var addresses = await ResolveManagementAddressesAsync(uri, cancellationToken).ConfigureAwait(false);
         return (uri, addresses);
     }

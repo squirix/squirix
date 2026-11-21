@@ -97,7 +97,7 @@ public sealed class ServerStartFailureTests
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
-        _ = await Assert.That(entry?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(entry?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(entry?.Cause).IsTypeOf<InvalidOperationException>();
     }
 
@@ -136,9 +136,9 @@ public sealed class ServerStartFailureTests
     {
         var services = new NodeServices();
         if (throwingLogger)
-            _ = services.Own<ILoggerFactory>(static _ => new FixedLoggerFactory(new ThrowingLogger()));
+            _ = services.Own<IServerLoggerFactory>(static _ => new FixedLoggerFactory(new ThrowingLogger()));
         else
-            _ = services.Own<ILoggerFactory>(_ => log == null ? NullLoggerFactory.Instance : new FixedLoggerFactory(log));
+            _ = services.Own<IServerLoggerFactory>(_ => log == null ? NullLoggerFactory.Instance : new FixedLoggerFactory(log));
 
         _ = services.Use(probe);
         _ = services.Own(static serviceProvider => new ProbeDependency(serviceProvider.Require<StartProbe>()));
@@ -238,14 +238,14 @@ public sealed class ServerStartFailureTests
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class ThrowingLogger : ILogger
+    private sealed class ThrowingLogger : IServerLogger
     {
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (eventId.Id == CleanupFailedEventId)
                 throw new InvalidOperationException("Logger failure.");

@@ -140,7 +140,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(expected);
     }
 
-    private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, ILogger<FollowerLog> logger, CancellationToken cancellationToken)
+    private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, IServerLogger<FollowerLog> logger, CancellationToken cancellationToken)
     {
         var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), logger, options);
         try

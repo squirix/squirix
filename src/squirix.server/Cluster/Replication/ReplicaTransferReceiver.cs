@@ -36,7 +36,7 @@ namespace Squirix.Server.Cluster.Replication;
 internal sealed class ReplicaTransferReceiver : IDisposable
 {
     private readonly TimeProvider _clock;
-    private readonly ILogger<ReplicaTransferReceiver> _log;
+    private readonly IServerLogger<ReplicaTransferReceiver> _log;
     private readonly IReplicaMembership _members;
     private readonly string _nodeId;
     private readonly ReplicaTransferOptions _options;
@@ -58,7 +58,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         IReplicaStateSink sink,
         ReplicaTransferOptions options,
         TimeProvider clock,
-        ILogger<ReplicaTransferReceiver> log,
+        IServerLogger<ReplicaTransferReceiver> log,
         string nodeId)
     {
         ArgumentNullException.ThrowIfNull(registry);

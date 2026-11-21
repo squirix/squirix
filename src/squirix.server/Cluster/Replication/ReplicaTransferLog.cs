@@ -6,82 +6,82 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Logs of the receiver and of the sender of a state transfer.</summary>
 internal static class ReplicaTransferLog
 {
-    internal static void Began(ILogger logger, string groupId, string leaderNodeId, ulong index, ulong term)
+    internal static void Began(IServerLogger logger, string groupId, string leaderNodeId, ulong index, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.BeganEvent.Write(logger, LogLevel.Information, null, (groupId, leaderNodeId, index, term));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.BeganEvent.Write(logger, ServerLogLevel.Information, null, (groupId, leaderNodeId, index, term));
     }
 
-    internal static void Completed(ILogger logger, string groupId, string leaderNodeId, ulong index, ulong entries, long durationMs)
+    internal static void Completed(IServerLogger logger, string groupId, string leaderNodeId, ulong index, ulong entries, long durationMs)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.CompletedEvent.Write(logger, LogLevel.Information, null, (groupId, leaderNodeId, index, entries, durationMs));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.CompletedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, leaderNodeId, index, entries, durationMs));
     }
 
-    internal static void Dropped(ILogger logger, string groupId, string leaderNodeId, ReplicaTransferEnd reason)
+    internal static void Dropped(IServerLogger logger, string groupId, string leaderNodeId, ReplicaTransferEnd reason)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.DroppedEvent.Write(logger, LogLevel.Warning, null, (groupId, leaderNodeId, reason));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.DroppedEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, leaderNodeId, reason));
     }
 
-    internal static void Refused(ILogger logger, string groupId, string refusalCode)
+    internal static void Refused(IServerLogger logger, string groupId, string refusalCode)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.RefusedEvent.Write(logger, LogLevel.Debug, null, (groupId, refusalCode));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.RefusedEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, refusalCode));
     }
 
-    internal static void Sending(ILogger logger, string groupId, string nodeId, ulong index, ulong term)
+    internal static void Sending(IServerLogger logger, string groupId, string nodeId, ulong index, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.SendingEvent.Write(logger, LogLevel.Information, null, (groupId, nodeId, index, term));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.SendingEvent.Write(logger, ServerLogLevel.Information, null, (groupId, nodeId, index, term));
     }
 
-    internal static void Sent(ILogger logger, string groupId, string nodeId, ulong index, string outcome, TimeSpan duration, (ulong Entries, long Bytes) volume)
+    internal static void Sent(IServerLogger logger, string groupId, string nodeId, ulong index, string outcome, TimeSpan duration, (ulong Entries, long Bytes) volume)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.SentEvent.Write(logger, LogLevel.Information, null, (groupId, nodeId, index, outcome, duration, volume));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.SentEvent.Write(logger, ServerLogLevel.Information, null, (groupId, nodeId, index, outcome, duration, volume));
     }
 
-    internal static void Declined(ILogger logger, string groupId, string nodeId, string outcome)
+    internal static void Declined(IServerLogger logger, string groupId, string nodeId, string outcome)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.DeclinedEvent.Write(logger, LogLevel.Debug, null, (groupId, nodeId, outcome));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.DeclinedEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, nodeId, outcome));
     }
 
-    internal static void CeilingRead(ILogger logger, string groupId, string nodeId, ulong term, int answers, int needed, ulong highest)
+    internal static void CeilingRead(IServerLogger logger, string groupId, string nodeId, ulong term, int answers, int needed, ulong highest)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.CeilingReadEvent.Write(logger, LogLevel.Information, null, (groupId, nodeId, term, answers, needed, highest));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.CeilingReadEvent.Write(logger, ServerLogLevel.Information, null, (groupId, nodeId, term, answers, needed, highest));
     }
 
-    internal static void Paused(ILogger logger, string groupId, string nodeId)
+    internal static void Paused(IServerLogger logger, string groupId, string nodeId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.PausedEvent.Write(logger, LogLevel.Information, null, (groupId, nodeId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.PausedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, nodeId));
     }
 
-    internal static void JournalBusy(ILogger logger, string groupId)
+    internal static void JournalBusy(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.JournalBusyEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.JournalBusyEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create(groupId));
     }
 
-    internal static void Invalid(ILogger logger, string nodeId, in ReplicaTransferHeader header, string step, string reason)
+    internal static void Invalid(IServerLogger logger, string nodeId, in ReplicaTransferHeader header, string step, string reason)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.InvalidEvent.Write(logger, LogLevel.Warning, null, (nodeId, header, step, reason));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.InvalidEvent.Write(logger, ServerLogLevel.Warning, null, (nodeId, header, step, reason));
     }
 
-    internal static void TotalsMismatch(ILogger logger, string nodeId, in ReplicaTransferHeader header, ReplicaStateTotals expected, ReplicaStateTotals actual)
+    internal static void TotalsMismatch(IServerLogger logger, string nodeId, in ReplicaTransferHeader header, ReplicaStateTotals expected, ReplicaStateTotals actual)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.TotalsMismatchEvent.Write(logger, LogLevel.Warning, null, (nodeId, header, expected, actual));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.TotalsMismatchEvent.Write(logger, ServerLogLevel.Warning, null, (nodeId, header, expected, actual));
     }
 
-    internal static void CoolingDown(ILogger logger, string groupId, string nodeId, string reason, TimeSpan delay)
+    internal static void CoolingDown(IServerLogger logger, string groupId, string nodeId, string reason, TimeSpan delay)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.CoolingDownEvent.Write(logger, LogLevel.Warning, null, (groupId, nodeId, reason, delay));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.CoolingDownEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, nodeId, reason, delay));
     }
 
     private static class Events

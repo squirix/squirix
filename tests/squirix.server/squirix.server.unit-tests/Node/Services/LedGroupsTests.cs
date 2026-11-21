@@ -221,7 +221,7 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A full journal must not end the service.");
-        _ = await Assert.That((log.Count(VerificationRefusedEventId), log.Find(VerificationRefusedEventId)?.Level)).IsEqualTo((1, LogLevel.Warning));
+        _ = await Assert.That((log.Count(VerificationRefusedEventId), log.Find(VerificationRefusedEventId)?.Level)).IsEqualTo((1, ServerLogLevel.Warning));
         _ = await Assert.That(reopened.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
     }
 

@@ -33,7 +33,7 @@ internal sealed class ReplicaLogCompactionService : NodeWorker
     private readonly Dictionary<string, Type> _failed = [with(StringComparer.Ordinal)];
 
     private readonly TimeSpan _interval;
-    private readonly ILogger<ReplicaLogCompactionService> _log;
+    private readonly IServerLogger<ReplicaLogCompactionService> _log;
     private readonly ReplicationMetrics _metrics;
     private readonly ReplicaLogCompactionPolicy _policy;
     private readonly ReplicaGroupRegistry _registry;
@@ -63,7 +63,7 @@ internal sealed class ReplicaLogCompactionService : NodeWorker
         (ReplicaLogCompactionOptions Options, ReplicaLogCompactionPolicy Policy) schedule,
         ReplicationMetrics metrics,
         (ReplicaGroupAppliers Appliers, ReplicaGroupRegistry Registry) followers,
-        ILogger<ReplicaLogCompactionService> log,
+        IServerLogger<ReplicaLogCompactionService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(committers);

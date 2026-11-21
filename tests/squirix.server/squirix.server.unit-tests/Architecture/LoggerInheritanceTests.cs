@@ -24,7 +24,7 @@ public sealed class LoggerInheritanceTests
         int FactoryLeafMarker { get; }
     }
 
-    private interface IFactoryRoot : ILoggerFactory
+    private interface IFactoryRoot : IServerLoggerFactory
     {
         int FactoryRootMarker { get; }
     }
@@ -34,7 +34,7 @@ public sealed class LoggerInheritanceTests
         int GenericLeafMarker { get; }
     }
 
-    private interface IGenericRoot<out T> : ILogger<T>
+    private interface IGenericRoot<out T> : IServerLogger<T>
     {
         int GenericRootMarker { get; }
     }
@@ -64,7 +64,7 @@ public sealed class LoggerInheritanceTests
         int ProviderRootMarker { get; }
     }
 
-    private interface IRoot : ILogger
+    private interface IRoot : IServerLogger
     {
         int RootMarker { get; }
     }
@@ -130,7 +130,7 @@ public sealed class LoggerInheritanceTests
 
     private abstract class ClassMiddle : ClassRoot;
 
-    private abstract class ClassRoot : ILogger
+    private abstract class ClassRoot : IServerLogger
     {
         protected ClassRoot()
         {
@@ -139,8 +139,8 @@ public sealed class LoggerInheritanceTests
         public abstract IDisposable? BeginScope<TState>(TState state)
             where TState : notnull;
 
-        public abstract bool IsEnabled(LogLevel logLevel);
+        public abstract bool IsEnabled(ServerLogLevel logLevel);
 
-        public abstract void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter);
+        public abstract void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter);
     }
 }

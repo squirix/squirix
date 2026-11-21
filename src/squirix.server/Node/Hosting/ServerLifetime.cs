@@ -12,9 +12,9 @@ internal sealed class ServerLifetime : INodeLifetime, IDisposable
 {
     private readonly CancellationTokenSource _started = new();
     private readonly CancellationTokenSource _stopping = new();
-    private readonly ILogger<ServerLifetime> _logger;
+    private readonly IServerLogger<ServerLifetime> _logger;
 
-    internal ServerLifetime(ILogger<ServerLifetime> logger)
+    internal ServerLifetime(IServerLogger<ServerLifetime> logger)
     {
         _logger = logger;
     }

@@ -61,7 +61,7 @@ public sealed class PeerHandshakeVerifierTests : ServerUnitTestBase
         _ = await Assert.That(message.Contains("valid from", StringComparison.Ordinal)).IsTrue();
         _ = await Assert.That(message.Contains(certificate.GetCertHashString(HashAlgorithmName.SHA256), StringComparison.Ordinal)).IsTrue();
         var (level, _) = await Assert.That(log.Find(InboundEventId)).IsNotNull();
-        _ = await Assert.That(level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(level).IsEqualTo(ServerLogLevel.Warning);
     }
 
     /// <summary>Verifies a trusted certificate that names an unconfigured node is logged with the presented NodeId.</summary>
@@ -210,7 +210,7 @@ public sealed class PeerHandshakeVerifierTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(SuppressedEventId, "Suppressed 2 further")).IsEqualTo(1);
         _ = await Assert.That(log.Count(InboundEventId)).IsEqualTo(cap + cap);
         var (level, _) = await Assert.That(log.Find(SuppressedEventId)).IsNotNull();
-        _ = await Assert.That(level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(level).IsEqualTo(ServerLogLevel.Warning);
     }
 
     /// <summary>Verifies control characters of a subject are replaced before logging.</summary>

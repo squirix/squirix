@@ -26,7 +26,7 @@ internal sealed class ReplicaVerificationProbe
     private readonly ulong _generation;
     private readonly string _groupId;
     private readonly IReplicaGroupLocator _locator;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ReplicaGroupRegistry _registry;
     private readonly Lock _reportSync = new();
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
@@ -53,7 +53,7 @@ internal sealed class ReplicaVerificationProbe
         (string GroupId, string SelfId) identity,
         ReadOnlyMemory<byte> topologyFingerprint,
         ulong generation,
-        ILogger log)
+        IServerLogger log)
     {
         _registry = registry;
         _locator = locator;

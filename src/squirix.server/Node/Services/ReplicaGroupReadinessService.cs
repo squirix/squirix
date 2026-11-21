@@ -29,7 +29,7 @@ internal sealed class ReplicaGroupReadinessService : NodeWorker
 {
     private readonly ReplicaCatchUpMetrics? _catchUpMetrics;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly ILogger<ReplicaGroupReadinessService> _log;
+    private readonly IServerLogger<ReplicaGroupReadinessService> _log;
     private readonly TimeProvider _timeProvider;
     private readonly ReplicaStateTransfers? _transfers;
 
@@ -41,7 +41,7 @@ internal sealed class ReplicaGroupReadinessService : NodeWorker
     /// <param name="transfers">Repairs a follower the log cannot catch up by sending it the state of the group; none are sent when <see langword="null" />.</param>
     internal ReplicaGroupReadinessService(
         ReplicaGroupCommitters committers,
-        ILogger<ReplicaGroupReadinessService> log,
+        IServerLogger<ReplicaGroupReadinessService> log,
         TimeProvider timeProvider,
         ReplicaCatchUpMetrics? catchUpMetrics = null,
         ReplicaStateTransfers? transfers = null)

@@ -99,7 +99,7 @@ internal static class ReplicaOwnerTestKit
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache(), NullLogger<ReplicaGroupCommitter>.Instance);
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger<ReplicaGroupCommitter> log) =>
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, IServerLogger<ReplicaGroupCommitter> log) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Clock = TimeProvider.System,
@@ -151,7 +151,7 @@ internal static class ReplicaOwnerTestKit
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
-        ILogger<ReplicaGroupCommitter> log,
+        IServerLogger<ReplicaGroupCommitter> log,
         (TimeProvider Clock, TimeSpan Budget) shutdown) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {

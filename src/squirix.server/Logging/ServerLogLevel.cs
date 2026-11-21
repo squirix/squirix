@@ -1,7 +1,7 @@
 namespace Squirix.Server.Logging;
 
 /// <summary>Ordered severity levels used by node configuration.</summary>
-internal enum LogLevel
+internal enum ServerLogLevel
 {
     /// <summary>Detailed protocol tracing.</summary>
     Trace = 0,

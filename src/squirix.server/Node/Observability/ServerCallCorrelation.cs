@@ -9,10 +9,10 @@ namespace Squirix.Server.Node.Observability;
 [Immutable]
 internal sealed class ServerCallCorrelation
 {
-    private readonly ILogger<ServerCallCorrelation> _log;
+    private readonly IServerLogger<ServerCallCorrelation> _log;
     private readonly string _nodeId;
 
-    internal ServerCallCorrelation(ILogger<ServerCallCorrelation> log, string nodeId)
+    internal ServerCallCorrelation(IServerLogger<ServerCallCorrelation> log, string nodeId)
     {
         ArgumentNullException.ThrowIfNull(log);
         ArgumentException.ThrowIfNullOrEmpty(nodeId);

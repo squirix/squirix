@@ -66,7 +66,7 @@ internal sealed class PendingAppendRegistry
     /// <param name="logger">Logger for the drain summary.</param>
     /// <param name="queuedAppendsCounter">Queued-append slots released per drained append.</param>
     /// <returns>The number of drained appends.</returns>
-    internal int FailAll(Exception failure, ILogger logger, MutableInt32 queuedAppendsCounter)
+    internal int FailAll(Exception failure, IServerLogger logger, MutableInt32 queuedAppendsCounter)
     {
         ArgumentNullException.ThrowIfNull(failure);
         ArgumentNullException.ThrowIfNull(logger);

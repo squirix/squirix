@@ -147,7 +147,7 @@ internal static class CachePipelineRegistration
     {
         if (persistenceEnabled)
         {
-            _ = services.Own(static sp => new DurableMutationExecutor(sp.Require<IJournalCoordinator>(), sp.Require<ILoggerFactory>().CreateLogger<DurableMutationExecutor>()));
+            _ = services.Own(static sp => new DurableMutationExecutor(sp.Require<IJournalCoordinator>(), sp.Require<IServerLoggerFactory>().CreateLogger<DurableMutationExecutor>()));
             _ = services.Own(static sp => new JournalLoggingCacheDecorator<object?>(
                 sp.Require<ClientCache<object?>>(),
                 sp.Require<IJournalCoordinator>(),

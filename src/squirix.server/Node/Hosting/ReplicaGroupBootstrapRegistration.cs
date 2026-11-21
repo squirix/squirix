@@ -21,7 +21,7 @@ internal static class ReplicaGroupBootstrapRegistration
                 sp.Require<INodeLifetime>(),
                 sp.Require<ReplicaGroupCommitters>(),
                 sp.Require<ReplicaGroupRegistry>().ApplySignalFor(sp.Require<TopologyOptions>().NodeId)),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupBootstrapService>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupBootstrapService>(),
             sp.Require<TimeProvider>()));
 
     /// <summary>Creates the first start of the group this node owns.</summary>

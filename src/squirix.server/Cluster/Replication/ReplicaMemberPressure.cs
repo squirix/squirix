@@ -24,7 +24,7 @@ internal sealed class ReplicaMemberPressure
     private readonly TimeProvider _clock;
     private readonly long[] _flaggedAt = new long[PolicyOptions.MaxReplicaCount];
     private readonly string _groupId;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaMemberPressure" /> class.</summary>
     /// <param name="groupId">The identifier of the group, for logs.</param>
@@ -32,7 +32,7 @@ internal sealed class ReplicaMemberPressure
     /// <param name="clock">The time source of the lifetime; only its monotonic timestamp is read.</param>
     /// <param name="log">Logger of the flag changes.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="lifetime" /> is not positive.</exception>
-    internal ReplicaMemberPressure(string groupId, TimeSpan lifetime, TimeProvider clock, ILogger log)
+    internal ReplicaMemberPressure(string groupId, TimeSpan lifetime, TimeProvider clock, IServerLogger log)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lifetime, TimeSpan.Zero);

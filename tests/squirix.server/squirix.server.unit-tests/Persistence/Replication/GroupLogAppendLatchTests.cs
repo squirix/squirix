@@ -85,7 +85,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         _ = await Assert.That(failure.InnerException).IsTypeOf<IOException>();
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(AppendUnconfirmedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(events.Find(AppendUnconfirmedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(events.FindMessage(AppendUnconfirmedEventId)).Contains(GroupId);
         _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId))).IsGreaterThan(0L);
     }
@@ -174,7 +174,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
             // The memory is reconciled to the cut while the file may still hold both frames; only a restart tells.
             _ = await Assert.That(state.LastLogIndex).IsEqualTo(1UL);
             _ = await Assert.That(events.Count(TruncateUnconfirmedEventId)).IsEqualTo(1);
-            _ = await Assert.That(events.Find(TruncateUnconfirmedEventId)?.Level).IsEqualTo(LogLevel.Error);
+            _ = await Assert.That(events.Find(TruncateUnconfirmedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
             _ = await Assert.That(events.FindMessage(TruncateUnconfirmedEventId)).Contains(GroupId);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That(next.Success).IsFalse();

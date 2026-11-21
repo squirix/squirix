@@ -63,7 +63,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
             await dispose.WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
 
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That((logger.Count(LeakedOnShutdownEventId), logger.Find(LeakedOnShutdownEventId)?.Level)).IsEqualTo((1, LogLevel.Error));
+            _ = await Assert.That((logger.Count(LeakedOnShutdownEventId), logger.Find(LeakedOnShutdownEventId)?.Level)).IsEqualTo((1, ServerLogLevel.Error));
         }
         finally
         {
@@ -393,7 +393,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
     private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks) =>
         OpenLog(dir, hooks, NullLogger<FollowerLog>.Instance, new FakeTimeProvider());
 
-    private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, TimeProvider shutdownClock) =>
+    private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks, IServerLogger<FollowerLog> logger, TimeProvider shutdownClock) =>
         new(
             dir,
             GroupId,

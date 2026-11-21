@@ -30,7 +30,7 @@ internal sealed class NativeBinaryEndpoint
         if (socket.LocalEndPoint is not IPEndPoint local)
             throw new InvalidOperationException("The public TLS endpoint must be bound before accepting clients.");
         var endpoint = new NativeBinaryEndpoint(services, local, mutationReplay, nextConnectionId);
-        return new NativeTlsListener(socket, tls, endpoint.ServeAsync, services.Require<ILoggerFactory>().CreateLogger<NativeTlsListener>(), capacity);
+        return new NativeTlsListener(socket, tls, endpoint.ServeAsync, services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), capacity);
     }
 
     private async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)

@@ -117,7 +117,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(AppendTimedOutEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(AppendTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(AppendTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(AppendTimedOutEventId)).Contains("term 1");
         _ = await Assert.That((log.Count(ApplyTimedOutEventId), log.Count(AuthorityTimedOutEventId), log.Count(SteppedDownEventId))).IsEqualTo((0, 0, 0));
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
@@ -145,7 +145,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(ApplyTimedOutEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(ApplyTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(ApplyTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(ApplyTimedOutEventId)).Contains("term 1");
         _ = await Assert.That((log.Count(AuthorityTimedOutEventId), log.Count(SteppedDownEventId))).IsEqualTo((0, 0));
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
@@ -173,7 +173,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(AuthorityTimedOutEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(AuthorityTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(AuthorityTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(AuthorityTimedOutEventId)).Contains("term 1");
         _ = await Assert.That(log.Count(SteppedDownEventId)).IsEqualTo(0);
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
@@ -208,7 +208,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(ApplyBlockedEventId)).IsEqualTo(2);
-        _ = await Assert.That(log.Find(ApplyBlockedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(ApplyBlockedEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(ApplyBlockedEventId)).Contains("group n2 ");
     }
 

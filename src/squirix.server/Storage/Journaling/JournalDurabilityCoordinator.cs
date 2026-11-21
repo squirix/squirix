@@ -12,12 +12,12 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class JournalDurabilityCoordinator
 {
-    private readonly ILogger _logger;
+    private readonly IServerLogger _logger;
     private readonly IJournalCoordinatorState _owner;
     private readonly JournalProducerGate _producerGate;
     private readonly IJournalCoordinatorSnapshotState _snapshot;
 
-    internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger, JournalProducerGate producerGate)
+    internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, IServerLogger logger, JournalProducerGate producerGate)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(producerGate);

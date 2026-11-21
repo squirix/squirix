@@ -32,7 +32,7 @@ internal sealed class ReplicaGroupAppliers
         ReplicaGroupRegistry registry,
         ILogicalNamespacedCache<object?> local,
         string nodeId,
-        ILogger<ReplicaGroupAppliers> log,
+        IServerLogger<ReplicaGroupAppliers> log,
         ReplicationMetrics metrics)
     {
         ArgumentNullException.ThrowIfNull(registry);

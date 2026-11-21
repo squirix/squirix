@@ -46,7 +46,7 @@ public sealed class ReplicaGroupApplierTests : ServerUnitTestBase
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(3UL);
         _ = await Assert.That(events.Count(ReseededEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(ReseededEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(ReseededEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         await SequenceAssert.EqualAsync(["k1", "k2"], cache.Applied.ToArray(), StringComparer.Ordinal);
     }
 

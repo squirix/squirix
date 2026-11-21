@@ -39,7 +39,7 @@ internal sealed class GroupMetadataStore : IDisposable
 
     private readonly IFollowerLogFaultHooks _faults;
     private readonly string _groupId;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly string _path;
     private readonly byte[] _slot = new byte[GroupMetadataSlots.SlotSize];
     private readonly string _tempPath;
@@ -50,7 +50,7 @@ internal sealed class GroupMetadataStore : IDisposable
     private SafeFileHandle? _handle;
     private ulong _sequence;
 
-    internal GroupMetadataStore(string path, string tempPath, string groupId, IFollowerLogFaultHooks faults, ILogger log)
+    internal GroupMetadataStore(string path, string tempPath, string groupId, IFollowerLogFaultHooks faults, IServerLogger log)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentException.ThrowIfNullOrEmpty(tempPath);

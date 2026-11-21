@@ -435,10 +435,10 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     private sealed class EventLoopSetup : IDisposable
     {
         private readonly CancellationTokenSource _backgroundCancellation = new();
-        private readonly ILoggerFactory _loggerFactory;
+        private readonly IServerLoggerFactory _loggerFactory;
         private readonly BoundedJournalRing _ring = new(4);
 
-        internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, ILogger logger)
+        internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, IServerLogger logger)
         {
             _loggerFactory = new FixedLoggerFactory(logger);
             EventLoop = new JournalEventLoop(
@@ -470,11 +470,11 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         internal TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    private sealed class RecordingLogger : ILogger
+    private sealed class RecordingLogger : IServerLogger
     {
         private readonly ConcurrentDictionary<int, TaskCompletionSource> _signals = new();
         private readonly bool _throwOnLog;
-        private readonly ConcurrentQueue<(EventId EventId, Dictionary<string, object?> Values)> _warnings = new();
+        private readonly ConcurrentQueue<(ServerLogEventId EventId, Dictionary<string, object?> Values)> _warnings = new();
 
         internal RecordingLogger(bool throwOnLog = false)
         {
@@ -484,11 +484,11 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (logLevel == LogLevel.Warning)
+            if (logLevel == ServerLogLevel.Warning)
             {
                 _warnings.Enqueue((eventId, CaptureValues(state)));
                 _ = SignalFor(eventId.Id).TrySetResult();
@@ -501,9 +501,9 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         internal int Count(int eventId)
         {
             var count = 0;
-            foreach (var recorded in _warnings)
+            foreach (var (recordedId, _) in _warnings)
             {
-                if (recorded.EventId.Id == eventId)
+                if (recordedId.Id == eventId)
                     count++;
             }
 
@@ -512,10 +512,10 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
 
         internal Dictionary<string, object?> Find(int eventId)
         {
-            foreach (var recorded in _warnings)
+            foreach (var (recordedId, values) in _warnings)
             {
-                if (recorded.EventId.Id == eventId)
-                    return recorded.Values;
+                if (recordedId.Id == eventId)
+                    return values;
             }
 
             throw new InvalidOperationException($"no warning with event id {eventId} was logged.");

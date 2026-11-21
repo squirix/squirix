@@ -20,13 +20,13 @@ internal sealed class RingAgreement
     private const string UnknownFingerprint = "unknown";
 
     private readonly RingFingerprint _local;
-    private readonly ILogger<RingAgreement> _logger;
+    private readonly IServerLogger<RingAgreement> _logger;
     private readonly HashSet<string> _reportedPeers = [with(StringComparer.Ordinal)];
     private readonly Lock _sync = new();
     private RingMismatchReport? _firstMismatch;
     private bool _fenced;
 
-    internal RingAgreement(RingFingerprint local, ILogger<RingAgreement> logger)
+    internal RingAgreement(RingFingerprint local, IServerLogger<RingAgreement> logger)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(logger);

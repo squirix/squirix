@@ -100,7 +100,7 @@ internal static class ServerHostingComposition
             sp.Require<IReplicaVoteGateway>(),
             sp.Require<ReplicaGroupCommitters>(),
             (activation.FingerprintBytes.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaElectionService>())
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaElectionService>())
         {
             HostStopping = sp.Require<INodeLifetime>().ApplicationStopping,
         };
@@ -112,7 +112,7 @@ internal static class ServerHostingComposition
         sp.Require<ReplicaGroupCommitters>(),
         sp.Require<ILocalCacheExpiredKeys>(),
         sp.Require<INodeLocator>(),
-        sp.Require<ILoggerFactory>().CreateLogger<ReplicaExpirationSweepService>()));
+        sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaExpirationSweepService>()));
 
     /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
     /// <param name="services">Node component registrations.</param>
@@ -120,7 +120,7 @@ internal static class ServerHostingComposition
         sp.Require<ReplicaGroupRegistry>(),
         sp.Require<OwnerLocalCache>().Value,
         sp.Require<TopologyOptions>().NodeId,
-        sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupAppliers>(),
+        sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupAppliers>(),
         sp.Require<ReplicationMetrics>()));
 
     /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
@@ -131,7 +131,7 @@ internal static class ServerHostingComposition
         ReplicaTransferRegistration.Add(services);
         _ = services.RunService(static sp => new ReplicaGroupReadinessService(
             sp.Require<ReplicaGroupCommitters>(),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupReadinessService>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupReadinessService>(),
             sp.Require<TimeProvider>(),
             sp.Require<ReplicaCatchUpMetrics>(),
             sp.Require<ReplicaStateTransfers>())
@@ -181,7 +181,7 @@ internal static class ServerHostingComposition
             sp.Require<ReplicaGroupAppliers>(),
             sp.Require<ReplicaGroupCommitters>(),
             sp.Require<IJournalCoordinator>(),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaApplyService>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaApplyService>(),
             sp.Require<TimeProvider>()));
         _ = services.Use(new ReplicaLogCompactionOptions());
         _ = services.RunService(static sp => new ReplicaLogCompactionService(
@@ -190,7 +190,7 @@ internal static class ServerHostingComposition
             (sp.Require<ReplicaLogCompactionOptions>(), ReplicaLogCompactionPolicy.From(sp.Require<PersistenceOptions>())),
             sp.Require<ReplicationMetrics>(),
             (sp.Require<ReplicaGroupAppliers>(), sp.Require<ReplicaGroupRegistry>()),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaLogCompactionService>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaLogCompactionService>(),
             sp.Require<TimeProvider>()));
         AddReplicaExpirationSweep(services);
 
@@ -227,7 +227,7 @@ internal static class ServerHostingComposition
             _ = services.RunService(static sp => new LocalExpirationSweepService(
                 sp.Require<ILocalCacheExpiredKeys>(),
                 sp.Require<TimeProvider>(),
-                sp.Require<ILoggerFactory>().CreateLogger<LocalExpirationSweepService>()));
+                sp.Require<IServerLoggerFactory>().CreateLogger<LocalExpirationSweepService>()));
         }
 
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
@@ -306,7 +306,7 @@ internal static class ServerHostingComposition
             sp.Require<OwnerLocalCache>().Value,
             (groupId, topology.NodeId),
             new ReplicaTopologyStamp(fingerprint.AsMemory(), topology.ConfigurationGeneration),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupCommitter>())
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupCommitter>())
         {
             Recovery = sp.Require<IJournalCoordinator>(),
             Applier = sp.Require<ReplicaGroupAppliers>().For(groupId),
@@ -370,7 +370,7 @@ internal static class ServerHostingComposition
             cluster.ReplicaCount,
             activation.FingerprintBytes.AsMemory(),
             cluster.ConfigurationGeneration,
-            sp.Require<ILoggerFactory>(),
+            sp.Require<IServerLoggerFactory>(),
             ReplicaGroupLogOptions(sp))
         {
             Election = sp.Find<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
@@ -461,7 +461,7 @@ internal static class ServerHostingComposition
     private static DataDirectoryLock AcquireDataDirectoryLock(IServiceProvider sp, string dataDir)
     {
         var directoryLock = DataDirectoryLock.Acquire(dataDir);
-        var logger = sp.Require<ILoggerFactory>().CreateLogger<DataDirectoryLock>();
+        var logger = sp.Require<IServerLoggerFactory>().CreateLogger<DataDirectoryLock>();
 
         // Under the lock and before anything opens the files: data written by an earlier version may be readable by other users.
         DataDirectoryPermissions.Outcome tightened;

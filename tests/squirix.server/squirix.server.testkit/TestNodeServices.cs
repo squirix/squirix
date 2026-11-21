@@ -56,8 +56,8 @@ internal static class TestNodeServices
 
     internal static void AddLifetime(IServiceCollection services)
     {
-        services.TryAddSingleton<Squirix.Server.Logging.ILoggerFactory>(static sp => new Logging.TestHostLoggerFactory(sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
-        services.TryAddSingleton(static sp => new ServerLifetime(sp.GetRequiredService<Squirix.Server.Logging.ILoggerFactory>().CreateLogger<ServerLifetime>()));
+        services.TryAddSingleton<Squirix.Server.Logging.IServerLoggerFactory>(static sp => new Logging.TestHostLoggerFactory(sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
+        services.TryAddSingleton(static sp => new ServerLifetime(sp.GetRequiredService<Squirix.Server.Logging.IServerLoggerFactory>().CreateLogger<ServerLifetime>()));
         services.TryAddSingleton<INodeLifetime>(static sp => sp.GetRequiredService<ServerLifetime>());
     }
 

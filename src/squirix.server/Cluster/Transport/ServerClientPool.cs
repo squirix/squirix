@@ -51,7 +51,7 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>Bounds the dial of a forward channel, before any TLS handshake.</summary>
     private readonly TimeSpan _forwardConnectTimeout;
 
-    private readonly ILogger<ServerClientPool> _logger;
+    private readonly IServerLogger<ServerClientPool> _logger;
 
     /// <summary>The pool's hold on the mTLS material its owned handlers present; <see langword="null" /> without enabled material.</summary>
     private readonly MtlsCertificate.Hold? _materialHold;
@@ -68,7 +68,7 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly TimeProvider _timeProvider;
     private int _disposed;
 
-    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger, ILogger peerHandshakeLogger)
+    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, IServerLogger<ServerClientPool> logger, IServerLogger peerHandshakeLogger)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(logger);

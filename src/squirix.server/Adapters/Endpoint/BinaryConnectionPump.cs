@@ -28,7 +28,7 @@ internal sealed class BinaryConnectionPump
     private readonly IDuplexPipe _transport;
     private readonly CancellationToken _connectionClosed;
     private readonly Action _abort;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly TimeProvider _timeProvider;
     private readonly Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> _process;
     private readonly Task[] _jobs = new Task[MaxPending];
@@ -43,7 +43,7 @@ internal sealed class BinaryConnectionPump
         IDuplexPipe transport,
         Action abort,
         Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> process,
-        ILogger log,
+        IServerLogger log,
         TimeProvider timeProvider,
         CancellationToken connectionClosed)
     {
@@ -73,10 +73,10 @@ internal sealed class BinaryConnectionPump
         }
     }
 
-    private static void LogCallFailure(ILogger logger, int requestId, Exception exception)
+    private static void LogCallFailure(IServerLogger logger, int requestId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.LogCallFailureEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(requestId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.LogCallFailureEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(requestId));
     }
 
     private async Task ReadAsync(CancellationToken stop)

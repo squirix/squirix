@@ -26,7 +26,7 @@ public sealed class ServerWorkerTests
         Exception failure = unexpectedCancellation ? new OperationCanceledException("worker cancelled") : new InvalidOperationException("worker failed");
         var log = new EventRecordingLogger();
         var components = new NodeServices();
-        _ = components.Own<ILoggerFactory>(_ => new FixedLoggerFactory(log));
+        _ = components.Own<IServerLoggerFactory>(_ => new FixedLoggerFactory(log));
         _ = components.RunService(_ => new FaultingWorker(release.Task, failure));
         await using var app = ServerApplication.Build(components);
         await app.StartAsync(cancellationToken);

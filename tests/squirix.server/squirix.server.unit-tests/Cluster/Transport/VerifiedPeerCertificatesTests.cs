@@ -62,7 +62,7 @@ public sealed class VerifiedPeerCertificatesTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(ExpiredEventId, "node-b")).IsEqualTo(1);
         _ = await Assert.That(log.Count(ExpiredEventId, "expired while its connection was open")).IsEqualTo(1);
         var (level, _) = await Assert.That(log.Find(ExpiredEventId)).IsNotNull();
-        _ = await Assert.That(level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(level).IsEqualTo(ServerLogLevel.Warning);
     }
 
     /// <summary>Verifies each connection certificate reports its own expiry once.</summary>

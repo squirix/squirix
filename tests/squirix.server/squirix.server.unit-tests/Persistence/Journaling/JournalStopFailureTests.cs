@@ -69,7 +69,7 @@ public sealed class JournalStopFailureTests : IsolatedStorageTestBase
         var reported = await NodeAsyncAssert.ThrowsAsync<IOException>(stop, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(reported).IsSameReferenceAs(failure);
-        _ = await Assert.That(log.Find(FailureSurfacedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(FailureSurfacedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);
     }
 
@@ -105,7 +105,7 @@ public sealed class JournalStopFailureTests : IsolatedStorageTestBase
 
         _ = await StopWithLatchedFailureAsync(journal, refusal, cancellationToken);
 
-        _ = await Assert.That(log.Find(ShutdownInducedEventId)?.Level).IsEqualTo(LogLevel.Debug);
+        _ = await Assert.That(log.Find(ShutdownInducedEventId)?.Level).IsEqualTo(ServerLogLevel.Debug);
         _ = await Assert.That(log.Count(FailureSurfacedEventId)).IsEqualTo(0);
     }
 
@@ -121,7 +121,7 @@ public sealed class JournalStopFailureTests : IsolatedStorageTestBase
         var reported = await StopWithLatchedFailureAsync(journal, foreign, cancellationToken);
 
         _ = await Assert.That(reported).IsSameReferenceAs(foreign);
-        _ = await Assert.That(log.Find(FailureSurfacedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(FailureSurfacedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(log.Count(ShutdownInducedEventId)).IsEqualTo(0);
     }
 

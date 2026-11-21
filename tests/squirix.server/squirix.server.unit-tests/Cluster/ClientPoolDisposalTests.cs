@@ -289,7 +289,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
             await AssertAllDisposedAsync(created, 2);
-            _ = await Assert.That(log.Find(DrainTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+            _ = await Assert.That(log.Find(DrainTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
             _ = await Assert.That(log.FindMessage(DrainTimedOutEventId)).Contains("peers still busy: n0.", StringComparison.Ordinal);
         }
         finally
@@ -434,7 +434,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
 
-        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(log.FindMessage(MaterialLeakedEventId)).Contains($"{ClientsPerPeer} connections were still open", StringComparison.Ordinal);
         certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsFalse();
@@ -502,7 +502,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         await AssertAllDisposedAsync(created, 1);
-        _ = await Assert.That(log.Find(LeaseCancelFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(LeaseCancelFailedEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         certificate.ReleaseHold();
         _ = await Assert.That(certificate.IsReleased).IsTrue().Because("The pool must have released its hold despite the throwing callback.");
     }
@@ -580,7 +580,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var disposing = pool.DisposeAsync().AsTask();
         await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
         certificate.ReleaseHold();
-        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(MaterialLeakedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(certificate.IsReleased).IsFalse();
         var connections = ThrowHelper.Required(tracked, "Expected the pool to create its owned client.");
         _ = await Assert.That(connections.LateRelease.IsCompleted).IsFalse();
@@ -590,7 +590,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         await connections.LateRelease.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(certificate.IsReleased).IsTrue();
-        _ = await Assert.That(log.Find(MaterialReleasedLateEventId)?.Level).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(log.Find(MaterialReleasedLateEventId)?.Level).IsEqualTo(ServerLogLevel.Information);
         _ = await Assert.That(certificate.NodeCertificate!.Handle).IsEqualTo(nint.Zero);
     }
 

@@ -20,7 +20,7 @@ internal static class ServiceRegistration
             Func<string, ServerCallPolicy>? callPolicyFactory,
             int maxInFlight)
         {
-            _ = services.Own(sp => new ServerCallCorrelation(sp.Require<ILoggerFactory>().CreateLogger<ServerCallCorrelation>(), cluster.NodeId));
+            _ = services.Own(sp => new ServerCallCorrelation(sp.Require<IServerLoggerFactory>().CreateLogger<ServerCallCorrelation>(), cluster.NodeId));
 
             _ = services.Own<IServerClientPool>(sp =>
             {
@@ -47,8 +47,8 @@ internal static class ServiceRegistration
                         SocketOptions = sp.Find<Func<string, PeerSocketOptions>>(),
                     },
                     sp.Require<ServerClientPoolMetrics>(),
-                    sp.Require<ILoggerFactory>().CreateLogger<ServerClientPool>(),
-                    sp.Require<ILoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
+                    sp.Require<IServerLoggerFactory>().CreateLogger<ServerClientPool>(),
+                    sp.Require<IServerLoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
             });
 
             return services;

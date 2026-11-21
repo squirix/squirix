@@ -70,7 +70,7 @@ public sealed class LedgerDisposeTests : IsolatedStorageTestBase
             probe.Release();
         }
 
-        _ = await Assert.That(log.Find(ManifestPublisherLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(ManifestPublisherLeakedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(await refused.Task.WaitAsync(cancellationToken)).IsTypeOf<ObjectDisposedException>();
     }
 

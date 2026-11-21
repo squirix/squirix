@@ -31,7 +31,7 @@ internal sealed class ReplicaApplyService : NodeWorker
 
     private readonly ReplicaGroupAppliers _appliers;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly ILogger<ReplicaApplyService> _log;
+    private readonly IServerLogger<ReplicaApplyService> _log;
     private readonly IJournalCoordinatorLifecycle _recovery;
     private readonly ReplicaGroupRegistry _registry;
     private readonly TimeProvider _timeProvider;
@@ -48,7 +48,7 @@ internal sealed class ReplicaApplyService : NodeWorker
         ReplicaGroupAppliers appliers,
         ReplicaGroupCommitters committers,
         IJournalCoordinatorLifecycle recovery,
-        ILogger<ReplicaApplyService> log,
+        IServerLogger<ReplicaApplyService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(registry);

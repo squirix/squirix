@@ -26,7 +26,7 @@ public sealed class ServerLogReplicationTests
         ReplicaCommitLog.ReplicaCoordinatorLeakedOnShutdown(log, TimeSpan.FromMilliseconds(200));
 
         _ = await Assert.That(log.Count(CoordinatorLeakedOnShutdownEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(CoordinatorLeakedOnShutdownEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(CoordinatorLeakedOnShutdownEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
     }
 
     /// <summary>A fault of coordinator work abandoned at shutdown is logged once, as an error.</summary>
@@ -38,6 +38,6 @@ public sealed class ServerLogReplicationTests
         ReplicaCommitLog.ReplicaCoordinatorAbandonedWorkFaulted(log, new InvalidOperationException("apply failed"));
 
         _ = await Assert.That(log.Count(AbandonedWorkFaultedEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(AbandonedWorkFaultedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(AbandonedWorkFaultedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
     }
 }

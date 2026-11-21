@@ -92,7 +92,7 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         await events.WhenLoggedAsync(UnseededEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         await service.StopAsync(cancellationToken);
 
-        _ = await Assert.That(events.Find(UnseededEventId)?.Level).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(events.Find(UnseededEventId)?.Level).IsEqualTo(ServerLogLevel.Information);
         _ = await Assert.That(events.Count(BlockedEventId)).IsEqualTo(0);
     }
 

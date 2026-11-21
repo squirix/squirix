@@ -30,7 +30,7 @@ internal static class RuntimeServiceRegistration
             var nodeIds = GetPeerNodeIds(cluster);
             _ = services.Use<INodeLocator>(new ConsistentHashRing(nodeIds, cluster.VirtualNodes));
             _ = services.Use(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
-            _ = services.Own(static sp => new RingAgreement(sp.Require<RingFingerprint>(), sp.Require<ILoggerFactory>().CreateLogger<RingAgreement>()));
+            _ = services.Own(static sp => new RingAgreement(sp.Require<RingFingerprint>(), sp.Require<IServerLoggerFactory>().CreateLogger<RingAgreement>()));
             _ = services.Own<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
                 sp.Require<INodeLocator>(),
                 sp.Require<TopologyOptions>()));

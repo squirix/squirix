@@ -17,7 +17,7 @@ internal sealed class JournalStopper
     private static readonly TimeSpan InFlightApplyWaitFloor = TimeSpan.FromSeconds(1);
 
     private readonly Lock _gate = new();
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly JournalCoordinator _owner;
     private readonly IDisposable _segmentWriter;
     private int _abandonedAppends;
@@ -28,7 +28,7 @@ internal sealed class JournalStopper
     private Task? _stopAttempt;
     private bool _stopped;
 
-    internal JournalStopper(JournalCoordinator owner, IDisposable segmentWriter, ILogger log)
+    internal JournalStopper(JournalCoordinator owner, IDisposable segmentWriter, IServerLogger log)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(segmentWriter);

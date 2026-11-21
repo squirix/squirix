@@ -120,7 +120,7 @@ internal static class LedGroupsTestKit
         IReplicaRpcGateway gateway,
         (ILogicalNamespacedCache<object?> Cache, ReplicaGroupApplier Applier) local,
         TimeProvider budgetClock,
-        ILogger<ReplicaGroupCommitter> log) =>
+        IServerLogger<ReplicaGroupCommitter> log) =>
         new(registry, new RotatingLocator(), gateway, local.Cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), log)
         {
             Clock = TimeProvider.System,
