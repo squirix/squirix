@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using JetBrains.Annotations;
 using Squirix.Server.Attributes;
 using Squirix.Server.Composition;
@@ -73,8 +74,7 @@ internal static class RuntimeServiceRegistration
         private const byte VNodeSeparator = 35;
 
         /// <summary>The thread's last lookup, scoped by ring identity to prevent reuse across topology instances.</summary>
-        [ThreadStatic]
-        private static (ConsistentHashRing? Ring, string? CacheName, string? Key, string? Owner) _lastOwner;
+        private static readonly ThreadLocal<(ConsistentHashRing? Ring, string? CacheName, string? Key, string? Owner)> LastOwner = new();
 
         private readonly ImmutableArray<(ulong Hash, string Node)> _items;
 
@@ -112,14 +112,14 @@ internal static class RuntimeServiceRegistration
 
         private static string ResolveOwner(ConsistentHashRing ring, string cacheName, string key)
         {
-            var (previousRing, previousCache, previousKey, previousOwner) = _lastOwner;
+            var (previousRing, previousCache, previousKey, previousOwner) = LastOwner.Value;
             if (ReferenceEquals(previousRing, ring) && ReferenceEquals(previousCache, cacheName) && ReferenceEquals(previousKey, key) && previousOwner != null)
                 return previousOwner;
 
             var kh = HashCacheRouteKey(cacheName, key);
             var idx = ring.FindFirstGreaterOrEqual(kh);
             var owner = ring._items[idx].Node;
-            _lastOwner = (ring, cacheName, key, owner);
+            LastOwner.Value = (ring, cacheName, key, owner);
             return owner;
         }
 
