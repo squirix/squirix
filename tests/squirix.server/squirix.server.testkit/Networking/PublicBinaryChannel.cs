@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.TestKit.Networking;
 

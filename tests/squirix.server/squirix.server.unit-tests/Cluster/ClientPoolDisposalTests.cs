@@ -17,6 +17,7 @@ using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Squirix.Testing;
 using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

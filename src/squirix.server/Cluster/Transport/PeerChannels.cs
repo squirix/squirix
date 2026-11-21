@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
 using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Cluster.Transport;
 

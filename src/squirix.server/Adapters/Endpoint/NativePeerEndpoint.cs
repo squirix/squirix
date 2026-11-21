@@ -16,6 +16,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Adapters.Endpoint;
 

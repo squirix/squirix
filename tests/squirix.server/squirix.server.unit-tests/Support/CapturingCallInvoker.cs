@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
-using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.UnitTests.Support;
 

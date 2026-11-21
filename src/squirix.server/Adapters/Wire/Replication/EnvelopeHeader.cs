@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Adapters.Wire.Replication;
 

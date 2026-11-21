@@ -11,6 +11,7 @@ using Squirix.Transport;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Internal.Cluster.Transport;
 

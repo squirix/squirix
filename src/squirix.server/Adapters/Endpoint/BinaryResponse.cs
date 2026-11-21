@@ -1,6 +1,7 @@
 using Squirix.Server.Errors;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 using Squirix.Transport.Wire.Mappers;
 
 namespace Squirix.Server.Adapters.Endpoint;

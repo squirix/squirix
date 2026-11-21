@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace Squirix.Transport.Binary;
+namespace Squirix.Transport.Wire.Codec;
 
 internal sealed class WireParser<T> : IWireParser
     where T : WireMessage
