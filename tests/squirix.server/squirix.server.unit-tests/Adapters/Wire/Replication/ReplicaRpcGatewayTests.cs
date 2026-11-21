@@ -5,7 +5,6 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -60,11 +59,12 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         var request = ReplicaRpcGateway.MapRequest(in header, in batch);
 
+        _ = await Assert.That(ReferenceEquals(request.Entries, batch.Entries)).IsTrue();
         _ = await Assert.That(request.Entries.Count).IsEqualTo(2);
         _ = await Assert.That((request.Entries[0].LogIndex, request.Entries[0].Term)).IsEqualTo((5UL, 2UL));
         _ = await Assert.That((request.Entries[1].LogIndex, request.Entries[1].Term)).IsEqualTo((6UL, 3UL));
-        _ = await Assert.That(request.Entries[0].CanonicalPayload.Memory.Equals(first)).IsTrue().Because("The payload must be wrapped, not copied.");
-        _ = await Assert.That(request.Entries[1].CanonicalPayload.Memory.Equals(second)).IsTrue().Because("The payload must be wrapped, not copied.");
+        _ = await Assert.That(request.Entries[0].Payload.Equals(first)).IsTrue().Because("The payload must be wrapped, not copied.");
+        _ = await Assert.That(request.Entries[1].Payload.Equals(second)).IsTrue().Because("The payload must be wrapped, not copied.");
         _ = await Assert.That((request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex)).IsEqualTo((4UL, 2UL, 5UL));
     }
 
@@ -78,9 +78,9 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         var mapped = ReplicaRpcGateway.MapHeader(in header);
         var request = ReplicaRpcGateway.MapRequest(in header, Batch());
 
-        await SequenceAssert.EqualAsync(fingerprint, mapped.TopologyFingerprint.ToByteArray());
-        await SequenceAssert.EqualAsync(fingerprint, request.Header.TopologyFingerprint.ToByteArray());
-        _ = await Assert.That(request.Header.TopologyFingerprint.Memory.Equals(fingerprint)).IsTrue().Because("The fingerprint must be wrapped, not copied.");
+        await SequenceAssert.EqualAsync(fingerprint, mapped.TopologyFingerprint.ToArray());
+        await SequenceAssert.EqualAsync(fingerprint, request.Header!.TopologyFingerprint.ToArray());
+        _ = await Assert.That(request.Header.TopologyFingerprint.Equals(fingerprint)).IsTrue().Because("The fingerprint must be wrapped, not copied.");
     }
 
     /// <summary>Disposing the pool cancels a replication call in flight, which fails, and disposes the call's client only after that.</summary>
@@ -235,8 +235,8 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
             Disposed = true;
         }
 
-        public async Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-            where T : IMessage<T>
+        public async Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage
         {
             _ = _arrived.TrySetResult();
             var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

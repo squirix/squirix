@@ -1,12 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -106,22 +105,22 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner),
-            Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToWire(),
         };
 
         var first = await client.GetOrAddAsync(request, cancellationToken: cancellationToken);
         var committed = await LastLogIndexAsync(cluster[Owner], cancellationToken);
         var retried = await client.GetOrAddAsync(request, cancellationToken: cancellationToken);
 
-        var next = request.Clone();
+        var next = GetOrAddAsyncRequest.Parser.ParseFrom(request.ToByteArray());
         next.OperationId = RpcOperationIdentity.New();
-        next.Entry = new NodeCacheEntry<object?> { Value = "second", Version = 1 }.MapToProto();
+        next.Entry = new NodeCacheEntry<object?> { Value = "second", Version = 1 }.MapToWire();
         var existing = await client.GetOrAddAsync(next, cancellationToken: cancellationToken);
 
-        _ = await Assert.That(retried).IsEqualTo(first);
+        _ = await Assert.That(retried.ToByteArray().AsSpan().SequenceEqual(first.ToByteArray())).IsTrue();
         _ = await Assert.That(existing.Added).IsFalse();
         _ = await Assert.That(existing.Found).IsTrue();
-        _ = await Assert.That(existing.Value).IsEqualTo(ServerProtoEx.CacheValueToProto("first"));
+        _ = await Assert.That(existing.Value!.StringValue).IsEqualTo("first");
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(committed);
     }
 
@@ -136,7 +135,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         var client = new CacheWireClient(channel);
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
         _ = await client.AddEntryIfAbsentAsync(AddRequest(RpcOperationIdentity.New(), key, "value"), cancellationToken: cancellationToken);
-        var touch = new TouchAsyncRequest { OperationId = RpcOperationIdentity.New(), CacheName = CacheName, Key = key, Expiration = Duration.FromTimeSpan(TimeSpan.FromHours(1)) };
+        var touch = new TouchAsyncRequest { OperationId = RpcOperationIdentity.New(), CacheName = CacheName, Key = key, Expiration = TimeSpan.FromHours(1) };
 
         var first = await client.TouchAsync(touch, cancellationToken: cancellationToken);
         var committed = await LastLogIndexAsync(cluster[Owner], cancellationToken);
@@ -176,7 +175,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         OperationId = operationId,
         CacheName = CacheName,
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
     };
 
     private static async Task<ulong> LastLogIndexAsync(ITestNodeHost node, CancellationToken cancellationToken)

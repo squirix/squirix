@@ -99,8 +99,7 @@ A started record (`state = 1`) continues with:
 | fingerprint    | `u16` UTF-8 byte length + UTF-8 bytes, if present |
 | createdUtc     | `i64` Unix milliseconds UTC                       |
 
-A completed response can contain zero bytes: protobuf encodes default replies such as an unsuccessful Remove or a successful Set this way.
-The record state, identity and fingerprint distinguish this completed outcome from a started intent.
+A completed response can contain zero bytes. The record state, identity and fingerprint distinguish such an outcome from a started intent.
 The current reader rejects state-less older record layouts and accepts only file version 3. The implementation is
 [`IdempotencyCodec`](../src/squirix.server/Storage/Snapshot/Binary/IdempotencyCodec.cs).
 

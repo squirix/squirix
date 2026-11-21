@@ -40,7 +40,7 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         var fromC = fabric["node-c", "node-a"];
         var client = nodeA.GetRequiredService<IServerClientPool>().ForNode("node-c");
         var request = new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-c") };
-        _ = await client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken);
+        _ = await client.SendAsync(PeerOperation.GetValue, request, GetValueAsyncResponse.Parser, cancellationToken);
         _ = await Assert.That(toC.BytesForwarded(ProxyDirection.ClientToUpstream)).IsGreaterThan(0);
 
         await fabric.IsolateAsync("node-c");
@@ -81,14 +81,14 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
 
         var client = nodeA.GetRequiredService<IServerClientPool>().ForNode("node-c");
         var request = new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-c") };
-        _ = await client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken);
+        _ = await client.SendAsync(PeerOperation.GetValue, request, GetValueAsyncResponse.Parser, cancellationToken);
         var toC = fabric["node-a", "node-c"];
         _ = await Assert.That(toC.ActiveConnections).IsGreaterThan(0);
 
         // The node's own outbound links open on its first call to each peer.
         var nodeC = cluster["node-c"];
         foreach (var peer in new[] { "node-a", "node-b" })
-            _ = await nodeC.GetRequiredService<IServerClientPool>().ForNode(peer).SendAsync("owner/GetValue", new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, peer) }, GetValueAsyncResponse.Parser, cancellationToken);
+            _ = await nodeC.GetRequiredService<IServerClientPool>().ForNode(peer).SendAsync(PeerOperation.GetValue, new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, peer) }, GetValueAsyncResponse.Parser, cancellationToken);
 
         _ = await Assert.That(fabric["node-c", "node-a"].ActiveConnections).IsGreaterThan(0);
         _ = await Assert.That(fabric["node-c", "node-b"].ActiveConnections).IsGreaterThan(0);
@@ -108,7 +108,7 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         await GetValueWhenServedAsync(client, request, cancellationToken);
 
         var fromRestarted = restarted.GetRequiredService<IServerClientPool>().ForNode("node-a");
-        _ = await fromRestarted.SendAsync("owner/GetValue", new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-a") }, GetValueAsyncResponse.Parser, cancellationToken);
+        _ = await fromRestarted.SendAsync(PeerOperation.GetValue, new GetValueAsyncRequest { CacheName = CacheName, Key = nodeA.FindKeyOwnedBy(CacheName, "node-a") }, GetValueAsyncResponse.Parser, cancellationToken);
         _ = await Assert.That(fromC.AcceptedConnections).IsGreaterThan(acceptedBefore);
     }
 
@@ -119,7 +119,7 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         {
             try
             {
-                _ = await client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken);
+                _ = await client.SendAsync(PeerOperation.GetValue, request, GetValueAsyncResponse.Parser, cancellationToken);
                 return;
             }
             catch (ServerCallException exception) when (exception.StatusCode == FrameStatus.Unavailable)
@@ -131,7 +131,7 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
 
     private static async Task ExpectUnavailableAsync(IPeerClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.SendAsync("owner/GetValue", request, GetValueAsyncResponse.Parser, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.SendAsync(PeerOperation.GetValue, request, GetValueAsyncResponse.Parser, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 }

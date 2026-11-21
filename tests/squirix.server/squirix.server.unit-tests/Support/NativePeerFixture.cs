@@ -6,13 +6,13 @@ using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.Utils;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -20,7 +20,7 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class NativePeerFixture : IDisposable
 {
     internal const string Node = "node-b";
-    internal const string Fingerprint = "test-ring";
+    internal const string Fingerprint = "00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF";
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly Meter _meter = new("Squirix");
     private readonly X509Certificate2 _server;
@@ -49,17 +49,20 @@ internal sealed class NativePeerFixture : IDisposable
         _meter.Dispose();
     }
 
-    internal static Task<Empty> PingAsync(IPeerClient client, CancellationToken cancellationToken) =>
-        client.SendAsync("ping", new Empty(), Empty.Parser, cancellationToken);
+    internal static Task<SetAsyncResponse> PingAsync(IPeerClient client, CancellationToken cancellationToken) =>
+        client.SendAsync(PeerOperation.Ping, new SetAsyncResponse(), SetAsyncResponse.Parser, cancellationToken);
 
-    internal static async Task<(string Path, string Fingerprint, int Length)> ReadAsync(SslStream stream, CancellationToken cancellationToken)
+    internal static async Task<(PeerOperation Operation, string Fingerprint, int Length)> ReadAsync(SslStream stream, CancellationToken cancellationToken)
     {
         var header = GC.AllocateUninitializedArray<byte>(PeerFrames.RequestBytes);
         await stream.ReadExactlyAsync(header, cancellationToken);
         var frame = PeerFrames.ReadRequest(header);
         var payload = new byte[frame.Metadata + frame.Body];
         await stream.ReadExactlyAsync(payload, cancellationToken);
-        return (PeerFrames.Text.GetString(payload, 0, frame.Path), PeerFrames.Text.GetString(payload, frame.Path, frame.Fingerprint), frame.Body);
+        var transmitted = frame.FingerprintIsDigest
+            ? Convert.ToHexString(payload.AsSpan(0, frame.Fingerprint))
+            : PeerFrames.Text.GetString(payload, 0, frame.Fingerprint);
+        return (frame.Operation, transmitted, frame.Body);
     }
 
     internal static async Task ReplyAsync(SslStream stream, CancellationToken cancellationToken)
@@ -69,7 +72,7 @@ internal sealed class NativePeerFixture : IDisposable
         await stream.WriteAsync(header, cancellationToken);
     }
 
-    internal async Task<(string Path, string Fingerprint, int Length)> ExchangePingAsync(IPeerClient client, CancellationToken cancellationToken)
+    internal async Task<(PeerOperation Operation, string Fingerprint, int Length)> ExchangePingAsync(IPeerClient client, CancellationToken cancellationToken)
     {
         var call = PingAsync(client, cancellationToken);
         await using var stream = await AcceptTlsAsync(cancellationToken);

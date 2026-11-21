@@ -5,8 +5,6 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
-using Google.Protobuf.WellKnownTypes;
 using Rocks;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
@@ -128,7 +126,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     {
         var invoker = new CapturingCallInvoker(static method => CreateResponse(method));
         var forwarder = CreateForwarder(invoker);
-        var entry = new CacheEntryWire { Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) };
+        var entry = new CacheEntryWire { Expiration = TimeSpan.FromMinutes(1) };
         var getEntry = new GetEntryAsyncRequest { CacheName = "c", Key = "k" };
         var getExpiration = new GetExpirationAsyncRequest { CacheName = "c", Key = "k" };
         var getOrAdd = new GetOrAddAsyncRequest { CacheName = "c", Key = "k", Entry = entry, OperationId = OperationId };
@@ -151,7 +149,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         _ = await forwarder.AddEntryIfAbsentAsync(Owner, tryAdd, cancellationToken);
         _ = await forwarder.UpdateAsync(Owner, update, cancellationToken);
 
-        IMessage[] expected = [getEntry, getExpiration, getOrAdd, getValue, remove, removeExpiration, setEntry, touch, tryAdd, update];
+        WireMessage[] expected = [getEntry, getExpiration, getOrAdd, getValue, remove, removeExpiration, setEntry, touch, tryAdd, update];
         string[] methods = ["GetEntry", "GetExpiration", "GetOrAdd", "GetValue", "Remove", "RemoveExpiration", "SetEntry", "Touch", "TryAddEntry", "Update"];
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(expected.Length);
         for (var i = 0; i < expected.Length; i++)
@@ -194,7 +192,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
             Trailers =
             {
                 new BinaryCallError.Types.Trailer { Key = "squirix-error-code", Text = "stale-owner" },
-                new BinaryCallError.Types.Trailer { Key = "detail-bin", Binary = ByteString.CopyFrom(1, 2, 3) },
+                new BinaryCallError.Types.Trailer { Key = "detail-bin", Binary = new byte[] { 1, 2, 3 } },
             },
         };
         var invoker = new CapturingCallInvoker(failure: () => new ServerCallException(FrameStatus.FailedPrecondition, trailers));

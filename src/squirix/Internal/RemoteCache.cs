@@ -51,13 +51,10 @@ internal sealed class RemoteCache<T> : ICache<T>
         if (!response.Found)
             return new CacheEntryResult<T>(false, null);
 
-        var entry = ProtoEx.MapProtoEntryToCacheEntry<T>(response.Entry, _serializer);
-
-        // The server reports how long the entry has left; rebase it on the client clock so the deadline reads against it.
-        var resultEntry = response.Remaining is { } remaining
-            ? new CacheEntry<T> { Value = entry.Value, Expiration = entry.Expiration, ExpiresUtc = _rpc.RebaseDeadline(ProtoEx.ReadDuration(remaining)) }
-            : entry;
-        return new CacheEntryResult<T>(true, resultEntry);
+        // The server reports the duration remaining so the client can use its own clock for the deadline.
+        DateTime? deadline = response.Remaining is { } remaining ? _rpc.RebaseDeadline(remaining) : null;
+        var entry = WireMapping.MapWireEntryToCacheEntry<T>(response.Entry, _serializer, deadline);
+        return new CacheEntryResult<T>(true, entry);
     }
 
     public async Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default)
@@ -79,7 +76,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         if (!response.HasExpiration)
             return new CacheExpirationResult(true, false, null);
 
-        var remaining = ProtoEx.ReadDuration(response.Remaining);
+        var remaining = WireMapping.ReadDuration(response.Remaining);
         return new CacheExpirationResult(true, true, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
     }
 
@@ -115,7 +112,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
-        return r.Found ? new CacheValueResult<T>(true, ProtoEx.Read<T>(r.Value, _serializer)) : new CacheValueResult<T>(false, default);
+        return r.Found ? new CacheValueResult<T>(true, WireMapping.Read<T>(r.Value, _serializer)) : new CacheValueResult<T>(false, default);
     }
 
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
@@ -186,7 +183,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                 var responseAsync = client.TouchAsync(touchAsyncRequest, in options);
                 return new ValueTask<TouchAsyncResponse>(responseAsync);
             },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: ProtoDuration.FromTimeSpan(expiration)),
+            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: expiration),
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -226,7 +223,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             OperationId = RpcOperationIdentity.New(),
             CacheName = _cacheName,
             Key = key,
-            Entry = ProtoEx.MapEntryToProto(new CacheEntry<T> { Value = value }, _serializer),
+            Entry = WireMapping.MapEntryToWire(new CacheEntry<T> { Value = value }, _serializer),
         };
 
         var response = await _rpc.ExecuteAsync(
@@ -260,7 +257,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         return (r.Added, r.Found) switch
         {
             (true, _) => new CacheValueResult<T>(true, created),
-            (false, true) => new CacheValueResult<T>(true, ProtoEx.Read<T>(r.Value, cache._serializer)),
+            (false, true) => new CacheValueResult<T>(true, WireMapping.Read<T>(r.Value, cache._serializer)),
             _ => new CacheValueResult<T>(false, default),
         };
     }
@@ -298,10 +295,10 @@ internal sealed class RemoteCache<T> : ICache<T>
         /// <param name="options">The entry options.</param>
         /// <exception cref="ArgumentException">Both an absolute and a relative expiration are set.</exception>
         /// <exception cref="ArgumentOutOfRangeException">The absolute expiration is not in the future on the client clock.</exception>
-        internal void ApplyExpiration(CacheEntryWire entry, CacheEntryOptions? options)
+        internal void ApplyExpiration(CacheEntryWire? entry, CacheEntryOptions? options)
         {
-            if (ResolveExpiration(options) is { } expiration)
-                entry.Expiration = ProtoDuration.FromTimeSpan(expiration);
+            if (ResolveExpiration(options) is { } expiration && entry != null)
+                entry.Expiration = expiration;
         }
 
         /// <summary>Returns the relative expiration to send for <paramref name="options" />, measured now on the client clock.</summary>
@@ -341,21 +338,21 @@ internal sealed class RemoteCache<T> : ICache<T>
         {
             CacheName = _cacheName,
             Key = key,
-            Entry = ProtoEx.MapEntryToProto(entry, _serializer),
+            Entry = WireMapping.MapEntryToWire(entry, _serializer),
         };
 
         internal SetEntryAsyncRequest ToSetEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
         {
             CacheName = _cacheName,
             Key = key,
-            Entry = ProtoEx.MapEntryToProto(entry, _serializer),
+            Entry = WireMapping.MapEntryToWire(entry, _serializer),
         };
 
         internal TryAddEntryAsyncRequest ToTryAddEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
         {
             CacheName = _cacheName,
             Key = key,
-            Entry = ProtoEx.MapEntryToProto(entry, _serializer),
+            Entry = WireMapping.MapEntryToWire(entry, _serializer),
         };
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]

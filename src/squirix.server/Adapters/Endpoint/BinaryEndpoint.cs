@@ -1,11 +1,11 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Composition;
 using Squirix.Server.Logging;
 using Squirix.Transport.Binary;
@@ -145,7 +145,7 @@ internal static class BinaryEndpoint
         {
             return new BinaryResponse(error.StatusCode, error.Error);
         }
-        catch (InvalidProtocolBufferException)
+        catch (InvalidDataException)
         {
             return new BinaryResponse(FrameStatus.InvalidArgument);
         }
@@ -175,13 +175,13 @@ internal static class BinaryEndpoint
         if ((control & Frames.TracedRequest) == 0)
             return true;
 
-        var traced = BinaryTracedRequest.Parser.ParseFrom(body.Span);
+        var traced = BinaryTracedRequest.Parser.ParseBorrowed(body);
         if (traced.TraceParent.Length > Frames.MaxTraceParentLength || traced.TraceState.Length > Frames.MaxTraceStateLength)
             return false;
 
         call.TraceParent = traced.TraceParent;
         call.TraceState = traced.TraceState.Length == 0 ? null : traced.TraceState;
-        body = traced.Payload.Memory;
+        body = traced.Payload;
         return true;
     }
 

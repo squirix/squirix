@@ -2,8 +2,7 @@ using System;
 using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using Google.Protobuf;
-using Google.Protobuf.WellKnownTypes;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Transport.Wire;
@@ -20,7 +19,7 @@ internal static class CacheValueWire
     /// <summary>Builds an opaque binary wire value with an owned copy of the source.</summary>
     /// <param name="bytes">The source bytes, which the caller may reuse after this method returns.</param>
     /// <returns>A binary value independent of the source buffer, including when the source is empty.</returns>
-    internal static CacheValue FromBinary(ReadOnlySpan<byte> bytes) => new() { BinaryValue = ByteString.CopyFrom(bytes) };
+    internal static CacheValue FromBinary(ReadOnlySpan<byte> bytes) => new() { BinaryValue = WireReader.CopyBytes(bytes) };
 
     /// <summary>Builds the wire form of a JSON element: a scalar element as its native kind, a number, an object or an array as its own text.</summary>
     /// <param name="element">The element.</param>
@@ -39,7 +38,7 @@ internal static class CacheValueWire
     /// <summary>Builds the wire form of JSON text without copying it.</summary>
     /// <param name="json">The JSON text; the caller never changes it again, because the message shares it.</param>
     /// <returns>A value of the JSON kind over <paramref name="json" />.</returns>
-    internal static CacheValue FromJson(ReadOnlyMemory<byte> json) => new() { JsonUtf8 = UnsafeByteOperations.UnsafeWrap(json) };
+    internal static CacheValue FromJson(ReadOnlyMemory<byte> json) => new() { JsonUtf8 = json };
 
     /// <summary>Builds the wire form of a null value.</summary>
     /// <returns>A value of the null kind.</returns>
@@ -85,11 +84,11 @@ internal static class CacheValueWire
     /// <summary>Copies the text of an object, array or number element, rewriting it when the element was parsed with comments or trailing commas, which the wire form does not allow.</summary>
     /// <param name="element">The element.</param>
     /// <returns>The strict JSON text of the element.</returns>
-    private static ByteString ElementJson(JsonElement element)
+    private static ReadOnlyMemory<byte> ElementJson(JsonElement element)
     {
         var raw = JsonMarshal.GetRawUtf8Value(element);
         if (IsStrictJson(raw))
-            return ByteString.CopyFrom(raw);
+            return WireReader.CopyBytes(raw);
 
         // Rare path: the document was parsed with lenient reader options, so the raw text may hold comments or trailing commas.
         var rewritten = new ArrayBufferWriter<byte>(raw.Length);
@@ -101,7 +100,7 @@ internal static class CacheValueWire
         }
 #pragma warning restore MA0045
 
-        return ByteString.CopyFrom(rewritten.WrittenSpan);
+        return rewritten.WrittenMemory;
     }
 
     private static bool IsStrictJson(ReadOnlySpan<byte> utf8)

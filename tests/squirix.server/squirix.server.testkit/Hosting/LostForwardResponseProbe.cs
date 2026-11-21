@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Cluster;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
@@ -84,8 +83,8 @@ internal sealed class LostForwardResponseProbe
             _probe = probe;
         }
 
-        public async Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-            where T : IMessage<T>
+        public async Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage
         {
             var key = request switch
             {
@@ -98,12 +97,12 @@ internal sealed class LostForwardResponseProbe
                 _ => null,
             };
             if (key == null || !_probe._faults.TryGetValue(key, out var fault))
-                return await _inner.SendAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
+                return await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
 
             if (fault.NextAttempt() > 1)
                 throw new ServerCallException(FrameStatus.Unavailable, "Injected: key owner connection is down.");
 
-            _ = await _inner.SendAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
+            _ = await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
             fault.MarkOwnerExecuted();
             await fault.AfterOwnerExecuted().ConfigureAwait(false);
             throw new ServerCallException(FrameStatus.Unavailable, "Injected: the owner response was lost.");

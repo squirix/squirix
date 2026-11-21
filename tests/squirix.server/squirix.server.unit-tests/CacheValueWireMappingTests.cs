@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
@@ -15,31 +15,31 @@ namespace Squirix.Server.UnitTests;
 
 /// <summary>Maps stored cache values to their wire form.</summary>
 [Immutable]
-public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
+public sealed class CacheValueWireMappingTests : ServerUnitTestBase
 {
     /// <summary>Every scalar maps to its own kind, and an integer of any width travels as an int64.</summary>
     [Test]
     public async Task ScalarsMapToNativeKinds()
     {
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto<string>(null).KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto("s").StringValue).IsEqualTo("s");
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto(true).BoolValue).IsTrue();
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto(1.25d).DoubleValue).IsEqualTo(1.25d);
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto(1.5f).DoubleValue).IsEqualTo(1.5d);
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto(42).Int64Value).IsEqualTo(42L);
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto(long.MaxValue).Int64Value).IsEqualTo(long.MaxValue);
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto<short>(-3).Int64Value).IsEqualTo(-3L);
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto(uint.MaxValue).Int64Value).IsEqualTo(uint.MaxValue);
-        _ = await Assert.That(ServerProtoEx.CacheValueToProto<byte>(7).Int64Value).IsEqualTo(7L);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire<string>(null).KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire("s").StringValue).IsEqualTo("s");
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire(true).BoolValue).IsTrue();
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire(1.25d).DoubleValue).IsEqualTo(1.25d);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire(1.5f).DoubleValue).IsEqualTo(1.5d);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire(42).Int64Value).IsEqualTo(42L);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire(long.MaxValue).Int64Value).IsEqualTo(long.MaxValue);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire<short>(-3).Int64Value).IsEqualTo(-3L);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire(uint.MaxValue).Int64Value).IsEqualTo(uint.MaxValue);
+        _ = await Assert.That(ServerWireMapping.CacheValueToWire<byte>(7).Int64Value).IsEqualTo(7L);
     }
 
     /// <summary>Default-valued value types are scalars, not null.</summary>
     [Test]
     public async Task DefaultedValueTypesAreNotNull()
     {
-        _ = await Assert.That(new NodeCacheEntry<int> { Value = 0, Version = 1 }.MapToProto().Value.KindCase).IsEqualTo(CacheValue.KindOneofCase.Int64Value);
-        _ = await Assert.That(new NodeCacheEntry<bool> { Value = false, Version = 1 }.MapToProto().Value.KindCase).IsEqualTo(CacheValue.KindOneofCase.BoolValue);
-        _ = await Assert.That(new NodeCacheEntry<double> { Value = 0.0, Version = 1 }.MapToProto().Value.KindCase).IsEqualTo(CacheValue.KindOneofCase.DoubleValue);
+        _ = await Assert.That(new NodeCacheEntry<int> { Value = 0, Version = 1 }.MapToWire().Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.Int64Value);
+        _ = await Assert.That(new NodeCacheEntry<bool> { Value = false, Version = 1 }.MapToWire().Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.BoolValue);
+        _ = await Assert.That(new NodeCacheEntry<double> { Value = 0.0, Version = 1 }.MapToWire().Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.DoubleValue);
     }
 
     /// <summary>A stored JSON value goes to the wire as the very bytes it holds, not as a copy.</summary>
@@ -48,10 +48,10 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     {
         var stored = JsonValueKit.Create("""{"id":1}""");
 
-        var wire = ServerProtoEx.CacheValueToProto<object?>(stored);
+        var wire = ServerWireMapping.CacheValueToWire<object?>(stored);
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
-        _ = await Assert.That(wire.JsonUtf8.Memory.Span.Overlaps(stored.Bytes.Span, out var offset)).IsTrue();
+        _ = await Assert.That(wire.JsonUtf8.Span.Overlaps(stored.Bytes.Span, out var offset)).IsTrue();
         _ = await Assert.That(offset).IsEqualTo(0);
         _ = await Assert.That(wire.JsonUtf8.Length).IsEqualTo(stored.Length);
     }
@@ -70,19 +70,19 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Arguments("{\"n\":1}", "JsonUtf8")]
     public async Task ElementsMapByKind(string text, string kind)
     {
-        var wire = ServerProtoEx.CacheValueToProto(JsonElement.Parse(text));
+        var wire = ServerWireMapping.CacheValueToWire(JsonElement.Parse(text));
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(Enum.Parse<CacheValue.KindOneofCase>(kind));
         _ = await Assert.That(
             !string.Equals(kind, nameof(CacheValue.KindOneofCase.JsonUtf8), StringComparison.Ordinal) ||
-            string.Equals(wire.JsonUtf8.ToStringUtf8(), text, StringComparison.Ordinal)).IsTrue();
+            string.Equals(Encoding.UTF8.GetString(wire.JsonUtf8.Span), text, StringComparison.Ordinal)).IsTrue();
     }
 
     /// <summary>An element that is the default value maps to null.</summary>
     [Test]
     public async Task UndefinedElementMapsToNull()
     {
-        var wire = ServerProtoEx.CacheValueToProto(default(JsonElement));
+        var wire = ServerWireMapping.CacheValueToWire(default(JsonElement));
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
     }
@@ -91,10 +91,10 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Test]
     public async Task ObjectSerializesToJsonKind()
     {
-        var wire = ServerProtoEx.CacheValueToProto(new SamplePayload { Id = 1, Name = "n" });
+        var wire = ServerWireMapping.CacheValueToWire(new SamplePayload { Id = 1, Name = "n" });
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
-        using var document = JsonDocument.Parse(wire.JsonUtf8.Memory);
+        using var document = JsonDocument.Parse(wire.JsonUtf8);
         _ = await Assert.That(document.RootElement.GetProperty("Id").GetInt32()).IsEqualTo(1);
     }
 
@@ -102,7 +102,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Test]
     public async Task DecimalKeepsAllDigits()
     {
-        var wire = ServerProtoEx.CacheValueToProto(12345678901234567.123456789m);
+        var wire = ServerWireMapping.CacheValueToWire(12345678901234567.123456789m);
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(Encoding.UTF8.GetString(wire.JsonUtf8.Span)).IsEqualTo("12345678901234567.123456789");
@@ -120,18 +120,18 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
             Expiration = TimeSpan.FromMinutes(5),
         };
 
-        var wire = source.MapToProto();
+        var wire = source.MapToWire();
 
-        _ = await Assert.That(wire.Value.StringValue).IsEqualTo("text");
-        _ = await Assert.That(wire.ExpiresUtc.ToDateTime()).IsEqualTo(source.ExpiresUtc.Value);
-        _ = await Assert.That(wire.Expiration.ToTimeSpan()).IsEqualTo(TimeSpan.FromMinutes(5));
+        _ = await Assert.That(wire.Value!.StringValue).IsEqualTo("text");
+        _ = await Assert.That(wire.ExpiresUtc).IsEqualTo(source.ExpiresUtc.Value);
+        _ = await Assert.That(wire.Expiration).IsEqualTo(TimeSpan.FromMinutes(5));
     }
 
     /// <summary>An entry without deadlines maps none.</summary>
     [Test]
     public async Task EntryWithoutDeadlinesMapsNone()
     {
-        var wire = new NodeCacheEntry<object?> { Value = 1, Version = 1 }.MapToProto();
+        var wire = new NodeCacheEntry<object?> { Value = 1, Version = 1 }.MapToWire();
 
         _ = await Assert.That(wire.ExpiresUtc).IsNull();
         _ = await Assert.That(wire.Expiration).IsNull();
@@ -143,10 +143,10 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     {
         var element = JsonElement.Parse("[1, /* note */ 2,]", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
 
-        var wire = ServerProtoEx.CacheValueToProto(element);
+        var wire = ServerWireMapping.CacheValueToWire(element);
 
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
-        _ = await Assert.That(wire.JsonUtf8.ToStringUtf8()).IsEqualTo("[1,2]");
+        _ = await Assert.That(Encoding.UTF8.GetString(wire.JsonUtf8.Span)).IsEqualTo("[1,2]");
         _ = await Assert.That(JsonUtf8Validator.IsValid(wire.JsonUtf8.Span)).IsTrue();
     }
 }

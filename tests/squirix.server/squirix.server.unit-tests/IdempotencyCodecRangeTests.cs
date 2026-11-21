@@ -14,7 +14,7 @@ namespace Squirix.Server.UnitTests;
 [Immutable]
 public sealed class IdempotencyCodecRangeTests : ServerUnitTestBase
 {
-    private static readonly byte[] SampleResponse = [0x08, 0x01];
+    private static readonly byte[] SampleResponse = [0x01];
 
     /// <summary>A created timestamp no DateTimeOffset holds is rejected, on the current and the legacy read path alike.</summary>
     [Test]

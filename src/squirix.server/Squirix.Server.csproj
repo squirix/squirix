@@ -26,7 +26,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Google.Protobuf"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
     </ItemGroup>
 
@@ -35,7 +34,17 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\shared\Squirix\Transport\Generated\SquirixCache.cs" Link="Transport\Generated\SquirixCache.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheMessages.g.cs" Link="Transport\Wire\CacheMessages.g.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\GetDistributedAsyncResponse.cs" Link="Transport\Wire\GetDistributedAsyncResponse.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\GetValueAsyncResponse.cs" Link="Transport\Wire\GetValueAsyncResponse.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\BinaryTracedRequest.cs" Link="Transport\Wire\BinaryTracedRequest.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\WireMessage.cs" Link="Transport\Binary\WireMessage.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\WireTraceParent.cs" Link="Transport\Binary\WireTraceParent.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\WireDecoder.cs" Link="Transport\Binary\WireDecoder.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\IWireParser.cs" Link="Transport\Binary\IWireParser.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\WireParser.cs" Link="Transport\Binary\WireParser.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\WireReader.cs" Link="Transport\Binary\WireReader.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\WireWriter.cs" Link="Transport\Binary\WireWriter.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\FrameStatus.cs" Link="Transport\Binary\FrameStatus.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\ServerCallException.cs" Link="Transport\Binary\ServerCallException.cs"/>
@@ -48,8 +57,6 @@
         <Compile Include="..\shared\Squirix\Transport\Wire\RpcOperationIdentity.cs" Link="Adapters\Wire\RpcOperationIdentity.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\TimedCancellation.cs" Link="Adapters\Wire\TimedCancellation.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\CacheValueWire.cs" Link="Adapters\Wire\CacheValueWire.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Wire\ProtoDuration.cs" Link="Adapters\Wire\ProtoDuration.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Wire\ProtoTimestamp.cs" Link="Adapters\Wire\ProtoTimestamp.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>

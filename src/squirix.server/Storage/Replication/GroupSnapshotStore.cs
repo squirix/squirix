@@ -158,7 +158,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="fileBytes">The entire snapshot file bytes.</param>
     /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
     /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
-    /// <param name="observedVersion">The format version byte read from the header, or <c language="csharp">0</c> when the header was not reached.</param>
+    /// <param name="observedVersion">The format version of a framed image with a valid payload checksum, or zero otherwise.</param>
     /// <param name="materialize">Whether to copy the topology fingerprint and committed outcomes.</param>
     /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, bool materialize = true) =>
@@ -168,7 +168,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="fileBytes">Complete published image.</param>
     /// <param name="maxSnapshotBytes">Largest accepted image length.</param>
     /// <param name="snapshot">The decoded snapshot on success.</param>
-    /// <param name="observedVersion">The observed format version when the header is readable.</param>
+    /// <param name="observedVersion">The observed format version when the image framing and payload checksum are valid.</param>
     /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
     /// <returns>Whether the image is valid.</returns>
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure) =>
@@ -401,7 +401,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         internal const int SnapshotPayloadPrefixByteCount = GroupIdLengthPrefixByteCount + FingerprintLengthPrefixByteCount + OutcomeCountLengthPrefixByteCount;
 
         /// <summary>Snapshot format version.</summary>
-        internal const byte SnapshotVersion = 5;
+        internal const byte SnapshotVersion = 6;
 
         /// <summary>Length-prefix byte count for a 16-bit-prefixed UTF-8 string field.</summary>
         internal const int String16LengthPrefixByteCount = 2;
@@ -466,7 +466,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <param name="fileBytes">The entire snapshot file bytes.</param>
         /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
         /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
-        /// <param name="observedVersion">The format version byte read from the header, or <c language="csharp">0</c> when the header was not reached.</param>
+        /// <param name="observedVersion">The format version of a framed image with a valid payload checksum, or zero otherwise.</param>
         /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
         /// <param name="materialize">Whether to copy the topology fingerprint and committed outcomes.</param>
         /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
@@ -492,11 +492,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             if (BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[..SnapshotMagicByteCount]) != SnapshotMagic)
                 return false;
 
-            observedVersion = fileBytes[SnapshotMagicByteCount];
-            failure = "snapshot-version-unsupported";
-            if (observedVersion != SnapshotVersion)
-                return false;
-
             var declaredLength = BinaryPrimitives.ReadInt32LittleEndian(fileBytes.Slice(SnapshotPayloadLengthOffset, SnapshotPayloadLengthByteCount));
             failure = "snapshot-payload-length-negative";
             if (declaredLength < 0)
@@ -511,6 +506,11 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             var payload = fileBytes.Slice(SnapshotHeaderByteCount, declaredLength);
             failure = "snapshot-payload-crc-mismatch";
             if (Crc32C.Compute(payload) != storedCrc)
+                return false;
+
+            observedVersion = fileBytes[SnapshotMagicByteCount];
+            failure = "snapshot-version-unsupported";
+            if (observedVersion != SnapshotVersion)
                 return false;
 
             failure = "snapshot-payload-undecodable";

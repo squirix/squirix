@@ -33,7 +33,7 @@ internal static class GroupLogSlots
     private const uint FileMagic = 0x4C475153u;
 
     /// <summary>The file format version.</summary>
-    private const byte FileVersion = 2;
+    private const byte FileVersion = 3;
 
     private const int GenerationOffset = sizeof(uint) + sizeof(byte);
 

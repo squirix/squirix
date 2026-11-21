@@ -1,11 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Wire;
@@ -65,11 +63,11 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         _ = await client.SetEntryAsync(CreateSet(key, "intervening", null), cancellationToken: cancellationToken);
         var second = await SendAsync(mutation, client, key, operationId, cancellationToken);
 
-        _ = await Assert.That(second.Span.SequenceEqual(first.Span)).IsTrue();
+        _ = await Assert.That(second.AsSpan().SequenceEqual(first)).IsTrue();
         var value = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         var expiration = await client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(value.Found).IsTrue();
-        _ = await Assert.That(value.Value.StringValue).IsEqualTo("intervening");
+        _ = await Assert.That(value.Value!.StringValue).IsEqualTo("intervening");
         _ = await Assert.That(expiration.HasExpiration).IsFalse();
     }
 
@@ -78,25 +76,25 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         OperationId = RpcOperationIdentity.New(),
         CacheName = CacheName,
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToProto(),
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToWire(),
     };
 
-    private static async Task<ByteString> SendAsync(GroupMutation mutation, CacheWireClient client, string key, string operationId, CancellationToken cancellationToken)
+    private static async Task<byte[]> SendAsync(GroupMutation mutation, CacheWireClient client, string key, string operationId, CancellationToken cancellationToken)
     {
-        var entry = new NodeCacheEntry<object?> { Value = "mutated", Version = 1 }.MapToProto();
+        var entry = new NodeCacheEntry<object?> { Value = "mutated", Version = 1 }.MapToWire();
         return mutation switch
         {
-            GroupMutation.Remove => (await client.RemoveAsync(new RemoveAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key }, cancellationToken: cancellationToken)).ToByteString(),
+            GroupMutation.Remove => (await client.RemoveAsync(new RemoveAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key }, cancellationToken: cancellationToken)).ToByteArray(),
             GroupMutation.RemoveExpiration => (await client.RemoveExpirationAsync(
                 new RemoveExpirationAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key },
-                cancellationToken: cancellationToken)).ToByteString(),
+                cancellationToken: cancellationToken)).ToByteArray(),
             GroupMutation.SetEntry => (await client.SetEntryAsync(new SetEntryAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Entry = entry }, cancellationToken: cancellationToken))
-               .ToByteString(),
+               .ToByteArray(),
             GroupMutation.Touch => (await client.TouchAsync(
-                new TouchAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Expiration = Duration.FromTimeSpan(TimeSpan.FromHours(2)) },
-                cancellationToken: cancellationToken)).ToByteString(),
+                new TouchAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Expiration = TimeSpan.FromHours(2) },
+                cancellationToken: cancellationToken)).ToByteArray(),
             GroupMutation.Update => (await client.UpdateAsync(new UpdateAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Entry = entry }, cancellationToken: cancellationToken))
-               .ToByteString(),
+               .ToByteArray(),
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), mutation, "Unsupported mutation."),
         };
     }

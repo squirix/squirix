@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
@@ -184,8 +183,8 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         /// <summary>Gets a task that completes once the first call reached this owner.</summary>
         private TaskCompletionSource EnteredSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-            where T : IMessage<T> => RunOwnerAsync<T>(cancellationToken);
+        public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage => RunOwnerAsync<T>(cancellationToken);
 
         private static TResponse CreateResponse<TResponse>() =>
             new GetValueAsyncResponse() is TResponse response ? response : throw new InvalidOperationException("Only GetValue responses are supported.");

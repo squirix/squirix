@@ -1,8 +1,8 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -85,7 +85,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
     public async Task OfferWithWrongTopologyIsRefused(CancellationToken cancellationToken)
     {
         await using var scope = await CreateScopeAsync("node-a", false, cancellationToken);
-        scope.Header.TopologyFingerprint = ByteString.CopyFromUtf8("x");
+        scope.Header.TopologyFingerprint = Encoding.UTF8.GetBytes("x");
 
         var response = await scope.Adapter.OfferReplicaBootstrapAsync(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
@@ -133,12 +133,12 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
             ClientCertificate = peerCertificate,
             InternalListener = true,
         };
-        var header = new ReplicationEnvelopeHeader
+        var header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = "node-a",
             GroupId = groupId,
-            TopologyFingerprint = ByteString.CopyFromUtf8("\t"),
+            TopologyFingerprint = Encoding.UTF8.GetBytes("\t"),
             ConfigurationGeneration = topology.ConfigurationGeneration,
         };
         return new Scope
@@ -165,7 +165,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
 
         internal required TempDirectory Dir { get; init; }
 
-        internal required ReplicationEnvelopeHeader Header { get; init; }
+        internal required EnvelopeHeader Header { get; init; }
 
         internal required IDisposable Material { get; init; }
 

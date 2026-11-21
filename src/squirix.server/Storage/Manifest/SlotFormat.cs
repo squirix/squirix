@@ -56,7 +56,7 @@ internal static class SlotFormat
     /// <summary>Slot magic bytes, <c language="csharp">"SQMP"</c>.</summary>
     private const uint SlotMagic = 0x504D5153u;
 
-    private const byte SlotVersion = 3;
+    private const byte SlotVersion = 4;
 
     private const int SnapshotIndexOffset = HasSnapshotOffset + sizeof(byte);
 
@@ -110,7 +110,7 @@ internal static class SlotFormat
     internal static SlotSelection Select(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second, long fileLength, string path)
     {
         if (IsEarlierBuildRecord(first) || IsEarlierBuildRecord(second))
-            throw new InvalidDataException($"Manifest at {path} was written by an earlier build and is not supported; the file was left unchanged.");
+            throw new InvalidDataException($"Manifest at {path} was written by an earlier build and is not supported. Start with an empty data directory. The manifest was left unchanged.");
 
         if (fileLength > FileSize)
             throw new InvalidDataException($"Manifest at {path} has invalid length {fileLength}.");
@@ -204,7 +204,7 @@ internal static class SlotFormat
         var earlierSize = record[VersionOffset] switch
         {
             1 => sizeof(uint) + sizeof(byte) + sizeof(ulong) + sizeof(int) + sizeof(uint),
-            2 => RecordSize,
+            2 or 3 => RecordSize,
             _ => 0,
         };
         if (earlierSize == 0 || record.Length < earlierSize)

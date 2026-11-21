@@ -27,5 +27,5 @@ The standalone tool and embedded node share the same runtime. Clients connect ov
 metrics are available through the management listener. See [server mode](../../docs/server-mode.md) for a
 complete client/server example and [configuration](../../docs/configuration.md) for certificates and ports.
 
-The server and SDK compile the shared protobuf client protocol. The server runtime does not reference the client
+The server and SDK compile the shared binary cache codec. The server runtime does not reference the client
 SDK assembly.

@@ -7,10 +7,10 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 
@@ -45,7 +45,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
     {
         var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
         var response = Execute(BinaryOperation.GetDistributed, request, GetDistributedAsyncResponse.Parser, token);
-        return response.Found ? response.Value.ToByteArray() : null;
+        return response.Found ? response.TakeValue() : null;
     }
 
     internal void Set(string key, byte[] value, long? expiresAtUnixMs, long? ttlTicks, long? slidingTicks, CancellationToken token)
@@ -83,8 +83,8 @@ internal sealed class SynchronousDistributedCache : IDisposable
         return remaining < backoff ? remaining : backoff;
     }
 
-    private T Execute<T>(BinaryOperation operation, IMessage request, MessageParser<T> parser, CancellationToken token)
-        where T : class, IMessage<T>
+    private T Execute<T>(BinaryOperation operation, WireMessage request, WireParser<T> parser, CancellationToken token)
+        where T : WireMessage
     {
         var start = Stopwatch.GetTimestamp();
         var prepared = BinaryClientProtocol.PrepareRequest(operation, request);
@@ -118,8 +118,8 @@ internal sealed class SynchronousDistributedCache : IDisposable
     }
 
     [SuppressMessage("Reliability", "CA2000", Justification = "GetConnection borrows the connection owned and disposed by this cache.")]
-    private T SendAttempt<T>(BinaryOperation operation, (int Control, IMessage Message, int Size) request, MessageParser<T> parser, TimeSpan duration, CancellationToken token)
-        where T : class, IMessage<T>
+    private T SendAttempt<T>(BinaryOperation operation, (int Control, WireMessage Message, int Size) request, WireParser<T> parser, TimeSpan duration, CancellationToken token)
+        where T : WireMessage
     {
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
         limit.CancelAfter(duration);

@@ -12,7 +12,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -101,7 +101,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "routed", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "routed", Version = 1 }.MapToWire(),
         };
 
         var refusal = await Calls.SetAsync(client, request, cancellationToken);
@@ -141,7 +141,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "rerouted", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "rerouted", Version = 1 }.MapToWire(),
         };
 
         var refusal = await Calls.SetAsync(client, request, cancellationToken);
@@ -179,7 +179,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "outside", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "outside", Version = 1 }.MapToWire(),
         };
 
         // A refused loopback connect takes about two seconds on Windows and can outlast the per-attempt timeout of a forward, which is ambiguous
@@ -282,7 +282,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "black-hole", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "black-hole", Version = 1 }.MapToWire(),
         };
 
         await cluster.StopNodeAsync(OwnerId);
@@ -450,7 +450,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "static", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "static", Version = 1 }.MapToWire(),
         };
 
         _ = await Assert.That(await Calls.SetAsync(client, request, cancellationToken)).IsNull();
@@ -483,7 +483,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "warm", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "warm", Version = 1 }.MapToWire(),
         };
 
         var outcomes = new List<string>();
@@ -523,7 +523,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "warm-stale", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "warm-stale", Version = 1 }.MapToWire(),
         };
 
         var outcomes = new List<string>();
@@ -770,7 +770,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
         };
 
         /// <summary>Sends a write within <see cref="Bound" /> and returns its refusal.</summary>

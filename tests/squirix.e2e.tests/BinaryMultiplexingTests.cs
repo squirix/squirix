@@ -108,15 +108,15 @@ public sealed class BinaryMultiplexingTests
         var cache = await client.GetCacheAsync<string>("default", token);
 
         var write = cache.SetAsync("lost-reply", "written", cancellationToken: token);
-        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
+        var header = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes);
         await stream.ReadExactlyAsync(header, token);
-        var (_, size, control) = Frames.Read(header, Frames.MaxRequestBytes);
+        var (_, size, control) = Frames.ReadRequest(header);
         _ = await Assert.That(Frames.ReadOperationId(control)).IsEqualTo(Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.SetEntry));
         var body = GC.AllocateUninitializedArray<byte>(size);
         await stream.ReadExactlyAsync(body, token);
         var request = (control & Frames.TracedRequest) == 0
             ? SetEntryAsyncRequest.Parser.ParseFrom(body)
-            : SetEntryAsyncRequest.Parser.ParseFrom(BinaryTracedRequest.Parser.ParseFrom(body).Payload);
+            : SetEntryAsyncRequest.Parser.ParseFrom(BinaryTracedRequest.Parser.ParseFrom(body).Payload.Span);
         _ = await Assert.That(request.Key).IsEqualTo("lost-reply");
         if (closeConnection)
             socket.Close();
@@ -144,16 +144,16 @@ public sealed class BinaryMultiplexingTests
 
     private static async Task<(int Id, string Key)> ReadGetAsync(SslStream stream, CancellationToken cancellationToken)
     {
-        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
+        var header = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes);
         await stream.ReadExactlyAsync(header, cancellationToken);
-        var (id, size, control) = Frames.Read(header, Frames.MaxRequestBytes);
+        var (id, size, control) = Frames.ReadRequest(header);
         var operation = Unsafe.BitCast<int, BinaryOperation>((control & ~Frames.TracedRequest) >>> 16);
         _ = await Assert.That(operation).IsEqualTo(BinaryOperation.GetValue);
         var body = GC.AllocateUninitializedArray<byte>(size);
         await stream.ReadExactlyAsync(body, cancellationToken);
         var request = (control & Frames.TracedRequest) == 0
             ? GetValueAsyncRequest.Parser.ParseFrom(body)
-            : GetValueAsyncRequest.Parser.ParseFrom(BinaryTracedRequest.Parser.ParseFrom(body).Payload);
+            : GetValueAsyncRequest.Parser.ParseFrom(BinaryTracedRequest.Parser.ParseFrom(body).Payload.Span);
         return (id, request.Key);
     }
 
@@ -161,8 +161,8 @@ public sealed class BinaryMultiplexingTests
     {
         var reply = new GetValueAsyncResponse { Found = true, Value = new CacheValue { StringValue = value } };
         var size = reply.CalculateSize();
-        var frame = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes + size);
-        Frames.WriteMessage(frame, id, size, 0, reply);
+        var frame = GC.AllocateUninitializedArray<byte>(Frames.ReplyBytes + size);
+        Frames.WriteReplyMessage(frame, id, size, 0, reply);
         return stream.WriteAsync(frame, cancellationToken).AsTask();
     }
 }

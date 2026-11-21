@@ -1,8 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
@@ -76,6 +76,29 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
             await AssertRerouteSendsSameRequestAsync(call, policy);
     }
 
+    /// <summary>Forwarding takes ownership of the borrowed value once, including when the first owner redirects the write.</summary>
+    [Test]
+    public async Task RerouteReusesOwnedDistributedValue()
+    {
+        ReadOnlyMemory<byte> borrowed = new byte[64 * 1024];
+        var request = new SetDistributedAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId, Value = borrowed };
+        var forwarded = new List<ReadOnlyMemory<byte>>(2);
+        var invoker = new CapturingCallInvoker(static _ => new SetAsyncResponse(), () =>
+        {
+            forwarded.Add(request.Value);
+            return forwarded.Count == 1 ? StaleOwnerWithHint("node-c") : null;
+        });
+        await using var policy = CreatePolicy();
+        var adapter = CreateAdapter(invoker, policy, false, new FakeLeaderTable(Self, new LeaderRoute(Remote, 2)));
+
+        _ = await adapter.Mutations.SetDistributedAsync(request, CancellationToken.None);
+
+        _ = await Assert.That(forwarded.Count).IsEqualTo(2);
+        _ = await Assert.That(forwarded[0].Equals(borrowed)).IsFalse();
+        _ = await Assert.That(forwarded[0].Equals(forwarded[1])).IsTrue();
+        _ = await Assert.That(forwarded[0].Span.SequenceEqual(borrowed.Span)).IsTrue();
+    }
+
     /// <summary>With the static table a stale answer of the owner reaches the client unchanged after one forward, without any wait.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -140,7 +163,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
     private static ServerCallException StaleOwnerWithHint(string leader) => StaleOwnerFailure.Create(leader, Remote, 3);
 
-    private static CacheEntryWire CreateEntry() => new() { Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) };
+    private static CacheEntryWire CreateEntry() => new() { Expiration = TimeSpan.FromMinutes(1) };
 
     private static RoutedCacheOperations<object?> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall, IGroupLeaderTable? table = null)
     {

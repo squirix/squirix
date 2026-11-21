@@ -4,12 +4,11 @@ using System.IO;
 using System.IO.Compression;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -40,13 +39,13 @@ public sealed class PeerRequestCompressionTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = "default",
             Key = "compressed-request",
-            Entry = new NodeCacheEntry<object?> { Value = "compressed", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "compressed", Version = 1 }.MapToWire(),
         };
         await using var bytes = new MemoryStream();
         await using (var gzip = new GZipStream(bytes, CompressionLevel.Fastest, true))
-            payload.WriteTo(gzip);
+            await gzip.WriteAsync(payload.ToByteArray(), cancellationToken);
         var ring = cluster["A"].GetRequiredService<RingFingerprint>().Value;
-        var (status, _) = await client.SendRawAsync("owner/SetEntry", bytes.ToArray(), new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["squirix-ring-fingerprint"] = ring }, -1, false, cancellationToken);
+        var (status, _) = await client.SendRawAsync(PeerOperation.SetEntry, bytes.ToArray(), new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["squirix-ring-fingerprint"] = ring }, -1, false, cancellationToken);
         _ = await Assert.That(status).IsEqualTo(FrameStatus.InvalidArgument);
         using var channel = CreateBinaryChannel(cluster["A"].Uri);
         var plain = new CacheWireClient(channel);

@@ -7,7 +7,6 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Transport.Binary;
@@ -44,8 +43,8 @@ internal static class PeerWireCalls
     internal static Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(this HttpClient client, AppendReplicaEntriesRequest request, Dictionary<string, string>? headers = null, CancellationToken cancellationToken = default) =>
         SendAsync(client, "replication/AppendReplicaEntries", request, AppendReplicaEntriesResponse.Parser, headers, cancellationToken);
 
-    private static async Task<T> SendAsync<T>(HttpClient client, string path, IMessage payload, MessageParser<T> parser, Dictionary<string, string>? headers, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    private static async Task<T> SendAsync<T>(HttpClient client, string path, WireMessage payload, WireParser<T> parser, Dictionary<string, string>? headers, CancellationToken cancellationToken)
+        where T : WireMessage
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, PeerProtocol.Prefix + path)
         {
@@ -53,7 +52,7 @@ internal static class PeerWireCalls
             VersionPolicy = HttpVersionPolicy.RequestVersionExact,
             Content = new ByteArrayContent(payload.ToByteArray()),
         };
-        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-protobuf");
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         if (headers != null)
         {
             foreach (var header in headers)

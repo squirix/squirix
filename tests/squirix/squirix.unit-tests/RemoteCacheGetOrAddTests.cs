@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -153,14 +153,14 @@ public sealed class RemoteCacheGetOrAddTests
 
         internal TaskCompletionSource Requested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal List<string> SentEntries { get; } = [];
+        internal List<long> SentEntries { get; } = [];
 
-        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+        internal Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> InvokeAsync =>
             (_, request, _, _) => HandleAsync(request);
 
         internal void ReleaseReplies() => _release.SetResult();
 
-        private Task<IMessage> HandleAsync(IMessage request)
+        private Task<WireMessage> HandleAsync(WireMessage request)
         {
             if (request is not GetOrAddAsyncRequest getOrAdd)
                 throw new InvalidOperationException("The get-or-add transport supports get-or-add requests only.");
@@ -169,17 +169,17 @@ public sealed class RemoteCacheGetOrAddTests
             lock (_gate)
             {
                 OperationIds.Add(getOrAdd.OperationId);
-                SentEntries.Add(getOrAdd.Entry.Value.ToString());
+                SentEntries.Add(getOrAdd.Entry!.Value!.Int64Value);
                 response = _answerAsAdded
                     ? new GetOrAddAsyncResponse { Added = true, Found = true }
                     : new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };
             }
 
             _ = Requested.TrySetResult();
-            return _holdReplies ? ReplyAfterReleaseAsync(response) : Task.FromResult<IMessage>(response);
+            return _holdReplies ? ReplyAfterReleaseAsync(response) : Task.FromResult<WireMessage>(response);
         }
 
-        private async Task<IMessage> ReplyAfterReleaseAsync(IMessage response)
+        private async Task<WireMessage> ReplyAfterReleaseAsync(WireMessage response)
         {
             await _release.Task.ConfigureAwait(false);
             return response;

@@ -81,6 +81,9 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Gets or sets a hook that sees the entries of every entries message while the call is in flight.</summary>
     internal Action<ReadOnlyMemory<ReplicaStateEntry>>? OnEntries { get; set; }
 
+    /// <summary>Gets or sets the observer of a snapshot chunk while the gateway owns the call.</summary>
+    internal Action<ReadOnlyMemory<byte>>? OnSnapshot { get; set; }
+
     /// <summary>Gets the entries every entries message carried, copied when it arrived.</summary>
     internal List<ReplicaStateEntry[]> Sent { get; } = [];
 
@@ -117,6 +120,9 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 
             OnEntries?.Invoke(message.Entries);
         }
+
+        if (message.Step == ReplicaTransferStep.Snapshot)
+            OnSnapshot?.Invoke(message.Chunk);
 
         if (message.Step == ReplicaTransferStep.End)
             End = (message.EntryCount, message.EntriesCrc);

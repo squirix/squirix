@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Transport;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
@@ -10,20 +9,19 @@ using Squirix.Transport.Wire.Cache;
 namespace Squirix.Internal;
 
 /// <summary>Maps native scalar/binary wire values and typed JSON entries without changing configured typed writer serialization.</summary>
-internal static class ProtoEx
+internal static class WireMapping
 {
     private const string MalformedDurationDetail = "The server returned a malformed duration.";
-    private const string MalformedTimestampDetail = "The server returned a malformed timestamp.";
     private const string MissingValueDetail = "The server returned a cache value without a kind.";
     private const string IncompatibleBinaryDetail = "The server returned opaque binary data for a non-binary cache value type.";
 
-    internal static T? Read<T>(CacheValue value, ISquirixSerializer serializer)
+    internal static T? Read<T>(CacheValue? value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(serializer);
         return Decode<T>(value, serializer);
     }
 
-    internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
+    internal static CacheEntryWire MapEntryToWire<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(serializer);
@@ -31,37 +29,25 @@ internal static class ProtoEx
         return new CacheEntryWire
         {
             Value = ToCacheValue(entry.Value, serializer),
-            ExpiresUtc = entry.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
-            Expiration = entry.Expiration == null ? null : ProtoDuration.FromTimeSpan(entry.Expiration.Value),
+            ExpiresUtc = entry.ExpiresUtc,
+            Expiration = entry.Expiration,
         };
     }
 
-    internal static CacheEntry<T> MapProtoEntryToCacheEntry<T>(CacheEntryWire entry, ISquirixSerializer serializer)
+    internal static CacheEntry<T> MapWireEntryToCacheEntry<T>(CacheEntryWire? entry, ISquirixSerializer serializer, DateTime? rebasedDeadline = null)
     {
         ArgumentNullException.ThrowIfNull(serializer);
         return new CacheEntry<T>
         {
-            Value = Decode<T>(entry.Value, serializer),
-            ExpiresUtc = entry.ExpiresUtc is { } expiresUtc ? ReadTimestamp(expiresUtc) : null,
-            Expiration = entry.Expiration is { } expiration ? ReadDuration(expiration) : null,
+            Value = Decode<T>(entry?.Value, serializer),
+            ExpiresUtc = rebasedDeadline ?? entry?.ExpiresUtc,
+            Expiration = entry?.Expiration,
         };
     }
 
-    /// <summary>Converts a server-reported duration to a <see cref="TimeSpan" />, rejecting a non-normalized value.</summary>
-    /// <param name="duration">The wire duration.</param>
-    /// <returns>The converted time span.</returns>
-    /// <exception cref="SquirixTransportException">Thrown with <see cref="CacheTransportStatusCode.Internal" /> when the server sent a malformed or missing duration.</exception>
-    internal static TimeSpan ReadDuration(Duration? duration) => duration != null && ProtoDuration.IsNormalized(duration)
-        ? ProtoDuration.ToTimeSpan(duration)
-        : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MalformedDurationDetail));
+    internal static TimeSpan ReadDuration(TimeSpan? duration) => duration ?? MissingDuration();
 
-    /// <summary>Converts a server-reported timestamp to a UTC <see cref="DateTime" />, rejecting a non-normalized value.</summary>
-    /// <param name="timestamp">The wire timestamp.</param>
-    /// <returns>The converted UTC date and time.</returns>
-    /// <exception cref="SquirixTransportException">Thrown with <see cref="CacheTransportStatusCode.Internal" /> when the server sent a malformed timestamp.</exception>
-    internal static DateTime ReadTimestamp(Timestamp timestamp) => ProtoTimestamp.IsNormalized(timestamp)
-        ? timestamp.ToDateTime().ToUniversalTime()
-        : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MalformedTimestampDetail));
+    private static TimeSpan MissingDuration() => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MalformedDurationDetail));
 
     private static T? DeserializeScalar<T>(CacheValue value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null)
     {
@@ -73,7 +59,7 @@ internal static class ProtoEx
     private static T? Decode<T>(CacheValue? value, ISquirixSerializer serializer)
     {
         var present = RequireValue(value);
-        return typeof(T) == typeof(object) ? ProtoScalarMapping.Coerce<T>(DecodeObject(present)) : DecodeTyped<T>(present, serializer);
+        return typeof(T) == typeof(object) ? WireScalarMapping.Coerce<T>(DecodeObject(present)) : DecodeTyped<T>(present, serializer);
     }
 
     private static object? DecodeObject(CacheValue value) => value.KindCase switch
@@ -84,12 +70,12 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
         CacheValue.KindOneofCase.NullValue => null,
         CacheValue.KindOneofCase.JsonUtf8 => ParseElement(value.JsonUtf8.Span),
-        CacheValue.KindOneofCase.BinaryValue => value.BinaryValue.ToByteArray(),
+        CacheValue.KindOneofCase.BinaryValue => value.TakeBinaryValue(),
         _ => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, MissingValueDetail)),
     };
 
     private static T? DecodeTyped<T>(CacheValue value, ISquirixSerializer serializer) =>
-        ProtoScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive)
+        WireScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive)
             ? primitive
             : value.KindCase switch
             {
@@ -100,7 +86,7 @@ internal static class ProtoEx
             };
 
     private static T? DecodeBinary<T>(CacheValue value) => typeof(T) == typeof(byte[])
-        ? ProtoScalarMapping.Coerce<T>(value.BinaryValue.ToByteArray())
+        ? WireScalarMapping.Coerce<T>(value.TakeBinaryValue())
         : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Internal, IncompatibleBinaryDetail));
 
     private static JsonElement ParseElement(ReadOnlySpan<byte> json)

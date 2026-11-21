@@ -19,7 +19,7 @@ Client and server packages keep **separate** serializer hosts:
 The default serializer requires source-generated JSON metadata for application-specific types. Add a
 `JsonSerializerContext` covering each type to `SquirixClientOptions.JsonSerializerContexts` before connecting.
 Without registered metadata, these types throw `InvalidOperationException`; the serializer does not fall back to reflection.
-Native protobuf values such as strings do not need an application JSON context. The built-in metadata also covers
+Native wire values such as strings do not need an application JSON context. The built-in metadata also covers
 `decimal` and `JsonElement`. Other collection and binary types can need registration too: for example, add
 `[JsonSerializable(typeof(byte[]))]` to an application context before writing through `ICache<byte[]>` with the default
 serializer.
@@ -114,7 +114,7 @@ mutate process-wide client state and does **not** change the server journal/snap
 ## What travels on the wire
 
 Native scalar values bypass the serializer. Application values that use it, including `decimal`, must encode
-as one valid UTF-8 JSON value. See [Value encoding](api.md#value-encoding) for protobuf kinds, JSON validation,
+as one valid UTF-8 JSON value. See [Value encoding](api.md#value-encoding) for wire value kinds, JSON validation,
 and how the SDK reads them back.
 
 A typed `ICache<byte[]>` write with the default JSON serializer sends Base64 JSON. The

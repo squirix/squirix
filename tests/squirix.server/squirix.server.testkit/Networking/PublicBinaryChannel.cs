@@ -9,14 +9,13 @@ using System.Security.Authentication;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.TestKit.Networking;
 
-/// <summary>Sends public binary frames while reusing generated protobuf method descriptors in the raw wire tests.</summary>
+/// <summary>Sends public binary frames while reusing cache message parsers in the raw wire tests.</summary>
 public sealed class PublicBinaryChannel : IDisposable
 {
     private readonly Action<byte>? _acknowledgement;
@@ -48,8 +47,8 @@ public sealed class PublicBinaryChannel : IDisposable
         }
     }
 
-    internal async Task<T> ExchangeAsync<T>(BinaryOperation operation, IMessage message, MessageParser<T> parser, DateTime? deadline, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    internal async Task<T> ExchangeAsync<T>(BinaryOperation operation, WireMessage message, WireParser<T> parser, DateTime? deadline, CancellationToken cancellationToken)
+        where T : WireMessage
     {
         var budget = deadline is { } end ? end - TimeProvider.System.GetUtcNow().UtcDateTime : TimeSpan.FromSeconds(30);
         if (budget <= TimeSpan.Zero)
@@ -62,9 +61,9 @@ public sealed class PublicBinaryChannel : IDisposable
         {
             stream = _idle.TryTake(out var pooled) ? pooled : await ConnectAsync(timeout.Token).ConfigureAwait(false);
             var size = message.CalculateSize();
-            var bytes = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes + size);
+            var bytes = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes + size);
             var control = (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | Convert.ToInt32(Math.Floor(Math.Min(budget.TotalMilliseconds, ushort.MaxValue)));
-            Frames.WriteMessage(bytes, 0, size, control, message);
+            Frames.WriteRequestMessage(bytes, 0, size, control, message);
             await stream.WriteAsync(bytes, timeout.Token).ConfigureAwait(false);
             var (value, failure) = await ReadReplyAsync(stream, parser, timeout.Token).ConfigureAwait(false);
             lock (_lifetime)
@@ -81,7 +80,7 @@ public sealed class PublicBinaryChannel : IDisposable
         {
             throw new ServerCallException(cancellationToken.IsCancellationRequested ? FrameStatus.Cancelled : FrameStatus.DeadlineExceeded, "The request was cancelled.");
         }
-        catch (Exception error) when (error is InvalidProtocolBufferException or InvalidDataException)
+        catch (InvalidDataException error)
         {
             throw new ServerCallException(FrameStatus.DataLoss, error.Message);
         }
@@ -96,12 +95,12 @@ public sealed class PublicBinaryChannel : IDisposable
         }
     }
 
-    private static async Task<(T? Value, ServerCallException? Failure)> ReadReplyAsync<T>(Stream stream, MessageParser<T> parser, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    private static async Task<(T? Value, ServerCallException? Failure)> ReadReplyAsync<T>(Stream stream, WireParser<T> parser, CancellationToken cancellationToken)
+        where T : WireMessage
     {
-        var header = GC.AllocateUninitializedArray<byte>(Frames.HeaderBytes);
+        var header = GC.AllocateUninitializedArray<byte>(Frames.ReplyBytes);
         await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
-        var (id, size, status) = Frames.Read(header, Frames.MaxResponseBytes);
+        var (id, size, status) = Frames.ReadReply(header);
         if (id != 0)
             ThrowUnexpectedResponseId();
 

@@ -76,6 +76,23 @@ public sealed class RingAgreementTests : ServerUnitTestBase
         _ = await Assert.That(log.Find(MismatchLoggedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
     }
 
+    /// <summary>Matching binary digests pass and mismatches retain their hex diagnostic.</summary>
+    [Test]
+    public async Task BinaryFingerprintKeepsRingFenceSemantics()
+    {
+        var local = LocalFingerprint();
+        var other = RingFingerprint.Create("cluster", ["n1", "n2", "n3"], 128);
+        var agreement = Create(new EventRecordingLogger());
+        agreement.EnsureInboundDigestAgreement(local.Digest.Span, "n2");
+        _ = await Assert.That(agreement.IsFenced).IsFalse();
+
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws((agreement, other), static state =>
+            state.agreement.EnsureInboundDigestAgreement(state.other.Digest.Span, "n2"));
+
+        _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsTrue();
+        _ = await Assert.That(agreement.FirstMismatch).IsEqualTo(new RingMismatchReport("n2", RingMismatchDirection.Inbound, other.Value));
+    }
+
     /// <summary>An outbound mismatch fences the node with an unknown peer fingerprint.</summary>
     [Test]
     public async Task OutboundMismatchFences()

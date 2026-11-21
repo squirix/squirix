@@ -196,8 +196,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var forwarder = CreateForwarder(pool, CreatePolicy(attempt, clock, 1));
         var call = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
         await using var stream = await peer.AcceptTlsAsync(cancellationToken);
-        var (path, _, length) = await NativePeerFixture.ReadAsync(stream, cancellationToken);
-        _ = await Assert.That(path).IsEqualTo("owner/GetValue");
+        var (operation, _, length) = await NativePeerFixture.ReadAsync(stream, cancellationToken);
+        _ = await Assert.That(operation).IsEqualTo(PeerOperation.GetValue);
         _ = await Assert.That(length).IsGreaterThan(0);
         clock.Advance(attempt);
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
@@ -215,8 +215,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System, 1));
         var call = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
         await using var stream = await peer.AcceptTlsAsync(cancellationToken);
-        var (path, _, length) = await NativePeerFixture.ReadAsync(stream, cancellationToken);
-        _ = await Assert.That(path).IsEqualTo("owner/GetValue");
+        var (operation, _, length) = await NativePeerFixture.ReadAsync(stream, cancellationToken);
+        _ = await Assert.That(operation).IsEqualTo(PeerOperation.GetValue);
         _ = await Assert.That(length).IsGreaterThan(0);
         await stream.DisposeAsync();
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(call, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
@@ -255,8 +255,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var forward = await peer.ExchangePingAsync(pool.ForNode(Owner), cancellationToken);
         var replica = await peer.ExchangePingAsync(lease.Client, lease.Token);
 
-        _ = await Assert.That(forward).IsEqualTo(("ping", NativePeerFixture.Fingerprint, 0));
-        _ = await Assert.That(replica).IsEqualTo(("ping", string.Empty, 0));
+        _ = await Assert.That(forward).IsEqualTo((PeerOperation.Ping, NativePeerFixture.Fingerprint, 0));
+        _ = await Assert.That(replica).IsEqualTo((PeerOperation.Ping, string.Empty, 0));
     }
 
     /// <inheritdoc />

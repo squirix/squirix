@@ -7,7 +7,6 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -17,7 +16,6 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
-using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -92,6 +90,15 @@ internal sealed class NativePeerEndpoint
         }
     }
 
+    private static string? ReadTraceParent(in PeerFrames.Request frame, byte[] metadata)
+    {
+        if (frame.Parent == 0)
+            return null;
+
+        var bytes = metadata.AsSpan(frame.Fingerprint, frame.Parent);
+        return frame.TraceParentIsBinary ? WireTraceParent.Read(bytes) : PeerFrames.Text.GetString(bytes);
+    }
+
     private async Task<bool> ProcessAsync(SslStream stream, PeerFrames.Request frame, X509Certificate2 certificate, CancellationToken graceful, CancellationToken abort)
     {
         var clock = _services.Require<TimeProvider>();
@@ -121,7 +128,7 @@ internal sealed class NativePeerEndpoint
         {
             reply = BinaryResponse.FromError(error);
         }
-        catch (InvalidProtocolBufferException)
+        catch (InvalidDataException)
         {
             reply = new BinaryResponse(FrameStatus.InvalidArgument);
         }
@@ -142,32 +149,30 @@ internal sealed class NativePeerEndpoint
 
     private async Task<BinaryResponse> DispatchAsync(PeerFrames.Request frame, byte[] meta, ReadOnlyMemory<byte> body, X509Certificate2 certificate, string peer, CancellationToken cancellationToken)
     {
-        var path = PeerFrames.Text.GetString(meta, 0, frame.Path);
-        if (string.Equals(path, "ping", StringComparison.Ordinal))
+        if (frame.Operation == PeerOperation.Ping)
             return new BinaryResponse(body.IsEmpty ? FrameStatus.Ok : FrameStatus.InvalidArgument);
-        var offset = frame.Path;
-        var fingerprint = frame.Fingerprint == 0 ? null : PeerFrames.Text.GetString(meta, offset, frame.Fingerprint);
-        offset += frame.Fingerprint;
-        var parent = frame.Parent == 0 ? null : PeerFrames.Text.GetString(meta, offset, frame.Parent);
-        offset += frame.Parent;
-        var state = frame.State == 0 ? null : PeerFrames.Text.GetString(meta, offset, frame.State);
-        var fullPath = PeerProtocol.Prefix + path;
-        if (path.StartsWith("owner/", StringComparison.Ordinal))
+        var (fullPath, ownerOperation) = PeerProtocol.Route(frame.Operation);
+        if (fullPath == null)
+            return new BinaryResponse(FrameStatus.Unimplemented);
+        var parent = ReadTraceParent(in frame, meta);
+        var state = frame.State == 0 ? null : PeerFrames.Text.GetString(meta, frame.Fingerprint + frame.Parent, frame.State);
+        if (ownerOperation is { } operation)
         {
-            var name = path["owner/".Length..];
-            if (!Enum.TryParse<BinaryOperation>(name, out var operation) || !string.Equals(Enum.GetName(operation), name, StringComparison.Ordinal) || operation == BinaryOperation.Unspecified)
-                return new BinaryResponse(FrameStatus.Unimplemented);
-            _services.Require<RingAgreement>().EnsureInboundAgreement(fingerprint, peer);
+            var agreement = _services.Require<RingAgreement>();
+            if (frame.FingerprintIsDigest)
+                agreement.EnsureInboundDigestAgreement(meta.AsSpan(0, frame.Fingerprint), peer);
+            else
+                agreement.EnsureInboundAgreement(frame.Fingerprint == 0 ? null : PeerFrames.Text.GetString(meta, 0, frame.Fingerprint), peer);
             var call = new BinaryRequestContext { Path = fullPath, RequestAborted = cancellationToken, TraceParent = parent, TraceState = state };
             var request = new BinaryDispatch.Request(call, DateTime.MaxValue, Task.CompletedTask, true);
             return await _services.Require<BinaryDispatch>().ExecuteAsync(operation, body, in request).ConfigureAwait(false);
         }
 
-        if (!_replication || !path.StartsWith("replication/", StringComparison.Ordinal))
+        if (!_replication)
             return new BinaryResponse(FrameStatus.Unimplemented);
         var context = new PeerCallContext { ClientCertificate = certificate, InternalListener = true, LocalPort = _port, RequestAborted = cancellationToken };
         using var activity = ServerCallCorrelation.StartActivity(fullPath, parent, state);
         using var log = _services.Require<ServerCallCorrelation>().BeginLogScope(fullPath);
-        return await PeerDispatch.DispatchAsync(path["replication/".Length..], body, context, _services.Require<SquirixReplicationServiceAdapter>()).ConfigureAwait(false);
+        return await PeerDispatch.DispatchAsync(frame.Operation, body, context, _services.Require<SquirixReplicationServiceAdapter>()).ConfigureAwait(false);
     }
 }

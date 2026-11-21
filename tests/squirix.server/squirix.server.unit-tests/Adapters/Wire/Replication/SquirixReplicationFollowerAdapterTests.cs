@@ -1,8 +1,8 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -88,8 +88,8 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var response = await follower.Adapter.GetReplicaStatusAsync(request, follower.Context);
 
         _ = await Assert.That(current.TopologyFingerprint.IsEmpty).IsFalse();
-        await SequenceAssert.EqualAsync(current.TopologyFingerprint.ToArray(), response.TopologyFingerprint.ToByteArray());
-        _ = await Assert.That(current.TopologyFingerprint.Equals(response.TopologyFingerprint.Memory)).IsFalse();
+        await SequenceAssert.EqualAsync(current.TopologyFingerprint.ToArray(), response.TopologyFingerprint.ToArray());
+        _ = await Assert.That(current.TopologyFingerprint.Equals(response.TopologyFingerprint)).IsFalse();
         _ = await Assert.That(response.ConfigurationGeneration).IsEqualTo(current.ConfigurationGeneration);
     }
 
@@ -324,14 +324,14 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers(), null, memoryPressure);
-        var header = new ReplicationEnvelopeHeader
+        var header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = "node-a",
             LeaderNodeId = "node-a",
             GroupId = groupId,
             Term = 7,
-            TopologyFingerprint = ByteString.CopyFromUtf8("\t"),
+            TopologyFingerprint = Encoding.UTF8.GetBytes("\t"),
             ConfigurationGeneration = topology.ConfigurationGeneration,
         };
         var httpContext = new PeerCallContext
@@ -367,7 +367,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
 
         internal required TempDirectory Dir { get; init; }
 
-        internal required ReplicationEnvelopeHeader Header { get; init; }
+        internal required EnvelopeHeader Header { get; init; }
 
         internal required PeerCallContext Context { get; init; }
 

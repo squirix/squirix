@@ -89,22 +89,6 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
 
-    /// <summary>Shared proto contracts must not declare the server-only replication service.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SharedProtoContainsNoReplication(CancellationToken cancellationToken)
-    {
-        var transportRoot = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport");
-        _ = await Assert.That(Directory.Exists(transportRoot)).IsTrue();
-
-        foreach (var path in Directory.GetFiles(transportRoot, "*.proto", SearchOption.AllDirectories))
-        {
-            var text = await File.ReadAllTextAsync(path, cancellationToken);
-            _ = await Assert.That(text).DoesNotContain("SquirixReplicationService", StringComparison.Ordinal);
-            _ = await Assert.That(text).DoesNotContain("squirix.replication", StringComparison.Ordinal);
-        }
-    }
-
     private static async Task AssertEdgeAsync(XmlDocument policy, string from, string to, bool expectedDisallowed)
     {
         var disallowed = false;

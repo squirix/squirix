@@ -73,7 +73,7 @@ internal static class GroupLogCodec
     private const byte OfferedByte = 1;
 
     /// <summary>Metadata format version.</summary>
-    private const byte MetaVersion = 2;
+    private const byte MetaVersion = 3;
 
     /// <summary>Computes the exact encoded length of a log frame.</summary>
     /// <param name="len">The entry payload length in bytes.</param>

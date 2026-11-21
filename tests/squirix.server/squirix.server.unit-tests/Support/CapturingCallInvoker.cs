@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Cluster;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -28,10 +28,10 @@ internal sealed class CapturingCallInvoker : IPeerClient
     /// <summary>Gets the request instances, in call order.</summary>
     internal List<object> Requests { get; } = [];
 
-    public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+        where T : WireMessage
     {
-        var name = path[(path.AsSpan().LastIndexOf('/') + 1)..];
+        var name = Enum.GetName(operation) ?? string.Empty;
         Methods.Add(name);
         Requests.Add(request);
         var error = _failure?.Invoke();

@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
@@ -12,6 +11,7 @@ using Squirix.Internal.Cluster.Transport;
 using Squirix.Testing;
 using Squirix.TestKit;
 using Squirix.Transport;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -333,7 +333,7 @@ public sealed class OperationDeadlineTests
 
         internal List<CapturedCall> Calls => [.. _calls];
 
-        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync => HandleAsync;
+        internal Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> InvokeAsync => HandleAsync;
 
         public void Dispose() => _firstCall.Dispose();
 
@@ -345,12 +345,12 @@ public sealed class OperationDeadlineTests
             _ => string.Empty,
         };
 
-        private Task<IMessage> HandleAsync(BinaryOperation operation, IMessage request, MessageParser parser, BinaryCallOptions options)
+        private Task<WireMessage> HandleAsync(BinaryOperation operation, WireMessage request, IWireParser parser, BinaryCallOptions options)
         {
             _calls.Enqueue(new CapturedCall(options.Deadline, ExtractOperationId(request)));
             _ = _firstCall.Release();
 
-            var completion = new TaskCompletionSource<IMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<WireMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
             switch (_mode)
             {
                 case TransportMode.Hang:

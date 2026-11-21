@@ -78,7 +78,7 @@ public sealed class BinaryMutationOrderTests
 
     private static async Task AssertRepliesAsync(PipeReader output, CancellationToken stop)
     {
-        const int byteCount = ReadId * Frames.HeaderBytes;
+        const int byteCount = ReadId * Frames.ReplyBytes;
         var result = await output.ReadAtLeastAsync(byteCount, stop);
         var buffer = result.Buffer;
         var replies = ReadReplies(in buffer);
@@ -93,11 +93,11 @@ public sealed class BinaryMutationOrderTests
     private static Dictionary<int, (int Size, int Status)> ReadReplies(in ReadOnlySequence<byte> buffer)
     {
         var replies = new Dictionary<int, (int Size, int Status)>();
-        Span<byte> header = stackalloc byte[Frames.HeaderBytes];
+        Span<byte> header = stackalloc byte[Frames.ReplyBytes];
         for (var i = 0; i < ReadId; i++)
         {
-            buffer.Slice(i * Frames.HeaderBytes, Frames.HeaderBytes).CopyTo(header);
-            var (id, size, status) = Frames.Read(header, Frames.MaxResponseBytes);
+            buffer.Slice(i * Frames.ReplyBytes, Frames.ReplyBytes).CopyTo(header);
+            var (id, size, status) = Frames.ReadReply(header);
             replies.Add(id, (size, status));
         }
 
@@ -113,8 +113,8 @@ public sealed class BinaryMutationOrderTests
                 operation = BinaryOperation.GetDistributed;
 
             var control = (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | 1000;
-            Frames.Write(input.GetSpan(Frames.HeaderBytes), id, 0, control);
-            input.Advance(Frames.HeaderBytes);
+            Frames.WriteRequest(input.GetSpan(Frames.RequestBytes), id, 0, control);
+            input.Advance(Frames.RequestBytes);
         }
 
         _ = await input.FlushAsync(stop);
