@@ -126,6 +126,13 @@ internal sealed record SignedConnectionToken(string Issuer, JwtVerificationKey S
             return null;
         }
 
+        return ReadValidity(root, key) is { } validity && now >= validity.Lower && now < validity.Upper
+            ? new SignedConnectionToken(issuer, key, CreatePrincipal(root, issuer), validity.Lower, validity.Upper)
+            : null;
+    }
+
+    private static (DateTime Lower, DateTime Upper)? ReadValidity(JsonElement root, JwtVerificationKey key)
+    {
         var upper = ReadDate(root.GetProperty("exp"));
         var lower = root.TryGetProperty("nbf", out var nbf) ? ReadDate(nbf) : DateTime.MinValue;
         if (upper < lower)
@@ -134,9 +141,10 @@ internal sealed record SignedConnectionToken(string Issuer, JwtVerificationKey S
             upper = keyUpper;
         if (key.NotBefore is { } keyLower && keyLower > lower)
             lower = keyLower;
+
         upper = Offset(upper, ClockSkew);
         lower = Offset(lower, -ClockSkew);
-        return now < lower || now >= upper ? null : new SignedConnectionToken(issuer, key, CreatePrincipal(root, issuer), lower, upper);
+        return (lower, upper);
     }
 
     private static DateTime ReadDate(JsonElement value)
