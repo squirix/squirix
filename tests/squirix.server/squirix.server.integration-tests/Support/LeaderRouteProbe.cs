@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.IntegrationTests.Support;
@@ -213,12 +213,12 @@ internal sealed class LeaderRouteProbe
             _pool = pool;
         }
 
-        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-            where T : IMessage<T>
+        public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage
         {
             if (request is SetEntryAsyncRequest set)
                 _pool.Record(_target, set.OperationId);
-            return _inner.SendAsync(path, request, parser, cancellationToken);
+            return _inner.SendAsync(operation, request, parser, cancellationToken);
         }
     }
 }

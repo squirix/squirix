@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
@@ -117,7 +116,7 @@ internal sealed class FusedWriteHarness
     /// <param name="key">Cache key.</param>
     /// <returns>The request.</returns>
     internal static TouchAsyncRequest Touch(string operationId, TimeSpan expiration, string key = Key) =>
-        new() { CacheName = CacheName, Key = key, OperationId = operationId, Expiration = Duration.FromTimeSpan(expiration) };
+        new() { CacheName = CacheName, Key = key, OperationId = operationId, Expiration = expiration };
 
     /// <summary>Builds a TryAddEntry request.</summary>
     /// <param name="operationId">Operation id.</param>
@@ -176,7 +175,7 @@ internal sealed class FusedWriteHarness
     private static CacheEntryWire Entry(string value, TimeSpan? ttl = null) => new()
     {
         Value = JsonValueKit.Wire("{\"__v\":\"" + value + "\"}"),
-        Expiration = ttl is { } span ? Duration.FromTimeSpan(span) : null,
+        Expiration = ttl,
     };
 
     private RoutedCacheOperations<object?> CreateAdapter(ILogicalNamespacedCache<object?> api)

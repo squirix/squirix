@@ -28,22 +28,20 @@ Package dependency rule:
 Squirix.Server does not reference the Squirix client assembly.
 ```
 
-Wire compatibility is through the shared protobuf schema (and HTTP health/metrics JSON), not a project reference from
-server to client.
-
-The SDK and server compile the same checked-in cache messages from the shared schema.
-The replication schema is private to the server and defines the messages used by the binary peer transport.
-After editing either schema, regenerate the C# messages with the standalone protobuf compiler 35.1 and its standard includes.
-
-```powershell
-./tools/internal/generate-protobuf.ps1
-```
+The SDK and server compile the same internal cache message definitions and binary codec from shared C# sources.
+The replication message definitions are private to the server. HTTP health and metrics are served separately.
+The [wire generator](../tools/internal/generate-wire.py) emits the checked-in C# message types from the positional schemas.
+Each operation defines the order of its fields. Flags encode booleans and optional-field presence without per-field tags.
 
 Peers exchange versioned binary messages on the internal mTLS listener.
-Owner forwarding, log replication, elections and state transfer use this protocol. Upgrade all cluster members together when moving from the previous peer protocol.
+Owner forwarding, log replication, elections and state transfer use this protocol.
+The client preface is SQB3 and the peer ALPN is squirix-peer/2. Request and reply headers pack their fields into fixed-width words.
+Peers send SHA-256 ring fingerprints and W3C trace identifiers as bytes.
+Update SDKs and servers together. Stop all old cluster members and start the new version
+on empty data directories.
 
 The shared transport code defines routing signals such as stale-owner markers.
-Generated protobuf message types are internal to their assemblies.
+Wire message types are internal to their assemblies.
 
 `Squirix.Server` owns data placement, partition ownership, static cluster topology, owner routing, server-side
 KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycle, backpressure, memory pressure,
@@ -66,7 +64,7 @@ mutation parameter. When write options omit expiration (`options` is null, or ne
 set), the entry is stored without TTL and does not expire by time; overwriting an expiring key that way clears its TTL.
 Compare-and-set, counters, batch, scan, watch, and tag invalidation are not part of the v0.1 exported client surface.
 
-The binary protocol defines 13 operations in `SquirixCache.proto`, including three for `IDistributedCache`. Mutations with expiration use
+The binary protocol defines 13 operations, including three for `IDistributedCache`. Mutations with expiration use
 `SetEntry` / `TryAddEntry` with `CacheEntryWire`; the client SDK maps them to public `SetAsync` / `TryAddAsync`.
 `GetValue` and `GetEntry` are separate read paths; `GetExpiration` and `GetOrAdd` are additional wire RPCs aligned with
 `ICache<T>` without requiring the client to compose multiple calls. See [api.md](api.md#wire-contract). Regressions are
@@ -101,8 +99,7 @@ must not regain server hosting or durable runtime responsibilities.
 Server dependencies such as socket hosting, JWT authentication, journal services,
 snapshots, recovery, and server-owned metrics belong in `Squirix.Server`. They must not be added to `Squirix`.
 
-Production clients use `ConnectAsync(...)` against external server endpoints, the shared `SquirixCache.proto` contract,
-and server-only dependencies kept out of `Squirix.csproj`.
+Production clients use `ConnectAsync(...)` against external server endpoints through the shared binary cache contract.
 
 ## Replica sets
 

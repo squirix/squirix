@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
 using Squirix.Transport;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -94,10 +94,10 @@ public sealed class RemoteRpcErrorMappingTests
             _failure = failure;
         }
 
-        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+        internal Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> InvokeAsync =>
             (_, _, _, _) => ThrowFailureAsync();
 
-        private async Task<IMessage> ThrowFailureAsync()
+        private async Task<WireMessage> ThrowFailureAsync()
         {
             await Task.Yield();
             throw _failure;

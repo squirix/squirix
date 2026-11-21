@@ -2,28 +2,25 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 using RpcEntry = Squirix.Transport.Wire.Cache.CacheEntryWire;
 
-namespace Squirix.Server.Serialization.Protobuf;
+namespace Squirix.Server.Serialization.Wire;
 
-internal static class ServerProtoEx
+internal static class ServerWireMapping
 {
     private const string IncompatibleBinaryDetail = "Opaque binary data requires a binary cache value type.";
     private const string InvalidJsonDetail = "The cache value is not exactly one valid JSON value (UTF-8, no byte order mark, at most 64 levels of nesting, no comments or trailing commas).";
     private const string MissingValueDetail = "The cache value is missing.";
-    private const string NonNormalizedDurationDetail = "Duration is not normalized: nanos must be within -999999999..999999999 and share the sign of seconds.";
-    private const string NonNormalizedTimestampDetail = "Timestamp is not normalized: nanos must be within 0..999999999 and seconds within 0001-01-01..9999-12-31.";
 
     /// <summary>Maps a cache value to its wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
     /// <returns>A native scalar, an owned binary copy, shared immutable JSON bytes, or serialized JSON for other values.</returns>
-    internal static CacheValue CacheValueToProto<T>(T? value)
+    internal static CacheValue CacheValueToWire<T>(T? value)
     {
         return value switch
         {
@@ -48,52 +45,24 @@ internal static class ServerProtoEx
         return typeof(T) == typeof(object) ? Coerce<T>(ReadObject(present)) : ReadTyped<T>(present);
     }
 
-    internal static NodeCacheEntry<T> MapFromProto<T>(this RpcEntry e)
+    internal static NodeCacheEntry<T> MapFromWire<T>(this RpcEntry? entry) => new()
     {
-        var value = MapCacheValue<T>(e.Value);
-        DateTime? expires = null;
-        if (e.ExpiresUtc == null)
-        {
-            return new NodeCacheEntry<T>
-            {
-                Value = value,
-                ExpiresUtc = expires,
-                Expiration = e.Expiration is { } duration ? RequireDuration(duration) : null,
-            };
-        }
-
-        if (!ProtoTimestamp.IsNormalized(e.ExpiresUtc))
-            throw new ServerCallException(FrameStatus.InvalidArgument, NonNormalizedTimestampDetail);
-
-        expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
-
-        return new NodeCacheEntry<T>
-        {
-            Value = value,
-            ExpiresUtc = expires,
-            Expiration = e.Expiration is { } expiration ? RequireDuration(expiration) : null,
-        };
-    }
-
-    internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
-    {
-        Value = CacheValueToProto(e.Value),
-        ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = e.Expiration == null ? null : ProtoDuration.FromTimeSpan(e.Expiration.Value),
+        Value = MapCacheValue<T>(entry?.Value),
+        ExpiresUtc = entry?.ExpiresUtc,
+        Expiration = entry?.Expiration,
     };
 
-    /// <summary>Converts a wire duration to a <see cref="TimeSpan" />, rejecting non-normalized input.</summary>
-    /// <param name="duration">The wire duration.</param>
-    /// <returns>The converted time span.</returns>
-    /// <exception cref="ServerCallException">Thrown with <see cref="FrameStatus.InvalidArgument" /> when nanos are out of range or their sign opposes the seconds.</exception>
-    internal static TimeSpan RequireDuration(Duration duration) => ProtoDuration.IsNormalized(duration)
-        ? ProtoDuration.ToTimeSpan(duration)
-        : throw new ServerCallException(FrameStatus.InvalidArgument, NonNormalizedDurationDetail);
+    internal static RpcEntry MapToWire<T>(this NodeCacheEntry<T> e, bool includeDeadline = true) => new()
+    {
+        Value = CacheValueToWire(e.Value),
+        ExpiresUtc = includeDeadline ? e.ExpiresUtc : null,
+        Expiration = e.Expiration,
+    };
 
     private static TOut CastReference<TOut, TIn>(TIn input)
         where TIn : class?
     {
-        // Local copy keeps the cast site distinct from client ProtoEx.ReinterpretReference.
+        // Local copy keeps the cast site distinct from client WireMapping.ReinterpretReference.
         var held = input;
         return Unsafe.As<TIn, TOut>(ref held);
     }
@@ -121,7 +90,7 @@ internal static class ServerProtoEx
     };
 
     private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
-        ? Coerce<T>(wire.BinaryValue.ToByteArray())
+        ? Coerce<T>(wire.BinaryValue.ToArray())
         : throw new ServerCallException(FrameStatus.InvalidArgument, IncompatibleBinaryDetail);
 
     private static object? ReadObject(CacheValue wire) => wire.KindCase switch
@@ -131,8 +100,8 @@ internal static class ServerProtoEx
         CacheValue.KindOneofCase.Int64Value => wire.Int64Value,
         CacheValue.KindOneofCase.DoubleValue => wire.DoubleValue,
         CacheValue.KindOneofCase.NullValue => null,
-        CacheValue.KindOneofCase.BinaryValue => wire.BinaryValue.ToByteArray(),
-        CacheValue.KindOneofCase.JsonUtf8 => JsonUtf8Value.TryCreate(wire.JsonUtf8.Memory, out var json)
+        CacheValue.KindOneofCase.BinaryValue => wire.BinaryValue.ToArray(),
+        CacheValue.KindOneofCase.JsonUtf8 => JsonUtf8Value.TryCreate(wire.JsonUtf8, out var json)
             ? json
             : throw new ServerCallException(FrameStatus.InvalidArgument, InvalidJsonDetail),
         _ => throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail),
@@ -156,7 +125,7 @@ internal static class ServerProtoEx
 
     private static bool TryReadExactPrimitive<T>(CacheValue wire, out T? decoded)
     {
-        // Dispatch by destination CLR type first (client ProtoEx switches on KindCase).
+        // Dispatch by destination CLR type first (client WireMapping switches on KindCase).
         decoded = default;
         var destination = typeof(T);
 

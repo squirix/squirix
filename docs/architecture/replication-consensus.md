@@ -464,7 +464,7 @@ places, recorded here as known deviations.
 | Model concept | Implementation |
 | --- | --- |
 | Elections and durable term/vote state | [ReplicaGroupElection](../../src/squirix.server/Cluster/Replication/ReplicaGroupElection.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
-| Append, vote, and state transfer RPCs | Server-only protobuf messages from `SquirixReplication.proto` over [the internal peer protocol](../security/internode-mtls.md) |
+| Append, vote, and state transfer RPCs | Server-only native binary messages over [the internal peer protocol](../security/internode-mtls.md) |
 | Log matching, catch-up, and majority commit | [ReplicaGroupCommitter](../../src/squirix.server/Node/Services/ReplicaGroupCommitter.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
 | ReadIndex confirmation and wait for apply | [ReplicaGroupCommitPipeline](../../src/squirix.server/Node/Services/ReplicaGroupCommitPipeline.cs), [ReplicaGroupCommitterReads](../../src/squirix.server/Node/Services/ReplicaGroupCommitterReads.cs) |
 | Topology fingerprint and generation | [TopologyFingerprint](../../src/squirix.server/Cluster/Replication/TopologyFingerprint.cs), replication RPC headers |
@@ -755,9 +755,9 @@ A renewal still writes the full decided entry in log order. An old pending renew
 so retrying an internal append cannot renew or replace a newer incarnation out of order. Read fencing, term checks,
 unknown-commit handling and the existing finite retention and capacity limits remain in force.
 
-The preview changes manifest slots to version 3, node snapshots to version 3, group log files to version 2 and group
-snapshots to version 5. Stop all nodes and start the new version with empty data directories; no old-format reader or
-rolling upgrade is provided.
+The native wire format requires manifest slot version 4, journal version 5, replica group log and metadata record version 3, and group snapshot version 6.
+Stop all nodes and start the new version with empty data directories.
+Retain the previous directories as a backup for the previous release.
 
 ### Expiry
 

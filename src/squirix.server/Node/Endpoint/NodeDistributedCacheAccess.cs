@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -58,7 +57,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
     /// <param name="payload">Application bytes in an owned cache value, never a pooled buffer.</param>
     /// <returns>The response retaining the observed payload.</returns>
     private static GetDistributedAsyncResponse Response(ReadOnlyMemory<byte>? payload) =>
-        payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = UnsafeByteOperations.UnsafeWrap(bytes) } : new GetDistributedAsyncResponse();
+        payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = bytes } : new GetDistributedAsyncResponse();
 
     private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string cacheName, string key, bool refresh, CancellationToken cancellationToken)
     {

@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -71,17 +70,8 @@ internal sealed class SquirixReplicationServiceAdapter
     /// <param name="request">The append request.</param>
     /// <param name="header">Validated replication envelope identity.</param>
     /// <returns>The follower batch to append.</returns>
-    internal static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
-    {
-        var entries = new FollowerLogEntry[request.Entries.Count];
-        for (var i = 0; i < entries.Length; i++)
-        {
-            var entry = request.Entries[i];
-            entries[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.CanonicalPayload.Memory);
-        }
-
-        return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
-    }
+    internal static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, EnvelopeHeader header) =>
+        new(request.Entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
 
     internal async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, PeerCallContext context)
     {
@@ -90,7 +80,7 @@ internal sealed class SquirixReplicationServiceAdapter
             return StubAppendRefusal(header);
 
         var batch = BuildFollowerBatch(request, header);
-        var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, batch, context.RequestAborted)
+        var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint, header.ConfigurationGeneration, batch, context.RequestAborted)
                                     .ConfigureAwait(false);
         return new AppendReplicaEntriesResponse
         {
@@ -119,7 +109,7 @@ internal sealed class SquirixReplicationServiceAdapter
                 LastLogIndex = 0,
                 CommitIndex = 0,
                 Readiness = "unknown",
-                TopologyFingerprint = ByteString.CopyFrom(_topologyFingerprint.Bytes),
+                TopologyFingerprint = WireReader.CopyBytes(_topologyFingerprint.Bytes),
                 ConfigurationGeneration = _configurationGeneration,
                 RefusalCode = RefusalCodes.NotReady,
             };
@@ -133,7 +123,7 @@ internal sealed class SquirixReplicationServiceAdapter
             LastLogIndex = current.LastLogIndex,
             CommitIndex = current.CommitIndex,
             Readiness = ReplicaReadinessNames.Of(current.Readiness),
-            TopologyFingerprint = ByteString.CopyFrom(current.TopologyFingerprint.Span),
+            TopologyFingerprint = current.TopologyFingerprint.ToArray(),
             ConfigurationGeneration = current.ConfigurationGeneration,
             RefusalCode = string.Empty,
             LastLogTerm = current.LastLogTerm,
@@ -148,7 +138,7 @@ internal sealed class SquirixReplicationServiceAdapter
         _follower?.NotePeerContact(h.SenderNodeId);
         var result = _follower == null
             ? new ReplicaBootstrapOfferResult(false, null, RefusalCodes.NotReady)
-            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, context.RequestAborted).ConfigureAwait(false);
+            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint, h.ConfigurationGeneration, context.RequestAborted).ConfigureAwait(false);
         return new OfferReplicaBootstrapResponse
         {
             Accepted = result.Accepted,
@@ -163,7 +153,7 @@ internal sealed class SquirixReplicationServiceAdapter
         if (RefusesVotes(h.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, Ballot(h, request), context.RequestAborted)
+        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint, h.ConfigurationGeneration, Ballot(h, request), context.RequestAborted)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }
@@ -174,7 +164,7 @@ internal sealed class SquirixReplicationServiceAdapter
         if (RefusesVotes(header.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, Ballot(header, request), context.RequestAborted)
+        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint, header.ConfigurationGeneration, Ballot(header, request), context.RequestAborted)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }
@@ -191,7 +181,7 @@ internal sealed class SquirixReplicationServiceAdapter
     /// <param name="header">Validated replication envelope identity.</param>
     /// <param name="request">The vote request.</param>
     /// <returns>The ballot for the follower.</returns>
-    private static ElectionVoteRequest Ballot(ReplicationEnvelopeHeader header, ReplicaVoteRequest request) =>
+    private static ElectionVoteRequest Ballot(EnvelopeHeader header, ReplicaVoteRequest request) =>
         new(header.SenderNodeId, header.Term, request.LastLogIndex, request.LastLogTerm);
 
     private static ReplicaVoteResponse MapVote(in FollowerLogVoteResult result) => new()
@@ -201,7 +191,7 @@ internal sealed class SquirixReplicationServiceAdapter
         RefusalCode = result.RefusalCode,
     };
 
-    private static AppendReplicaEntriesResponse StubAppendRefusal(ReplicationEnvelopeHeader header) => new()
+    private static AppendReplicaEntriesResponse StubAppendRefusal(EnvelopeHeader header) => new()
     {
         Term = header.Term,
 
@@ -231,7 +221,7 @@ internal sealed class SquirixReplicationServiceAdapter
     private bool RefusesVotes(string groupId) =>
         _follower == null || !_votesEnabled || (string.Equals(groupId, _nodeId, StringComparison.Ordinal) && !_follower.IsElectionDriven(groupId));
 
-    private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, PeerCallContext context, bool requireLeader)
+    private EnvelopeHeader EnsureHeader(EnvelopeHeader? header, PeerCallContext context, bool requireLeader)
     {
         if (header == null || string.IsNullOrWhiteSpace(header.SenderNodeId))
             throw new ServerCallException(FrameStatus.InvalidArgument, "Replication envelope header with sender_node_id is required.");

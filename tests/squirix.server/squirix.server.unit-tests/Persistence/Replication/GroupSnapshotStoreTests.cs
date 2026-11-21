@@ -42,6 +42,28 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         _ = await Assert.That(await ReadCommitAsync(store, cancellationToken)).IsEqualTo(5UL);
     }
 
+    /// <summary>A valid image from the previous build is refused even when a valid current generation could be used as a fallback.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreviousSnapshotVersionStopsRecovery(CancellationToken cancellationToken)
+    {
+        using var dir = NewDirectory("squirix-snapshot-store-previous");
+        var store = NewStore(dir, new StateInstallFaultHooks());
+        await store.PublishAsync(Snapshot(4UL), cancellationToken);
+        var newest = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId))[0];
+        var path = GroupSnapshotFile.SlotPath(dir, GroupId, newest.Slot);
+        var previous = await File.ReadAllBytesAsync(path, cancellationToken);
+        previous[sizeof(uint)] = 5;
+        await File.WriteAllBytesAsync(path, previous, cancellationToken);
+
+        var reopened = NewStore(dir, new StateInstallFaultHooks());
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.ReadPublishedAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(error.Message).Contains("format version 5", StringComparison.Ordinal);
+        var after = await File.ReadAllBytesAsync(path, cancellationToken);
+        await SequenceAssert.EqualAsync(previous, after);
+    }
+
     /// <summary>Publishing creates the two slot files and nothing else: no temp file is left in the group directory.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

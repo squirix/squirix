@@ -4,7 +4,6 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -94,7 +93,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken);
         var request = BeginRequest(scope, TransferFixtures.Image());
-        request.Header.GroupId = "other-group";
+        request.Header!.GroupId = "other-group";
 
         var reply = await scope.Adapter.TransferReplicaStateAsync(request, scope.Context);
 
@@ -168,7 +167,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken);
         var request = BeginRequest(scope, TransferFixtures.Image());
-        request.Header.SenderNodeId = "n9";
+        request.Header!.SenderNodeId = "n9";
         request.Header.LeaderNodeId = "n9";
 
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -183,7 +182,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken);
         var request = BeginRequest(scope, TransferFixtures.Image());
-        request.Header.LeaderNodeId = "n9";
+        request.Header!.LeaderNodeId = "n9";
 
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -215,18 +214,13 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
 
     private static TransferReplicaStateRequest Request(Scope scope, uint sequence, Action<TransferReplicaStateRequest> step)
     {
-        var request = new TransferReplicaStateRequest { Header = scope.Header.Clone(), TransferId = Transfer, Sequence = sequence };
+        var request = new TransferReplicaStateRequest { Header = EnvelopeHeader.Parser.ParseFrom(scope.Header.ToByteArray()), TransferId = Transfer, Sequence = sequence };
         step(request);
         return request;
     }
 
-    private static ReplicaTransferEntry WireEntry(string cacheName, string key, long expiresUtcTicks) => new()
-    {
-        CacheName = cacheName,
-        Key = ByteString.CopyFromUtf8(key),
-        Payload = ByteString.CopyFrom(1, 2),
-        ExpiresUtcTicks = expiresUtcTicks,
-    };
+    private static ReplicaStateEntry WireEntry(string cacheName, string key, long expiresUtcTicks) =>
+        new(cacheName, Encoding.UTF8.GetBytes(key), new byte[] { 1, 2 }, expiresUtcTicks);
 
     /// <summary>Sends a whole transfer: begin, two snapshot chunks, wipe steps until the group is empty, one batch of two entries and the end.</summary>
     /// <param name="scope">The adapter under test.</param>
@@ -239,10 +233,10 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         {
             await scope.Adapter.TransferReplicaStateAsync(BeginRequest(scope, image), scope.Context),
             await scope.Adapter.TransferReplicaStateAsync(
-                Request(scope, 1U, r => r.Snapshot = new ReplicaTransferSnapshot { Offset = 0UL, Chunk = ByteString.CopyFrom(image, 0, half) }),
+                Request(scope, 1U, r => r.Snapshot = new ReplicaTransferSnapshot { Offset = 0UL, Chunk = image.AsMemory(0, half) }),
                 scope.Context),
             await scope.Adapter.TransferReplicaStateAsync(
-                Request(scope, 2U, r => r.Snapshot = new ReplicaTransferSnapshot { Offset = ulong.CreateChecked(half), Chunk = ByteString.CopyFrom(image, half, image.Length - half) }),
+                Request(scope, 2U, r => r.Snapshot = new ReplicaTransferSnapshot { Offset = ulong.CreateChecked(half), Chunk = image.AsMemory(half) }),
                 scope.Context),
         };
         var sequence = 3U;
@@ -250,9 +244,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
             replies.Add(await scope.Adapter.TransferReplicaStateAsync(Request(scope, sequence++, static r => r.Wipe = new ReplicaTransferWipe()), scope.Context));
         while (replies[^1].More);
 
-        var batch = new ReplicaTransferEntries();
-        batch.Entries.Add(WireEntry("cache", "k-1", 0L));
-        batch.Entries.Add(WireEntry("other", "k-2", 123456L));
+        var batch = new ReplicaTransferEntries { Entries = new ReplicaStateEntry[] { WireEntry("cache", "k-1", 0L), WireEntry("other", "k-2", 123456L) } };
         replies.Add(await scope.Adapter.TransferReplicaStateAsync(Request(scope, sequence++, r => r.Entries = batch), scope.Context));
         replies.Add(await scope.Adapter.TransferReplicaStateAsync(Request(scope, sequence, static r => r.End = new WireEnd { EntryCount = 2UL, EntriesCrc32C = 0U }), scope.Context));
         return [.. replies];
@@ -277,11 +269,11 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var topology = new TopologyOptions(new ServerPeer { NodeId = LeaderId, Uri = new Uri("https://localhost:6002") });
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members, withReceiver ? receiver : null);
         var httpContext = new PeerCallContext { LocalPort = mtls.InternalListenPort, ClientCertificate = certificate, InternalListener = true };
-        var header = new ReplicationEnvelopeHeader
+        var header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             GroupId = GroupId,
-            TopologyFingerprint = ByteString.CopyFrom(TransferFixtures.Fingerprint),
+            TopologyFingerprint = TransferFixtures.Fingerprint,
             ConfigurationGeneration = 1UL,
             Term = 1UL,
             LeaderNodeId = LeaderId,
@@ -370,7 +362,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
 
         internal required TempDirectory Dir { get; init; }
 
-        internal required ReplicationEnvelopeHeader Header { get; init; }
+        internal required EnvelopeHeader Header { get; init; }
 
         internal required EventRecordingLogger Log { get; init; }
 

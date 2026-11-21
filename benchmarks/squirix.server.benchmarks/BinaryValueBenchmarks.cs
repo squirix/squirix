@@ -2,8 +2,7 @@ using System;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
-using Google.Protobuf;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 
@@ -59,7 +58,7 @@ public class BinaryValueBenchmarks
     /// <returns>The decoded bytes.</returns>
     [Benchmark]
     [BenchmarkCategory("Decode")]
-    public byte[] DecodeBinary() => ServerProtoEx.MapCacheValue<byte[]>(_binary)!;
+    public byte[] DecodeBinary() => ServerWireMapping.MapCacheValue<byte[]>(_binary)!;
 
-    private CacheValue CreateJson() => new() { JsonUtf8 = UnsafeByteOperations.UnsafeWrap(JsonSerializer.SerializeToUtf8Bytes(_payload, BinaryBenchmarkJson.Default.ByteArray)) };
+    private CacheValue CreateJson() => new() { JsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(_payload, BinaryBenchmarkJson.Default.ByteArray) };
 }

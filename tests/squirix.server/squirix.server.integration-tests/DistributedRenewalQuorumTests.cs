@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -187,15 +186,15 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
     private static async Task AssertFinalStateAsync(CacheWireClient client, GetDistributedAsyncRequest access, GetDistributedAsyncResponse original, bool remove, CancellationToken cancellationToken)
     {
         _ = await Assert.That(original.Found).IsTrue();
-        _ = await Assert.That(original.Value).IsEqualTo(ByteString.CopyFrom(0, 255));
+        _ = await Assert.That(original.Value.Span.SequenceEqual(new byte[] { 0, 255 })).IsTrue();
         var replay = await client.GetDistributedAsync(access, cancellationToken: cancellationToken);
         _ = await Assert.That(replay.Found).IsEqualTo(!remove);
-        _ = await Assert.That(replay.Value).IsEqualTo(remove ? ByteString.Empty : ByteString.CopyFrom(7));
-        var fresh = access.Clone();
+        _ = await Assert.That(replay.Value.Span.SequenceEqual(remove ? [] : new byte[] { 7 })).IsTrue();
+        var fresh = GetDistributedAsyncRequest.Parser.ParseFrom(access.ToByteArray());
         fresh.OperationId = Guid.NewGuid().ToString("N");
         var current = await client.GetDistributedAsync(fresh, cancellationToken: cancellationToken);
         _ = await Assert.That(current.Found).IsEqualTo(!remove);
-        _ = await Assert.That(current.Value).IsEqualTo(remove ? ByteString.Empty : ByteString.CopyFrom(7));
+        _ = await Assert.That(current.Value.Span.SequenceEqual(remove ? [] : new byte[] { 7 })).IsTrue();
     }
 
     private static async Task AssertMutationOrderAsync(IFollowerLog log, ulong before, string accessId, string mutationId, CancellationToken cancellationToken)
@@ -216,7 +215,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         {
             CacheName = CacheName,
             Key = key,
-            Value = ByteString.CopyFrom(0, 255),
+            Value = new byte[] { 0, 255 },
             SlidingTicks = TimeSpan.FromMinutes(2).Ticks,
             OperationId = Guid.NewGuid().ToString("N"),
         };
@@ -226,7 +225,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
     private static Task SubmitMutationAsync(CacheWireClient client, string key, string operationId, bool remove, CancellationToken cancellationToken) =>
         remove
             ? client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken)
-            : client.SetDistributedAsync(new SetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Value = ByteString.CopyFrom(7) }, cancellationToken: cancellationToken);
+            : client.SetDistributedAsync(new SetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Value = new byte[] { 7 } }, cancellationToken: cancellationToken);
 
     private sealed class ShiftableClock : TimeProvider
     {

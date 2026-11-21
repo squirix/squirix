@@ -3,8 +3,8 @@ using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Internal;
 
-/// <summary>Maps CLR scalar and typed-primitive cache values to and from protobuf representations.</summary>
-internal static class ProtoScalarMapping
+/// <summary>Maps CLR scalar and typed-primitive cache values to and from native wire values.</summary>
+internal static class WireScalarMapping
 {
     internal static T? Coerce<T>(object? value) => value is T result ? result : default;
 

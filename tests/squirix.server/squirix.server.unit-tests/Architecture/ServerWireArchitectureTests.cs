@@ -9,7 +9,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Checks shared protobuf sources and assembly-local wire contracts.</summary>
+/// <summary>Checks shared binary contract sources and assembly-local wire contracts.</summary>
 [Immutable]
 public sealed class ServerWireArchitectureTests : ServerUnitTestBase
 {
@@ -17,7 +17,7 @@ public sealed class ServerWireArchitectureTests : ServerUnitTestBase
     [Test]
     public async Task ProjectsShareCacheWireEncoding()
     {
-        const string include = @"..\shared\Squirix\Transport\Generated\SquirixCache.cs";
+        const string include = @"..\shared\Squirix\Transport\Wire\CacheMessages.g.cs";
         var serverIncludes = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("Compile");
         var clientProject = await ServerArchitectureFixtures.LoadProjectAsync("src/squirix/Squirix.csproj");
         var clientIncludes = ServerArchitectureFixtures.ParseMsbuildProject(clientProject).GetIncludes("Compile");

@@ -5,7 +5,6 @@ using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -62,7 +61,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.Unauthenticated);
     }
 
-    /// <summary>Every protobuf method is mapped once and retains internal-listener and authorization metadata.</summary>
+    /// <summary>Every peer method is mapped once and retains internal-listener and authorization metadata.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task EveryMethodKeepsInternalMetadata(CancellationToken cancellationToken)
@@ -244,11 +243,11 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
     private static AppendReplicaEntriesRequest CreateAppendRequest(string senderNodeId, string leaderNodeId) => new()
     {
-        Header = new ReplicationEnvelopeHeader
+        Header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             GroupId = "g1",
-            TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
+            TopologyFingerprint = new byte[] { 1, 2, 3, 4 },
             ConfigurationGeneration = 1,
             Term = 1,
             LeaderNodeId = leaderNodeId,
@@ -259,11 +258,11 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
     private static GetReplicaStatusRequest CreateStatusRequest(string senderNodeId) => new()
     {
-        Header = new ReplicationEnvelopeHeader
+        Header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             GroupId = "g1",
-            TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
+            TopologyFingerprint = new byte[] { 1, 2, 3, 4 },
             ConfigurationGeneration = 1,
             Term = 1,
             LeaderNodeId = senderNodeId,
@@ -273,11 +272,11 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
     private static ReplicaVoteRequest CreateVoteRequest(string senderNodeId, string leaderNodeId) => new()
     {
-        Header = new ReplicationEnvelopeHeader
+        Header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             GroupId = "g1",
-            TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
+            TopologyFingerprint = new byte[] { 1, 2, 3, 4 },
             ConfigurationGeneration = 1,
             Term = 2,
             LeaderNodeId = leaderNodeId,

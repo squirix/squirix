@@ -2,7 +2,6 @@ using System;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -90,7 +89,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, mtlsMaterial, TimeProvider.System));
 
-        var header = new ReplicationEnvelopeHeader
+        var header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = peer.NodeId,
@@ -131,7 +130,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var pressure = new SwitchableMemoryPressure();
         pressure.Set(true);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, mtlsMaterial, TimeProvider.System), memoryPressure: pressure);
-        var request = new AppendReplicaEntriesRequest { Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, SenderNodeId = peer.NodeId, LeaderNodeId = peer.NodeId } };
+        var request = new AppendReplicaEntriesRequest { Header = new EnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, SenderNodeId = peer.NodeId, LeaderNodeId = peer.NodeId } };
         var httpContext = new PeerCallContext
         {
             LocalPort = mtls.InternalListenPort,
@@ -208,7 +207,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new GetReplicaStatusRequest
         {
-            Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, SenderNodeId = " " },
+            Header = new EnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, SenderNodeId = " " },
         };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(fixture.Adapter.GetReplicaStatusAsync(request, fixture.CreateHttpContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -230,11 +229,11 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, mtlsMaterial, TimeProvider.System));
 
-        var header = new ReplicationEnvelopeHeader
+        var header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
             SenderNodeId = peer.NodeId,
-            TopologyFingerprint = ByteString.CopyFrom(1, 2, 3),
+            TopologyFingerprint = new byte[] { 1, 2, 3 },
             ConfigurationGeneration = 999UL,
         };
 
@@ -254,7 +253,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         // Must stay a constant: recomputing it via TopologyFingerprint here would mask
         // a broken fingerprint implementation identically on both sides.
         const string expectedFingerprint = "68C8EBCF68FAC7F82CF6306D51D09E3015AA16A00C30E61617BF7E63E4608E2C";
-        var actualFingerprint = Convert.ToHexString(result.TopologyFingerprint.ToByteArray());
+        var actualFingerprint = Convert.ToHexString(result.TopologyFingerprint.ToArray());
         _ = await Assert.That(actualFingerprint).IsEqualTo(expectedFingerprint, StringComparer.Ordinal);
         _ = await Assert.That(result.ConfigurationGeneration).IsEqualTo(topology.ConfigurationGeneration);
         _ = await Assert.That(result.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
@@ -306,7 +305,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new GetReplicaStatusRequest
         {
-            Header = new ReplicationEnvelopeHeader { SchemaVersion = 99, SenderNodeId = "node-a" },
+            Header = new EnvelopeHeader { SchemaVersion = 99, SenderNodeId = "node-a" },
         };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(fixture.Adapter.GetReplicaStatusAsync(request, fixture.CreateHttpContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

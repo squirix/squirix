@@ -49,7 +49,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
             static (client, wire, options) => new ValueTask<GetDistributedAsyncResponse>(client.GetDistributedAsync(wire, in options)),
             request,
             cancellationToken).ConfigureAwait(false);
-        return reply.Found ? reply.Value.ToByteArray() : null;
+        return reply.Found ? reply.TakeValue() : null;
     }
 
     /// <summary>Sends an owned payload and one normalized policy under a stable operation identity.</summary>

@@ -64,8 +64,8 @@ public sealed class BinaryDispatchOrderTests
             _ = await Assert.That(observedValue).IsEqualTo(0);
             release.SetResult();
             var output = connection.Outgoing.Reader;
-            var replies = await output.ReadAtLeastAsync(4 * Frames.HeaderBytes, stop.Token);
-            output.AdvanceTo(replies.Buffer.GetPosition(4 * Frames.HeaderBytes));
+            var replies = await output.ReadAtLeastAsync(4 * Frames.ReplyBytes, stop.Token);
+            output.AdvanceTo(replies.Buffer.GetPosition(4 * Frames.ReplyBytes));
             _ = await Assert.That(observedValue).IsEqualTo(3);
             _ = await Assert.That(value).IsEqualTo(3);
         }
@@ -81,14 +81,14 @@ public sealed class BinaryDispatchOrderTests
     {
         const int split = 256 * 1024;
         var bodySize = fragmented ? split + 1 : 2;
-        var bytes = GC.AllocateUninitializedArray<byte>((4 * Frames.HeaderBytes) + bodySize);
+        var bytes = GC.AllocateUninitializedArray<byte>((4 * Frames.RequestBytes) + bodySize);
         var write = (Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.SetDistributed) << 16) | 5000;
         var read = (Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.GetDistributed) << 16) | 5000;
-        Frames.Write(bytes, 1, bodySize, write);
-        bytes.AsSpan(Frames.HeaderBytes, bodySize).Clear();
-        Frames.Write(bytes.AsSpan(Frames.HeaderBytes + bodySize), 2, 0, write);
-        Frames.Write(bytes.AsSpan((2 * Frames.HeaderBytes) + bodySize), 3, 0, write);
-        Frames.Write(bytes.AsSpan((3 * Frames.HeaderBytes) + bodySize), 4, 0, read);
+        Frames.WriteRequest(bytes, 1, bodySize, write);
+        bytes.AsSpan(Frames.RequestBytes, bodySize).Clear();
+        Frames.WriteRequest(bytes.AsSpan(Frames.RequestBytes + bodySize), 2, 0, write);
+        Frames.WriteRequest(bytes.AsSpan((2 * Frames.RequestBytes) + bodySize), 3, 0, write);
+        Frames.WriteRequest(bytes.AsSpan((3 * Frames.RequestBytes) + bodySize), 4, 0, read);
 
         if (fragmented)
             _ = await input.WriteAsync(bytes.AsMemory(0, split), cancellationToken).ConfigureAwait(false);

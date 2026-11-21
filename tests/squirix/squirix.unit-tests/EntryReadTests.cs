@@ -1,14 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
-using Google.Protobuf.WellKnownTypes;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Testing;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -26,11 +25,13 @@ public sealed class EntryReadTests
     [Arguments(0)]
     [Arguments(1)]
     [Arguments(2)]
+    [Arguments(3)]
     public async Task EntryResultKeepsWireMetadata(int scenario)
     {
         var initial = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var clock = new FakeTimeProvider(initial);
         var wireDeadline = initial.UtcDateTime.AddDays(1);
+        DateTime? transmittedDeadline = scenario == 3 ? null : wireDeadline;
         var response = new GetEntryAsyncResponse
         {
             Found = scenario != 0,
@@ -39,12 +40,12 @@ public sealed class EntryReadTests
                 : new CacheEntryWire
                 {
                     Value = new CacheValue { StringValue = "value" },
-                    Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(2)),
-                    ExpiresUtc = Timestamp.FromDateTime(wireDeadline),
+                    Expiration = TimeSpan.FromMinutes(2),
+                    ExpiresUtc = transmittedDeadline,
                 },
-            Remaining = scenario == 2 ? Duration.FromTimeSpan(TimeSpan.FromSeconds(30)) : null,
+            Remaining = scenario >= 2 ? TimeSpan.FromSeconds(30) : null,
         };
-        var release = new TaskCompletionSource<IMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<WireMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var client = new BinaryCacheClient(new Uri("https://localhost"), null, null, new EntryTransport(release.Task).InvokeAsync);
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2));
         var expectations = new IClientPoolCreateExpectations();
@@ -67,19 +68,19 @@ public sealed class EntryReadTests
 
         _ = await Assert.That(result.Value).IsEqualTo("value");
         _ = await Assert.That(result.Entry!.Expiration).IsEqualTo(TimeSpan.FromMinutes(2));
-        _ = await Assert.That(result.ExpiresUtc).IsEqualTo(scenario == 2 ? clock.GetUtcNow().UtcDateTime.AddSeconds(30) : wireDeadline);
+        _ = await Assert.That(result.ExpiresUtc).IsEqualTo(scenario >= 2 ? clock.GetUtcNow().UtcDateTime.AddSeconds(30) : wireDeadline);
     }
 
     private sealed class EntryTransport
     {
-        private readonly Task<IMessage> _response;
+        private readonly Task<WireMessage> _response;
 
-        internal EntryTransport(Task<IMessage> response)
+        internal EntryTransport(Task<WireMessage> response)
         {
             _response = response;
         }
 
-        internal Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>> InvokeAsync =>
+        internal Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> InvokeAsync =>
             (_, _, _, options) => _response.WaitAsync(options.CancellationToken);
     }
 }

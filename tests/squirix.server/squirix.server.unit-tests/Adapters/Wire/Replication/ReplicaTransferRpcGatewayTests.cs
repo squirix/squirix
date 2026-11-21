@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -15,6 +14,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -52,9 +52,9 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         await pool.DisposeAsync();
 
         var request = transport.Received[0];
-        _ = await Assert.That((request.Header.GroupId, request.Header.SenderNodeId, request.Header.LeaderNodeId, request.Header.Term)).IsEqualTo(("g", "leader", "leader", 9UL));
+        _ = await Assert.That((request.Header!.GroupId, request.Header.SenderNodeId, request.Header.LeaderNodeId, request.Header.Term)).IsEqualTo(("g", "leader", "leader", 9UL));
         _ = await Assert.That(request.Header.ConfigurationGeneration).IsEqualTo(4UL);
-        await SequenceAssert.EqualAsync(new byte[] { 1, 2 }, request.Header.TopologyFingerprint.ToByteArray());
+        await SequenceAssert.EqualAsync(new byte[] { 1, 2 }, request.Header.TopologyFingerprint.ToArray());
         _ = await Assert.That((request.TransferId, request.Sequence, request.StepCase)).IsEqualTo((Transfer, 0U, TransferReplicaStateRequest.StepOneofCase.Begin));
         _ = await Assert.That((request.Begin.Index, request.Begin.IndexTerm, request.Begin.SnapshotBytes, request.Begin.SnapshotChecksum)).IsEqualTo((7UL, 3UL, 1024U, 99U));
         _ = await Assert.That(request.Begin.CeilingChecked).IsTrue();
@@ -85,13 +85,13 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
 
         var received = transport.Received;
         _ = await Assert.That((wipe.Term, wipe.Success, wipe.More)).IsEqualTo((2UL, true, true));
-        _ = await Assert.That((received[0].StepCase, received[0].Sequence, received[0].Header.GroupId)).IsEqualTo((TransferReplicaStateRequest.StepOneofCase.Wipe, 3U, "g"));
+        _ = await Assert.That((received[0].StepCase, received[0].Sequence, received[0].Header!.GroupId)).IsEqualTo((TransferReplicaStateRequest.StepOneofCase.Wipe, 3U, "g"));
         _ = await Assert.That((received[1].StepCase, received[1].Sequence, received[1].Snapshot.Offset)).IsEqualTo((TransferReplicaStateRequest.StepOneofCase.Snapshot, 1U, 40UL));
-        await SequenceAssert.EqualAsync(new byte[] { 9, 8 }, received[1].Snapshot.Chunk.ToByteArray());
+        await SequenceAssert.EqualAsync(new byte[] { 9, 8 }, received[1].Snapshot.Chunk.ToArray());
         var batch = received[2].Entries.Entries;
-        _ = await Assert.That((received[2].StepCase, received[2].Sequence, batch.Count)).IsEqualTo((TransferReplicaStateRequest.StepOneofCase.Entries, 4U, 2));
-        _ = await Assert.That((batch[0].CacheName, batch[0].Key.ToStringUtf8(), batch[0].Payload.ToByteArray().Length, batch[0].ExpiresUtcTicks)).IsEqualTo(("cache", "k-1", 3, 0L));
-        _ = await Assert.That((batch[1].CacheName, batch[1].Key.ToStringUtf8(), batch[1].Payload.ToByteArray().Length, batch[1].ExpiresUtcTicks)).IsEqualTo(("other", "k-2", 1, 123456L));
+        _ = await Assert.That((received[2].StepCase, received[2].Sequence, batch.Length)).IsEqualTo((TransferReplicaStateRequest.StepOneofCase.Entries, 4U, 2));
+        _ = await Assert.That((batch.Span[0].CacheName, Encoding.UTF8.GetString(batch.Span[0].Key.Span), batch.Span[0].Payload.Length, batch.Span[0].ExpiresUtcTicks)).IsEqualTo(("cache", "k-1", 3, 0L));
+        _ = await Assert.That((batch.Span[1].CacheName, Encoding.UTF8.GetString(batch.Span[1].Key.Span), batch.Span[1].Payload.Length, batch.Span[1].ExpiresUtcTicks)).IsEqualTo(("other", "k-2", 1, 123456L));
         _ = await Assert.That((received[3].StepCase, received[3].Sequence, received[3].End.EntryCount, received[3].End.EntriesCrc32C))
                        .IsEqualTo((TransferReplicaStateRequest.StepOneofCase.End, 5U, 2UL, 77U));
         _ = await Assert.That((received[4].StepCase, received[4].TransferId)).IsEqualTo((TransferReplicaStateRequest.StepOneofCase.Abort, Transfer));
@@ -173,10 +173,10 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
 
         internal TransferReplicaStateResponse Reply { get; init; } = new();
 
-        public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-            where T : IMessage<T>
+        public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage
         {
-            if (!string.Equals(path, "replication/TransferReplicaState", StringComparison.Ordinal) || request is not TransferReplicaStateRequest transfer || Reply is not T response)
+            if (operation != PeerOperation.TransferReplicaState || request is not TransferReplicaStateRequest transfer || Reply is not T response)
                 throw new InvalidOperationException("Unexpected transfer RPC.");
             Received.Add(transfer);
             return Task.FromResult(response);

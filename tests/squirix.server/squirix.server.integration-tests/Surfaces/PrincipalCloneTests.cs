@@ -31,7 +31,7 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         _ = await client.SetEntryAsync(CreateMutation("clone-role"), cancellationToken: cancellationToken);
         var result = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "clone-role" }, cancellationToken: cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        _ = await Assert.That(result.Value.StringValue).IsEqualTo("preserved");
+        _ = await Assert.That(result.Value!.StringValue).IsEqualTo("preserved");
         _ = await Assert.That(probe.Entries).IsEqualTo(2);
         _ = await Assert.That(probe.Errors).IsEqualTo(0);
     }

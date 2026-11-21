@@ -64,6 +64,6 @@ internal sealed class BenchmarkRawBinaryCache : IAsyncDisposable
     {
         var response = await _client.GetValueAsync(new GetValueAsyncRequest { CacheName = _cacheName, Key = key }, new BinaryCallOptions(DateTime.MaxValue, cancellationToken, cancellationToken)).ConfigureAwait(false);
 
-        return response.Found ? ProtoEx.Read<string>(response.Value, Serializer) : null;
+        return response.Found ? WireMapping.Read<string>(response.Value, Serializer) : null;
     }
 }

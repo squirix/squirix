@@ -13,7 +13,6 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
@@ -28,7 +27,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     private readonly DnsEndPoint _address;
     private readonly TrackedConnections _connections;
     private readonly TimeSpan _dial;
-    private readonly string _fingerprint;
+    private readonly byte[] _fingerprint;
+    private readonly bool _fingerprintIsDigest;
     private readonly List<PeerSession> _idle = [];
     private readonly string _peer;
     private readonly Func<CancellationToken, ValueTask<EndPoint>>? _resolveEndpoint;
@@ -48,7 +48,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         _verifier = verifier;
         _connections = connections;
         _dial = dial;
-        _fingerprint = fingerprint ?? string.Empty;
+        (_fingerprint, _fingerprintIsDigest) = PeerFrames.EncodeFingerprint(fingerprint);
         _resolveEndpoint = options?.ResolveEndpoint;
         _tls = options?.Tls ?? CreateTlsOptions(address.DnsSafeHost, peer, material, verifier);
         if (options == null)
@@ -70,12 +70,12 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
-    public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+        where T : WireMessage
     {
-        return string.Equals(path, "replication/TransferReplicaState", StringComparison.Ordinal)
-            ? TransferAsync(path, request, parser, cancellationToken)
-            : ExchangeAsync(path, request, parser, cancellationToken);
+        return operation == PeerOperation.TransferReplicaState
+            ? TransferAsync(operation, request, parser, cancellationToken)
+            : ExchangeAsync(operation, request, parser, cancellationToken);
     }
 
     internal static SslClientAuthenticationOptions CreateTlsOptions(string host, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier)
@@ -91,8 +91,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         };
     }
 
-    internal static async Task<T> ReadReplyAsync<T>(Stream stream, MessageParser<T> parser, Memory<byte> header, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    internal static async Task<T> ReadReplyAsync<T>(Stream stream, WireParser<T> parser, Memory<byte> header, CancellationToken cancellationToken)
+        where T : WireMessage
     {
         await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
         (int Status, int Size) dimensions;
@@ -106,35 +106,83 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
 
         var (status, size) = dimensions;
-        var buffer = ArrayPool<byte>.Shared.Rent(size);
         try
         {
-            await stream.ReadExactlyAsync(buffer.AsMemory(0, size), cancellationToken).ConfigureAwait(false);
-            return status == 0 ? parser.ParseFrom(buffer, 0, size) : throw new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(buffer, 0, size));
+            byte? prefix = null;
+            if (status == 0 && size > Frames.MaxBatchBytes)
+            {
+                if (ReferenceEquals(parser, GetDistributedAsyncResponse.Parser))
+                    return await ReadOwnedReplyAsync(stream, parser, size, null, cancellationToken).ConfigureAwait(false);
+
+                if (ReferenceEquals(parser, GetValueAsyncResponse.Parser))
+                {
+                    await stream.ReadExactlyAsync(header[..1], cancellationToken).ConfigureAwait(false);
+                    prefix = header.Span[0];
+                    if (GetValueAsyncResponse.HasRawPayload(prefix.Value))
+                        return await ReadOwnedReplyAsync(stream, parser, size, prefix, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(size);
+            try
+            {
+                var offset = PlaceReplyPrefix(buffer, prefix);
+                await stream.ReadExactlyAsync(buffer.AsMemory(offset, size - offset), cancellationToken).ConfigureAwait(false);
+                return status == 0 ? parser.ParseFrom(buffer, 0, size) : throw new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(buffer, 0, size));
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer, true);
+            }
         }
-        catch (InvalidProtocolBufferException)
+        catch (InvalidDataException)
         {
             throw new ServerCallException(FrameStatus.DataLoss, "Malformed peer response.");
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer, true);
-        }
     }
 
-    internal static string TraceText(string? value, int limit)
+    internal static string TraceText(string? value, int limit, out int byteCount)
     {
-        if (value == null || value.Length > limit)
-            return string.Empty;
+        if (!string.IsNullOrEmpty(value) && value.Length <= limit)
+        {
+            try
+            {
+                var count = PeerFrames.Text.GetByteCount(value);
+                if (count <= limit)
+                {
+                    byteCount = count;
+                    return value;
+                }
+            }
+            catch (EncoderFallbackException)
+            {
+                // A malformed activity value is omitted from the peer frame.
+            }
+        }
 
-        try
-        {
-            return PeerFrames.Text.GetByteCount(value) <= limit ? value : string.Empty;
-        }
-        catch (EncoderFallbackException)
-        {
-            return string.Empty;
-        }
+        byteCount = 0;
+        return string.Empty;
+    }
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private static async ValueTask<T> ReadOwnedReplyAsync<T>(Stream stream, WireParser<T> parser, int size, byte? prefix, CancellationToken cancellationToken)
+        where T : WireMessage
+    {
+        var body = GC.AllocateUninitializedArray<byte>(size);
+        var offset = PlaceReplyPrefix(body, prefix);
+        await stream.ReadExactlyAsync(body.AsMemory(offset), cancellationToken).ConfigureAwait(false);
+
+        // The response may outlive this connection while its bytes are encoded for the SDK.
+        return parser.ParseBorrowed(body);
+    }
+
+    private static int PlaceReplyPrefix(byte[] buffer, byte? prefix)
+    {
+        if (prefix is not { } value)
+            return 0;
+
+        buffer[0] = value;
+        return 1;
     }
 
     private static long? RemainingBudget()
@@ -158,32 +206,40 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
-    private async Task<T> ExchangeAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    private async Task<T> ExchangeAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+        where T : WireMessage
     {
         _ = RemainingBudget();
         var size = request.CalculateSize();
         if (size > EntryLimits.MaxSendMessageSizeBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The request exceeds the peer message limit.");
 
-        var parent = TraceText(Activity.Current?.Id, Frames.MaxTraceParentLength);
-        var state = TraceText(Activity.Current?.TraceStateString, Frames.MaxTraceStateLength);
+        var activity = Activity.Current;
+        var context = activity is { IdFormat: ActivityIdFormat.W3C } ? activity.Context : default;
+        var binaryParent = context.TraceId != default && context.SpanId != default;
+        var parentBytes = WireTraceParent.ByteCount;
+        var parent = binaryParent ? string.Empty : TraceText(activity?.Id, Frames.MaxTraceParentLength, out parentBytes);
+        var state = TraceText(activity?.TraceStateString, Frames.MaxTraceStateLength, out var stateBytes);
         var sent = false;
         PeerSession? stream = null;
         try
         {
             stream = await RentAsync(cancellationToken).ConfigureAwait(false);
             var budget = RemainingBudget();
-            var frame = new PeerFrames.Request(size, budget ?? -1, PeerFrames.Text.GetByteCount(path), PeerFrames.Text.GetByteCount(_fingerprint), PeerFrames.Text.GetByteCount(parent), PeerFrames.Text.GetByteCount(state));
+            var frame = new PeerFrames.Request(size, budget ?? -1, operation, _fingerprint.Length, parentBytes, stateBytes, _fingerprintIsDigest, binaryParent);
             var length = checked(PeerFrames.RequestBytes + frame.Metadata + size);
             var packet = ArrayPool<byte>.Shared.Rent(length);
             try
             {
                 PeerFrames.WriteRequest(packet, in frame);
-                var offset = PeerFrames.RequestBytes;
-                offset += PeerFrames.Text.GetBytes(path, packet.AsSpan(offset));
-                offset += PeerFrames.Text.GetBytes(_fingerprint, packet.AsSpan(offset));
-                offset += PeerFrames.Text.GetBytes(parent, packet.AsSpan(offset));
+                _fingerprint.AsSpan().CopyTo(packet.AsSpan(PeerFrames.RequestBytes));
+                var offset = PeerFrames.RequestBytes + _fingerprint.Length;
+                if (binaryParent)
+                    WireTraceParent.Write(packet.AsSpan(offset), in context);
+                else
+                    _ = PeerFrames.Text.GetBytes(parent, packet.AsSpan(offset));
+
+                offset += parentBytes;
                 offset += PeerFrames.Text.GetBytes(state, packet.AsSpan(offset));
                 request.WriteTo(packet.AsSpan(offset, size));
                 cancellationToken.ThrowIfCancellationRequested();
@@ -326,14 +382,14 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         return null;
     }
 
-    private async Task<T> TransferAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    private async Task<T> TransferAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+        where T : WireMessage
     {
         _ = RemainingBudget();
         await _transfers.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await ExchangeAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
+            return await ExchangeAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
         }
         finally
         {

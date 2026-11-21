@@ -6,7 +6,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Serialization.Protobuf;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -98,7 +98,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToWire(),
         };
         var refused = await RefusalAsync(
             (Client: client, Request: request),
@@ -135,7 +135,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         OperationId = operationId,
         CacheName = CacheName,
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToProto(),
+        Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToWire(),
     };
 
     private static string FindKeyOwnedByInShortRing(string owner)

@@ -2,7 +2,6 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
@@ -47,20 +46,18 @@ internal sealed class BinaryDispatch
     };
 
     private ValueTask<BinaryResponse> InvokeDistributedSetAsync(ReadOnlyMemory<byte> body, in Request context) =>
-        LargeDistributedSet.TryParse(body, out var metadata, out var value)
-            ? DispatchAsync(
-                (Metadata: metadata, Value: value),
-                static (ops, state, token) => ops.Mutations.SetDistributedAsync(state.Metadata, state.Value, token),
-                context)
-            : InvokeAsync(SetDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.SetDistributedAsync(request, token), body, in context);
+        DispatchAsync(
+            SetDistributedAsyncRequest.Parser.ParseBorrowed(body),
+            static (ops, request, token) => ops.Mutations.SetDistributedAsync(request, token),
+            context);
 
     private ValueTask<BinaryResponse> InvokeAsync<TRequest, TResponse>(
-        MessageParser<TRequest> parser,
+        WireParser<TRequest> parser,
         Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
         ReadOnlyMemory<byte> body,
         in Request context)
-        where TRequest : class, IMessage<TRequest>
-        where TResponse : class, IMessage<TResponse> =>
+        where TRequest : WireMessage
+        where TResponse : WireMessage =>
         DispatchAsync(parser.ParseFrom(body.Span), method, context);
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
@@ -68,7 +65,7 @@ internal sealed class BinaryDispatch
         TRequest request,
         Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
         Request context)
-        where TResponse : class, IMessage<TResponse>
+        where TResponse : WireMessage
     {
         var call = context.Call;
 

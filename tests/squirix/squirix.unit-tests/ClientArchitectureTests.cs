@@ -34,12 +34,11 @@ public sealed class ClientArchitectureTests
         _clientProject = new XPathDocument(reader);
     }
 
-    /// <summary>Checks that neither the SDK project nor its compiled assembly references gRPC.</summary>
+    /// <summary>Checks that neither the SDK project nor its compiled assembly references an external wire codec.</summary>
     [Test]
-    public async Task CacheTransportDoesNotReferenceGrpc()
+    public async Task CacheTransportUsesNativeContracts()
     {
-        _ = await Assert.That(GetIncludes("PackageReference")).DoesNotContain(static include => include.StartsWith("Grpc.", StringComparison.Ordinal));
-        _ = await Assert.That(GetIncludes("Protobuf")).IsEmpty();
+        _ = await Assert.That(GetIncludes("PackageReference")).DoesNotContain(static include => UsesExternalWireCodec(include));
 
         await using var stream = File.OpenRead(PathKit.Combine(AppContext.BaseDirectory, "Squirix.dll"));
         using var pe = new PEReader(stream);
@@ -47,7 +46,13 @@ public sealed class ClientArchitectureTests
         foreach (var handle in reader.AssemblyReferences)
         {
             var reference = reader.GetAssemblyReference(handle);
-            _ = await Assert.That(reader.GetString(reference.Name).StartsWith("Grpc.", StringComparison.Ordinal)).IsFalse();
+            _ = await Assert.That(UsesExternalWireCodec(reader.GetString(reference.Name))).IsFalse();
+        }
+
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            _ = await Assert.That(reader.GetString(type.Namespace).StartsWith("Squirix.Server.", StringComparison.Ordinal)).IsFalse();
         }
 
         _ = await Assert.That(typeof(CacheEntryWire).IsPublic).IsFalse();
@@ -95,6 +100,8 @@ public sealed class ClientArchitectureTests
         var frameworkReferences = GetIncludes("FrameworkReference");
         _ = await Assert.That(frameworkReferences).DoesNotContain(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
+
+    private static bool UsesExternalWireCodec(string name) => name.StartsWith("Grpc.", StringComparison.Ordinal) || string.Equals(name, "Google.Protobuf", StringComparison.Ordinal);
 
     private static List<string> GetIncludes(string itemName)
     {

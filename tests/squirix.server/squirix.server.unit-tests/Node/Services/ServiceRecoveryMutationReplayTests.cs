@@ -168,6 +168,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     [Arguments(1)]
     [Arguments(2)]
     [Arguments(3)]
+    [Arguments(4)]
     public async Task OldFormatVersionFailsRecovery(int version, CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-old-version");

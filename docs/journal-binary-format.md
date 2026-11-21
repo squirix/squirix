@@ -7,7 +7,7 @@ Journal segments use the `.jsqx` extension with a fixed file header and length-p
 | Offset | Size | Value        |
 |--------|------|--------------|
 | 0      | 4    | ASCII `SJRN` |
-| 4      | 1    | `4`          |
+| 4      | 1    | `5`          |
 
 ## Frame layout (little-endian)
 

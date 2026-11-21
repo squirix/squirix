@@ -27,11 +27,11 @@ internal sealed class ReplicaBootstrapRpcGateway : IReplicaBootstrapGateway
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
         var request = new GetReplicaStatusRequest { Header = ReplicaRpcGateway.MapHeader(in header) };
-        var response = await lease.Client.SendAsync("replication/GetReplicaStatus", request, GetReplicaStatusResponse.Parser, lease.Token).ConfigureAwait(false);
+        var response = await lease.Client.SendAsync(PeerOperation.GetReplicaStatus, request, GetReplicaStatusResponse.Parser, lease.Token).ConfigureAwait(false);
         return new ReplicaMemberStatus(
             GroupMemberStateNames.Parse(response.MemberState),
             string.Equals(response.Readiness, ReplicaReadinessNames.Ready, StringComparison.Ordinal),
-            response.TopologyFingerprint.ToByteArray(),
+            response.TopologyFingerprint.ToArray(),
             response.ConfigurationGeneration,
             response.RefusalCode,
             response.Term);
@@ -43,7 +43,7 @@ internal sealed class ReplicaBootstrapRpcGateway : IReplicaBootstrapGateway
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
         var request = new OfferReplicaBootstrapRequest { Header = ReplicaRpcGateway.MapHeader(in header) };
-        var response = await lease.Client.SendAsync("replication/OfferReplicaBootstrap", request, OfferReplicaBootstrapResponse.Parser, lease.Token).ConfigureAwait(false);
+        var response = await lease.Client.SendAsync(PeerOperation.OfferReplicaBootstrap, request, OfferReplicaBootstrapResponse.Parser, lease.Token).ConfigureAwait(false);
         return new ReplicaBootstrapOfferResult(response.Accepted, GroupMemberStateNames.Parse(response.MemberState), response.RefusalCode);
     }
 }

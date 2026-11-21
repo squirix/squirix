@@ -2,12 +2,13 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -28,9 +29,9 @@ public sealed class PeerProtocolTests : ServerSurfaceTestBase
         var tlsOptions = TestCertificates.CreatePeerTlsOptions([identity.NodeCertificate!], identity.TrustAnchor!, peer.NodeId);
         var client = new PeerSocketProbe(peer.InterNodeUri!, tlsOptions);
 
-        var result = await client.SendAsync("ping", new Empty(), Empty.Parser, null, cancellationToken);
+        var result = await client.SendAsync(PeerOperation.Ping, new SetAsyncResponse(), SetAsyncResponse.Parser, null, cancellationToken);
 
-        _ = await Assert.That(result).IsEqualTo(new Empty());
+        _ = await Assert.That(result.CalculateSize()).IsEqualTo(0);
     }
 
     /// <summary>The internal listener refuses an unknown version and an invalid timeout before dispatch.</summary>
@@ -43,8 +44,8 @@ public sealed class PeerProtocolTests : ServerSurfaceTestBase
         var peer = cluster.Peers[0];
         var tlsOptions = TestCertificates.CreatePeerTlsOptions([identity.NodeCertificate!], identity.TrustAnchor!, peer.NodeId);
         var client = new PeerSocketProbe(peer.InterNodeUri!, tlsOptions);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync("ping", [], null, -1, true, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync("ping", [], null, -2, false, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync("ping", [], null, long.MaxValue, false, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync(PeerOperation.Ping, [], null, -1, true, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync(PeerOperation.Ping, [], null, -2, false, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(client.SendRawAsync(PeerOperation.Ping, [], null, long.MaxValue, false, cancellationToken), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
     }
 }

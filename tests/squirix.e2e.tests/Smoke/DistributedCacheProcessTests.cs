@@ -158,6 +158,28 @@ public sealed class DistributedCacheProcessTests
         _ = await Assert.That(stored.AsSpan().SequenceEqual(new byte[] { 0, 255, 128 })).IsTrue();
     }
 
+    /// <summary>Large values returned by both client transports own their data after the TLS reply completes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(60_000)]
+    public async Task LargeDistributedRepliesOwnTheirPayload(CancellationToken cancellationToken)
+    {
+        await using var provider = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
+        var cache = provider.GetRequiredService<IDistributedCache>();
+        const string key = "large-owned-reply";
+        var expected = new byte[65536];
+        expected[0] = 42;
+        expected[^1] = 17;
+        await cache.SetAsync(key, expected, new DistributedCacheEntryOptions(), cancellationToken);
+
+        var asynchronous = await cache.GetAsync(key, cancellationToken);
+        _ = await Assert.That(asynchronous.AsSpan().SequenceEqual(expected)).IsTrue();
+        asynchronous![0] = 0;
+
+        var synchronous = ReadAndRemoveSynchronously(cache, key);
+        _ = await Assert.That(synchronous.AsSpan().SequenceEqual(expected)).IsTrue();
+    }
+
     [SuppressMessage("Usage", "MA0045", Justification = "This phase exercises the synchronous adapter methods.")]
     private static byte[]? SeedWithSynchronousCalls(IDistributedCache cache, string key, DistributedCacheEntryOptions options)
     {

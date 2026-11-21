@@ -7,7 +7,6 @@ using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Transport;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
@@ -20,7 +19,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
     private readonly Uri _endpoint;
     private readonly Func<CancellationToken, ValueTask<string>>? _tokenProvider;
     private readonly SslClientAuthenticationOptions? _tlsOptions;
-    private readonly Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>>? _invoke;
+    private readonly Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>>? _invoke;
     private readonly Channel<bool> _connect = Channel.CreateBounded<bool>(1);
     private Connection? _connection;
     private int _disposed;
@@ -29,7 +28,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         Uri endpoint,
         Func<CancellationToken, ValueTask<string>>? tokenProvider,
         SslClientAuthenticationOptions? tlsOptions,
-        Func<BinaryOperation, IMessage, MessageParser, BinaryCallOptions, Task<IMessage>>? invoke = null)
+        Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>>? invoke = null)
     {
         _endpoint = endpoint;
         _tokenProvider = tokenProvider;
@@ -131,8 +130,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
     private static T ThrowUnexpectedResponse<T>() => throw new InvalidDataException("Unexpected cache response type.");
 
-    private async Task<T> CallAsync<T>(BinaryOperation operation, IMessage request, MessageParser<T> parser, BinaryCallOptions options)
-        where T : class, IMessage<T>
+    private async Task<T> CallAsync<T>(BinaryOperation operation, WireMessage request, WireParser<T> parser, BinaryCallOptions options)
+        where T : WireMessage
     {
         if (_invoke != null)
         {
@@ -253,7 +252,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             return new Connection(socket, tls, replay);
         }
 
-        internal async ValueTask<IMessage> CallAsync(int control, IMessage request, int bodySize, MessageParser parser, BinaryCallOptions options, bool preventReplay)
+        internal async ValueTask<WireMessage> CallAsync(int control, WireMessage request, int bodySize, IWireParser parser, BinaryCallOptions options, bool preventReplay)
         {
             var token = options.CancellationToken;
             int id;
@@ -329,7 +328,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         {
             var remaining = Math.Min((item.Deadline - now).TotalMilliseconds, RpcAttemptTimeout.PerAttempt.TotalMilliseconds);
             var timeout = item.CancellationToken.IsCancellationRequested ? 0 : Convert.ToInt32(Math.Max(0, Math.Ceiling(remaining)));
-            Frames.WriteMessage(buffer, item.Id, item.BodySize, item.Control | timeout, item.Request);
+            Frames.WriteRequestMessage(buffer, item.Id, item.BodySize, item.Control | timeout, item.Request);
         }
 
         private bool HasLiveCalls()
@@ -368,7 +367,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             var now = TimeProvider.System.GetUtcNow().UtcDateTime;
             for (var count = 0; count < Frames.MaxBatch && _outgoing.Reader.TryRead(out var item); count++)
             {
-                var frameSize = Frames.HeaderBytes + item.BodySize;
+                var frameSize = Frames.RequestBytes + item.BodySize;
                 if (size > 0 && size + frameSize > buffer.Length)
                 {
                     await _tls.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
@@ -391,7 +390,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         private async Task SendLargeAsync(PendingCall item, DateTime now)
         {
-            var length = Frames.HeaderBytes + item.BodySize;
+            var length = Frames.RequestBytes + item.BodySize;
             var buffer = ArrayPool<byte>.Shared.Rent(length);
             try
             {
@@ -406,29 +405,29 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         private async Task ReadAsync()
         {
-            var header = ArrayPool<byte>.Shared.Rent(Frames.HeaderBytes);
             var smallBody = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
             try
             {
                 while (IsAvailable)
                 {
-                    await _tls.ReadExactlyAsync(header.AsMemory(0, Frames.HeaderBytes), _stopToken).ConfigureAwait(false);
-                    var (id, size, status) = Frames.Read(header, Frames.MaxResponseBytes);
-                    BinaryClientProtocol.ValidateResponseStatus(status);
+                    await _tls.ReadExactlyAsync(smallBody.AsMemory(0, Frames.ReplyBytes), _stopToken).ConfigureAwait(false);
+                    var (id, size, status) = Frames.ReadReply(smallBody);
                     if (id >= _pending.Length || Volatile.Read(ref _pending[id]) is not { } pending)
                         throw new InvalidDataException("Unexpected binary cache reply.");
+
+                    if (size > smallBody.Length && BinaryClientProtocol.CanReadLargeLookupReply(pending.Parser, status))
+                    {
+                        var direct = await BinaryClientProtocol.ReadLargeLookupReplyAsync(_tls, pending.Parser, size, smallBody, _stopToken).ConfigureAwait(false);
+                        PublishReply(id, pending, in direct);
+                        continue;
+                    }
 
                     var body = size <= smallBody.Length ? smallBody : ArrayPool<byte>.Shared.Rent(size);
                     try
                     {
                         await _tls.ReadExactlyAsync(body.AsMemory(0, size), _stopToken).ConfigureAwait(false);
-                        var reply = BinaryClientProtocol.ParseReply(pending.Parser, status, body.AsSpan(0, size));
-
-                        if (Interlocked.Exchange(ref _pending[id], null) != null)
-                        {
-                            _ = _slots.Writer.TryWrite(id);
-                            _ = pending.Completion.TrySetResult(reply);
-                        }
+                        var buffered = BinaryClientProtocol.ParseReply(pending.Parser, status, body.AsSpan(0, size));
+                        PublishReply(id, pending, in buffered);
                     }
                     finally
                     {
@@ -443,18 +442,26 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(header);
                 ArrayPool<byte>.Shared.Return(smallBody);
                 Abort();
             }
         }
 
+        private void PublishReply(int id, PendingCall pending, in BinaryClientReply reply)
+        {
+            if (Interlocked.Exchange(ref _pending[id], null) == null)
+                return;
+
+            _ = _slots.Writer.TryWrite(id);
+            _ = pending.Completion.TrySetResult(reply);
+        }
+
         private sealed record PendingCall(
             int Id,
             int Control,
-            IMessage Request,
+            WireMessage Request,
             int BodySize,
-            MessageParser Parser,
+            IWireParser Parser,
             DateTime Deadline,
             TaskCompletionSource<BinaryClientReply> Completion,
             CancellationToken CancellationToken);

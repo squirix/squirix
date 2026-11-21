@@ -3,12 +3,12 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -22,7 +22,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
 {
     private static readonly byte[] OneByteResponse = [1];
 
-    private static readonly byte[] SampleResponse = [0x08, 0x01];
+    private static readonly byte[] SampleResponse = [0x01];
 
     /// <summary>Length computation matches the documented golden size for a fixed record.</summary>
     [Test]
@@ -34,8 +34,8 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
             SampleResponse,
             new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
 
-        // 1 (state) + 2 + 32 + 2 + 36 + 8 + 4 + 2.
-        _ = await Assert.That(IdempotencyCodec.ComputeEncodedLength(record)).IsEqualTo(87);
+        // 1 (state) + 2 + 32 + 2 + 36 + 8 + 4 + 1.
+        _ = await Assert.That(IdempotencyCodec.ComputeEncodedLength(record)).IsEqualTo(86);
     }
 
     /// <summary>Length computation rejects oversized UTF-8 fields.</summary>
@@ -88,7 +88,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         _ = await Assert.That(decoded.OperationId).IsEqualTo("0123456789abcdef0123456789abcdef");
         _ = await Assert.That(decoded.Fingerprint).IsEqualTo("try-add-entry-async|default|k|abc123");
         _ = await Assert.That(decoded.CreatedUtc).IsEqualTo(new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
-        await SequenceAssert.EqualAsync<byte>([0x08, 0x01], decoded.ResponseBytes);
+        await SequenceAssert.EqualAsync<byte>([0x01], decoded.ResponseBytes);
         _ = await Assert.That(decoded.State).IsEqualTo(IdempotencyRecordState.Completed);
     }
 
@@ -96,15 +96,15 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
     [Test]
     public void ReadThrowsOnTruncatedBuffer() => _ = NodeExceptionAssert.For<InvalidDataException>().Throws(0, static _ => IdempotencyCodec.Read([]));
 
-    /// <summary>Default protobuf replies are completed outcomes even when their encoding is empty.</summary>
+    /// <summary>Default replies retain their exact bytes as completed outcomes.</summary>
     /// <param name="kind">The RPC reply kind.</param>
     [Test]
     [Arguments("remove")]
     [Arguments("set")]
     [Arguments("refresh")]
-    public async Task EmptyProtobufResponseRoundTrips(string kind)
+    public async Task DefaultResponseRoundTrips(string kind)
     {
-        IMessage response = kind switch
+        WireMessage response = kind switch
         {
             "remove" => new RemoveAsyncResponse(),
             "set" => new SetAsyncResponse(),
@@ -124,7 +124,8 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         _ = await Assert.That(decoded.Fingerprint).IsEqualTo(record.Fingerprint);
         _ = await Assert.That(decoded.CreatedUtc).IsEqualTo(record.CreatedUtc);
         _ = await Assert.That(decoded.ResponseBytes).IsEmpty();
-        _ = await Assert.That(RemoveAsyncResponse.Parser.ParseFrom(decoded.ResponseBytes).Removed).IsFalse();
+        if (response is RemoveAsyncResponse)
+            _ = await Assert.That(RemoveAsyncResponse.Parser.ParseFrom(decoded.ResponseBytes).Removed).IsFalse();
     }
 
     /// <summary>A started record with an invalid fingerprint presence flag is rejected.</summary>
@@ -272,8 +273,8 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
     /// <summary>
     /// Hand-built golden encoding of the fixed record above: state byte (0 = completed), u16-prefixed
     /// operation id (32 ASCII bytes), u16-prefixed fingerprint (36 ASCII bytes), i64 little-endian
-    /// unix milliseconds for 2026-07-01T12:00:00Z, i32 little-endian response length (2), then the
-    /// 2 response bytes. A symmetric write/read bug that a pure round-trip cannot see fails against
+    /// unix milliseconds for 2026-07-01T12:00:00Z, i32 little-endian response length (1), then the
+    /// response byte. A symmetric write/read bug that a pure round-trip cannot see fails against
     /// these bytes.
     /// </summary>
     private static byte[] GoldenWireBytes() =>
@@ -286,7 +287,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         0x74, 0x72, 0x79, 0x2D, 0x61, 0x64, 0x64, 0x2D, 0x65, 0x6E, 0x74, 0x72, 0x79, 0x2D, 0x61, 0x73, 0x79, 0x6E, 0x63,
         0x7C, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6C, 0x74, 0x7C, 0x6B, 0x7C, 0x61, 0x62, 0x63, 0x31, 0x32, 0x33,
         0x00, 0xE2, 0x8C, 0x1D, 0x9F, 0x01, 0x00, 0x00,
-        0x02, 0x00, 0x00, 0x00, 0x08, 0x01,
+        0x01, 0x00, 0x00, 0x00, 0x01,
     ];
 
     private static byte[] LegacyWireBytes(string operationId, string fingerprint, DateTime createdUtc, byte[] response)

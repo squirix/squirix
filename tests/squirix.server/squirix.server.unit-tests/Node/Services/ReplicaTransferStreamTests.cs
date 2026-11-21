@@ -37,8 +37,10 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     {
         var (_, walk, _) = Leader(3, cancellationToken);
         var clock = new TimerSpyClock();
-        var gateway = new ScriptedTransferGateway();
+        var chunks = new List<byte[]>();
+        var gateway = new ScriptedTransferGateway { OnSnapshot = chunk => chunks.Add(chunk.ToArray()) };
         gateway.BusyFor("begin", 4);
+        gateway.BusyFor("snapshot", 1);
         gateway.BusyFor("entries", 4);
         var options = new ReplicaTransferOptions { JournalStallBudget = TimeSpan.FromSeconds(3) };
         var run = new ReplicaTransferStream(gateway, options, Header(), "n1", clock).RunAsync(Snapshot(), walk, cancellationToken);
@@ -47,6 +49,11 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         var result = await run;
 
         _ = await Assert.That(result.Outcome).IsEqualTo(ReplicaTransferOutcome.Transferred);
+        var expected = TransferFixtures.Image();
+        _ = await Assert.That(gateway.Baseline?.SnapshotChecksum).IsEqualTo(TransferFixtures.ChecksumOf(expected));
+        _ = await Assert.That(chunks.Count).IsEqualTo(2);
+        _ = await Assert.That(chunks[0].AsSpan().SequenceEqual(expected)).IsTrue();
+        _ = await Assert.That(chunks[1].AsSpan().SequenceEqual(expected)).IsTrue();
         var total = TimeSpan.Zero;
         foreach (var delay in CollectionsMarshal.AsSpan(delays))
             total += delay;
