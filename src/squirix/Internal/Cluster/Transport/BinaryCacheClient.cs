@@ -266,7 +266,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 throw new IOException("The binary cache connection closed.", error);
             }
 
-            var pending = new PendingCall(id, control, request, bodySize, parser, options.Deadline, token);
+            var completion = new TaskCompletionSource<BinaryClientReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pending = new PendingCall(id, control, request, bodySize, parser, options.Deadline, completion, token);
             Volatile.Write(ref _pending[id], pending);
             if (!_outgoing.Writer.TryWrite(pending))
             {
@@ -274,11 +275,20 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 throw new IOException("The binary cache connection closed.");
             }
 
-            // After a caller cancels, keep the slot until the response is consumed or the connection closes.
+            // Cancellation completes the caller's task. The reader still owns the wire slot.
+            var registration = completion.Task.IsCompleted
+                ? default
+                : token.UnsafeRegister(
+                    static (state, canceledToken) =>
+                    {
+                        if (state is TaskCompletionSource<BinaryClientReply> reply)
+                            _ = reply.TrySetCanceled(canceledToken);
+                    },
+                    completion);
             BinaryClientReply result;
             try
             {
-                result = await pending.Completion.Task.WaitAsync(token).ConfigureAwait(false);
+                result = await completion.Task.ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!options.CallerToken.IsCancellationRequested)
             {
@@ -288,6 +298,10 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 if (preventReplay)
                     throw BinaryClientProtocol.UnknownOutcome();
                 throw;
+            }
+            finally
+            {
+                _ = registration.Unregister();
             }
 
             if (result.Response != null)
@@ -435,9 +449,14 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
         }
 
-        private sealed record PendingCall(int Id, int Control, IMessage Request, int BodySize, MessageParser Parser, DateTime Deadline, CancellationToken CancellationToken)
-        {
-            internal TaskCompletionSource<BinaryClientReply> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        }
+        private sealed record PendingCall(
+            int Id,
+            int Control,
+            IMessage Request,
+            int BodySize,
+            MessageParser Parser,
+            DateTime Deadline,
+            TaskCompletionSource<BinaryClientReply> Completion,
+            CancellationToken CancellationToken);
     }
 }
