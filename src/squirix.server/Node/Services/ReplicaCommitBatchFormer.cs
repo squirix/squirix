@@ -59,7 +59,7 @@ internal sealed class ReplicaCommitBatchFormer
     internal List<(ReplicaCommitRequest Request, PreparedReplicaMutation Mutation)> Entries { get; } = [];
 
     /// <summary>Gets the writes the former took from the queue behind the leader, so the caller can decide the ones a fault leaves open.</summary>
-    internal IReadOnlyList<ReplicaCommitRequest> Taken => _taken ?? [];
+    internal IReadOnlyList<ReplicaCommitRequest> TakenRequests => _taken ?? [];
 
     /// <summary>Takes the queued writes into the batch of the leader.</summary>
     /// <param name="self">The leading write, already taken, which opens the batch.</param>

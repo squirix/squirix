@@ -209,12 +209,12 @@ internal static class ReplicaGroupCommitterBatches
                     failed = true;
                 }
 
-                for (var i = 0; former != null && i < former.Taken.Count; i++)
+                for (var i = 0; former != null && i < former.TakenRequests.Count; i++)
                 {
-                    if (former.Taken[i].IsCompleted)
+                    if (former.TakenRequests[i].IsCompleted)
                         continue;
 
-                    former.Taken[i].Fail(failed ? FreshFailure(error) : error);
+                    former.TakenRequests[i].Fail(failed ? FreshFailure(error) : error);
                     failed = true;
                 }
             }
