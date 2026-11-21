@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 using Squirix.Transport.Wire.Cache;
 
@@ -71,17 +71,17 @@ internal sealed class LeaderRouteProbe
 
     /// <summary>Wraps the leader table and the client pool of a node.</summary>
     /// <param name="services">The node service collection.</param>
-    internal void Register(IServiceCollection services)
+    internal void Register(TestServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         Decorate<IGroupLeaderTable>(services, (sp, inner) => new PinnedTable(inner, sp.GetRequiredService<TopologyOptions>().NodeId, this));
         Decorate<IServerClientPool>(services, (sp, inner) => new RecordingPool(inner, sp.GetRequiredService<TopologyOptions>().NodeId, this));
     }
 
-    private static void Decorate<T>(IServiceCollection services, Func<IServiceProvider, T, T> wrap)
+    private static void Decorate<T>(TestServiceCollection services, Func<IServiceProvider, T, T> wrap)
         where T : class
     {
-        ServiceDescriptor? original = null;
+        TestServiceRegistration? original = null;
         for (var i = services.Count - 1; i >= 0 && original == null; i--)
         {
             if (services[i].ServiceType == typeof(T))
@@ -93,7 +93,7 @@ internal sealed class LeaderRouteProbe
         _ = services.AddSingleton(sp => wrap(sp, Create<T>(found, sp)));
     }
 
-    private static T Create<T>(ServiceDescriptor descriptor, IServiceProvider sp)
+    private static T Create<T>(TestServiceRegistration descriptor, IServiceProvider sp)
         where T : class
     {
         var instance = descriptor.ImplementationInstance ?? descriptor.ImplementationFactory?.Invoke(sp);

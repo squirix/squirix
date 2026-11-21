@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Composition;
@@ -82,9 +81,9 @@ public sealed class JournalStopOrderTests : NodeIntegrationTestBase
 
         /// <summary>Adds the late appender after every registration and the other writer before all of them.</summary>
         /// <param name="services">The node service collection.</param>
-        internal void Register(IServiceCollection services)
+        internal void Register(TestServiceCollection services)
         {
-            services.Insert(0, ServiceDescriptor.Singleton<INodeService>(sp => new LateAppender(sp.GetRequiredService<IJournalCoordinator>(), this, StoppedPhaseKey)));
+            services.Insert(0, TestServiceRegistration.Singleton<INodeService>(sp => new LateAppender(sp.GetRequiredService<IJournalCoordinator>(), this, StoppedPhaseKey)));
             _ = services.AddSingleton<INodeService>(sp => new LateAppender(sp.GetRequiredService<IJournalCoordinator>(), this, StopPhaseKey));
         }
 

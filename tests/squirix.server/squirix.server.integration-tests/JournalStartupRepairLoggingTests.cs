@@ -2,9 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
@@ -51,7 +51,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false, recorder), cancellationToken);
 
         var logged = recorder.Find(HeaderRestoredEventId);
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(logged?.Message).Contains(path, StringComparison.Ordinal);
         await AssertEntriesReadableAsync(restarted, cancellationToken);
         await restarted.ShutdownAsync();
@@ -79,7 +79,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false, recorder), cancellationToken);
 
         var logged = recorder.Find(TornTailTruncatedEventId);
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(logged?.Message).Contains(path, StringComparison.Ordinal);
         await AssertEntriesReadableAsync(restarted, cancellationToken);
         await restarted.ShutdownAsync();

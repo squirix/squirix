@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -169,8 +168,8 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
         Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<string>>> readFenced)
     {
         var accounting = new MemoryUsageAccounting(new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>()));
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, "node-a", _testMeter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var gate = new PressureGate(new StateEvaluator(options), accounting, "node-a", _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome, null, readFenced);
     }
 }

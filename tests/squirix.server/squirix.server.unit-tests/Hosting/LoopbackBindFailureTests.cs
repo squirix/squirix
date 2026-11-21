@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Composition;
 using Squirix.Server.TestKit;
@@ -37,7 +36,7 @@ public sealed class LoopbackBindFailureTests
         var options = new NodeHostStartOptions
         {
             ServerCertificate = certificate,
-            ServicesConfigure = services => services.Insert(0, ServiceDescriptor.Singleton<INodeService>(_ => new StartupProbe(phases))),
+            ServicesConfigure = services => services.Insert(0, TestServiceRegistration.Singleton<INodeService>(_ => new StartupProbe(phases))),
         };
         held.Dispose();
 

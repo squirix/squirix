@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -161,9 +160,8 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         Func<string, string, string, bool>? hasRecordedOutcome,
         long maxEstimatedCacheBytes = 10_000_000_000)
     {
-        var options = Options.Create(
-            new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, Self, _testMeter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome, null, null, hasMemberPressure);
     }
 }

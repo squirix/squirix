@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -281,14 +280,13 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
     private static PressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId, Meter meter)
     {
-        var options = Options.Create(
-            new PressureOptions
-            {
-                MaxEstimatedCacheBytes = 10_000_000_000,
-                HighPressureThresholdPercent = 80,
-                CriticalPressureThresholdPercent = 95,
-            });
-        return new PressureGate(new StateEvaluator(options.Value), accounting, nodeId, meter);
+        var options = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 10_000_000_000,
+            HighPressureThresholdPercent = 80,
+            CriticalPressureThresholdPercent = 95,
+        };
+        return new PressureGate(new StateEvaluator(options), accounting, nodeId, meter);
     }
 
     private static long EstimateEntryBytes(CacheEntrySizeEstimator<string> estimator, string cacheName, string key, NodeCacheEntry<string> entry) =>

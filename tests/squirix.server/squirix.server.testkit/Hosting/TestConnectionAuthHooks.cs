@@ -2,7 +2,6 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Transport.Binary;
 
@@ -15,8 +14,8 @@ public static class TestConnectionAuthHooks
     /// <param name="services">The node service registrations.</param>
     /// <param name="onConnection">Receives the graceful connection close callback.</param>
     /// <param name="onAuthorize">Optional callback awaited during authorization of each cache operation.</param>
-    public static void Add(
-        IServiceCollection services,
+    internal static void Add(
+        TestServiceCollection services,
         Action<Action> onConnection,
         Func<CancellationToken, Task>? onAuthorize = null)
     {

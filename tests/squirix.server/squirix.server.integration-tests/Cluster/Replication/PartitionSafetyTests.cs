@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -365,7 +364,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     private static IFollowerLog Log(ITestNodeHost host) =>
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var log) ? log : throw new InvalidOperationException($"The group log {Group} is not open.");
 
-    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<IServiceCollection>? configure = null) => new()
+    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<TestServiceCollection>? configure = null) => new()
     {
         ReplicaCount = replicaCount,
         UsePersistence = true,

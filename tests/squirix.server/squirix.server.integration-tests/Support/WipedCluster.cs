@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -44,7 +43,7 @@ internal static class WipedCluster
     /// <param name="clean">Whether the data directory starts empty; a node started again keeps it.</param>
     /// <param name="services">Optional service overrides for fault injection.</param>
     /// <returns>The options.</returns>
-    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null, bool clean = true, Action<IServiceCollection>? services = null) => new()
+    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null, bool clean = true, Action<TestServiceCollection>? services = null) => new()
     {
         PersistenceOptions = persistence,
         ReplicaCount = 3,

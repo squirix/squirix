@@ -1,6 +1,6 @@
 using System;
+using System.Buffers.Text;
 using System.Globalization;
-using System.IdentityModel.Tokens.Jwt;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -9,7 +9,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Networking;
 
@@ -19,6 +18,8 @@ namespace Squirix.Server.TestKit.Hosting;
 [Immutable]
 public sealed class MockOidcAuthority : IAsyncDisposable
 {
+    private const string RsaSigningAlgorithm = "RS256";
+
     private readonly CancellationTokenSource _stopping = new();
     private readonly TcpListener _listener;
     private readonly HeldPort _heldPort;
@@ -60,19 +61,13 @@ public sealed class MockOidcAuthority : IAsyncDisposable
             var authority = NodeInvariantIndexStrings.FormatOrigin("http", "127.0.0.1", held.Port);
             signingKey = RSA.Create(2048);
             const string keyId = "mock-oidc-key";
-            var jwk = JsonWebKeyConverter.ConvertFromRSASecurityKey(new RsaSecurityKey(signingKey.ExportParameters(false)) { KeyId = keyId });
-            jwk.Use = "sig";
-            jwk.Alg = SecurityAlgorithms.RsaSha256;
-
             var discovery = new OidcDiscoveryDocument
             {
                 Issuer = authority,
                 JwksEndpoint = $"{authority}/.well-known/jwks",
             };
-            var jwks = new JsonWebKeySet();
-            jwks.Keys.Add(jwk);
             var discoveryBytes = JsonSerializer.SerializeToUtf8Bytes(discovery, MockOidcJsonContext.Default.OidcDiscoveryDocument);
-            var jwksBytes = JsonSerializer.SerializeToUtf8Bytes(jwks, MockOidcJsonContext.Default.JsonWebKeySet);
+            var jwksBytes = CreateJwks(signingKey.ExportParameters(false), keyId);
 
             listener = new TcpListener(IPAddress.Loopback, held.Port);
             held.Dispose();
@@ -98,13 +93,13 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(audience);
 
-        var credentials = new SigningCredentials(new RsaSecurityKey(_signingKey) { KeyId = _keyId }, SecurityAlgorithms.RsaSha256);
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
         var effectiveLifetime = lifetime ?? TimeSpan.FromMinutes(5);
         var expires = now.Add(effectiveLifetime);
         var notBefore = effectiveLifetime < TimeSpan.Zero ? expires.AddMinutes(-1) : now.AddMinutes(-1);
-        var token = new JwtSecurityToken(issuer ?? Issuer, audience, notBefore: notBefore, expires: expires, signingCredentials: credentials);
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        var input = TestJwtHelper.CreateSigningInput(RsaSigningAlgorithm, issuer ?? Issuer, audience, notBefore, expires, keyId: _keyId);
+        var signature = _signingKey.SignData(Encoding.ASCII.GetBytes(input), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return $"{input}.{Base64Url.EncodeToString(signature)}";
     }
 
     /// <summary>Maps the mock authority to per-node security options.</summary>
@@ -133,6 +128,18 @@ public sealed class MockOidcAuthority : IAsyncDisposable
             _signingKey.Dispose();
             _heldPort.Return();
         }
+    }
+
+    private static byte[] CreateJwks(RSAParameters key, string keyId)
+    {
+        var signingKey = new JsonWebKey(
+            RsaSigningAlgorithm,
+            Base64Url.EncodeToString(key.Exponent),
+            keyId,
+            "RSA",
+            Base64Url.EncodeToString(key.Modulus),
+            "sig");
+        return JsonSerializer.SerializeToUtf8Bytes(new JwksDocument([signingKey]), MockOidcJsonContext.Default.JwksDocument);
     }
 
     private static async Task ReplyAsync(NetworkStream stream, byte[] discovery, byte[] jwks, CancellationToken stopping)
@@ -198,4 +205,8 @@ public sealed class MockOidcAuthority : IAsyncDisposable
             // Fixture disposal cancels accept and metadata reads.
         }
     }
+
+    internal sealed record JwksDocument(JsonWebKey[] Keys);
+
+    internal sealed record JsonWebKey(string Alg, string E, string Kid, string Kty, string N, string Use);
 }

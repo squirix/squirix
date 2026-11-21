@@ -5,8 +5,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Services;
@@ -426,12 +424,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     {
         return new NodeHostStartOptions
         {
-            ConfigureLogging = static b =>
-            {
-                _ = b.ClearProviders();
-                _ = b.SetMinimumLevel(LogLevel.Warning);
-                _ = b.AddFilter("Squirix", LogLevel.Warning);
-            },
+            ConsoleLogging = false,
             PersistenceOptions = persistenceOptions,
             PeerOptionsFactory = peerOptionsFactory,
             SecurityOptions = startOptions?.Security?.ToServerOptions(),
@@ -516,11 +509,11 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// <param name="configure">The hook of the caller, if any.</param>
     /// <param name="interval">The delay between two compaction passes; none replaces nothing.</param>
     /// <returns>The hook to run after the server composition.</returns>
-    private static Action<IServiceCollection>? WithCompactionInterval(Action<IServiceCollection>? configure, TimeSpan? interval)
+    private static Action<TestServiceCollection>? WithCompactionInterval(Action<TestServiceCollection>? configure, TimeSpan? interval)
     {
         return interval is not { } delay ? configure : Hook(delay);
 
-        Action<IServiceCollection> Hook(TimeSpan span)
+        Action<TestServiceCollection> Hook(TimeSpan span)
         {
             return services =>
             {

@@ -2,8 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -94,7 +92,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
     public async Task MinorityRefusesRenewal(bool refresh, bool expired, CancellationToken cancellationToken)
     {
         var clock = new ShiftableClock();
-        var options = WipedCluster.Options(CacheName, true, services: services => services.Replace(ServiceDescriptor.Singleton<TimeProvider>(clock)));
+        var options = WipedCluster.Options(CacheName, true, services: services => services.RemoveAll<TimeProvider>().AddSingleton<TimeProvider>(clock));
         await using var cluster = await StartClusterAsync(OwnerId, "node-b", "node-c", options, cancellationToken);
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster[OwnerId];

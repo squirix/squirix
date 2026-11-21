@@ -10,7 +10,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Utils;
 
-/// <summary>Contract tests for <see cref="ThrowHelper" /> guards.</summary>
+/// <summary>Contract tests for <see cref="Squirix.Server.Utils.ThrowHelper" /> guards.</summary>
 [Immutable]
 public sealed class ThrowHelperTests : ServerUnitTestBase
 {

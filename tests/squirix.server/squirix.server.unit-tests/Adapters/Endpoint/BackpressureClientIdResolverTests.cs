@@ -1,10 +1,11 @@
 using System.Security.Claims;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Runtime.Invocation;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -16,7 +17,7 @@ namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 [Immutable]
 public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 {
-    private static readonly ServiceProvider Services = new ServiceCollection().BuildServiceProvider();
+    private static readonly NodeProvider Services = new TestServiceCollection().BuildServiceProvider();
 
     /// <summary>Blank NameIdentifier is ignored so a raw subclaim can still scope the client id.</summary>
     [Test]

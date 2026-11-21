@@ -2,13 +2,13 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -89,7 +89,7 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
     /// <summary>Replaces the group log maintenance schedule.</summary>
     /// <param name="services">The node service collection.</param>
     /// <param name="interval">The delay between two maintenance passes.</param>
-    private static void SetMaintenanceInterval(IServiceCollection services, TimeSpan interval)
+    private static void SetMaintenanceInterval(TestServiceCollection services, TimeSpan interval)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {

@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -277,8 +276,8 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
         var replicated = new ReplicatedCache(local, LeadOwn(committer));
         var storedBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime + Ttl), false);
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 4 * storedBytes });
-        var gate = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(physical), "n1", meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 4 * storedBytes };
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), "n1", meter);
         var admission = CachePipelineRegistration.CreateAdmissionDecorator(
             replicated,
             gate,

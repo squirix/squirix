@@ -1,6 +1,5 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit.Networking;
@@ -19,19 +18,6 @@ internal static class DevelopmentCertificate
     private static readonly Lazy<X509Certificate2?> Certificate = new(Find);
 
     internal static X509Certificate2? Shared => Certificate.Value;
-
-    /// <summary>Registers a copy of the development certificate with the node.</summary>
-    /// <param name="services">The services of the node; the configuration goes first, so it applies before the node configures its listeners.</param>
-    /// <remarks>Explicit server certificates take precedence. The server resolves its own certificate when no test certificate is available.</remarks>
-    internal static void AddTo(IServiceCollection services)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        var shared = Certificate.Value;
-        if (shared == null)
-            return;
-
-        _ = services.AddSingleton(_ => new NodeCertificate(shared));
-    }
 
     /// <summary>Finds the valid development certificate with a private key and the highest marker version.</summary>
     /// <returns>The certificate, or <see langword="null" /> when the current user has none or the platform is macOS.</returns>

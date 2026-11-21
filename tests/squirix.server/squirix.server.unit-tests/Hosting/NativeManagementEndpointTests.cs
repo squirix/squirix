@@ -4,7 +4,6 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
@@ -24,7 +23,7 @@ public sealed class NativeManagementEndpointTests
     [Test]
     public async Task HealthSupportsGetAndHead()
     {
-        await using var services = new ServiceCollection().BuildServiceProvider();
+        await using var services = new TestServiceCollection().BuildServiceProvider();
         const string requestSuffix = " /health?probe=1 HTTP/1.1\r\nHost: localhost\r\n\r\n";
         var get = await ExchangeAsync(services, $"GET{requestSuffix}", IPAddress.Loopback);
         var head = await ExchangeAsync(services, $"HEAD{requestSuffix}", IPAddress.Loopback);
@@ -38,7 +37,7 @@ public sealed class NativeManagementEndpointTests
     [Test]
     public async Task ManagementErrorsIncludeRequiredHeaders()
     {
-        await using var services = new ServiceCollection().BuildServiceProvider();
+        await using var services = new TestServiceCollection().BuildServiceProvider();
         var method = await ExchangeAsync(services, "POST /health HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\nX", IPAddress.Loopback);
         var auth = await ExchangeAsync(services, "GET /health/ready/details HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Parse("203.0.113.10"));
 
@@ -52,8 +51,7 @@ public sealed class NativeManagementEndpointTests
     [Test]
     public async Task ReadyFailureKeepsLivenessHealthy()
     {
-        var registrations = new ServiceCollection();
-        _ = registrations.AddLogging();
+        var registrations = new TestServiceCollection();
         _ = registrations.AddSquirixFrameworkServices();
         _ = registrations.AddSingleton(new ReadinessCheck("not-ready", static _ => new TestReadinessCheck(static () => ReadinessResult.Unhealthy("blocked"))));
         await using var services = registrations.BuildServiceProvider();
@@ -70,8 +68,7 @@ public sealed class NativeManagementEndpointTests
     [Test]
     public async Task ReadyReturns503WhenCheckThrows()
     {
-        var registrations = new ServiceCollection();
-        _ = registrations.AddLogging();
+        var registrations = new TestServiceCollection();
         _ = registrations.AddSquirixFrameworkServices();
         _ = registrations.AddSingleton(new ReadinessCheck("throwing", static _ => new TestReadinessCheck(static () => throw new InvalidOperationException("probe failed"))));
         _ = registrations.AddSingleton(new ReadinessCheck("degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
@@ -87,8 +84,7 @@ public sealed class NativeManagementEndpointTests
     [Test]
     public async Task ReadyReturnsOkWithDegradedStatus()
     {
-        var registrations = new ServiceCollection();
-        _ = registrations.AddLogging();
+        var registrations = new TestServiceCollection();
         _ = registrations.AddSquirixFrameworkServices();
         _ = registrations.AddSingleton(new ReadinessCheck("degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
         _ = registrations.AddSingleton(new ReadinessCheck("healthy", static _ => new TestReadinessCheck(static () => ReadinessResult.Healthy("ready"))));
@@ -109,7 +105,7 @@ public sealed class NativeManagementEndpointTests
     [Arguments("Transfer-Encoding: chunked\r\n", "400 Bad Request")]
     public async Task RejectsInvalidProtectedRequests(string headers, string status)
     {
-        await using var services = new ServiceCollection().BuildServiceProvider();
+        await using var services = new TestServiceCollection().BuildServiceProvider();
         var request = $"GET /health/ready/details HTTP/1.1\r\nHost: localhost\r\n{headers}\r\n";
         var response = await ExchangeAsync(services, request, IPAddress.Parse("203.0.113.10"));
         _ = await Assert.That(response.StartsWith($"HTTP/1.1 {status}\r\n", StringComparison.Ordinal)).IsTrue();
@@ -119,7 +115,7 @@ public sealed class NativeManagementEndpointTests
     [Test]
     public async Task RejectsOversizedHeaders()
     {
-        await using var services = new ServiceCollection().BuildServiceProvider();
+        await using var services = new TestServiceCollection().BuildServiceProvider();
         var request = $"GET /health HTTP/1.1\r\nHost: localhost\r\nTest: {new string('a', 16 * 1024)}\r\n\r\n";
         var response = await ExchangeAsync(services, request, IPAddress.Loopback);
         _ = await Assert.That(response.StartsWith("HTTP/1.1 431 Request Header Fields Too Large\r\n", StringComparison.Ordinal)).IsTrue();
@@ -135,7 +131,7 @@ public sealed class NativeManagementEndpointTests
     [Arguments(4)]
     public async Task ValidatesManagementHost(int caseId)
     {
-        await using var services = new ServiceCollection().BuildServiceProvider();
+        await using var services = new TestServiceCollection().BuildServiceProvider();
         var (headers, status) = caseId switch
         {
             0 => ("HTTP/1.1", "400 Bad Request"),

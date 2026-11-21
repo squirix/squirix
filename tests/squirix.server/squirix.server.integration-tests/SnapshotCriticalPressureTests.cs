@@ -1,14 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -51,7 +50,7 @@ public sealed class SnapshotCriticalPressureTests : NodeIntegrationTestBase
         _ = await Assert.That(node.GetRequiredService<ICriticalMemoryPressureReader>().IsCritical()).IsTrue();
     }
 
-    private static void ForceCriticalEagerSnapshots(IServiceCollection services)
+    private static void ForceCriticalEagerSnapshots(TestServiceCollection services)
     {
         _ = services.RemoveAll<IMemoryPressureStateEvaluator>().AddSingleton<IMemoryPressureStateEvaluator>(
             new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1 }));

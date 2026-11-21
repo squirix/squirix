@@ -2,8 +2,8 @@ using System;
 using System.Collections.Frozen;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.E2ETests.Fixtures;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -87,6 +87,6 @@ public sealed class OperationDeadlineE2ETests
 
         internal DeadlineBudgetProbe this[string nodeId] => _probes[nodeId];
 
-        internal void Configure(string nodeId, IServiceCollection services) => _probes[nodeId].Register(services);
+        internal void Configure(string nodeId, TestServiceCollection services) => _probes[nodeId].Register(services);
     }
 }

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
@@ -65,7 +64,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
         Action<CompositionArgs>? extra,
         CancellationToken cancellationToken)
     {
-        var services = new ServiceCollection();
+        var services = new TestServiceCollection();
         await TestNodeServices.ConfigureBuilderAsync(services, cluster, Configure, cancellationToken);
         var offenders = new List<string>(services.Count);
         foreach (var descriptor in services)

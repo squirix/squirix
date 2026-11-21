@@ -5,10 +5,9 @@ using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Testing;
 using Squirix.Transport.Binary;
@@ -485,10 +484,9 @@ public sealed class ConnectionPrefaceTests
     [Test]
     public async Task InvalidUtf8ReceivesCredentialDenial()
     {
-        var services = new ServiceCollection();
-        _ = services.AddOptions();
-        await using var provider = services.BuildServiceProvider();
-        using var validator = new NativeConnectionAuthenticationValidator(() => provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue, TimeProvider.System, provider);
+        await using var provider = new TestServiceCollection().BuildServiceProvider();
+        var options = new JwtValidationOptions();
+        using var validator = new NativeConnectionAuthenticationValidator(() => options, TimeProvider.System, provider);
         await using var connection = new ProbeConnection();
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
@@ -516,11 +514,10 @@ public sealed class ConnectionPrefaceTests
     [Test]
     public async Task StalledBodyLeavesValidationAvailable()
     {
-        var services = new ServiceCollection();
-        _ = services.AddOptions();
-        await using var provider = services.BuildServiceProvider();
+        await using var provider = new TestServiceCollection().BuildServiceProvider();
+        var options = new JwtValidationOptions();
         var clock = new FakeTimeProvider();
-        using var validator = new NativeConnectionAuthenticationValidator(() => provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue, clock, provider);
+        using var validator = new NativeConnectionAuthenticationValidator(() => options, clock, provider);
         await using var connection = new ProbeConnection();
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);
@@ -546,10 +543,9 @@ public sealed class ConnectionPrefaceTests
     [Test]
     public async Task BusyConsumesCompletePayload()
     {
-        var services = new ServiceCollection();
-        _ = services.AddOptions();
-        await using var provider = services.BuildServiceProvider();
-        using var validator = new NativeConnectionAuthenticationValidator(() => provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue, TimeProvider.System, provider);
+        await using var provider = new TestServiceCollection().BuildServiceProvider();
+        var options = new JwtValidationOptions();
+        using var validator = new NativeConnectionAuthenticationValidator(() => options, TimeProvider.System, provider);
         await using var connection = new ProbeConnection();
         var header = GC.AllocateUninitializedArray<byte>(8);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, 1);

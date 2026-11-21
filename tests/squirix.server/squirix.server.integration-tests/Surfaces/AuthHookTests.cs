@@ -5,7 +5,6 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -117,7 +116,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
             _ = services.AddSingleton(probe);
             _ = services.AddScoped(static provider => new EventScope(provider.GetRequiredService<HookProbe>()));
             _ = services.AddScoped<IConnectionTokenObserver>(static provider => new ScopedEvents(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<EventScope>()));
-            _ = services.AddTransient<IBinaryAuthorizationHook>(static provider => new RequestClaims(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<BinaryRequestAccessor>()));
+            _ = services.AddScoped<IBinaryAuthorizationHook>(static provider => new RequestClaims(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<BinaryRequestAccessor>()));
             _ = services.AddSingleton(static provider => new BinaryCallObserver(new ClaimProbeInterceptor(provider.GetRequiredService<HookProbe>()).Observe));
         },
     };

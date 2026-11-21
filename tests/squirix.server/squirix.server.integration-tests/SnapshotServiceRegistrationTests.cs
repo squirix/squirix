@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Composition;
@@ -24,7 +23,7 @@ public sealed class SnapshotServiceRegistrationTests : NodeIntegrationTestBase
         var node = cluster[nodeId];
         var trigger = node.GetRequiredService<SnapshotTriggerService>();
         var readiness = node.GetRequiredService<ISnapshotReadinessStatus>();
-        var hosted = await Assert.That(node.GetRequiredService<IEnumerable<INodeService>>()).HasSingleItem(static service => service is SnapshotTriggerService);
+        var hosted = await Assert.That(node.GetServices<INodeService>()).HasSingleItem(static service => service is SnapshotTriggerService);
 
         _ = await Assert.That(readiness).IsSameReferenceAs(trigger);
         _ = await Assert.That(hosted).IsSameReferenceAs(trigger);

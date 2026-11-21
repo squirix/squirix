@@ -1,7 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Hosting;
@@ -43,7 +41,7 @@ public sealed class SecurityServiceRegistrationTests
         using var issuer = new TempEnvironmentVariable("SQUIRIX_JWT_ISSUER", security.JwtIssuer);
         using var signingKey = new TempEnvironmentVariable("SQUIRIX_JWT_SIGNING_KEY", security.JwtSigningKey);
         using var metadata = new TempEnvironmentVariable("SQUIRIX_JWT_ALLOW_HTTP_METADATA", "false");
-        var services = new ServiceCollection();
+        var services = new TestServiceCollection();
 
         var enabled = services.AddSquirixSecurityServices(fromEnvironment ? null : security);
 
@@ -54,9 +52,8 @@ public sealed class SecurityServiceRegistrationTests
             return;
         }
 
-        _ = services.AddLogging();
         await using var provider = services.BuildServiceProvider();
-        var options = provider.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue;
+        var options = provider.GetRequiredService<Func<JwtValidationOptions>>()();
         var hasAuthority = caseIndex is 2 or 4;
         var metadataManager = options.Metadata as JwtMetadataSource;
         _ = await Assert.That(metadataManager?.MetadataAddress).IsEqualTo(hasAuthority ? $"{Authority}/.well-known/openid-configuration" : null);
@@ -87,7 +84,7 @@ public sealed class SecurityServiceRegistrationTests
         using var issuer = new TempEnvironmentVariable("SQUIRIX_JWT_ISSUER", null);
         using var signingKey = new TempEnvironmentVariable("SQUIRIX_JWT_SIGNING_KEY", "invalid-base64");
         var security = CreateConfiguration(enableJwt ? 3 : 0);
-        var services = new ServiceCollection();
+        var services = new TestServiceCollection();
 
         var enabled = services.AddSquirixSecurityServices(security);
 

@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -60,8 +59,8 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
         var physical = new PhysicalCache<object?>(TimeProvider.System, estimator);
         var inner = new ClientCache<object?>(physical, physical);
         await inner.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<object?>("value", 1, DateTime.UtcNow.AddHours(1)), cancellationToken);
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 1, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(physical), Self, _testMeter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 1, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), Self, _testMeter);
         var cache = new MemoryAdmissionCacheDecorator<object?>(
             inner,
             gate,

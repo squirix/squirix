@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
@@ -38,10 +37,10 @@ internal sealed class LostForwardResponseProbe
     /// <summary>Wraps the node client pool so forwarded calls pass through the fault.</summary>
     /// <param name="services">The node service collection.</param>
     /// <exception cref="InvalidOperationException">Thrown when the node does not register a factory-built client pool.</exception>
-    internal void Register(IServiceCollection services)
+    internal void Register(TestServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        ServiceDescriptor? original = null;
+        TestServiceRegistration? original = null;
         for (var i = services.Count - 1; i >= 0 && original == null; i--)
         {
             if (services[i].ServiceType == typeof(IServerClientPool))

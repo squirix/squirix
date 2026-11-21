@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -106,6 +105,6 @@ public sealed class LostResponseFailoverTests
 
         internal LostForwardResponseProbe this[string nodeId] => _probes[Array.IndexOf(FailoverSteps.ThreeNodes, nodeId)];
 
-        internal void Configure(string nodeId, IServiceCollection services) => this[nodeId].Register(services);
+        internal void Configure(string nodeId, TestServiceCollection services) => this[nodeId].Register(services);
     }
 }

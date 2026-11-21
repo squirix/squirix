@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Adapters.Endpoint;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -23,10 +21,10 @@ internal sealed class InFlightRequestTracker
 
     /// <summary>Registers the tracker and the middleware that feeds it.</summary>
     /// <param name="services">The service collection of the node.</param>
-    internal static void AddTo(IServiceCollection services)
+    internal static void AddTo(TestServiceCollection services)
     {
-        services.TryAddSingleton<InFlightRequestTracker>();
-        services.TryAddSingleton(static provider =>
+        services.AddDefaultSingleton(static _ => new InFlightRequestTracker());
+        services.AddDefaultSingleton(static provider =>
         {
             var tracker = provider.GetRequiredService<InFlightRequestTracker>();
             return new BinaryCallObserver(tracker.EnterAsync, tracker.Exit);

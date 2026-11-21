@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -262,7 +261,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
     /// <summary>Replaces the snapshot writer of the node with one that always fails, so the journal is never freed.</summary>
     /// <param name="services">The node service collection.</param>
-    private static void FailSnapshots(IServiceCollection services)
+    private static void FailSnapshots(TestServiceCollection services)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {
@@ -317,7 +316,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         string scope,
         bool clean,
         PartitionFabric? fabric,
-        Action<IServiceCollection>? services,
+        Action<TestServiceCollection>? services,
         bool tightJournal = false,
         TimeSpan? stallBudget = null)
     {
@@ -366,7 +365,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
     /// <summary>Replaces the group log maintenance schedule.</summary>
     /// <param name="services">The node service collection.</param>
-    private static void SetMaintenanceInterval(IServiceCollection services)
+    private static void SetMaintenanceInterval(TestServiceCollection services)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {
@@ -391,7 +390,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <param name="tightJournal">Whether the returned follower runs with the tight journal quota.</param>
     /// <returns>An asynchronous operation.</returns>
-    private static async Task StartLaggingAsync(Lag lag, Action<IServiceCollection>? services, CancellationToken cancellationToken, bool tightJournal = false)
+    private static async Task StartLaggingAsync(Lag lag, Action<TestServiceCollection>? services, CancellationToken cancellationToken, bool tightJournal = false)
     {
         await lag.Cluster.StopNodeAsync(lag.Former);
         _ = await lag.Cluster.StartNodeAsync(lag.Lagging, Options(lag.Scope, false, lag.Fabric, services, tightJournal, lag.StallBudget), cancellationToken);
@@ -521,7 +520,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         /// <summary>Wraps the state sink of the node so the transfer waits at the point.</summary>
         /// <param name="services">The node service collection.</param>
         /// <exception cref="InvalidOperationException">The node registers no state sink factory.</exception>
-        internal void Configure(IServiceCollection services)
+        internal void Configure(TestServiceCollection services)
         {
             var index = -1;
             for (var i = services.Count - 1; i >= 0 && index < 0; i--)
@@ -534,7 +533,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
                 throw new InvalidOperationException("The node registers no state sink factory.");
 
             var factory = services[index].ImplementationFactory!;
-            services[index] = ServiceDescriptor.Singleton<IReplicaStateSink>(provider => Wrap(factory(provider), provider));
+            services[index] = TestServiceRegistration.Singleton<IReplicaStateSink>(provider => Wrap(factory(provider)!, provider));
         }
 
         internal void Release() => _ = _release.TrySetResult();
