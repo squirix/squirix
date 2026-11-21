@@ -206,9 +206,11 @@ internal sealed class ReplicationMetrics
             long.CreateSaturating(snapshot.CommitIndex >= snapshot.LastAppliedIndex ? snapshot.CommitIndex - snapshot.LastAppliedIndex : 0UL),
             snapshot.FingerprintMatch,
             snapshot.GenerationMatch,
-            verdict == ReplicaReadinessVerdict.Ready,
-            new GroupRetention(snapshot.LogBytes, snapshot.RetainedEntries, long.CreateSaturating(snapshot.SnapshotIndex)))
+            verdict == ReplicaReadinessVerdict.Ready)
         {
+            LogBytes = snapshot.LogBytes,
+            RetainedEntries = snapshot.RetainedEntries,
+            SnapshotIndex = long.CreateSaturating(snapshot.SnapshotIndex),
             Role = snapshot.Role,
             HasAuthority = snapshot.HasAuthority,
             Leads = snapshot.ReportsCopies,
@@ -303,14 +305,14 @@ internal sealed class ReplicationMetrics
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.LogBytes, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].LogBytes, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveRetainedEntries()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.RetainedEntries, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].RetainedEntries, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveRoles()
@@ -324,7 +326,7 @@ internal sealed class ReplicationMetrics
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.SnapshotIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].SnapshotIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveTerms()
@@ -335,6 +337,7 @@ internal sealed class ReplicationMetrics
     }
 
     [Immutable]
+    [StructLayout(LayoutKind.Auto)]
     internal readonly record struct GroupObservation(
         string NodeId,
         long Term,
@@ -344,8 +347,7 @@ internal sealed class ReplicationMetrics
         long ApplyLag,
         bool TopologyMatch,
         bool GenerationMatch,
-        bool Ready,
-        GroupRetention Retention)
+        bool Ready)
     {
         internal string GroupId { get; init; } = string.Empty;
 
@@ -359,18 +361,16 @@ internal sealed class ReplicationMetrics
 
         internal IReadOnlyList<ReplicaPeerStatus> Peers { get; init; } = [];
 
+        internal long LogBytes { get; init; }
+
+        internal int RetainedEntries { get; init; }
+
+        internal long SnapshotIndex { get; init; }
+
         internal ReplicaElectionRole Role { get; init; }
 
         internal bool WriteQuorumAvailable { get; init; }
     }
-
-    /// <summary>The retained size of an observed replica group log.</summary>
-    /// <param name="LogBytes">The durable size of the group log file in bytes.</param>
-    /// <param name="RetainedEntries">The number of entry frames the group log file holds.</param>
-    /// <param name="SnapshotIndex">The last log index the published snapshot covers.</param>
-    [Immutable]
-    [StructLayout(LayoutKind.Auto)]
-    internal readonly record struct GroupRetention(long LogBytes, int RetainedEntries, long SnapshotIndex);
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)
