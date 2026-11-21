@@ -11,7 +11,7 @@ namespace Squirix.Server.Adapters.Endpoint;
 
 internal sealed record SignedConnectionToken(string Issuer, JwtVerificationKey SigningKey, ClaimsPrincipal Principal, DateTime NotBefore, DateTime Expires)
 {
-    internal static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(2);
 
     private static readonly SearchValues<char> CompactCharacters = SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.");
 
