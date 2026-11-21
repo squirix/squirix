@@ -87,64 +87,10 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         },
     };
 
-    private sealed class PrincipalFactory : IConnectionTokenObserver
-    {
-        private readonly PolicyProbe _probe;
-        private readonly int _mode;
-
-        internal PrincipalFactory(PolicyProbe probe, int mode)
-        {
-            _probe = probe;
-            _mode = mode;
-        }
-
-        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!_probe.AllowControl)
-            {
-                var identity = new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin"), new Claim("permission", "grant")], "Bearer");
-                principal = _mode switch
-                {
-                    0 => new PolicyPrincipal(identity),
-                    1 => new UnsupportedPrincipal(identity),
-                    _ => new ChangingPrincipal(identity, true),
-                };
-            }
-
-            return ValueTask.FromResult<ClaimsPrincipal?>(principal);
-        }
-    }
-
-    private sealed class PolicyPrincipal : ClaimsPrincipal
-    {
-        private readonly ClaimsIdentity _identity;
-
-        internal PolicyPrincipal(ClaimsIdentity identity)
-            : base(identity)
-        {
-            _identity = identity;
-        }
-
-        public override bool IsInRole(string role) => false;
-
-        public override bool HasClaim(string type, string value) => false;
-
-        public override ClaimsPrincipal Clone() => new PolicyPrincipal(_identity.Clone());
-    }
-
-    private sealed class UnsupportedPrincipal : ClaimsPrincipal
-    {
-        internal UnsupportedPrincipal(ClaimsIdentity identity)
-            : base(identity)
-        {
-        }
-    }
-
     private sealed class ChangingPrincipal : ClaimsPrincipal
     {
-        private readonly ClaimsIdentity _identity;
         private readonly bool _allowClone;
+        private readonly ClaimsIdentity _identity;
 
         internal ChangingPrincipal(ClaimsIdentity identity, bool allowClone)
             : base(identity)
@@ -154,32 +100,6 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
         }
 
         public override ClaimsPrincipal Clone() => _allowClone ? new ChangingPrincipal(_identity.Clone(), false) : this;
-    }
-
-    private sealed class PolicyProbe
-    {
-        private int _entries;
-        private int _errors;
-        private int _allowControl;
-
-        internal PolicyProbe(bool checkPolicy)
-        {
-            CheckPolicy = checkPolicy;
-        }
-
-        internal bool CheckPolicy { get; }
-
-        internal bool AllowControl => Volatile.Read(ref _allowControl) != 0;
-
-        internal int Entries => Volatile.Read(ref _entries);
-
-        internal int Errors => Volatile.Read(ref _errors);
-
-        internal void RecordEntry() => _ = Interlocked.Increment(ref _entries);
-
-        internal void RecordError() => _ = Interlocked.Increment(ref _errors);
-
-        internal void EnableControl() => _ = Interlocked.Exchange(ref _allowControl, 1);
     }
 
     private sealed class PolicyInterceptor
@@ -197,6 +117,85 @@ public sealed class PrincipalCloneTests : ServerSurfaceTestBase
             var principal = context.User!;
             if (_probe.CheckPolicy && (principal.IsInRole("admin") || principal.HasClaim("permission", "grant") || !string.Equals(principal.FindFirst("permission")?.Value, "grant", StringComparison.Ordinal)))
                 _probe.RecordError();
+        }
+    }
+
+    private sealed class PolicyPrincipal : ClaimsPrincipal
+    {
+        private readonly ClaimsIdentity _identity;
+
+        internal PolicyPrincipal(ClaimsIdentity identity)
+            : base(identity)
+        {
+            _identity = identity;
+        }
+
+        public override ClaimsPrincipal Clone() => new PolicyPrincipal(_identity.Clone());
+
+        public override bool HasClaim(string type, string value) => false;
+
+        public override bool IsInRole(string role) => false;
+    }
+
+    private sealed class PolicyProbe
+    {
+        private int _allowControl;
+        private int _entries;
+        private int _errors;
+
+        internal PolicyProbe(bool checkPolicy)
+        {
+            CheckPolicy = checkPolicy;
+        }
+
+        internal bool AllowControl => Volatile.Read(ref _allowControl) != 0;
+
+        internal bool CheckPolicy { get; }
+
+        internal int Entries => Volatile.Read(ref _entries);
+
+        internal int Errors => Volatile.Read(ref _errors);
+
+        internal void EnableControl() => _ = Interlocked.Exchange(ref _allowControl, 1);
+
+        internal void RecordEntry() => _ = Interlocked.Increment(ref _entries);
+
+        internal void RecordError() => _ = Interlocked.Increment(ref _errors);
+    }
+
+    private sealed class PrincipalFactory : IConnectionTokenObserver
+    {
+        private readonly int _mode;
+        private readonly PolicyProbe _probe;
+
+        internal PrincipalFactory(PolicyProbe probe, int mode)
+        {
+            _probe = probe;
+            _mode = mode;
+        }
+
+        public ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_probe.AllowControl)
+                return ValueTask.FromResult<ClaimsPrincipal?>(principal);
+            var identity = new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin"), new Claim("permission", "grant")], "Bearer");
+            principal = _mode switch
+            {
+                0 => new PolicyPrincipal(identity),
+                1 => new UnsupportedPrincipal(identity),
+                _ => new ChangingPrincipal(identity, true),
+            };
+
+            return ValueTask.FromResult<ClaimsPrincipal?>(principal);
+        }
+    }
+
+    private sealed class UnsupportedPrincipal : ClaimsPrincipal
+    {
+        internal UnsupportedPrincipal(ClaimsIdentity identity)
+            : base(identity)
+        {
         }
     }
 }

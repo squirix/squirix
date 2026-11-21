@@ -117,16 +117,16 @@ public sealed class MeasurementSink : IDisposable
     private readonly record struct CapturedMeasurement
     {
         internal readonly string InstrumentName;
-        internal readonly KeyValuePair<string, object?>[]? OverflowTags;
         internal readonly int TagCount;
         private readonly InlineTags _inlineTags;
+        private readonly KeyValuePair<string, object?>[]? _overflowTags;
 
         private CapturedMeasurement(string instrumentName, int tagCount, in InlineTags inlineTags, KeyValuePair<string, object?>[]? overflowTags)
         {
             InstrumentName = instrumentName;
             TagCount = tagCount;
             _inlineTags = inlineTags;
-            OverflowTags = overflowTags;
+            _overflowTags = overflowTags;
         }
 
         internal static CapturedMeasurement Capture(string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
@@ -144,9 +144,9 @@ public sealed class MeasurementSink : IDisposable
 
         internal void GetTag(int index, out string key, out object? value)
         {
-            if (OverflowTags != null)
+            if (_overflowTags != null)
             {
-                var tag = OverflowTags[index];
+                var tag = _overflowTags[index];
                 key = tag.Key;
                 value = tag.Value;
                 return;

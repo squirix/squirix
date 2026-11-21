@@ -7,8 +7,8 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Owns the immutable identity and validation snapshot accepted for one TLS transport.</summary>
 internal sealed class AuthenticatedConnection
 {
-    private readonly Action _requestClose;
     private readonly ClaimsPrincipal _principal;
+    private readonly Action _requestClose;
 
     private AuthenticatedConnection(
         ClaimsPrincipal principal,
@@ -27,15 +27,15 @@ internal sealed class AuthenticatedConnection
         _requestClose = requestClose;
     }
 
-    internal DateTime NotBefore { get; }
+    internal JwtMetadata? Configuration { get; }
 
     internal DateTime Expires { get; }
 
-    internal JwtValidationOptions Options { get; }
-
-    internal JwtMetadata? Configuration { get; }
-
     internal DateTime? HistoricalStarted { get; }
+
+    internal DateTime NotBefore { get; }
+
+    internal JwtValidationOptions Options { get; }
 
     internal static AuthenticatedConnection? Create(
         ClaimsPrincipal principal,
@@ -51,10 +51,6 @@ internal sealed class AuthenticatedConnection
 
     internal ClaimsPrincipal? ClonePrincipal() => CopyPrincipal(_principal);
 
-    internal bool IsWithinLifetime(DateTime now) => now >= NotBefore && now < Expires;
-
-    internal void RequestClose() => _requestClose();
-
     internal ITimer CreateExpiryTimer(TimeProvider timeProvider)
     {
         var due = Expires - timeProvider.GetUtcNow().UtcDateTime;
@@ -63,16 +59,27 @@ internal sealed class AuthenticatedConnection
         var maximum = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
         if (due > maximum)
             due = maximum;
-        return timeProvider.CreateTimer(static state => { if (state is AuthenticatedConnection connection) connection.RequestClose(); }, this, due, Timeout.InfiniteTimeSpan);
+        return timeProvider.CreateTimer(
+            static state =>
+            {
+                if (state is AuthenticatedConnection connection)
+                    connection.RequestClose();
+            },
+            this,
+            due,
+            Timeout.InfiniteTimeSpan);
     }
+
+    internal bool IsWithinLifetime(DateTime now) => now >= NotBefore && now < Expires;
+
+    internal void RequestClose() => _requestClose();
 
     private static ClaimsPrincipal? CopyPrincipal(ClaimsPrincipal principal)
     {
         if (principal.GetType() != typeof(ClaimsPrincipal))
         {
             var custom = principal.Clone();
-            var supported = custom != null && !ReferenceEquals(custom, principal) && custom.GetType() == principal.GetType() &&
-                            HasIndependentIdentities(principal, custom);
+            var supported = custom != null && !ReferenceEquals(custom, principal) && custom.GetType() == principal.GetType() && HasIndependentIdentities(principal, custom);
             return supported ? custom : null;
         }
 

@@ -7,35 +7,22 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Cluster;
 using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit.Logging;
 
 namespace Squirix.Server.TestKit;
 
 /// <summary>Connects node factories to test hosts that supply scoped probes and override dependencies.</summary>
 internal static class TestNodeServices
 {
-    internal static async Task ConfigureBuilderAsync(IServiceCollection services, TopologyOptions cluster, Action<CompositionArgs> configure, CancellationToken token)
+    internal static void AddLifetime(IServiceCollection services)
     {
-        var node = new NodeServices();
-        await ServerHostingComposition.ConfigureBuilderAsync(node, cluster, configure, token).ConfigureAwait(false);
-        Install(node, services);
-    }
-
-    internal static async Task ConfigureNodeAsync(IServiceCollection services, SquirixServerOptions options, Action<CompositionArgs>? configure, CancellationToken token)
-    {
-        var node = new NodeServices();
-        await NodeConfiguration.ConfigureNodeAsync(node, options, configure, token).ConfigureAwait(false);
-        Install(node, services);
-    }
-
-    internal static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? options)
-    {
-        var node = new NodeServices();
-        var enabled = node.AddSquirixSecurityServices(options);
-        if (enabled)
-            Install(node, services);
-        return enabled;
+        services.TryAddSingleton<IServerLoggerFactory>(static sp =>
+            new TestHostLoggerFactory(sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
+        services.TryAddSingleton(static sp => new ServerLifetime(sp.GetRequiredService<IServerLoggerFactory>().CreateLogger<ServerLifetime>()));
+        services.TryAddSingleton<INodeLifetime>(static sp => sp.GetRequiredService<ServerLifetime>());
     }
 
     internal static IServiceCollection AddPersistenceServices(this IServiceCollection services, PersistenceOptions options, bool waitForRecovery)
@@ -54,30 +41,27 @@ internal static class TestNodeServices
         return services;
     }
 
-    internal static void AddLifetime(IServiceCollection services)
+    internal static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? options)
     {
-        services.TryAddSingleton<Squirix.Server.Logging.IServerLoggerFactory>(static sp => new Logging.TestHostLoggerFactory(sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
-        services.TryAddSingleton(static sp => new ServerLifetime(sp.GetRequiredService<Squirix.Server.Logging.IServerLoggerFactory>().CreateLogger<ServerLifetime>()));
-        services.TryAddSingleton<INodeLifetime>(static sp => sp.GetRequiredService<ServerLifetime>());
+        var node = new NodeServices();
+        var enabled = node.AddSquirixSecurityServices(options);
+        if (enabled)
+            Install(node, services);
+        return enabled;
     }
 
-    private static void Install(NodeServices node, IServiceCollection services)
+    internal static async Task ConfigureBuilderAsync(IServiceCollection services, TopologyOptions cluster, Action<CompositionArgs> configure, CancellationToken token)
     {
-        _ = services.AddOptions();
-        AddLifetime(services);
-        _ = services.AddSingleton<INodeRequestScopes>(static sp => new RequestScopes(sp));
-        foreach (var registration in node.Registrations)
-        {
-            if (registration.Instance is Func<JwtValidationOptions> configured)
-            {
-                AddAuthentication(services, configured);
-                continue;
-            }
+        var node = new NodeServices();
+        await ServerHostingComposition.ConfigureBuilderAsync(node, cluster, configure, token).ConfigureAwait(false);
+        Install(node, services);
+    }
 
-            services.Add(registration.Factory is { } factory
-                ? ServiceDescriptor.Singleton(registration.Type, factory!)
-                : ServiceDescriptor.Singleton(registration.Type, registration.Instance!));
-        }
+    internal static async Task ConfigureNodeAsync(IServiceCollection services, SquirixServerOptions options, Action<CompositionArgs>? configure, CancellationToken token)
+    {
+        var node = new NodeServices();
+        await NodeConfiguration.ConfigureNodeAsync(node, options, configure, token).ConfigureAwait(false);
+        Install(node, services);
     }
 
     private static void AddAuthentication(IServiceCollection services, Func<JwtValidationOptions> configured)
@@ -93,6 +77,26 @@ internal static class TestNodeServices
             options.RequireHttpsMetadata = source.RequireHttpsMetadata;
         });
         _ = services.AddSingleton<Func<JwtValidationOptions>>(static sp => () => sp.GetRequiredService<IOptionsMonitor<JwtValidationOptions>>().CurrentValue);
+    }
+
+    private static void Install(NodeServices node, IServiceCollection services)
+    {
+        _ = services.AddOptions();
+        AddLifetime(services);
+        _ = services.AddSingleton<INodeRequestScopes>(static sp => new RequestScopes(sp));
+        foreach (var registration in node.Registrations)
+        {
+            if (registration.Instance is Func<JwtValidationOptions> configured)
+            {
+                AddAuthentication(services, configured);
+                continue;
+            }
+
+            services.Add(
+                registration.Factory is { } factory
+                    ? ServiceDescriptor.Singleton(registration.Type, factory!)
+                    : ServiceDescriptor.Singleton(registration.Type, registration.Instance!));
+        }
     }
 
     private sealed class RequestScopes : INodeRequestScopes

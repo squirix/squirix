@@ -21,29 +21,37 @@ namespace Squirix.Server.Adapters.Endpoint;
 internal sealed class NativeManagementEndpoint
 {
     internal static readonly FrozenSet<string> Probes = new[] { "/health", "/health/live", "/health/ready", "/health/ready/details" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+    private const string JsonContentType = "application/json; charset=utf-8";
 
     private const int MaxHeaderBytes = 16 * 1024;
-    private const string JsonContentType = "application/json; charset=utf-8";
     private const string TextContentType = "text/plain";
+
+    private static readonly ReadOnlyMemory<byte> CompatibilityHealthBody = Encoding.UTF8.GetBytes("\"OK\"");
+    private static readonly ReadOnlyMemory<byte> DegradedBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Degraded));
+    private static readonly ReadOnlyMemory<byte> HealthyBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Healthy));
 
     private static readonly SearchValues<char> InvalidHostCharacters = SearchValues.Create(" \t\r\n/\\?#@");
 
-    private static readonly ReadOnlyMemory<byte> CompatibilityHealthBody = Encoding.UTF8.GetBytes("\"OK\"");
-    private static readonly ReadOnlyMemory<byte> HealthyBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Healthy));
-    private static readonly ReadOnlyMemory<byte> DegradedBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Degraded));
-    private static readonly ReadOnlyMemory<byte> UnhealthyBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Unhealthy));
-
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
+    private static readonly ReadOnlyMemory<byte> UnhealthyBody = Encoding.UTF8.GetBytes(nameof(ReadinessStatus.Unhealthy));
+    private readonly Func<string, CancellationToken, ValueTask<bool>> _authenticateBearer;
 
     private readonly IServerLogger<NativeManagementEndpoint> _logger;
     private readonly IServiceProvider _services;
-    private readonly Func<string, CancellationToken, ValueTask<bool>> _authenticateBearer;
 
     internal NativeManagementEndpoint(IServiceProvider services, Func<string, CancellationToken, ValueTask<bool>> authenticateBearer, IServerLogger<NativeManagementEndpoint> logger)
     {
         _services = services;
         _logger = logger;
         _authenticateBearer = authenticateBearer;
+    }
+
+    internal ValueTask<bool> CanAccessDetailsAsync(IPAddress? remote, string? bearer, CancellationToken cancellationToken)
+    {
+        if (remote?.IsIPv4MappedToIPv6 == true)
+            remote = remote.MapToIPv4();
+        var loopback = remote != null && IPAddress.IsLoopback(remote);
+        return !loopback && !string.IsNullOrEmpty(bearer) ? _authenticateBearer(bearer, cancellationToken) : ValueTask.FromResult(loopback);
     }
 
     internal async Task ServeAsync(Stream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
@@ -65,18 +73,62 @@ internal sealed class NativeManagementEndpoint
         await WriteAsync(stream, response, request.Head, token).ConfigureAwait(false);
     }
 
-    internal ValueTask<bool> CanAccessDetailsAsync(IPAddress? remote, string? bearer, CancellationToken cancellationToken)
+    private static bool HasInvalidHeaderBytes(ReadOnlySpan<byte> bytes)
     {
-        if (remote?.IsIPv4MappedToIPv6 == true)
-            remote = remote.MapToIPv4();
-        var loopback = remote != null && IPAddress.IsLoopback(remote);
-        return !loopback && !string.IsNullOrEmpty(bearer) ? _authenticateBearer(bearer, cancellationToken) : ValueTask.FromResult(loopback);
+        foreach (var value in bytes)
+        {
+            if (value > 126 || (value < 32 && value is not (9 or 10 or 13)))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasUnsupportedBody(ReadOnlySpan<char> name, ReadOnlySpan<char> value) =>
+        name.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) ||
+        (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) && value is not "0");
+
+    private static bool IsInvalidHeaderName(ReadOnlySpan<char> name)
+    {
+        foreach (var character in name)
+        {
+            if (!char.IsAsciiLetterOrDigit(character) && !"!#$%&'*+-.^_`|~".Contains(character, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     private static void LogRequest(IServerLogger logger, string path)
     {
         if (logger.IsEnabled(ServerLogLevel.Information))
             Events.LogRequestEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(path));
+    }
+
+    private static bool MatchesMetricsPath(string configuredPath, string requestPath) =>
+        string.Equals(configuredPath, requestPath, StringComparison.OrdinalIgnoreCase) ||
+        (requestPath.Contains('%', StringComparison.Ordinal) &&
+         string.Equals(configuredPath, Uri.UnescapeDataString(requestPath), StringComparison.OrdinalIgnoreCase));
+
+    private static (Request? Request, Response? Error) ParseRequest(string headers)
+    {
+        var lines = headers.Split("\r\n");
+        var start = lines[0].Split(' ');
+        var badRequest = Response.Empty("400 Bad Request");
+        if (start.Length != 3 || start[2] is not ("HTTP/1.1" or "HTTP/1.0") || start[1] is not ['/', ..])
+            return (null, badRequest);
+
+        var head = string.Equals(start[0], "HEAD", StringComparison.Ordinal);
+        var supportedMethod = head || string.Equals(start[0], "GET", StringComparison.Ordinal);
+        if (!TryReadHeaders(lines, string.Equals(start[2], "HTTP/1.1", StringComparison.Ordinal), supportedMethod, out var bearer))
+            return (null, badRequest);
+
+        if (!supportedMethod)
+            return (null, Response.Empty("405 Method Not Allowed"));
+
+        var query = start[1].IndexOf('?', StringComparison.Ordinal);
+        var path = query < 0 ? start[1] : start[1][..query];
+        return (new Request(path, bearer, head), null);
     }
 
     private static async Task<(Request? Request, Response? Error)> ReadRequestAsync(Stream stream, CancellationToken cancellationToken)
@@ -107,38 +159,6 @@ internal sealed class NativeManagementEndpoint
         {
             ArrayPool<byte>.Shared.Return(buffer, true);
         }
-    }
-
-    private static bool HasInvalidHeaderBytes(ReadOnlySpan<byte> bytes)
-    {
-        foreach (var value in bytes)
-        {
-            if (value > 126 || (value < 32 && value is not (9 or 10 or 13)))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static (Request? Request, Response? Error) ParseRequest(string headers)
-    {
-        var lines = headers.Split("\r\n");
-        var start = lines[0].Split(' ');
-        var badRequest = Response.Empty("400 Bad Request");
-        if (start.Length != 3 || start[2] is not ("HTTP/1.1" or "HTTP/1.0") || start[1] is not ['/', ..])
-            return (null, badRequest);
-
-        var head = string.Equals(start[0], "HEAD", StringComparison.Ordinal);
-        var supportedMethod = head || string.Equals(start[0], "GET", StringComparison.Ordinal);
-        if (!TryReadHeaders(lines, string.Equals(start[2], "HTTP/1.1", StringComparison.Ordinal), supportedMethod, out var bearer))
-            return (null, badRequest);
-
-        if (!supportedMethod)
-            return (null, Response.Empty("405 Method Not Allowed"));
-
-        var query = start[1].IndexOf('?', StringComparison.Ordinal);
-        var path = query < 0 ? start[1] : start[1][..query];
-        return (new Request(path, bearer, head), null);
     }
 
     private static bool TryReadHeaders(string[] lines, bool requireHost, bool rejectBody, out string? bearer)
@@ -185,21 +205,6 @@ internal sealed class NativeManagementEndpoint
         return true;
     }
 
-    private static bool HasUnsupportedBody(ReadOnlySpan<char> name, ReadOnlySpan<char> value) =>
-        name.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) ||
-        (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) && value is not "0");
-
-    private static bool IsInvalidHeaderName(ReadOnlySpan<char> name)
-    {
-        foreach (var character in name)
-        {
-            if (!char.IsAsciiLetterOrDigit(character) && !"!#$%&'*+-.^_`|~".Contains(character, StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
-    }
-
     private static async Task WriteAsync(Stream stream, Response response, bool head, CancellationToken cancellationToken)
     {
         var type = response.ContentType == null ? string.Empty : $"Content-Type: {response.ContentType}\r\n";
@@ -218,10 +223,16 @@ internal sealed class NativeManagementEndpoint
             await stream.WriteAsync(response.Body, cancellationToken).ConfigureAwait(false);
     }
 
-    private static bool MatchesMetricsPath(string configuredPath, string requestPath) =>
-        string.Equals(configuredPath, requestPath, StringComparison.OrdinalIgnoreCase) ||
-        (requestPath.Contains('%', StringComparison.Ordinal) &&
-         string.Equals(configuredPath, Uri.UnescapeDataString(requestPath), StringComparison.OrdinalIgnoreCase));
+    private async ValueTask<Response> CheckReadinessAsync(CancellationToken cancellationToken)
+    {
+        var status = await _services.Require<ReadinessMonitor>().GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return status switch
+        {
+            ReadinessStatus.Healthy => new Response("200 OK", TextContentType, HealthyBody, true),
+            ReadinessStatus.Degraded => new Response("200 OK", TextContentType, DegradedBody, true),
+            _ => new Response("503 Service Unavailable", TextContentType, UnhealthyBody, true),
+        };
+    }
 
     private async ValueTask<Response> ExecuteAsync(Request request, IPAddress remote, CancellationToken cancellationToken)
     {
@@ -259,17 +270,6 @@ internal sealed class NativeManagementEndpoint
         return response;
     }
 
-    private async ValueTask<Response> CheckReadinessAsync(CancellationToken cancellationToken)
-    {
-        var status = await _services.Require<ReadinessMonitor>().GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        return status switch
-        {
-            ReadinessStatus.Healthy => new Response("200 OK", TextContentType, HealthyBody, true),
-            ReadinessStatus.Degraded => new Response("200 OK", TextContentType, DegradedBody, true),
-            _ => new Response("503 Service Unavailable", TextContentType, UnhealthyBody, true),
-        };
-    }
-
     private readonly record struct Request(string Path, string? Bearer, bool Head);
 
     private readonly record struct Response(string Status, string? ContentType, ReadOnlyMemory<byte> Body, bool NoCache)
@@ -279,6 +279,6 @@ internal sealed class NativeManagementEndpoint
 
     private static class Events
     {
-        internal static readonly LogEvent LogRequestEvent = new(3035, nameof(NativeManagementEndpoint.LogRequest), "Management request {Path}");
+        internal static readonly LogEvent LogRequestEvent = new(3035, nameof(LogRequest), "Management request {Path}");
     }
 }

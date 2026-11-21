@@ -96,14 +96,20 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
     internal Task<TouchAsyncResponse> TouchAsync(TouchAsyncRequest request, in BinaryCallOptions options) =>
         CallAsync(BinaryOperation.Touch, request, TouchAsyncResponse.Parser, options);
 
-    internal Task<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, in BinaryCallOptions options) =>
-        CallAsync(BinaryOperation.RemoveExpiration, request, RemoveExpirationAsyncResponse.Parser, options);
+    internal Task<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, in BinaryCallOptions options) => CallAsync(
+        BinaryOperation.RemoveExpiration,
+        request,
+        RemoveExpirationAsyncResponse.Parser,
+        options);
 
     internal Task<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, in BinaryCallOptions options) =>
         CallAsync(BinaryOperation.Update, request, UpdateAsyncResponse.Parser, options);
 
-    internal Task<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, in BinaryCallOptions options) =>
-        CallAsync(BinaryOperation.GetExpiration, request, GetExpirationAsyncResponse.Parser, options);
+    internal Task<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, in BinaryCallOptions options) => CallAsync(
+        BinaryOperation.GetExpiration,
+        request,
+        GetExpirationAsyncResponse.Parser,
+        options);
 
     internal Task<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, in BinaryCallOptions options) =>
         CallAsync(BinaryOperation.GetOrAdd, request, GetOrAddAsyncResponse.Parser, options);
@@ -111,11 +117,17 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
     internal Task<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, in BinaryCallOptions options) =>
         CallAsync(BinaryOperation.SetDistributed, request, SetAsyncResponse.Parser, options);
 
-    internal Task<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, in BinaryCallOptions options) =>
-        CallAsync(BinaryOperation.GetDistributed, request, GetDistributedAsyncResponse.Parser, options);
+    internal Task<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, in BinaryCallOptions options) => CallAsync(
+        BinaryOperation.GetDistributed,
+        request,
+        GetDistributedAsyncResponse.Parser,
+        options);
 
-    internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, in BinaryCallOptions options) =>
-        CallAsync(BinaryOperation.RefreshDistributed, request, RefreshDistributedAsyncResponse.Parser, options);
+    internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, in BinaryCallOptions options) => CallAsync(
+        BinaryOperation.RefreshDistributed,
+        request,
+        RefreshDistributedAsyncResponse.Parser,
+        options);
 
     private static T ThrowUnexpectedResponse<T>() => throw new InvalidDataException("Unexpected cache response type.");
 
@@ -134,7 +146,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         try
         {
             connection = await GetConnectionAsync(options.CancellationToken).ConfigureAwait(false);
-            var preventReplay = !connection.SupportsMutationReplay && operation is not (BinaryOperation.GetEntry or BinaryOperation.GetValue or BinaryOperation.GetExpiration or BinaryOperation.GetDistributed);
+            var preventReplay = !connection.SupportsMutationReplay &&
+                                operation is not (BinaryOperation.GetEntry or BinaryOperation.GetValue or BinaryOperation.GetExpiration or BinaryOperation.GetDistributed);
             var result = await connection.CallAsync(control, wireRequest, bodySize, parser, options, preventReplay).ConfigureAwait(false);
             return result as T ?? ThrowUnexpectedResponse<T>();
         }
@@ -144,7 +157,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         }
         catch (OperationCanceledException error) when (connection == null && !options.CallerToken.IsCancellationRequested)
         {
-            throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "Unable to establish the binary connection within the attempt budget.", error));
+            throw new SquirixTransportException(
+                new CallStatus(CacheTransportStatusCode.Unavailable, "Unable to establish the binary connection within the attempt budget.", error));
         }
         catch (Exception error) when (error is IOException or SocketException or InvalidDataException)
         {
@@ -230,7 +244,10 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         }
 
         internal static async Task<Connection> ConnectAsync(
-            Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, CancellationToken token)
+            Uri endpoint,
+            Func<CancellationToken, ValueTask<string>>? provider,
+            SslClientAuthenticationOptions? tlsOptions,
+            CancellationToken token)
         {
             var (socket, tls, replay) = await BinaryClientProtocol.ConnectAsync(endpoint, provider, tlsOptions, token).ConfigureAwait(false);
             return new Connection(socket, tls, replay);

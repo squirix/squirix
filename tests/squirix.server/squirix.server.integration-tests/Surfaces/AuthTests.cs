@@ -35,23 +35,34 @@ public sealed class AuthTests : ServerSurfaceTestBase
         var client = new CacheWireClient(channel);
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
-        var missingAuth = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetEntryAsync(getRequest, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var missingAuth = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetEntryAsync(getRequest, cancellationToken: cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(FrameStatus.Unauthenticated).Because(missingAuth.Message);
 
         var token = TestJwtHelper.CreateBearerToken(credentials);
         var rejectedStatus = byte.MaxValue;
         using var invalidChannel = CreateBinaryChannel(uri, InvalidBearerToken, status => rejectedStatus = status);
         var invalidClient = new CacheWireClient(invalidChannel);
-        var invalidAuth = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(invalidClient.GetEntryAsync(getRequest, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var invalidAuth = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            invalidClient.GetEntryAsync(getRequest, cancellationToken: cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(invalidAuth.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(rejectedStatus).IsEqualTo(ConnectionAuthenticationProtocol.InvalidCredentials);
 
         var acceptedHandshakes = 0;
-        using var authenticated = CreateBinaryChannel(uri, token, status =>
-        {
-            if (status == ConnectionAuthenticationProtocol.Accepted)
-                _ = Interlocked.Increment(ref acceptedHandshakes);
-        });
+        using var authenticated = CreateBinaryChannel(
+            uri,
+            token,
+            status =>
+            {
+                if (status == ConnectionAuthenticationProtocol.Accepted)
+                    _ = Interlocked.Increment(ref acceptedHandshakes);
+            });
         var authenticatedClient = new CacheWireClient(authenticated);
         var response = await authenticatedClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" }, cancellationToken: cancellationToken);
         var repeated = await authenticatedClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" }, cancellationToken: cancellationToken);

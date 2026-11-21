@@ -553,6 +553,6 @@ internal sealed class BinaryConnectionPump
 
     private static class Events
     {
-        internal static readonly LogEvent LogCallFailureEvent = new(3032, nameof(BinaryConnectionPump.LogCallFailure), "Binary cache request {RequestId} failed");
+        internal static readonly LogEvent LogCallFailureEvent = new(3032, nameof(LogCallFailure), "Binary cache request {RequestId} failed");
     }
 }

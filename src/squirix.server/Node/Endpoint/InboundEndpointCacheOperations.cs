@@ -12,9 +12,9 @@ namespace Squirix.Server.Node.Endpoint;
 [ThreadSafe]
 internal sealed class InboundEndpointCacheOperations<T> : IInboundEndpointCacheOperations<T>
 {
-    private readonly ILogicalNamespacedCache<T> _namespaced;
     private readonly ConcurrentDictionary<string, RoutedCacheApi<T>> _apiByCache = new(StringComparer.Ordinal);
     private readonly Lock _creationLock = new();
+    private readonly ILogicalNamespacedCache<T> _namespaced;
     private int _cachedCount;
 
     internal InboundEndpointCacheOperations(ILogicalNamespacedCache<T> namespaced)
@@ -38,12 +38,10 @@ internal sealed class InboundEndpointCacheOperations<T> : IInboundEndpointCacheO
                 return cached;
 
             var created = new RoutedCacheApi<T>(_namespaced, canonical);
-            if (_cachedCount < InboundEndpointCacheLimits.MaxCachedFacades)
-            {
-                _apiByCache[canonical] = created;
-                Volatile.Write(ref _cachedCount, _cachedCount + 1);
-            }
-
+            if (_cachedCount >= InboundEndpointCacheLimits.MaxCachedFacades)
+                return created;
+            _apiByCache[canonical] = created;
+            Volatile.Write(ref _cachedCount, _cachedCount + 1);
             return created;
         }
     }

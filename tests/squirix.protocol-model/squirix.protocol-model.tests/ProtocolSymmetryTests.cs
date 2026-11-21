@@ -173,14 +173,14 @@ public sealed class ProtocolSymmetryTests
         for (var i = 0; i < state.Messages.Count; i++)
         {
             var m = state.Messages[i];
-            messages.Add(new InFlightMessage(m.Id, m.Kind, permutation[m.From], permutation[m.To], m.Term, m.LastLogIndex, m.LastLogTerm, m.Success, m.MatchIndex, m.ReadIndex, m.PrevLogTerm));
+            messages.Add(m with { From = permutation[m.From], To = permutation[m.To] });
         }
 
         var elections = new ModelElectionRecord[state.ElectedLeaders.Count];
         for (var i = 0; i < state.ElectedLeaders.Count; i++)
         {
             var record = state.ElectedLeaders[i];
-            elections[i] = new ModelElectionRecord(record.Term, permutation[record.NodeId]);
+            elections[i] = record with { NodeId = permutation[record.NodeId] };
         }
 
         // The hint evidence names members too, so a state is not renamed while it still points at the old labels.

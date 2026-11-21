@@ -9,6 +9,7 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -33,6 +34,20 @@ public sealed class NativeManagementEndpointTests
         _ = await Assert.That(head).Contains("Content-Length: 4\r\n", StringComparison.Ordinal);
     }
 
+    /// <summary>Advertises the supported method or authentication challenge on the corresponding error.</summary>
+    [Test]
+    public async Task ManagementErrorsIncludeRequiredHeaders()
+    {
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        var method = await ExchangeAsync(services, "POST /health HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\nX", IPAddress.Loopback);
+        var auth = await ExchangeAsync(services, "GET /health/ready/details HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Parse("203.0.113.10"));
+
+        _ = await Assert.That(method.StartsWith("HTTP/1.1 405 Method Not Allowed\r\n", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(method).Contains("\r\nAllow: GET, HEAD\r\n", StringComparison.Ordinal);
+        _ = await Assert.That(auth.StartsWith("HTTP/1.1 401 Unauthorized\r\n", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(auth).Contains("\r\nWWW-Authenticate: Bearer realm=\"management\"\r\n", StringComparison.Ordinal);
+    }
+
     /// <summary>The readiness probe maps a failed check to 503 without affecting liveness.</summary>
     [Test]
     public async Task ReadyFailureKeepsLivenessHealthy()
@@ -40,8 +55,7 @@ public sealed class NativeManagementEndpointTests
         var registrations = new ServiceCollection();
         _ = registrations.AddLogging();
         _ = registrations.AddSquirixFrameworkServices();
-        _ = registrations.AddSingleton(new ReadinessCheck(
-            "not-ready", static _ => new TestReadinessCheck(static () => ReadinessResult.Unhealthy("blocked"))));
+        _ = registrations.AddSingleton(new ReadinessCheck("not-ready", static _ => new TestReadinessCheck(static () => ReadinessResult.Unhealthy("blocked"))));
         await using var services = registrations.BuildServiceProvider();
         var ready = await ExchangeAsync(services, "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
         var live = await ExchangeAsync(services, "GET /health/live HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
@@ -52,25 +66,6 @@ public sealed class NativeManagementEndpointTests
         _ = await Assert.That(live.StartsWith("HTTP/1.1 200 OK\r\n", StringComparison.Ordinal)).IsTrue();
     }
 
-    /// <summary>A degraded node still answers its readiness probe successfully.</summary>
-    [Test]
-    public async Task ReadyReturnsOkWithDegradedStatus()
-    {
-        var registrations = new ServiceCollection();
-        _ = registrations.AddLogging();
-        _ = registrations.AddSquirixFrameworkServices();
-        _ = registrations.AddSingleton(new ReadinessCheck(
-            "degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
-        _ = registrations.AddSingleton(new ReadinessCheck(
-            "healthy", static _ => new TestReadinessCheck(static () => ReadinessResult.Healthy("ready"))));
-        await using var services = registrations.BuildServiceProvider();
-
-        var ready = await ExchangeAsync(services, "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
-
-        _ = await Assert.That(ready.StartsWith("HTTP/1.1 200 OK\r\n", StringComparison.Ordinal)).IsTrue();
-        _ = await Assert.That(ready.EndsWith("\r\n\r\nDegraded", StringComparison.Ordinal)).IsTrue();
-    }
-
     /// <summary>A check that throws makes the node unhealthy even when another check is only degraded.</summary>
     [Test]
     public async Task ReadyReturns503WhenCheckThrows()
@@ -78,16 +73,31 @@ public sealed class NativeManagementEndpointTests
         var registrations = new ServiceCollection();
         _ = registrations.AddLogging();
         _ = registrations.AddSquirixFrameworkServices();
-        _ = registrations.AddSingleton(new ReadinessCheck(
-            "throwing", static _ => new TestReadinessCheck(static () => throw new InvalidOperationException("probe failed"))));
-        _ = registrations.AddSingleton(new ReadinessCheck(
-            "degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
+        _ = registrations.AddSingleton(new ReadinessCheck("throwing", static _ => new TestReadinessCheck(static () => throw new InvalidOperationException("probe failed"))));
+        _ = registrations.AddSingleton(new ReadinessCheck("degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
         await using var services = registrations.BuildServiceProvider();
 
         var ready = await ExchangeAsync(services, "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
 
         _ = await Assert.That(ready.StartsWith("HTTP/1.1 503 Service Unavailable\r\n", StringComparison.Ordinal)).IsTrue();
         _ = await Assert.That(ready.EndsWith("\r\n\r\nUnhealthy", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>A degraded node still answers its readiness probe successfully.</summary>
+    [Test]
+    public async Task ReadyReturnsOkWithDegradedStatus()
+    {
+        var registrations = new ServiceCollection();
+        _ = registrations.AddLogging();
+        _ = registrations.AddSquirixFrameworkServices();
+        _ = registrations.AddSingleton(new ReadinessCheck("degraded", static _ => new TestReadinessCheck(static () => ReadinessResult.Degraded("slow"))));
+        _ = registrations.AddSingleton(new ReadinessCheck("healthy", static _ => new TestReadinessCheck(static () => ReadinessResult.Healthy("ready"))));
+        await using var services = registrations.BuildServiceProvider();
+
+        var ready = await ExchangeAsync(services, "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Loopback);
+
+        _ = await Assert.That(ready.StartsWith("HTTP/1.1 200 OK\r\n", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(ready.EndsWith("\r\n\r\nDegraded", StringComparison.Ordinal)).IsTrue();
     }
 
     /// <summary>Only the authenticated socket identity and one bearer header can grant protected access.</summary>
@@ -139,23 +149,9 @@ public sealed class NativeManagementEndpointTests
         _ = await Assert.That(response.StartsWith($"HTTP/1.1 {status}\r\n", StringComparison.Ordinal)).IsTrue();
     }
 
-    /// <summary>Advertises the supported method or authentication challenge on the corresponding error.</summary>
-    [Test]
-    public async Task ManagementErrorsIncludeRequiredHeaders()
-    {
-        await using var services = new ServiceCollection().BuildServiceProvider();
-        var method = await ExchangeAsync(services, "POST /health HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\nX", IPAddress.Loopback);
-        var auth = await ExchangeAsync(services, "GET /health/ready/details HTTP/1.1\r\nHost: localhost\r\n\r\n", IPAddress.Parse("203.0.113.10"));
-
-        _ = await Assert.That(method.StartsWith("HTTP/1.1 405 Method Not Allowed\r\n", StringComparison.Ordinal)).IsTrue();
-        _ = await Assert.That(method).Contains("\r\nAllow: GET, HEAD\r\n", StringComparison.Ordinal);
-        _ = await Assert.That(auth.StartsWith("HTTP/1.1 401 Unauthorized\r\n", StringComparison.Ordinal)).IsTrue();
-        _ = await Assert.That(auth).Contains("\r\nWWW-Authenticate: Bearer realm=\"management\"\r\n", StringComparison.Ordinal);
-    }
-
     private static async Task<string> ExchangeAsync(IServiceProvider services, string request, IPAddress address, int fragmentSize = int.MaxValue)
     {
-        var endpoint = new NativeManagementEndpoint(services, static (_, _) => ValueTask.FromResult(false), Squirix.Server.TestKit.Logging.NullLogger<NativeManagementEndpoint>.Instance);
+        var endpoint = new NativeManagementEndpoint(services, static (_, _) => ValueTask.FromResult(false), NullLogger<NativeManagementEndpoint>.Instance);
         var bytes = Encoding.ASCII.GetBytes(request);
         var stream = new FragmentedStream(fragmentSize);
         await using var lifetime = stream.ConfigureAwait(false);

@@ -40,7 +40,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
     [Test]
     public async Task ExpiredAtNowIsSkippedAndDropped(CancellationToken cancellationToken)
     {
-        var kit = new JournalReplayKit(Dir, _testMeter);
+        var kit = new JournalReplayKit(Dir);
         var clock = JournalReplayKit.CreateWriteClock(PastStart);
         await using var session = await kit.OpenAsync(clock, cancellationToken);
         ILocalCacheStats stats = session.Physical;
@@ -58,7 +58,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
     [Test]
     public async Task LiveByOneTickIsTouched(CancellationToken cancellationToken)
     {
-        var kit = new JournalReplayKit(Dir, _testMeter);
+        var kit = new JournalReplayKit(Dir);
         var clock = JournalReplayKit.CreateWriteClock(PastStart);
         await using var session = await kit.OpenAsync(clock, cancellationToken);
         session.Physical.Set(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime.AddTicks(1)), cancellationToken);
@@ -71,7 +71,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
     [Test]
     public async Task MissingKeyOversizedUpdateIsRejected(CancellationToken cancellationToken)
     {
-        var kit = new JournalReplayKit(Dir, _testMeter);
+        var kit = new JournalReplayKit(Dir);
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
         var oversized = new string('x', EntryLimits.MaxEntrySizeBytes);
 
@@ -89,7 +89,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
     [Arguments(true)]
     public async Task OversizedWithTagsUpdateIsRejected(bool groupCommit, CancellationToken cancellationToken)
     {
-        var kit = new JournalReplayKit(Dir, _testMeter, groupCommit);
+        var kit = new JournalReplayKit(Dir, groupCommit);
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", tags: tags), cancellationToken);
@@ -110,7 +110,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
     [Test]
     public async Task UpdatePinsHeldDeadlineEverywhere(CancellationToken cancellationToken)
     {
-        var kit = new JournalReplayKit(Dir, _testMeter);
+        var kit = new JournalReplayKit(Dir);
         var clock = JournalReplayKit.CreateWriteClock(PastStart, 1);
         var start = clock.GetUtcNow().UtcDateTime;
         NodeCacheEntry<string>? memory;

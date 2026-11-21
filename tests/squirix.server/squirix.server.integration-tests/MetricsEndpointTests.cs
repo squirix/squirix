@@ -25,11 +25,15 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
         {
             MetricsEnabled = true,
             PrometheusMetricsEnabled = true,
-            ServicesConfigure = static services => services.AddSingleton(new PrometheusMetricsEndpointOptions
+            ServicesConfigure = static services =>
             {
-                Enabled = true,
-                Path = "/team metrics",
-            }),
+                var prometheusMetricsEndpointOptions = new PrometheusMetricsEndpointOptions
+                {
+                    Enabled = true,
+                    Path = "/team metrics",
+                };
+                _ = services.AddSingleton(prometheusMetricsEndpointOptions);
+            },
         };
         await using var cluster = await StartClusterAsync(nodeId, options, cancellationToken);
         var management = cluster[nodeId].ManagementUri;
@@ -48,7 +52,14 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
     public async Task MetricsEndpointServesReplicationGauges(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster([new ClusterNode("node-metrics-a", GetNextHttpUri()), new ClusterNode("node-metrics-b", GetNextHttpUri())]);
-        var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, MetricsEnabled = true, PrometheusMetricsEnabled = true, ExtraScope = "replication-gauges" };
+        var options = new IntegrationStartOptions
+        {
+            ReplicaCount = 2,
+            UsePersistence = true,
+            MetricsEnabled = true,
+            PrometheusMetricsEnabled = true,
+            ExtraScope = "replication-gauges",
+        };
         var owner = await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken);
         var uri = owner.ManagementUri;
 

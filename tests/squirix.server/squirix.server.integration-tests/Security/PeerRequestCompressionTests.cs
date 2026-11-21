@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Threading;
@@ -44,7 +46,7 @@ public sealed class PeerRequestCompressionTests : NodeIntegrationTestBase
         await using (var gzip = new GZipStream(bytes, CompressionLevel.Fastest, true))
             payload.WriteTo(gzip);
         var ring = cluster["A"].GetRequiredService<RingFingerprint>().Value;
-        var (status, _) = await client.SendRawAsync("owner/SetEntry", bytes.ToArray(), new(System.StringComparer.OrdinalIgnoreCase) { ["squirix-ring-fingerprint"] = ring }, -1, false, cancellationToken);
+        var (status, _) = await client.SendRawAsync("owner/SetEntry", bytes.ToArray(), new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["squirix-ring-fingerprint"] = ring }, -1, false, cancellationToken);
         _ = await Assert.That(status).IsEqualTo(FrameStatus.InvalidArgument);
         using var channel = CreateBinaryChannel(cluster["A"].Uri);
         var plain = new CacheWireClient(channel);

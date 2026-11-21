@@ -84,9 +84,6 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         base.DisposeManaged();
     }
 
-    private static string TextOf(NodeCacheEntry<object?>? entry) =>
-        entry?.Value is JsonUtf8Value json ? Encoding.UTF8.GetString(json.Bytes.Span) : "<not a JSON value>";
-
     private static async Task ApplyThroughJournalAsync(PersistenceOptions persistence, FakeTimeProvider clock, ReplicaLogRecord record, CancellationToken cancellationToken)
     {
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -107,6 +104,24 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
             physical.RawReader);
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }
+
+    private static async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
+        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
+        var dependencies = new RecoveryDependencies<object?>(
+            persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            StoreFactory.CreateReader(),
+            clock);
+        await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
+        return cache;
+    }
+
+    private static string TextOf(NodeCacheEntry<object?>? entry) =>
+        entry?.Value is JsonUtf8Value json ? Encoding.UTF8.GetString(json.Bytes.Span) : "<not a JSON value>";
 
     private async Task<(string Leader, string Follower, string Recovered)> ApplyEverywhereAsync(JsonUtf8Value value, CancellationToken cancellationToken)
     {
@@ -130,20 +145,5 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
             TextOf(leader.RawReader.GetEntryRaw(key, cancellationToken)),
             TextOf(follower.RawReader.GetEntryRaw(key, cancellationToken)),
             TextOf(recovered.RawReader.GetEntryRaw(key, cancellationToken)));
-    }
-
-    private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
-    {
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
-        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var dependencies = new RecoveryDependencies<object?>(
-            persistence,
-            manifestStore,
-            cache,
-            new AsyncManualResetEvent(true),
-            StoreFactory.CreateReader(),
-            clock);
-        await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
-        return cache;
     }
 }

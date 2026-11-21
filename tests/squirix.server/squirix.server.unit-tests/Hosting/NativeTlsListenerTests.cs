@@ -65,12 +65,14 @@ public sealed class NativeTlsListenerTests
             await running.WaitAsync(cancellationToken);
         }
 
+        return;
+
         async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken stopping, CancellationToken aborted)
         {
             admitted.SetResult();
             await release.Task.WaitAsync(aborted);
             if (stopping.IsCancellationRequested && IPAddress.IsLoopback(remote.Address))
-                await stream.WriteAsync(new byte[] { Reply }, aborted);
+                await stream.WriteAsync(new[] { Reply }, aborted);
         }
     }
 }

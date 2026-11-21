@@ -14,10 +14,10 @@ namespace Squirix.Server.Node.Hosting;
 internal sealed class ServerLoggerFactory : IServerLoggerFactory
 {
     private readonly Lock _gate = new();
+    private readonly ConcurrentDictionary<string, ConsoleLogger> _loggers = new(StringComparer.Ordinal);
+    private readonly LoggerExternalScopeProvider _scopes = new();
     private readonly ServerLoggingSettings _settings;
     private readonly Action<string> _writeLine;
-    private readonly LoggerExternalScopeProvider _scopes = new();
-    private readonly ConcurrentDictionary<string, ConsoleLogger> _loggers = new(StringComparer.Ordinal);
 
     internal ServerLoggerFactory(ServerLoggingSettings settings, Action<string> writeLine)
     {
@@ -49,9 +49,9 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
     {
         private readonly string _name;
         private readonly ServerLoggerFactory _owner;
-        private volatile ServerLogLevel _minimum;
         private volatile bool _includeScopes;
         private volatile bool _json;
+        private volatile ServerLogLevel _minimum;
 
         internal ConsoleLogger(string name, ServerLoggerFactory owner)
         {
@@ -137,7 +137,28 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
                 writer.WriteStringValue(text);
         }
 
-#pragma warning disable MA0045 // ILogger.Log is synchronous and this UTF-8 writer targets memory.
+        private ServerLogLevel? FindLevel(IReadOnlyDictionary<string, string?> levels, string prefix)
+        {
+            ServerLogLevel? result = null;
+            var length = -1;
+            foreach (var section in levels)
+            {
+                if (!section.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var key = section.Key[prefix.Length..];
+                var specificity = string.Equals(key, "Default", StringComparison.OrdinalIgnoreCase) ? 0 : key.Length;
+                if (specificity <= length || (specificity > 0 && !_name.StartsWith(key, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                if (!Enum.TryParse<ServerLogLevel>(section.Value, true, out var level))
+                    continue;
+                result = level;
+                length = specificity;
+            }
+
+            return result;
+        }
+
+#pragma warning disable MA0045 // IServerLogger.Log is synchronous and this UTF-8 writer targets memory.
         private void WriteJson<TState>(ServerLogLevel level, ServerLogEventId id, string message, TState state, Exception? exception)
         {
             var buffer = new ArrayBufferWriter<byte>();
@@ -168,27 +189,5 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
         }
 
 #pragma warning restore MA0045
-
-        private ServerLogLevel? FindLevel(IReadOnlyDictionary<string, string?> levels, string prefix)
-        {
-            ServerLogLevel? result = null;
-            var length = -1;
-            foreach (var section in levels)
-            {
-                if (!section.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                var key = section.Key[prefix.Length..];
-                var specificity = string.Equals(key, "Default", StringComparison.OrdinalIgnoreCase) ? 0 : key.Length;
-                if (specificity <= length || (specificity > 0 && !_name.StartsWith(key, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-                if (Enum.TryParse<ServerLogLevel>(section.Value, true, out var level))
-                {
-                    result = level;
-                    length = specificity;
-                }
-            }
-
-            return result;
-        }
     }
 }

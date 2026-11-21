@@ -21,8 +21,8 @@ internal readonly record struct LogEventState<T> : IReadOnlyList<KeyValuePair<st
     public int Count => _event.FieldCount + 1;
 
     public KeyValuePair<string, object?> this[int index] => index == _event.FieldCount
-        ? new("{OriginalFormat}", _event.Template)
-        : new(_event.FieldName(index), _values[index]);
+        ? new KeyValuePair<string, object?>("{OriginalFormat}", _event.Template)
+        : new KeyValuePair<string, object?>(_event.FieldName(index), _values[index]);
 
     public override string ToString() => _event.Format(_values);
 

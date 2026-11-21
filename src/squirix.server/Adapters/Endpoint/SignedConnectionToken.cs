@@ -80,14 +80,14 @@ internal sealed record SignedConnectionToken(string Issuer, JwtVerificationKey S
             return null;
         if (configured?.Matches(kid, thumbprint) == true)
             return configured;
-        if (metadata != null)
+        if (metadata == null)
+            return null;
+
+        for (var index = 0; index < metadata.SigningKeys.Count; index++)
         {
-            for (var index = 0; index < metadata.SigningKeys.Count; index++)
-            {
-                var candidate = metadata.SigningKeys[index];
-                if (candidate.Matches(kid, thumbprint))
-                    return candidate;
-            }
+            var candidate = metadata.SigningKeys[index];
+            if (candidate.Matches(kid, thumbprint))
+                return candidate;
         }
 
         return null;
@@ -97,14 +97,14 @@ internal sealed record SignedConnectionToken(string Issuer, JwtVerificationKey S
     {
         if (options.SigningKey is { } configured && configured.Verify(input, signature, algorithm))
             return configured;
-        if (metadata != null)
+        if (metadata == null)
+            return null;
+
+        for (var index = 0; index < metadata.SigningKeys.Count; index++)
         {
-            for (var index = 0; index < metadata.SigningKeys.Count; index++)
-            {
-                var candidate = metadata.SigningKeys[index];
-                if (candidate.Verify(input, signature, algorithm))
-                    return candidate;
-            }
+            var candidate = metadata.SigningKeys[index];
+            if (candidate.Verify(input, signature, algorithm))
+                return candidate;
         }
 
         return null;

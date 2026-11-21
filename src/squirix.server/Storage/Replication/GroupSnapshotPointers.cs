@@ -8,24 +8,10 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Two checksummed pointers to immutable snapshot generations in one small file.</summary>
 internal static class GroupSnapshotPointers
 {
-    internal const int SlotSize = 4096;
     internal const int FileSize = SlotSize * 2;
-    private const uint Magic = 0x53515047;
+    internal const int SlotSize = 4096;
     private const int CrcOffset = SlotSize - sizeof(uint);
-
-    internal static void Encode(Span<byte> slot, ulong sequence, Guid generation, (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) position = default)
-    {
-        slot.Clear();
-        BinaryPrimitives.WriteUInt32LittleEndian(slot, Magic);
-        BinaryPrimitives.WriteUInt64LittleEndian(slot.Slice(4), sequence);
-        _ = generation.TryWriteBytes(slot.Slice(12, 16));
-        BinaryPrimitives.WriteUInt64LittleEndian(slot[28..], position.Generation);
-        BinaryPrimitives.WriteInt64LittleEndian(slot[36..], position.Offset);
-        BinaryPrimitives.WriteInt64LittleEndian(slot[44..], position.RewrittenOffset);
-        BinaryPrimitives.WriteInt64LittleEndian(slot[52..], position.RewrittenBoundary);
-        BinaryPrimitives.WriteUInt64LittleEndian(slot[60..], position.RewrittenGeneration);
-        BinaryPrimitives.WriteUInt32LittleEndian(slot.Slice(CrcOffset), Crc32C.Compute(slot.Slice(0, CrcOffset)));
-    }
+    private const uint Magic = 0x53515047;
 
     internal static SnapshotPointer Decode(ReadOnlySpan<byte> image, int slot)
     {
@@ -48,18 +34,18 @@ internal static class GroupSnapshotPointers
         return sequence == 0UL ? default : pointer;
     }
 
-    internal static (bool ReferencesCurrent, ulong Latest) ReadWalGenerations(string path, ulong current)
+    internal static void Encode(Span<byte> slot, ulong sequence, Guid generation, (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) position = default)
     {
-        var latest = current;
-        var referencesCurrent = false;
-        foreach (var pointer in Read(path))
-        {
-            var (generation, _, _, _, rewritten) = pointer.WalPosition;
-            referencesCurrent |= current != 0UL && (generation == current || rewritten == current);
-            latest = Math.Max(latest, Math.Max(generation, rewritten));
-        }
-
-        return (referencesCurrent, latest);
+        slot.Clear();
+        BinaryPrimitives.WriteUInt32LittleEndian(slot, Magic);
+        BinaryPrimitives.WriteUInt64LittleEndian(slot[4..], sequence);
+        _ = generation.TryWriteBytes(slot.Slice(12, 16));
+        BinaryPrimitives.WriteUInt64LittleEndian(slot[28..], position.Generation);
+        BinaryPrimitives.WriteInt64LittleEndian(slot[36..], position.Offset);
+        BinaryPrimitives.WriteInt64LittleEndian(slot[44..], position.RewrittenOffset);
+        BinaryPrimitives.WriteInt64LittleEndian(slot[52..], position.RewrittenBoundary);
+        BinaryPrimitives.WriteUInt64LittleEndian(slot[60..], position.RewrittenGeneration);
+        BinaryPrimitives.WriteUInt32LittleEndian(slot[CrcOffset..], Crc32C.Compute(slot[..CrcOffset]));
     }
 
     internal static SnapshotPointer[] Read(string path)
@@ -75,18 +61,32 @@ internal static class GroupSnapshotPointers
         var read = 0;
         while (read < image.Length)
         {
-            var count = RandomAccess.Read(handle, image.Slice(read), read);
+            var count = RandomAccess.Read(handle, image[read..], read);
             if (count == 0)
                 break;
 
             read += count;
         }
 
-        var first = Decode(image.Slice(0, read), 0);
-        var second = Decode(image.Slice(0, read), 1);
+        var first = Decode(image[..read], 0);
+        var second = Decode(image[..read], 1);
         SnapshotPointer[] ordered = first.Sequence >= second.Sequence ? [first, second] : [second, first];
         return first.Sequence != 0UL && first.Sequence == second.Sequence && first.Generation != second.Generation
             ? throw new InvalidDataException("Snapshot pointers of the same generation disagree.")
             : ordered;
+    }
+
+    internal static (bool ReferencesCurrent, ulong Latest) ReadWalGenerations(string path, ulong current)
+    {
+        var latest = current;
+        var referencesCurrent = false;
+        foreach (var pointer in Read(path))
+        {
+            var (generation, _, _, _, rewritten) = pointer.WalPosition;
+            referencesCurrent |= current != 0UL && (generation == current || rewritten == current);
+            latest = Math.Max(latest, Math.Max(generation, rewritten));
+        }
+
+        return (referencesCurrent, latest);
     }
 }

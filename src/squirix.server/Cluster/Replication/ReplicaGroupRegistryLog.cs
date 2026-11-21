@@ -13,6 +13,6 @@ internal static class ReplicaGroupRegistryLog
 
     private static class Events
     {
-        internal static readonly LogEvent TailPinSkippedEvent = new(4030, nameof(ReplicaGroupRegistryLog.TailPinSkipped), "Replica group {GroupId} recovered uncommitted log entry {LogIndex} is not pinned for idempotent retries: {Reason}");
+        internal static readonly LogEvent TailPinSkippedEvent = new(4030, nameof(TailPinSkipped), "Replica group {GroupId} recovered uncommitted log entry {LogIndex} is not pinned for idempotent retries: {Reason}");
     }
 }

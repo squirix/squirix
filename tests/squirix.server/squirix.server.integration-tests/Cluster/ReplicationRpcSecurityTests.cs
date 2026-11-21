@@ -25,24 +25,6 @@ namespace Squirix.Server.IntegrationTests.Cluster;
 /// <summary>REQ-SEC-001: closed replication RPCs are bound to internal mTLS identity.</summary>
 public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 {
-    /// <summary>Every protobuf method is mapped once and retains internal-listener and authorization metadata.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task EveryMethodKeepsInternalMetadata(CancellationToken cancellationToken)
-    {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
-        var node = cluster["node-a"];
-        _ = await Assert.That(node.Services.GetService(typeof(SquirixReplicationServiceAdapter))).IsNotNull();
-        var port = node.GetRequiredService<MtlsOptions>().InternalListenPort;
-        var peer = cluster.Peers[0];
-        _ = await Assert.That(peer.InterNodeUri!.Port).IsEqualTo(port);
-        _ = await Assert.That(peer.Uri.Port).IsNotEqualTo(port);
-        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
-        var client = new PeerSocketProbe(peer.InterNodeUri, tlsOptions);
-        var reply = await client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken);
-        _ = await Assert.That(reply).IsNotNull();
-    }
-
     /// <summary>Matching peer certificate and sender_node_id is accepted.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -78,6 +60,24 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-a"), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.Unauthenticated);
+    }
+
+    /// <summary>Every protobuf method is mapped once and retains internal-listener and authorization metadata.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EveryMethodKeepsInternalMetadata(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var node = cluster["node-a"];
+        _ = await Assert.That(node.Services.GetService(typeof(SquirixReplicationServiceAdapter))).IsNotNull();
+        var port = node.GetRequiredService<MtlsOptions>().InternalListenPort;
+        var peer = cluster.Peers[0];
+        _ = await Assert.That(peer.InterNodeUri!.Port).IsEqualTo(port);
+        _ = await Assert.That(peer.Uri.Port).IsNotEqualTo(port);
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
+        var client = new PeerSocketProbe(peer.InterNodeUri, tlsOptions);
+        var reply = await client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken);
+        _ = await Assert.That(reply).IsNotNull();
     }
 
     /// <summary>External listener does not expose the closed replication service.</summary>
@@ -173,7 +173,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         using var listener = new ActivityListener
         {
             ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.Ordinal),
-            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            Sample = static (ref _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = activity =>
             {
                 if (activity.TraceId == traceId && activity.Kind == ActivityKind.Server && string.Equals(activity.OperationName, operation, StringComparison.Ordinal))

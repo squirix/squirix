@@ -79,12 +79,10 @@ public sealed class NativePeerTransportTests
             var dialCount = 0;
             async ValueTask<EndPoint> ResolveAsync(CancellationToken token)
             {
-                if (Interlocked.Increment(ref dialCount) == 1)
-                {
-                    entered.SetResult();
-                    await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, token);
-                }
-
+                if (Interlocked.Increment(ref dialCount) != 1)
+                    return new DnsEndPoint(address.DnsSafeHost, address.Port);
+                entered.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, token);
                 return new DnsEndPoint(address.DnsSafeHost, address.Port);
             }
 
@@ -121,16 +119,17 @@ public sealed class NativePeerTransportTests
         var material = await identity.ResolveNodeStartupForBindAsync(options, TestNodeProfile.Normal, null, cancellationToken);
         var services = TestNodeBuilder.CreateServices();
         await TestNodeServices.ConfigureBuilderAsync(services, options, Configure, cancellationToken);
+
+        var host = services.BuildNode();
+        port.Dispose();
+        await SquirixServer.ApplicationHandle.StartWithRollbackAsync(host, static (_, _) => Task.CompletedTask, cancellationToken);
+        return host;
+
         void Configure(CompositionArgs args)
         {
             args.MtlsOptions = material.Options;
             args.Certificate = material.Certificate;
             args.ManagementUri = new Uri("https://127.0.0.1:0");
         }
-
-        var host = services.BuildNode();
-        port.Dispose();
-        await SquirixServer.ApplicationHandle.StartWithRollbackAsync(host, static (_, _) => Task.CompletedTask, cancellationToken);
-        return host;
     }
 }

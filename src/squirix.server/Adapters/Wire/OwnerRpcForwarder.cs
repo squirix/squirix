@@ -25,9 +25,9 @@ internal sealed class OwnerRpcForwarder
 {
     private readonly IBackpressureClientIdResolver _clientIdResolver;
     private readonly IBackpressureGate _gate;
+    private readonly bool _mutationReplay;
     private readonly IServerClientPool _pool;
     private readonly RingAgreement _ringAgreement;
-    private readonly bool _mutationReplay;
 
     internal OwnerRpcForwarder(IServerClientPool pool, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver, RingAgreement ringAgreement, bool mutationReplay = false)
     {
@@ -41,6 +41,20 @@ internal sealed class OwnerRpcForwarder
         _ringAgreement = ringAgreement;
         _mutationReplay = mutationReplay;
     }
+
+    internal Task<TryAddAsyncResponse> AddEntryIfAbsentAsync(string owner, TryAddEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+        owner,
+        CacheOperationNames.TryAdd,
+        request,
+        static (client, r, ct) => client.SendAsync("owner/TryAddEntry", r, TryAddAsyncResponse.Parser, ct),
+        cancellationToken);
+
+    internal Task<GetDistributedAsyncResponse> GetDistributedAsync(string owner, GetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+        owner,
+        CacheOperationNames.Get,
+        request,
+        static (client, r, ct) => client.SendAsync("owner/GetDistributed", r, GetDistributedAsyncResponse.Parser, ct),
+        cancellationToken);
 
     internal Task<GetEntryAsyncResponse> GetEntryAsync(string owner, GetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
@@ -70,6 +84,13 @@ internal sealed class OwnerRpcForwarder
         static (client, r, ct) => client.SendAsync("owner/GetValue", r, GetValueAsyncResponse.Parser, ct),
         cancellationToken);
 
+    internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(string owner, RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+        owner,
+        CacheOperationNames.Touch,
+        request,
+        static (client, r, ct) => client.SendAsync("owner/RefreshDistributed", r, RefreshDistributedAsyncResponse.Parser, ct),
+        cancellationToken);
+
     internal Task<RemoveAsyncResponse> RemoveAsync(string owner, RemoveAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Remove,
@@ -82,20 +103,6 @@ internal sealed class OwnerRpcForwarder
         CacheOperationNames.RemoveExpiration,
         request,
         static (client, r, ct) => client.SendAsync("owner/RemoveExpiration", r, RemoveExpirationAsyncResponse.Parser, ct),
-        cancellationToken);
-
-    internal Task<GetDistributedAsyncResponse> GetDistributedAsync(string owner, GetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
-        owner,
-        CacheOperationNames.Get,
-        request,
-        static (client, r, ct) => client.SendAsync("owner/GetDistributed", r, GetDistributedAsyncResponse.Parser, ct),
-        cancellationToken);
-
-    internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(string owner, RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
-        owner,
-        CacheOperationNames.Touch,
-        request,
-        static (client, r, ct) => client.SendAsync("owner/RefreshDistributed", r, RefreshDistributedAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<SetAsyncResponse> SetDistributedAsync(string owner, SetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
@@ -117,13 +124,6 @@ internal sealed class OwnerRpcForwarder
         CacheOperationNames.Touch,
         request,
         static (client, r, ct) => client.SendAsync("owner/Touch", r, TouchAsyncResponse.Parser, ct),
-        cancellationToken);
-
-    internal Task<TryAddAsyncResponse> AddEntryIfAbsentAsync(string owner, TryAddEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
-        owner,
-        CacheOperationNames.TryAdd,
-        request,
-        static (client, r, ct) => client.SendAsync("owner/TryAddEntry", r, TryAddAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<UpdateAsyncResponse> UpdateAsync(string owner, UpdateAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
@@ -235,7 +235,7 @@ internal sealed class OwnerRpcForwarder
         private static bool IsOutcomeUncertain(Exception error) => error switch
         {
             ServerCallException rpc =>
-                (rpc.StatusCode is FrameStatus.Unavailable or FrameStatus.Cancelled or FrameStatus.DeadlineExceeded or FrameStatus.Internal)
+                rpc.StatusCode is FrameStatus.Unavailable or FrameStatus.Cancelled or FrameStatus.DeadlineExceeded or FrameStatus.Internal
                 && !RingMismatchFailure.IsRefusal(rpc)
                 && !StaleRouteSignals.TryReadStale(rpc, out _)
                 && !string.Equals(rpc.Message, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal),

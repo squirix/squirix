@@ -34,7 +34,7 @@ public sealed class CorrelationTests : ServerSurfaceTestBase
         using var listener = new ActivityListener
         {
             ShouldListenTo = static source => string.Equals(source.Name, "Squirix", StringComparison.Ordinal),
-            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            Sample = static (ref _) => ActivitySamplingResult.AllData,
         };
         ActivitySource.AddActivityListener(listener);
         var entry = new BinaryCallObserver(_ => Volatile.Write(ref origin, Activity.Current?.Id));

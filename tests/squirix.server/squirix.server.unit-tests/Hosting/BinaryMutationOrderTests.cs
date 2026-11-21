@@ -66,7 +66,7 @@ public sealed class BinaryMutationOrderTests
             unblock.SetResult();
 
             await AssertRepliesAsync(connection.Outgoing.Reader, stop.Token);
-            _ = await Assert.That(mutations.ToArray().AsSpan().SequenceEqual<int>([1, 2, 4, 5, 6])).IsTrue();
+            _ = await Assert.That(mutations.ToArray().AsSpan().SequenceEqual([1, 2, 4, 5, 6])).IsTrue();
         }
         finally
         {
@@ -74,22 +74,6 @@ public sealed class BinaryMutationOrderTests
             await stop.CancelAsync();
             await processing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
         }
-    }
-
-    private static async ValueTask WriteRequestsAsync(PipeWriter input, CancellationToken stop)
-    {
-        for (var id = 1; id <= ReadId; id++)
-        {
-            var operation = id % 2 == 0 ? BinaryOperation.Remove : BinaryOperation.SetDistributed;
-            if (id == ReadId)
-                operation = BinaryOperation.GetDistributed;
-
-            var control = (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | 1000;
-            Frames.Write(input.GetSpan(Frames.HeaderBytes), id, 0, control);
-            input.Advance(Frames.HeaderBytes);
-        }
-
-        _ = await input.FlushAsync(stop);
     }
 
     private static async Task AssertRepliesAsync(PipeReader output, CancellationToken stop)
@@ -118,5 +102,21 @@ public sealed class BinaryMutationOrderTests
         }
 
         return replies;
+    }
+
+    private static async ValueTask WriteRequestsAsync(PipeWriter input, CancellationToken stop)
+    {
+        for (var id = 1; id <= ReadId; id++)
+        {
+            var operation = id % 2 == 0 ? BinaryOperation.Remove : BinaryOperation.SetDistributed;
+            if (id == ReadId)
+                operation = BinaryOperation.GetDistributed;
+
+            var control = (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | 1000;
+            Frames.Write(input.GetSpan(Frames.HeaderBytes), id, 0, control);
+            input.Advance(Frames.HeaderBytes);
+        }
+
+        _ = await input.FlushAsync(stop);
     }
 }

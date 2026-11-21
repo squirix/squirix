@@ -20,8 +20,7 @@ internal static class ReplicaStatusRegistration
             sp.Require<IReplicaGroupLocator>(),
             sp.Require<ReplicaGroupCommitters>().CoordinatorFor,
             sp.Require<TopologyOptions>().NodeId));
-        _ = services.Use(new ReadinessCheck(
-            "replica_readiness",
-            static sp => new ReplicaReadinessHealthCheck(sp.Require<IReplicaStatusSource>(), sp.Require<ReplicationMetrics>())));
+        _ = services.Use(
+            new ReadinessCheck("replica_readiness", static sp => new ReplicaReadinessHealthCheck(sp.Require<IReplicaStatusSource>(), sp.Require<ReplicationMetrics>())));
     }
 }

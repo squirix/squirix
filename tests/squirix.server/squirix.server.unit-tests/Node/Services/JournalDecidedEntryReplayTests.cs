@@ -34,7 +34,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-decided-replay";
 
-    private JournalReplayKit Kit => new(Dir, _testMeter);
+    private JournalReplayKit Kit => new(Dir);
 
     /// <summary>Removing the expiration before the deadline keeps the key without a deadline across a restart after the original deadline.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

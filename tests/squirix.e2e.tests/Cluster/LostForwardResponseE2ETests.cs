@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Extensions.Caching;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
@@ -46,22 +47,6 @@ public sealed class LostForwardResponseE2ETests
         _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Set reports an unknown outcome and leaves a later write intact.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SetReportsLostResponse(CancellationToken cancellationToken)
-    {
-        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-set");
-        await using var scenario = await Scenario.StartAsync(nameof(SetReportsLostResponse), key, static (owner, k, ct) => owner.SetAsync(k, "second", cancellationToken: ct), cancellationToken);
-
-        await AssertUnknownAsync(scenario.Cache.SetAsync(key, "first", cancellationToken: cancellationToken), cancellationToken);
-
-        await scenario.AssertSingleExecutionAsync(1);
-        var read = await scenario.Owner.GetValueAsync(key, cancellationToken);
-        _ = await Assert.That(read.Found).IsTrue();
-        _ = await Assert.That(read.Value).IsEqualTo("second");
-    }
-
     /// <summary>The public SDK replays the original Remove boolean after a lost forwarded response.</summary>
     /// <param name="present">Whether the first removal finds a live entry.</param>
     /// <param name="replicas">Replica count.</param>
@@ -89,6 +74,22 @@ public sealed class LostForwardResponseE2ETests
             _ = await Assert.That(await scenario.Cache.RemoveAsync(key, cancellationToken)).IsEqualTo(present);
         await scenario.AssertSingleExecutionAsync(replicas == 1 ? 1 : 3);
         _ = await Assert.That((await scenario.Owner.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("second");
+    }
+
+    /// <summary>Set reports an unknown outcome and leaves a later write intact.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SetReportsLostResponse(CancellationToken cancellationToken)
+    {
+        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy(CacheName, "nodeB", "lost-forward-set");
+        await using var scenario = await Scenario.StartAsync(nameof(SetReportsLostResponse), key, static (owner, k, ct) => owner.SetAsync(k, "second", cancellationToken: ct), cancellationToken);
+
+        await AssertUnknownAsync(scenario.Cache.SetAsync(key, "first", cancellationToken: cancellationToken), cancellationToken);
+
+        await scenario.AssertSingleExecutionAsync(1);
+        var read = await scenario.Owner.GetValueAsync(key, cancellationToken);
+        _ = await Assert.That(read.Found).IsTrue();
+        _ = await Assert.That(read.Value).IsEqualTo("second");
     }
 
     /// <summary>The adapter retries Get as a current read after a lost forwarded response.</summary>
@@ -132,7 +133,7 @@ public sealed class LostForwardResponseE2ETests
     }
 
     private static async Task AssertUnknownAsync(Task call, CancellationToken cancellationToken) =>
-        _ = await Squirix.Server.TestKit.NodeAsyncAssert.ThrowsAsync<CommitOutcomeUnknownException>(call, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<CommitOutcomeUnknownException>(call, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
     private sealed class EntryProbe
     {

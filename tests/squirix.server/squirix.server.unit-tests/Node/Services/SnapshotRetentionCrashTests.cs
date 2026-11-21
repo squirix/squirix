@@ -178,6 +178,12 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
             cancellationToken);
     }
 
+    private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, Ledger ledger, CancellationToken cancellationToken)
+    {
+        var dependencies = new RecoveryDependencies<object?>(OptionsOf(scenario), ledger, scenario.Cache, new AsyncManualResetEvent(true), StoreFactory.CreateReader(), TimeProvider.System);
+        return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
+    }
+
     /// <summary>Waits a bounded real-time window for a retention pass; the window only bounds how long the test waits for a pass that must not come.</summary>
     /// <param name="passes">The passes reported by the ledger.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -202,11 +208,5 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
             (CacheKey.Default(SnapshotKey), new NodeCacheEntry<object?> { Value = "snap" }),
         };
         _ = await StoreFactory.CreateWriter(OptionsOf(scenario)).WriteAsync(1, items, [], cancellationToken);
-    }
-
-    private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, Ledger ledger, CancellationToken cancellationToken)
-    {
-        var dependencies = new RecoveryDependencies<object?>(OptionsOf(scenario), ledger, scenario.Cache, new AsyncManualResetEvent(true), StoreFactory.CreateReader(), TimeProvider.System);
-        return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
     }
 }

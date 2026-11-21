@@ -37,14 +37,13 @@ internal abstract class NodeWorkerBase : INodeService, IDisposable
 
     protected virtual void Dispose(bool disposing)
     {
-        if (disposing && _stopping != null)
-        {
+        if (!disposing || _stopping == null)
+            return;
 #pragma warning disable MA0045 // IDisposable must cancel the worker synchronously before releasing the token source.
-            _stopping.Cancel();
+        _stopping.Cancel();
 #pragma warning restore MA0045
-            _stopping.Dispose();
-            _stopping = null;
-        }
+        _stopping.Dispose();
+        _stopping = null;
     }
 
     protected abstract Task ExecuteAsync(CancellationToken stoppingToken);
