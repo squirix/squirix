@@ -26,7 +26,7 @@ public sealed class ServerWorkerTests
         Exception failure = unexpectedCancellation ? new OperationCanceledException("worker cancelled") : new InvalidOperationException("worker failed");
         var log = new EventRecordingLogger();
         var components = new NodeServices();
-        _ = components.Own<ILoggerFactory>(_ => new FixedLoggerFactory(log));
+        _ = components.Own<IServerLoggerFactory>(_ => new FixedLoggerFactory(log));
         _ = components.RunService(_ => new FaultingWorker(release.Task, failure));
         await using var app = ServerApplication.Build(components);
         await app.StartAsync(cancellationToken);
@@ -40,7 +40,7 @@ public sealed class ServerWorkerTests
         _ = await Assert.That(log.Find(3090)?.Cause).IsSameReferenceAs(failure);
     }
 
-    private sealed class FaultingWorker : NodeWorker
+    private sealed class FaultingWorker : NodeWorkerBase
     {
         private readonly Task _release;
         private readonly Exception _failure;

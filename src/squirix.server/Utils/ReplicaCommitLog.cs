@@ -6,70 +6,70 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for replicated commits.</summary>
 internal static class ReplicaCommitLog
 {
-    internal static void ReplicaCommitterLeakedOnShutdownTimeout(ILogger logger, TimeSpan budget)
+    internal static void ReplicaCommitterLeakedOnShutdownTimeout(IServerLogger logger, TimeSpan budget)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.CommitterLeakedOnShutdownTimeoutEvent.Write(logger, LogLevel.Error, null, ValueTuple.Create(budget));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.CommitterLeakedOnShutdownTimeoutEvent.Write(logger, ServerLogLevel.Error, null, ValueTuple.Create(budget));
     }
 
-    internal static void ReplicaCommitOutcomeUnknown(ILogger logger, Exception exception)
+    internal static void ReplicaCommitOutcomeUnknown(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaCommitOutcomeUnknownEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaCommitOutcomeUnknownEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create());
     }
 
-    internal static void ReplicaPendingApplyFailed(ILogger logger, Exception exception)
+    internal static void ReplicaPendingApplyFailed(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaPendingApplyFailedEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaPendingApplyFailedEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create());
     }
 
-    internal static void ReplicaCoordinatorLeakedOnShutdown(ILogger logger, TimeSpan budget)
+    internal static void ReplicaCoordinatorLeakedOnShutdown(IServerLogger logger, TimeSpan budget)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ReplicaCoordinatorLeakedOnShutdownEvent.Write(logger, LogLevel.Error, null, ValueTuple.Create(budget));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ReplicaCoordinatorLeakedOnShutdownEvent.Write(logger, ServerLogLevel.Error, null, ValueTuple.Create(budget));
     }
 
-    internal static void ReplicaTailOfOlderTerm(ILogger logger, ulong lastIndex, ulong term)
+    internal static void ReplicaTailOfOlderTerm(IServerLogger logger, ulong lastIndex, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaTailOfOlderTermEvent.Write(logger, LogLevel.Warning, null, (lastIndex, term));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaTailOfOlderTermEvent.Write(logger, ServerLogLevel.Warning, null, (lastIndex, term));
     }
 
-    internal static void ReplicaInconsistentRecord(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaInconsistentRecord(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ReplicaInconsistentRecordEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ReplicaInconsistentRecordEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaInconsistentDecision(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaInconsistentDecision(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ReplicaInconsistentDecisionEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ReplicaInconsistentDecisionEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaOutcomesRestored(ILogger logger, string groupId, int count)
+    internal static void ReplicaOutcomesRestored(IServerLogger logger, string groupId, int count)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaOutcomesRestoredEvent.Write(logger, LogLevel.Information, null, (groupId, count));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaOutcomesRestoredEvent.Write(logger, ServerLogLevel.Information, null, (groupId, count));
     }
 
-    internal static void ReplicaCoordinatorAbandonedWorkFaulted(ILogger logger, Exception exception)
+    internal static void ReplicaCoordinatorAbandonedWorkFaulted(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.CoordinatorAbandonedWorkFaultedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.CoordinatorAbandonedWorkFaultedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void DurablePublishRetried(ILogger logger, string path, int attempts, string holders)
+    internal static void DurablePublishRetried(IServerLogger logger, string path, int attempts, string holders)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.DurablePublishRetriedEvent.Write(logger, LogLevel.Warning, null, (path, attempts, holders));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.DurablePublishRetriedEvent.Write(logger, ServerLogLevel.Warning, null, (path, attempts, holders));
     }
 
-    internal static void ReplicaLocalAppendFailed(ILogger logger, Exception exception, string groupId)
+    internal static void ReplicaLocalAppendFailed(IServerLogger logger, Exception exception, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaLocalAppendFailedEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaLocalAppendFailedEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(groupId));
     }
 
     private static class Events

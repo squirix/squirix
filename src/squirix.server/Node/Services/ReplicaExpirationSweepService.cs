@@ -23,7 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// rest of the pass, so it holds back no other group; the next pass retries it.
 /// Activated hosts only: on other hosts the local clock decides expiry and <see cref="LocalExpirationSweepService" /> sweeps.
 /// </remarks>
-internal sealed class ReplicaExpirationSweepService : NodeWorker
+internal sealed class ReplicaExpirationSweepService : NodeWorkerBase
 {
     /// <summary>The time between two passes.</summary>
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
@@ -31,7 +31,7 @@ internal sealed class ReplicaExpirationSweepService : NodeWorker
     private readonly ReplicaGroupCommitters _committers;
     private readonly ILocalCacheExpiredKeys _expiredKeys;
     private readonly INodeLocator _locator;
-    private readonly ILogger<ReplicaExpirationSweepService> _log;
+    private readonly IServerLogger<ReplicaExpirationSweepService> _log;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaExpirationSweepService" /> class.</summary>
     /// <param name="committers">The committers of the led groups; their clock decides expiry and times the passes.</param>
@@ -42,7 +42,7 @@ internal sealed class ReplicaExpirationSweepService : NodeWorker
         ReplicaGroupCommitters committers,
         ILocalCacheExpiredKeys expiredKeys,
         INodeLocator locator,
-        ILogger<ReplicaExpirationSweepService> log)
+        IServerLogger<ReplicaExpirationSweepService> log)
     {
         ArgumentNullException.ThrowIfNull(committers);
         ArgumentNullException.ThrowIfNull(expiredKeys);

@@ -28,7 +28,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     private readonly TimeProvider _clock;
     private readonly string _groupId;
     private readonly ILogicalNamespacedCache<object?> _local;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ulong _term;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaMutationFactory" /> class.</summary>
@@ -37,7 +37,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="term">Static leader term for prepared mutations.</param>
     /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
     /// <param name="log">Logger of the records found inconsistent at prepare.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, ILogger log)
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, IServerLogger log)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);

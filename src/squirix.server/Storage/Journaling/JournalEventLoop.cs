@@ -32,7 +32,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         IJournalSegmentWriter segmentWriter,
         PersistenceOptions opt,
         JournalEventLoopStartup startup,
-        ILogger<JournalEventLoop> logger,
+        IServerLogger<JournalEventLoop> logger,
         CancellationToken bgToken)
     {
         ArgumentNullException.ThrowIfNull(logger);
@@ -118,7 +118,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     private bool IsDurabilityFlushPending { get; set; }
 
-    private ILogger Logger { get; }
+    private IServerLogger Logger { get; }
 
     public void AddJournalTotalBytes(long delta) => Volatile.Write(ref _journalTotalBytes, _journalTotalBytes + delta);
 

@@ -17,15 +17,15 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
     private const long BytesPerMb = 1024L * 1024L;
 
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILogger<JournalCoordinatorHost> _log;
+    private readonly IServerLoggerFactory _loggerFactory;
+    private readonly IServerLogger<JournalCoordinatorHost> _log;
     private readonly TimeProvider _timeProvider;
     private IJournalCoordinator? _coordinator;
 
     /// <summary>Initializes a new instance of the <see cref="JournalCoordinatorHost" /> class.</summary>
     /// <param name="loggerFactory">Creates the host logger, for startup repairs and disposal failures, and the loggers of the journal components.</param>
     /// <param name="timeProvider">The server clock the journal stall probe and slow-operation warnings measure with.</param>
-    internal JournalCoordinatorHost(ILoggerFactory loggerFactory, TimeProvider timeProvider)
+    internal JournalCoordinatorHost(IServerLoggerFactory loggerFactory, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(timeProvider);

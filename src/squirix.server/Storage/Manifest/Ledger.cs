@@ -28,7 +28,7 @@ internal sealed class Ledger : IDisposable
 
     internal Ledger(
         PersistenceOptions options,
-        ILogger<Ledger> logger,
+        IServerLogger<Ledger> logger,
         IManifestRetentionFailureMetrics failureMetrics,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
         IStorageFileOperations? fileOperations = null,
@@ -200,7 +200,7 @@ internal sealed class Ledger : IDisposable
             string path,
             Action<State, ulong> setCache,
             Func<State?> rbl,
-            ILogger logger,
+            IServerLogger logger,
             TimeSpan stopBudget)
         {
             _dir = dir;

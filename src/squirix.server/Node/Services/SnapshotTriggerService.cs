@@ -13,7 +13,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-internal sealed class SnapshotTriggerService : NodeWorker, ISnapshotReadinessStatus
+internal sealed class SnapshotTriggerService : NodeWorkerBase, ISnapshotReadinessStatus
 {
     private const int MaxBackoffExponent = 10;
 
@@ -26,7 +26,7 @@ internal sealed class SnapshotTriggerService : NodeWorker, ISnapshotReadinessSta
     private readonly Coordinator _coordinator;
 
     private readonly IJournalCoordinator _journal;
-    private readonly ILogger<SnapshotTriggerService> _log;
+    private readonly IServerLogger<SnapshotTriggerService> _log;
 
     private readonly EventHandler _onJournalAppended;
 
@@ -46,7 +46,7 @@ internal sealed class SnapshotTriggerService : NodeWorker, ISnapshotReadinessSta
 
     private int _fatalFailure;
 
-    internal SnapshotTriggerService(ILogger<SnapshotTriggerService> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
+    internal SnapshotTriggerService(IServerLogger<SnapshotTriggerService> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(log);
@@ -97,7 +97,7 @@ internal sealed class SnapshotTriggerService : NodeWorker, ISnapshotReadinessSta
 
     private void OnJournalAppended(object? sender, EventArgs e)
     {
-        if (_log.IsEnabled(LogLevel.Trace))
+        if (_log.IsEnabled(ServerLogLevel.Trace))
             SnapshotLog.SnapshotTriggerJournalAppended(_log);
 
         _ = _snapshotRequests.Writer.TryWrite(true);
@@ -189,7 +189,7 @@ internal sealed class SnapshotTriggerService : NodeWorker, ISnapshotReadinessSta
                 // Intentionally empty: coalesce bursty snapshot requests into one run.
             }
 
-            if (_log.IsEnabled(LogLevel.Trace))
+            if (_log.IsEnabled(ServerLogLevel.Trace))
                 SnapshotLog.SnapshotTriggerTick(_log);
 
             if (!await TrySnapshotAsync(stoppingToken).ConfigureAwait(false))

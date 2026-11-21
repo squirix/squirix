@@ -35,11 +35,11 @@ internal sealed class NativeManagementEndpoint
 
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
-    private readonly ILogger<NativeManagementEndpoint> _logger;
+    private readonly IServerLogger<NativeManagementEndpoint> _logger;
     private readonly IServiceProvider _services;
     private readonly Func<string, CancellationToken, ValueTask<bool>> _authenticateBearer;
 
-    internal NativeManagementEndpoint(IServiceProvider services, Func<string, CancellationToken, ValueTask<bool>> authenticateBearer, ILogger<NativeManagementEndpoint> logger)
+    internal NativeManagementEndpoint(IServiceProvider services, Func<string, CancellationToken, ValueTask<bool>> authenticateBearer, IServerLogger<NativeManagementEndpoint> logger)
     {
         _services = services;
         _logger = logger;
@@ -73,10 +73,10 @@ internal sealed class NativeManagementEndpoint
         return !loopback && !string.IsNullOrEmpty(bearer) ? _authenticateBearer(bearer, cancellationToken) : ValueTask.FromResult(loopback);
     }
 
-    private static void LogRequest(ILogger logger, string path)
+    private static void LogRequest(IServerLogger logger, string path)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.LogRequestEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(path));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.LogRequestEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(path));
     }
 
     private static async Task<(Request? Request, Response? Error)> ReadRequestAsync(Stream stream, CancellationToken cancellationToken)

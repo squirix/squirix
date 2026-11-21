@@ -25,11 +25,11 @@ namespace Squirix.Server.Node.Services;
 /// other. A group the election hands this node gets its loop when its leadership starts, and the loop ends with the leadership. A loop
 /// that faults stops the others, and the service ends with its fault once they have ended. It runs on the host lifetime and stops with it.
 /// </remarks>
-internal sealed class ReplicaGroupReadinessService : NodeWorker
+internal sealed class ReplicaGroupReadinessService : NodeWorkerBase
 {
     private readonly ReplicaCatchUpMetrics? _catchUpMetrics;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly ILogger<ReplicaGroupReadinessService> _log;
+    private readonly IServerLogger<ReplicaGroupReadinessService> _log;
     private readonly TimeProvider _timeProvider;
     private readonly ReplicaStateTransfers? _transfers;
 
@@ -41,7 +41,7 @@ internal sealed class ReplicaGroupReadinessService : NodeWorker
     /// <param name="transfers">Repairs a follower the log cannot catch up by sending it the state of the group; none are sent when <see langword="null" />.</param>
     internal ReplicaGroupReadinessService(
         ReplicaGroupCommitters committers,
-        ILogger<ReplicaGroupReadinessService> log,
+        IServerLogger<ReplicaGroupReadinessService> log,
         TimeProvider timeProvider,
         ReplicaCatchUpMetrics? catchUpMetrics = null,
         ReplicaStateTransfers? transfers = null)

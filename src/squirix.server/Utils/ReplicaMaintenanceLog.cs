@@ -6,76 +6,76 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for replica maintenance.</summary>
 internal static class ReplicaMaintenanceLog
 {
-    internal static void ReplicaLogMaintenanceRetry(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaLogMaintenanceRetry(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaLogMaintenanceRetryEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaLogMaintenanceRetryEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaLogCompactionChanged(ILogger logger, string groupId, string outcome)
+    internal static void ReplicaLogCompactionChanged(IServerLogger logger, string groupId, string outcome)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaLogCompactionChangedEvent.Write(logger, LogLevel.Information, null, (groupId, outcome));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaLogCompactionChangedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, outcome));
     }
 
-    internal static void ReplicaLogCompactionSnapshotTooLarge(ILogger logger, string groupId)
+    internal static void ReplicaLogCompactionSnapshotTooLarge(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.LogCompactionSnapshotTooLargeEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.LogCompactionSnapshotTooLargeEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaLogCompactedPastFollower(ILogger logger, string groupId)
+    internal static void ReplicaLogCompactedPastFollower(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaLogCompactedPastFollowerEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaLogCompactedPastFollowerEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaAppliedIndexReseeded(ILogger logger, string groupId, ulong from, ulong to)
+    internal static void ReplicaAppliedIndexReseeded(IServerLogger logger, string groupId, ulong from, ulong to)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaAppliedIndexReseededEvent.Write(logger, LogLevel.Warning, null, (groupId, from, to));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaAppliedIndexReseededEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, from, to));
     }
 
-    internal static void ReplicaExpirationLeakedOnShutdown(ILogger logger, TimeSpan budget)
+    internal static void ReplicaExpirationLeakedOnShutdown(IServerLogger logger, TimeSpan budget)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ReplicaExpirationLeakedOnShutdownEvent.Write(logger, LogLevel.Error, null, ValueTuple.Create(budget));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ReplicaExpirationLeakedOnShutdownEvent.Write(logger, ServerLogLevel.Error, null, ValueTuple.Create(budget));
     }
 
-    internal static void ReplicaExpirationSweepFailed(ILogger logger, string groupId, int expired, Exception exception)
+    internal static void ReplicaExpirationSweepFailed(IServerLogger logger, string groupId, int expired, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ReplicaExpirationSweepFailedEvent.Write(logger, LogLevel.Error, exception, (groupId, expired));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ReplicaExpirationSweepFailedEvent.Write(logger, ServerLogLevel.Error, exception, (groupId, expired));
     }
 
-    internal static void ReplicaExpirationSweepStopped(ILogger logger)
+    internal static void ReplicaExpirationSweepStopped(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaExpirationSweepStoppedEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaExpirationSweepStoppedEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create());
     }
 
-    internal static void ReplicaPromotionRetry(ILogger logger, string groupId, ulong term, Exception exception)
+    internal static void ReplicaPromotionRetry(IServerLogger logger, string groupId, ulong term, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaPromotionRetryEvent.Write(logger, LogLevel.Debug, exception, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaPromotionRetryEvent.Write(logger, ServerLogLevel.Debug, exception, (groupId, term));
     }
 
-    internal static void ReplicaPassSkippedWhileLeading(ILogger logger, string groupId, string pass)
+    internal static void ReplicaPassSkippedWhileLeading(IServerLogger logger, string groupId, string pass)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaPassSkippedWhileLeadingEvent.Write(logger, LogLevel.Debug, null, (groupId, pass));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaPassSkippedWhileLeadingEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, pass));
     }
 
-    internal static void ReplicaPromotionStorageRetry(ILogger logger, string groupId, ulong term, Exception exception)
+    internal static void ReplicaPromotionStorageRetry(IServerLogger logger, string groupId, ulong term, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaPromotionStorageRetryEvent.Write(logger, LogLevel.Warning, exception, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaPromotionStorageRetryEvent.Write(logger, ServerLogLevel.Warning, exception, (groupId, term));
     }
 
-    internal static void ReplicaStaticLeaderTermAboveOne(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaStaticLeaderTermAboveOne(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaStaticLeaderTermAboveOneEvent.Write(logger, LogLevel.Warning, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaStaticLeaderTermAboveOneEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, term));
     }
 
     private static class Events

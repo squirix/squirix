@@ -18,7 +18,7 @@ namespace Squirix.Server.Node.Services;
 internal sealed class ReplicaCatchUpReporter
 {
     private readonly string _groupId;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ReplicaCatchUpMetrics? _metrics;
     private readonly Dictionary<int, ReplicaCatchUpOutcome> _reported = [];
     private readonly Lock _sync = new();
@@ -27,7 +27,7 @@ internal sealed class ReplicaCatchUpReporter
     /// <param name="groupId">The owned replica group identifier, which is this node's identifier.</param>
     /// <param name="log">Logger for the session reports.</param>
     /// <param name="metrics">Counts the sessions; none are counted when <see langword="null" />.</param>
-    internal ReplicaCatchUpReporter(string groupId, ILogger log, ReplicaCatchUpMetrics? metrics)
+    internal ReplicaCatchUpReporter(string groupId, IServerLogger log, ReplicaCatchUpMetrics? metrics)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentNullException.ThrowIfNull(log);

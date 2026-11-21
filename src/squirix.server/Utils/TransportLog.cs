@@ -6,56 +6,56 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for node transport.</summary>
 internal static class TransportLog
 {
-    internal static void ClientPoolPolicyDisposeFailed(ILogger logger, Exception exception, string nodeId)
+    internal static void ClientPoolPolicyDisposeFailed(IServerLogger logger, Exception exception, string nodeId)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ClientPoolPolicyDisposeFailedEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create(nodeId));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ClientPoolPolicyDisposeFailedEvent.Write(logger, ServerLogLevel.Debug, exception, ValueTuple.Create(nodeId));
     }
 
-    internal static void ClientPoolChannelDisposeFailed(ILogger logger, Exception exception, string nodeId)
+    internal static void ClientPoolChannelDisposeFailed(IServerLogger logger, Exception exception, string nodeId)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ClientPoolChannelDisposeFailedEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create(nodeId));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ClientPoolChannelDisposeFailedEvent.Write(logger, ServerLogLevel.Debug, exception, ValueTuple.Create(nodeId));
     }
 
-    internal static void ClientPoolDrainTimedOut(ILogger logger, TimeSpan budget, int replicationCalls, string busyPeers)
+    internal static void ClientPoolDrainTimedOut(IServerLogger logger, TimeSpan budget, int replicationCalls, string busyPeers)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ClientPoolDrainTimedOutEvent.Write(logger, LogLevel.Warning, null, (budget, replicationCalls, busyPeers));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ClientPoolDrainTimedOutEvent.Write(logger, ServerLogLevel.Warning, null, (budget, replicationCalls, busyPeers));
     }
 
-    internal static void ClientPoolMaterialLeaked(ILogger logger, int connections, TimeSpan budget)
+    internal static void ClientPoolMaterialLeaked(IServerLogger logger, int connections, TimeSpan budget)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ClientPoolMaterialLeakedEvent.Write(logger, LogLevel.Error, null, (connections, budget));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ClientPoolMaterialLeakedEvent.Write(logger, ServerLogLevel.Error, null, (connections, budget));
     }
 
-    internal static void ClientPoolMaterialReleasedLate(ILogger logger)
+    internal static void ClientPoolMaterialReleasedLate(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ClientPoolMaterialReleasedLateEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ClientPoolMaterialReleasedLateEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create());
     }
 
-    internal static void ClientPoolLateMaterialReleaseFailed(ILogger logger, Exception exception)
+    internal static void ClientPoolLateMaterialReleaseFailed(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ClientPoolLateMaterialReleaseFailedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ClientPoolLateMaterialReleaseFailedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void ClientPoolLeaseCancelFailed(ILogger logger, Exception exception)
+    internal static void ClientPoolLeaseCancelFailed(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ClientPoolLeaseCancelFailedEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ClientPoolLeaseCancelFailedEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create());
     }
 
-    internal static void RingMismatchDetected(ILogger logger, string peerNodeId, string direction, string localFingerprint, string peerFingerprint)
+    internal static void RingMismatchDetected(IServerLogger logger, string peerNodeId, string direction, string localFingerprint, string peerFingerprint)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.RingMismatchDetectedEvent.Write(logger, LogLevel.Error, null, (peerNodeId, direction, localFingerprint, peerFingerprint));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.RingMismatchDetectedEvent.Write(logger, ServerLogLevel.Error, null, (peerNodeId, direction, localFingerprint, peerFingerprint));
     }
 
     internal static void InboundPeerCertificateRefused(
-        ILogger logger,
+        IServerLogger logger,
         string remoteEndpoint,
         string reason,
         string subject,
@@ -63,12 +63,12 @@ internal static class TransportLog
         string thumbprint,
         TimeSpan relogInterval)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.InboundPeerCertificateRefusedEvent.Write(logger, LogLevel.Warning, null, (remoteEndpoint, reason, subject, issuer, thumbprint, relogInterval));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.InboundPeerCertificateRefusedEvent.Write(logger, ServerLogLevel.Warning, null, (remoteEndpoint, reason, subject, issuer, thumbprint, relogInterval));
     }
 
     internal static void OutboundPeerCertificateRefused(
-        ILogger logger,
+        IServerLogger logger,
         string peerNodeId,
         string reason,
         string subject,
@@ -76,20 +76,20 @@ internal static class TransportLog
         string thumbprint,
         TimeSpan relogInterval)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.OutboundPeerCertificateRefusedEvent.Write(logger, LogLevel.Warning, null, (peerNodeId, reason, subject, issuer, thumbprint, relogInterval));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.OutboundPeerCertificateRefusedEvent.Write(logger, ServerLogLevel.Warning, null, (peerNodeId, reason, subject, issuer, thumbprint, relogInterval));
     }
 
-    internal static void PeerCertificateRefusalsSuppressed(ILogger logger, int count, TimeSpan interval)
+    internal static void PeerCertificateRefusalsSuppressed(IServerLogger logger, int count, TimeSpan interval)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.PeerCertificateRefusalsSuppressedEvent.Write(logger, LogLevel.Warning, null, (count, interval));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.PeerCertificateRefusalsSuppressedEvent.Write(logger, ServerLogLevel.Warning, null, (count, interval));
     }
 
-    internal static void PeerCertificateExpiredOnOpenConnection(ILogger logger, string peerNodeId, DateTimeOffset validUntil)
+    internal static void PeerCertificateExpiredOnOpenConnection(IServerLogger logger, string peerNodeId, DateTimeOffset validUntil)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.CertificateExpiredOnOpenConnectionEvent.Write(logger, LogLevel.Warning, null, (peerNodeId, validUntil));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.CertificateExpiredOnOpenConnectionEvent.Write(logger, ServerLogLevel.Warning, null, (peerNodeId, validUntil));
     }
 
     private static class Events

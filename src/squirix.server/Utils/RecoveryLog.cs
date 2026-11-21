@@ -6,34 +6,34 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for journal and snapshot recovery.</summary>
 internal static class RecoveryLog
 {
-    internal static void JournalRecoveryFailed(ILogger logger, Exception exception)
+    internal static void JournalRecoveryFailed(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.JournalRecoveryFailedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.JournalRecoveryFailedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void RecoveryComplete(ILogger logger, int fromSegment, ulong seq)
+    internal static void RecoveryComplete(IServerLogger logger, int fromSegment, ulong seq)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.RecoveryCompleteEvent.Write(logger, LogLevel.Information, null, (fromSegment, seq));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.RecoveryCompleteEvent.Write(logger, ServerLogLevel.Information, null, (fromSegment, seq));
     }
 
-    internal static void RecoveryFailedToLoadSnapshot(ILogger logger, string path)
+    internal static void RecoveryFailedToLoadSnapshot(IServerLogger logger, string path)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.RecoveryFailedToLoadSnapshotEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(path));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.RecoveryFailedToLoadSnapshotEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(path));
     }
 
-    internal static void RecoveryLoadedSnapshot(ILogger logger, int index, ulong seq)
+    internal static void RecoveryLoadedSnapshot(IServerLogger logger, int index, ulong seq)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.RecoveryLoadedSnapshotEvent.Write(logger, LogLevel.Information, null, (index, seq));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.RecoveryLoadedSnapshotEvent.Write(logger, ServerLogLevel.Information, null, (index, seq));
     }
 
-    internal static void RecoveryReplayBoundary(ILogger logger, bool snapshotPresent, int manifestCurrentJournal, int firstAvailableJournal, int chosenFromSegment)
+    internal static void RecoveryReplayBoundary(IServerLogger logger, bool snapshotPresent, int manifestCurrentJournal, int firstAvailableJournal, int chosenFromSegment)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.RecoveryReplayBoundaryEvent.Write(logger, LogLevel.Information, null, (snapshotPresent, manifestCurrentJournal, firstAvailableJournal, chosenFromSegment));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.RecoveryReplayBoundaryEvent.Write(logger, ServerLogLevel.Information, null, (snapshotPresent, manifestCurrentJournal, firstAvailableJournal, chosenFromSegment));
     }
 
     private static class Events

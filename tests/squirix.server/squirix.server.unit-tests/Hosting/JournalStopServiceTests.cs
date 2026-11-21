@@ -35,7 +35,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
         await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
         journalHost.Attach(journal.Journal);
         var components = new NodeServices();
-        _ = components.Use<ILoggerFactory>(NullLoggerFactory.Instance);
+        _ = components.Use<IServerLoggerFactory>(NullLoggerFactory.Instance);
         _ = components.RunService(_ => new JournalStopService(journalHost.StopAsync));
         await using var host = ServerApplication.Build(components);
         await host.StartAsync(cancellationToken);

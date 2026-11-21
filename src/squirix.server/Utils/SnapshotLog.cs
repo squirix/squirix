@@ -6,40 +6,40 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for snapshot scheduling.</summary>
 internal static class SnapshotLog
 {
-    internal static void SnapshotTriggerCrashed(ILogger logger, Exception exception)
+    internal static void SnapshotTriggerCrashed(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.SnapshotTriggerCrashedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.SnapshotTriggerCrashedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void SnapshotFailedRetrying(ILogger logger, Exception exception, int consecutiveFailures, int delayMilliseconds)
+    internal static void SnapshotFailedRetrying(IServerLogger logger, Exception exception, int consecutiveFailures, int delayMilliseconds)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.SnapshotFailedRetryingEvent.Write(logger, LogLevel.Error, exception, (consecutiveFailures, delayMilliseconds));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.SnapshotFailedRetryingEvent.Write(logger, ServerLogLevel.Error, exception, (consecutiveFailures, delayMilliseconds));
     }
 
-    internal static void SnapshotTriggerJournalAppended(ILogger logger)
+    internal static void SnapshotTriggerJournalAppended(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Trace))
-            Events.SnapshotTriggerJournalAppendedEvent.Write(logger, LogLevel.Trace, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Trace))
+            Events.SnapshotTriggerJournalAppendedEvent.Write(logger, ServerLogLevel.Trace, null, ValueTuple.Create());
     }
 
-    internal static void SnapshotTriggerStarted(ILogger logger, int intervalSeconds)
+    internal static void SnapshotTriggerStarted(IServerLogger logger, int intervalSeconds)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.SnapshotTriggerStartedEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(intervalSeconds));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.SnapshotTriggerStartedEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(intervalSeconds));
     }
 
-    internal static void SnapshotTriggerStopped(ILogger logger)
+    internal static void SnapshotTriggerStopped(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.SnapshotTriggerStoppedEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.SnapshotTriggerStoppedEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create());
     }
 
-    internal static void SnapshotTriggerTick(ILogger logger)
+    internal static void SnapshotTriggerTick(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Trace))
-            Events.SnapshotTriggerTickEvent.Write(logger, LogLevel.Trace, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Trace))
+            Events.SnapshotTriggerTickEvent.Write(logger, ServerLogLevel.Trace, null, ValueTuple.Create());
     }
 
     private static class Events

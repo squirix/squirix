@@ -425,7 +425,7 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
     private static ReplicaStateTransfers Transfers(ScriptedTransferGateway gateway, CancellationToken cancellationToken) =>
         Transfers(gateway, NullLogger<ReplicaStateTransfers>.Instance, cancellationToken);
 
-    private static ReplicaStateTransfers Transfers(ScriptedTransferGateway gateway, ILogger<ReplicaStateTransfers> log, CancellationToken cancellationToken)
+    private static ReplicaStateTransfers Transfers(ScriptedTransferGateway gateway, IServerLogger<ReplicaStateTransfers> log, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);

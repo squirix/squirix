@@ -336,7 +336,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             await AssertUnconfirmedByShutdownAsync(append, logger, cancellationToken);
 
             _ = await Assert.That(logger.Count(LeakedOnShutdownEventId)).IsEqualTo(1);
-            _ = await Assert.That(logger.Find(LeakedOnShutdownEventId)?.Level).IsEqualTo(LogLevel.Error);
+            _ = await Assert.That(logger.Find(LeakedOnShutdownEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
 
             hooks.Release();
             await hooks.Flushed.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -421,7 +421,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         }
     }
 
-    private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, ILogger<FollowerLog> logger, CancellationToken cancellationToken)
+    private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, IServerLogger<FollowerLog> logger, CancellationToken cancellationToken)
     {
         var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), logger, options);
         try
@@ -439,7 +439,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
 
     private Task<FollowerLog> OpenLogOnClockAsync(
         StallableFollowerLogFaultHooks hooks,
-        ILogger<FollowerLog> logger,
+        IServerLogger<FollowerLog> logger,
         TimeProvider clock,
         CancellationToken cancellationToken) =>
         OpenLogAsync(

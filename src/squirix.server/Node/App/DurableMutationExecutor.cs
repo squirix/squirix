@@ -20,9 +20,9 @@ internal sealed class DurableMutationExecutor
 
     private readonly IJournalCoordinator _journal;
     private readonly KeyedAsyncLock<CacheKey> _keyLocks = new();
-    private readonly ILogger<DurableMutationExecutor> _logger;
+    private readonly IServerLogger<DurableMutationExecutor> _logger;
 
-    internal DurableMutationExecutor(IJournalCoordinator journal, ILogger<DurableMutationExecutor> logger)
+    internal DurableMutationExecutor(IJournalCoordinator journal, IServerLogger<DurableMutationExecutor> logger)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(logger);

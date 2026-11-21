@@ -23,7 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// </para>
 /// </remarks>
 [ThreadSafe]
-internal abstract class ReplicaCommitRequest
+internal abstract class ReplicaCommitRequestBase
 {
     private const int Queued = 0;
     private const int Taken = 1;
@@ -34,11 +34,11 @@ internal abstract class ReplicaCommitRequest
     private int _completed;
     private int _state;
 
-    /// <summary>Initializes a new instance of the <see cref="ReplicaCommitRequest" /> class.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ReplicaCommitRequestBase" /> class.</summary>
     /// <param name="scope">The cache scope of the write.</param>
     /// <param name="operationId">The client operation identifier of the write.</param>
     /// <param name="key">The cache key the write decides.</param>
-    protected ReplicaCommitRequest(string scope, string operationId, string key)
+    protected ReplicaCommitRequestBase(string scope, string operationId, string key)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(operationId);
@@ -58,7 +58,7 @@ internal abstract class ReplicaCommitRequest
     internal string Key { get; }
 
     /// <summary>Gets or sets the queue link, accessed only under the owning queue lock.</summary>
-    internal LinkedListNode<ReplicaCommitRequest>? QueueNode { get; set; }
+    internal LinkedListNode<ReplicaCommitRequestBase>? QueueNode { get; set; }
 
     /// <summary>Gets the client operation identifier of the write.</summary>
     internal string OperationId { get; }

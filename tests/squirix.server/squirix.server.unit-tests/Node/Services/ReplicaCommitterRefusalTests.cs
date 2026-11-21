@@ -292,7 +292,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         _ = await Assert.That(refused.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
     }
 
-    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, ILogger<ReplicaGroupCommitter> log) =>
+    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, IServerLogger<ReplicaGroupCommitter> log) =>
         new(registry, new TwoNodeLocator(), new AcceptingGateway(), local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Clock = TimeProvider.System,
@@ -347,7 +347,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         return status.LastLogIndex;
     }
 
-    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(FollowerLogOptions options, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
+    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(FollowerLogOptions options, IServerLoggerFactory loggerFactory, CancellationToken cancellationToken)
     {
         await SeededLogs.SeedGroupsAsync(Dir, [OwnedGroup], cancellationToken);
         var registry = new ReplicaGroupRegistry(Dir, [OwnedGroup], 2, Fingerprint, 1, loggerFactory, options) { ElectionClock = TimeProvider.System };

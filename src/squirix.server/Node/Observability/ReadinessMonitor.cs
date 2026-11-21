@@ -12,9 +12,9 @@ internal sealed class ReadinessMonitor
 {
     private readonly ReadinessCheck[] _checks;
     private readonly IServiceProvider _services;
-    private readonly ILogger<ReadinessMonitor> _logger;
+    private readonly IServerLogger<ReadinessMonitor> _logger;
 
-    internal ReadinessMonitor(IEnumerable<ReadinessCheck> checks, IServiceProvider services, ILogger<ReadinessMonitor> logger)
+    internal ReadinessMonitor(IEnumerable<ReadinessCheck> checks, IServiceProvider services, IServerLogger<ReadinessMonitor> logger)
     {
         _checks = [.. checks];
         _services = services;
@@ -43,13 +43,13 @@ internal sealed class ReadinessMonitor
         return Task.WhenAll(tasks);
     }
 
-    private static void LogCheckFailed(ILogger logger, string checkName, Exception exception)
+    private static void LogCheckFailed(IServerLogger logger, string checkName, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.LogCheckFailedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(checkName));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.LogCheckFailedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(checkName));
     }
 
-    private static void LogNotReady(ILogger logger, LogLevel level, string checkName, ReadinessStatus status, string description)
+    private static void LogNotReady(IServerLogger logger, ServerLogLevel level, string checkName, ReadinessStatus status, string description)
     {
         if (logger.IsEnabled(level))
             Events.LogNotReadyEvent.Write(logger, level, null, (checkName, status, description));
@@ -68,7 +68,7 @@ internal sealed class ReadinessMonitor
             {
                 var result = await check.CheckHealthAsync(cancellationToken).ConfigureAwait(false);
                 if (result.Status != ReadinessStatus.Healthy)
-                    LogNotReady(_logger, result.Status == ReadinessStatus.Unhealthy ? LogLevel.Error : LogLevel.Warning, registration.Name, result.Status, result.Description);
+                    LogNotReady(_logger, result.Status == ReadinessStatus.Unhealthy ? ServerLogLevel.Error : ServerLogLevel.Warning, registration.Name, result.Status, result.Description);
                 return (registration.Name, result);
             }
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)

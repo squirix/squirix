@@ -28,7 +28,7 @@ internal sealed class BinaryConnectionPump
     private readonly IDuplexPipe _transport;
     private readonly CancellationToken _connectionClosed;
     private readonly Action _abort;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly TimeProvider _timeProvider;
     private readonly Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> _process;
     private readonly Task[] _jobs = new Task[MaxPending];
@@ -43,7 +43,7 @@ internal sealed class BinaryConnectionPump
         IDuplexPipe transport,
         Action abort,
         Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> process,
-        ILogger log,
+        IServerLogger log,
         TimeProvider timeProvider,
         CancellationToken connectionClosed)
     {
@@ -73,10 +73,10 @@ internal sealed class BinaryConnectionPump
         }
     }
 
-    private static void LogCallFailure(ILogger logger, int requestId, Exception exception)
+    private static void LogCallFailure(IServerLogger logger, int requestId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.LogCallFailureEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(requestId));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.LogCallFailureEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(requestId));
     }
 
     private async Task ReadAsync(CancellationToken stop)
@@ -306,25 +306,6 @@ internal sealed class BinaryConnectionPump
         return true;
     }
 
-    private bool TryReadResponse(ref ResponseBatch current, ref int index, out PendingResponse response)
-    {
-        if (current.Count == 0 && !_outgoing.Reader.TryRead(out current))
-        {
-            response = default;
-            return false;
-        }
-
-        response = ResponseBatch.Take(ref current, index++);
-        if (index == current.Count)
-        {
-            current.Release();
-            current = default;
-            index = 0;
-        }
-
-        return true;
-    }
-
     private void Stage(in PendingResponse response, ref ResponseBatch ready)
     {
         ready = ready.Append(in response);
@@ -361,7 +342,7 @@ internal sealed class BinaryConnectionPump
                 stop.ThrowIfCancellationRequested();
                 var bytes = 0;
                 var count = 0;
-                for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && TryReadResponse(ref current, ref index, out var frame); count++)
+                for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && ResponseBatch.TryRead(_outgoing.Reader, ref current, ref index, out var frame); count++)
                 {
                     bytes += FrameIO.WriteResponse(writer, in frame);
                     _ = _slots.Writer.TryWrite(frame.Slot);
@@ -465,19 +446,23 @@ internal sealed class BinaryConnectionPump
         {
         }
 
-        internal static PendingResponse Take(ref ResponseBatch batch, int index)
+        internal static bool TryRead(ChannelReader<ResponseBatch> reader, ref ResponseBatch current, ref int index, out PendingResponse response)
         {
-            if (index == 0)
+            if (current.Count == 0 && !reader.TryRead(out current))
             {
-                var first = batch.First;
-                batch = batch with { First = default };
-                return first;
+                response = default;
+                return false;
             }
 
-            ref var entry = ref batch.Remaining![index - 1];
-            var response = entry;
-            entry = default;
-            return response;
+            response = Take(ref current, index++);
+            if (index == current.Count)
+            {
+                current.Release();
+                current = default;
+                index = 0;
+            }
+
+            return true;
         }
 
         internal ResponseBatch Append(in PendingResponse response)
@@ -494,6 +479,21 @@ internal sealed class BinaryConnectionPump
         {
             if (Remaining != null)
                 ArrayPool<PendingResponse>.Shared.Return(Remaining, true);
+        }
+
+        private static PendingResponse Take(ref ResponseBatch batch, int index)
+        {
+            if (index == 0)
+            {
+                var first = batch.First;
+                batch = batch with { First = default };
+                return first;
+            }
+
+            ref var entry = ref batch.Remaining![index - 1];
+            var response = entry;
+            entry = default;
+            return response;
         }
     }
 

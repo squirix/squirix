@@ -18,9 +18,9 @@ internal sealed class FollowerLogMirror
     private readonly TimeProvider _clock;
     private readonly string _groupId;
     private readonly FollowerLogJournal _journal;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
 
-    internal FollowerLogMirror(FollowerLogJournal journal, ILogger log, string groupId, TimeSpan budget, TimeProvider clock)
+    internal FollowerLogMirror(FollowerLogJournal journal, IServerLogger log, string groupId, TimeSpan budget, TimeProvider clock)
     {
         _journal = journal;
         _log = log;

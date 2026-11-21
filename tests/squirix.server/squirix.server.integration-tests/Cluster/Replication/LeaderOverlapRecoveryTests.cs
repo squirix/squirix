@@ -227,7 +227,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
             topology.ReplicaCount,
             BufferEx.CopyToOwned(TopologyFingerprint.CreateFromTopology(topology, services.GetRequiredService<MtlsOptions>()).Bytes),
             topology.ConfigurationGeneration,
-            services.GetRequiredService<ILoggerFactory>(),
+            services.GetRequiredService<IServerLoggerFactory>(),
             new FollowerLogOptions
             {
                 FaultHooks = faults[topology.NodeId],

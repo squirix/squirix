@@ -70,7 +70,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ILogicalNamespacedCache<object?> local,
         (string GroupId, string SelfId) identity,
         in ReplicaTopologyStamp topology,
-        ILogger<ReplicaGroupCommitter> log)
+        IServerLogger<ReplicaGroupCommitter> log)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(locator);
@@ -204,7 +204,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal ReplicaLocalAppends LocalAppends { get; } = new();
 
     /// <summary>Gets the logger for lifecycle failures.</summary>
-    internal ILogger Log { get; }
+    internal IServerLogger Log { get; }
 
     /// <summary>Gets the memory pressure the members of the group reported in their replies; it outlives the pipelines, which are recreated.</summary>
     internal ReplicaMemberPressure MemberPressure => Volatile.Read(ref _memberPressure) ?? CreateMemberPressure();

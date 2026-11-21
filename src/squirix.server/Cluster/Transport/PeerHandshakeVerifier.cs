@@ -42,7 +42,7 @@ internal sealed class PeerHandshakeVerifier
     private readonly TimeProvider _clock;
     private readonly Lock _gate = new();
     private readonly Dictionary<RefusalKey, DateTimeOffset> _logged = [];
-    private readonly ILogger _logger;
+    private readonly IServerLogger _logger;
     private readonly int _maxLogsPerInterval;
     private readonly TimeSpan _relogInterval;
     private int _suppressed;
@@ -64,7 +64,7 @@ internal sealed class PeerHandshakeVerifier
     internal PeerHandshakeVerifier(
         PeerChainCache chains,
         TimeProvider clock,
-        ILogger logger,
+        IServerLogger logger,
         int capacity = DefaultCapacity,
         TimeSpan? relogInterval = null,
         int maxRefusalLogsPerInterval = DefaultMaxRefusalLogsPerInterval)

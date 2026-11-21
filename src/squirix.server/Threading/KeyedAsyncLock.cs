@@ -86,6 +86,8 @@ internal sealed class KeyedAsyncLock<TKey>
             // Every holder and canceled waiter has left before reuse; the lock generation is never reset.
             if (_idleEntries.Count < MaxPooledEntries)
                 _idleEntries.Push(entry);
+            else
+                entry.Dispose();
         }
     }
 
@@ -107,10 +109,12 @@ internal sealed class KeyedAsyncLock<TKey>
     }
 
     /// <summary>Per-key lock and the number of acquisitions (held or queued) that reference it; guarded by the table lock.</summary>
-    internal sealed class Entry
+    internal sealed class Entry : IDisposable
     {
         internal AsyncLock Lock { get; } = new();
 
         internal int Users { get; set; }
+
+        public void Dispose() => Lock.Dispose();
     }
 }

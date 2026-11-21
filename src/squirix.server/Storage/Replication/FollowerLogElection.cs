@@ -14,6 +14,18 @@ namespace Squirix.Server.Storage.Replication;
 /// </remarks>
 internal static class FollowerLogElection
 {
+    internal static async Task<ulong> ObserveTermAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong term, CancellationToken cancellationToken)
+    {
+        if (owner.Refuses || term <= owner.Meta.CurrentTerm)
+            return owner.Meta.CurrentTerm;
+
+        // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
+        var observed = owner.Meta with { CurrentTerm = term, VotedFor = string.Empty };
+        await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, observed, cancellationToken).ConfigureAwait(false);
+        owner.Meta = observed;
+        return term;
+    }
+
     internal static FollowerLogVoteResult CheckPreVote(FollowerLogJournal journal, IFollowerLogContext owner, in ElectionVoteRequest request)
     {
         // A pre-vote probe never steps the term: an isolated follower soliciting probes must not inflate

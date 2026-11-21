@@ -6,94 +6,94 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for replica bootstrap and verification.</summary>
 internal static class ReplicaBootstrapLog
 {
-    internal static void ReplicaVerificationBlocked(ILogger logger, string groupId)
+    internal static void ReplicaVerificationBlocked(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaVerificationBlockedEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaVerificationBlockedEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaVerificationComplete(ILogger logger, string groupId)
+    internal static void ReplicaVerificationComplete(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaVerificationCompleteEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaVerificationCompleteEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaVerificationPending(ILogger logger, string groupId)
+    internal static void ReplicaVerificationPending(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaVerificationPendingEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaVerificationPendingEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaVerificationRetry(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaVerificationRetry(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaVerificationRetryEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaVerificationRetryEvent.Write(logger, ServerLogLevel.Debug, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaVerificationRefused(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaVerificationRefused(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaVerificationRefusedEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaVerificationRefusedEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaBootstrapWaiting(ILogger logger, string groupId, string nodeId)
+    internal static void ReplicaBootstrapWaiting(IServerLogger logger, string groupId, string nodeId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaBootstrapWaitingEvent.Write(logger, LogLevel.Information, null, (groupId, nodeId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaBootstrapWaitingEvent.Write(logger, ServerLogLevel.Information, null, (groupId, nodeId));
     }
 
-    internal static void ReplicaBootstrapMemberComplete(ILogger logger, string groupId, string nodeId)
+    internal static void ReplicaBootstrapMemberComplete(IServerLogger logger, string groupId, string nodeId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaBootstrapMemberCompleteEvent.Write(logger, LogLevel.Warning, null, (groupId, nodeId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaBootstrapMemberCompleteEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, nodeId));
     }
 
-    internal static void ReplicaBootstrapOfferRefused(ILogger logger, string groupId, string nodeId, string memberState, string refusalCode)
+    internal static void ReplicaBootstrapOfferRefused(IServerLogger logger, string groupId, string nodeId, string memberState, string refusalCode)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaBootstrapOfferRefusedEvent.Write(logger, LogLevel.Information, null, (groupId, nodeId, memberState, refusalCode));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaBootstrapOfferRefusedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, nodeId, memberState, refusalCode));
     }
 
-    internal static void ReplicaBootstrapCompleted(ILogger logger, string groupId)
+    internal static void ReplicaBootstrapCompleted(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaBootstrapCompletedEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaBootstrapCompletedEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaBootstrapLogNotReady(ILogger logger, string groupId)
+    internal static void ReplicaBootstrapLogNotReady(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaBootstrapLogNotReadyEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaBootstrapLogNotReadyEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaBootstrapIncomplete(ILogger logger, string groupId)
+    internal static void ReplicaBootstrapIncomplete(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaBootstrapIncompleteEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaBootstrapIncompleteEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaBootstrapAlreadyComplete(ILogger logger, string groupId)
+    internal static void ReplicaBootstrapAlreadyComplete(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaBootstrapAlreadyCompleteEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaBootstrapAlreadyCompleteEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaBootstrapRetry(ILogger logger, string groupId, Exception exception)
+    internal static void ReplicaBootstrapRetry(IServerLogger logger, string groupId, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaBootstrapRetryEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaBootstrapRetryEvent.Write(logger, ServerLogLevel.Debug, exception, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaBootstrapStopped(ILogger logger, string groupId)
+    internal static void ReplicaBootstrapStopped(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaBootstrapStoppedEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaBootstrapStoppedEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(groupId));
     }
 
-    internal static void ReplicaVerificationUnseeded(ILogger logger, string groupId)
+    internal static void ReplicaVerificationUnseeded(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaVerificationUnseededEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaVerificationUnseededEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create(groupId));
     }
 
     private static class Events

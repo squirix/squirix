@@ -118,7 +118,7 @@ internal sealed class GroupLogDurability : IDisposable
         }
         catch
         {
-            _knownLength = UnknownLength;
+            ForgetKnownLength();
             throw;
         }
 
@@ -134,9 +134,7 @@ internal sealed class GroupLogDurability : IDisposable
         Reset();
         var handle = OpenHandle(path);
         _ = Swap(handle);
-        RandomAccess.SetLength(handle, length);
-        RandomAccess.FlushToDisk(handle);
-        _knownLength = length;
+        Resize(handle, length, true);
     }
 
     /// <summary>Like <see cref="OpenStandby(string)" />, but flushes the directory entry only the first time this instance opens <paramref name="path" />.</summary>
@@ -159,9 +157,7 @@ internal sealed class GroupLogDurability : IDisposable
     internal void Truncate(long length)
     {
         var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
-        _knownLength = UnknownLength;
-        RandomAccess.SetLength(handle, length);
-        _knownLength = length;
+        Resize(handle, length, false);
     }
 
     /// <summary>Writes bytes at <paramref name="fileOffset" /> and sizes the file to exactly <paramref name="fileOffset" /> plus the data length.</summary>
@@ -175,7 +171,7 @@ internal sealed class GroupLogDurability : IDisposable
         var appendsAtKnownEnd = _knownLength == fileOffset;
 
         // Any failure below leaves the file length unknown until a later write sizes it again.
-        _knownLength = UnknownLength;
+        ForgetKnownLength();
         RandomAccess.Write(handle, data.Span, fileOffset);
 
         // A failed appending can leave valid frames beyond the in-memory logical end; sizing the file to the
@@ -236,6 +232,18 @@ internal sealed class GroupLogDurability : IDisposable
         }
     }
 
+    private void Resize(SafeFileHandle handle, long length, bool flush)
+    {
+        ForgetKnownLength();
+        RandomAccess.SetLength(handle, length);
+        if (flush)
+            RandomAccess.FlushToDisk(handle);
+
+        _knownLength = length;
+    }
+
+    private void ForgetKnownLength() => _knownLength = UnknownLength;
+
     private void Reset() => Swap(null)?.Dispose();
 
     /// <summary>Replaces the live handle; the only place that assigns it.</summary>
@@ -245,7 +253,7 @@ internal sealed class GroupLogDurability : IDisposable
     {
         var previous = _handle;
         _handle = next;
-        _knownLength = UnknownLength;
+        ForgetKnownLength();
         return previous;
     }
 }

@@ -46,7 +46,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private ulong _nextSequence;
     private long _ops;
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, ILoggerFactory loggerFactory, TimeProvider timeProvider)
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, IServerLoggerFactory loggerFactory, TimeProvider timeProvider)
         : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(), loggerFactory, timeProvider)
     {
     }
@@ -57,7 +57,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         Ledger manifestStore,
         AsyncManualResetEvent startupGate,
         IJournalSegmentWriter segmentWriter,
-        ILoggerFactory loggerFactory,
+        IServerLoggerFactory loggerFactory,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(segmentWriter);

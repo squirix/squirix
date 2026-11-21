@@ -31,7 +31,7 @@ internal static class PersistenceServiceRegistration
         _ = services.Own(sp => new PersistenceRuntime(
             options,
             new ManifestRetentionFailureMetrics(sp.Find<Meter>()),
-            sp.Require<ILoggerFactory>(),
+            sp.Require<IServerLoggerFactory>(),
             ResolveClock(sp)));
 
         RegisterPersistenceHostedServices(services, waitForRecovery, metricsEnabled);
@@ -67,7 +67,7 @@ internal static class PersistenceServiceRegistration
 
         _ = services.RunService(static sp => new RecoveryService<object?>(
             sp.Require<RecoveryOptions>(),
-            sp.Require<ILoggerFactory>().CreateLogger<RecoveryService<object?>>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<RecoveryService<object?>>(),
             new RecoveryDependencies<object?>(
                 sp.Require<PersistenceOptions>(),
                 sp.Require<Ledger>(),
@@ -83,7 +83,7 @@ internal static class PersistenceServiceRegistration
         _ = services.Own(static sp =>
         {
             var service = new SnapshotTriggerService(
-                sp.Require<ILoggerFactory>().CreateLogger<SnapshotTriggerService>(),
+                sp.Require<IServerLoggerFactory>().CreateLogger<SnapshotTriggerService>(),
                 sp.Require<Coordinator>(),
                 sp.Require<IJournalCoordinator>(),
                 sp.Require<TimeProvider>());
@@ -98,7 +98,7 @@ internal static class PersistenceServiceRegistration
             _ = services.RunService(static sp => new JournalMetricsExporterService(
                 sp.Require<PersistenceOptions>(),
                 sp.Require<TopologyOptions>(),
-                sp.Require<ILoggerFactory>().CreateLogger<JournalMetricsExporterService>(),
+                sp.Require<IServerLoggerFactory>().CreateLogger<JournalMetricsExporterService>(),
                 sp.Require<Meter>()));
         }
 
@@ -193,7 +193,7 @@ internal static class PersistenceServiceRegistration
         private int _disposed;
         private int _opened;
 
-        internal PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, ILoggerFactory loggerFactory, TimeProvider timeProvider)
+        internal PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, IServerLoggerFactory loggerFactory, TimeProvider timeProvider)
         {
             ArgumentNullException.ThrowIfNull(loggerFactory);
             _options = options;

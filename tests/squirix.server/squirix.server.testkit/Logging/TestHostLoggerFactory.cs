@@ -5,7 +5,7 @@ using HostLogging = Microsoft.Extensions.Logging;
 namespace Squirix.Server.TestKit.Logging;
 
 /// <summary>Forwards node events to the providers configured by a test host.</summary>
-internal sealed class TestHostLoggerFactory : ILoggerFactory
+internal sealed class TestHostLoggerFactory : IServerLoggerFactory
 {
     private readonly HostLogging.ILoggerFactory _factory;
     private readonly bool _ownsFactory;
@@ -16,7 +16,7 @@ internal sealed class TestHostLoggerFactory : ILoggerFactory
         _ownsFactory = ownsFactory;
     }
 
-    public ILogger CreateLogger(string categoryName) => new Sink(_factory.CreateLogger(categoryName));
+    public IServerLogger CreateLogger(string categoryName) => new Sink(_factory.CreateLogger(categoryName));
 
     public void Dispose()
     {
@@ -24,7 +24,7 @@ internal sealed class TestHostLoggerFactory : ILoggerFactory
             _factory.Dispose();
     }
 
-    private sealed class Sink : ILogger
+    private sealed class Sink : IServerLogger
     {
         private readonly HostLogging.ILogger _target;
 
@@ -36,10 +36,10 @@ internal sealed class TestHostLoggerFactory : ILoggerFactory
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => _target.BeginScope(state);
 
-        public bool IsEnabled(LogLevel logLevel) => _target.IsEnabled(ToHostLevel(logLevel));
+        public bool IsEnabled(ServerLogLevel logLevel) => _target.IsEnabled(ToHostLevel(logLevel));
 
 #pragma warning disable ZA0401 // The test bridge forwards already-structured state to the selected host provider.
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             var level = ToHostLevel(logLevel);
             if (_target.IsEnabled(level))
@@ -47,15 +47,15 @@ internal sealed class TestHostLoggerFactory : ILoggerFactory
         }
 #pragma warning restore ZA0401
 
-        private static HostLogging.LogLevel ToHostLevel(LogLevel level) => level switch
+        private static HostLogging.LogLevel ToHostLevel(ServerLogLevel level) => level switch
         {
-            LogLevel.Trace => HostLogging.LogLevel.Trace,
-            LogLevel.Debug => HostLogging.LogLevel.Debug,
-            LogLevel.Information => HostLogging.LogLevel.Information,
-            LogLevel.Warning => HostLogging.LogLevel.Warning,
-            LogLevel.Error => HostLogging.LogLevel.Error,
-            LogLevel.Critical => HostLogging.LogLevel.Critical,
-            LogLevel.None => HostLogging.LogLevel.None,
+            ServerLogLevel.Trace => HostLogging.LogLevel.Trace,
+            ServerLogLevel.Debug => HostLogging.LogLevel.Debug,
+            ServerLogLevel.Information => HostLogging.LogLevel.Information,
+            ServerLogLevel.Warning => HostLogging.LogLevel.Warning,
+            ServerLogLevel.Error => HostLogging.LogLevel.Error,
+            ServerLogLevel.Critical => HostLogging.LogLevel.Critical,
+            ServerLogLevel.None => HostLogging.LogLevel.None,
             _ => throw new ArgumentOutOfRangeException(nameof(level), level, "Unsupported log level."),
         };
     }

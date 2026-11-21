@@ -6,94 +6,94 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for durable storage.</summary>
 internal static class StorageLog
 {
-    internal static void DataDirectoryLockNotEnforced(ILogger logger, string directory)
+    internal static void DataDirectoryLockNotEnforced(IServerLogger logger, string directory)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.DataDirectoryLockNotEnforcedEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(directory));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.DataDirectoryLockNotEnforcedEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(directory));
     }
 
-    internal static void DurableMutationOutcomeUnknown(ILogger logger, Exception exception)
+    internal static void DurableMutationOutcomeUnknown(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.DurableMutationOutcomeUnknownEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.DurableMutationOutcomeUnknownEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create());
     }
 
-    internal static void JournalAbandonedAppendsDrained(ILogger logger, int count, long bytes)
+    internal static void JournalAbandonedAppendsDrained(IServerLogger logger, int count, long bytes)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalAbandonedAppendsDrainedEvent.Write(logger, LogLevel.Warning, null, (count, bytes));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalAbandonedAppendsDrainedEvent.Write(logger, ServerLogLevel.Warning, null, (count, bytes));
     }
 
-    internal static void JournalFsyncSlow(ILogger logger, long elapsedMs)
+    internal static void JournalFsyncSlow(IServerLogger logger, long elapsedMs)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalFsyncSlowEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(elapsedMs));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalFsyncSlowEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(elapsedMs));
     }
 
-    internal static void JournalHeaderRestored(ILogger logger, string path, long originalLength, long discardedBytes)
+    internal static void JournalHeaderRestored(IServerLogger logger, string path, long originalLength, long discardedBytes)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalHeaderRestoredEvent.Write(logger, LogLevel.Warning, null, (path, originalLength, discardedBytes));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalHeaderRestoredEvent.Write(logger, ServerLogLevel.Warning, null, (path, originalLength, discardedBytes));
     }
 
-    internal static void JournalMutationGateHeldLong(ILogger logger, long heldMs, string holder)
+    internal static void JournalMutationGateHeldLong(IServerLogger logger, long heldMs, string holder)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalMutationGateHeldLongEvent.Write(logger, LogLevel.Warning, null, (heldMs, holder));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalMutationGateHeldLongEvent.Write(logger, ServerLogLevel.Warning, null, (heldMs, holder));
     }
 
-    internal static void JournalTornCreationRewritten(ILogger logger, string path, long originalLength, long discardedBytes)
+    internal static void JournalTornCreationRewritten(IServerLogger logger, string path, long originalLength, long discardedBytes)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalTornCreationRewrittenEvent.Write(logger, LogLevel.Warning, null, (path, originalLength, discardedBytes));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalTornCreationRewrittenEvent.Write(logger, ServerLogLevel.Warning, null, (path, originalLength, discardedBytes));
     }
 
-    internal static void JournalTornTailTruncated(ILogger logger, string path, long originalLength, long discardedBytes)
+    internal static void JournalTornTailTruncated(IServerLogger logger, string path, long originalLength, long discardedBytes)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalTornTailTruncatedEvent.Write(logger, LogLevel.Warning, null, (path, originalLength, discardedBytes));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalTornTailTruncatedEvent.Write(logger, ServerLogLevel.Warning, null, (path, originalLength, discardedBytes));
     }
 
-    internal static void JournalWaitCanceledWhileStalled(ILogger logger, string waitingFor, string operation, long ioMs, string holder, long heldMs)
+    internal static void JournalWaitCanceledWhileStalled(IServerLogger logger, string waitingFor, string operation, long ioMs, string holder, long heldMs)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalWaitCanceledWhileStalledEvent.Write(logger, LogLevel.Warning, null, (waitingFor, operation, ioMs, holder, heldMs));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalWaitCanceledWhileStalledEvent.Write(logger, ServerLogLevel.Warning, null, (waitingFor, operation, ioMs, holder, heldMs));
     }
 
-    internal static void ManifestPublisherLeakedOnShutdownTimeout(ILogger logger, TimeSpan budget)
+    internal static void ManifestPublisherLeakedOnShutdownTimeout(IServerLogger logger, TimeSpan budget)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.PublisherLeakedOnShutdownTimeoutEvent.Write(logger, LogLevel.Error, null, ValueTuple.Create(budget));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.PublisherLeakedOnShutdownTimeoutEvent.Write(logger, ServerLogLevel.Error, null, ValueTuple.Create(budget));
     }
 
-    internal static void ManifestRetentionCleanupFailed(ILogger logger, Exception exception, string artifactKind)
+    internal static void ManifestRetentionCleanupFailed(IServerLogger logger, Exception exception, string artifactKind)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ManifestRetentionCleanupFailedEvent.Write(logger, LogLevel.Warning, exception, ValueTuple.Create(artifactKind));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ManifestRetentionCleanupFailedEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(artifactKind));
     }
 
-    internal static void ManifestRetentionDeleteFailed(ILogger logger, string artifactKind, string path)
+    internal static void ManifestRetentionDeleteFailed(IServerLogger logger, string artifactKind, string path)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ManifestRetentionDeleteFailedEvent.Write(logger, LogLevel.Warning, null, (artifactKind, path));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ManifestRetentionDeleteFailedEvent.Write(logger, ServerLogLevel.Warning, null, (artifactKind, path));
     }
 
-    internal static void DataDirectoryPermissionsTightened(ILogger logger, string directory, int count)
+    internal static void DataDirectoryPermissionsTightened(IServerLogger logger, string directory, int count)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.DataDirectoryPermissionsTightenedEvent.Write(logger, LogLevel.Warning, null, (directory, count));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.DataDirectoryPermissionsTightenedEvent.Write(logger, ServerLogLevel.Warning, null, (directory, count));
     }
 
-    internal static void DataDirectoryRootNotRestricted(ILogger logger, string directory)
+    internal static void DataDirectoryRootNotRestricted(IServerLogger logger, string directory)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.DataDirectoryRootNotRestrictedEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(directory));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.DataDirectoryRootNotRestrictedEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(directory));
     }
 
-    internal static void JournalSegmentLeavesNoHeadroom(ILogger logger, int segmentMb, int totalMb, int segmentCount)
+    internal static void JournalSegmentLeavesNoHeadroom(IServerLogger logger, int segmentMb, int totalMb, int segmentCount)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.JournalSegmentLeavesNoHeadroomEvent.Write(logger, LogLevel.Warning, null, (segmentMb, totalMb, segmentCount));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.JournalSegmentLeavesNoHeadroomEvent.Write(logger, ServerLogLevel.Warning, null, (segmentMb, totalMb, segmentCount));
     }
 
     private static class Events

@@ -6,7 +6,7 @@ using Squirix.Server.LocalCache;
 
 namespace Squirix.Server.Node.Services;
 
-internal sealed class ItemsGaugeReporterService : NodeWorker
+internal sealed class ItemsGaugeReporterService : NodeWorkerBase
 {
     private readonly ILocalCacheStats _stats;
 

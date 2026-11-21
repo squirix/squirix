@@ -12,7 +12,7 @@ internal sealed record RetentionContext
     internal RetentionContext(
         string dataDir,
         IStorageFileOperations? fileOperations,
-        ILogger logger,
+        IServerLogger logger,
         IManifestRetentionFailureMetrics failureMetrics)
     {
         DataDir = dataDir;
@@ -29,5 +29,5 @@ internal sealed record RetentionContext
 
     internal IStorageFileOperations FileOperations { get; }
 
-    internal ILogger Logger { get; }
+    internal IServerLogger Logger { get; }
 }

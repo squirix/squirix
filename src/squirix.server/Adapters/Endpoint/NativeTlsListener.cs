@@ -17,14 +17,14 @@ internal sealed class NativeTlsListener
     private readonly Socket _listener;
     private readonly Func<EndPoint, SslServerAuthenticationOptions> _tls;
     private readonly Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> _serve;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly int _capacity;
 
     internal NativeTlsListener(
         Socket listener,
         SslServerAuthenticationOptions tls,
         Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
-        ILogger log,
+        IServerLogger log,
         int capacity)
         : this(listener, _ => tls, serve, log, capacity)
     {
@@ -34,7 +34,7 @@ internal sealed class NativeTlsListener
         Socket listener,
         Func<EndPoint, SslServerAuthenticationOptions> tls,
         Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
-        ILogger log,
+        IServerLogger log,
         int capacity)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
@@ -91,16 +91,16 @@ internal sealed class NativeTlsListener
         }
     }
 
-    private static void LogConnectionFailure(ILogger logger, Exception exception)
+    private static void LogConnectionFailure(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.LogConnectionFailureEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.LogConnectionFailureEvent.Write(logger, ServerLogLevel.Debug, exception, ValueTuple.Create());
     }
 
-    private static void LogSessionFailure(ILogger logger, Exception exception)
+    private static void LogSessionFailure(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.LogSessionFailureEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.LogSessionFailureEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
     private async Task ServeAsync(Socket socket, ChannelWriter<int> slots, int slot, CancellationToken graceful, CancellationToken abort)

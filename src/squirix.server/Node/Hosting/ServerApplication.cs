@@ -17,7 +17,7 @@ internal sealed class ServerApplication : IAsyncDisposable
     private readonly bool _listenForSignals;
     private readonly IDisposable? _configuration;
     private readonly ServerLifetime _lifetime;
-    private readonly ILogger<ServerApplication> _logger;
+    private readonly IServerLogger<ServerApplication> _logger;
     private readonly List<INodeService> _started = [];
     private readonly List<Task> _workers = [];
     private readonly List<PosixSignalRegistration> _signals = [];
@@ -29,7 +29,7 @@ internal sealed class ServerApplication : IAsyncDisposable
         _owner = owner;
         _listenForSignals = listenForSignals;
         _lifetime = lifetime;
-        _logger = services.Require<ILoggerFactory>().CreateLogger<ServerApplication>();
+        _logger = services.Require<IServerLoggerFactory>().CreateLogger<ServerApplication>();
     }
 
     internal IServiceProvider Services { get; }
@@ -51,7 +51,7 @@ internal sealed class ServerApplication : IAsyncDisposable
 
     internal static ServerApplication Build(NodeServices services, IDisposable? configuration = null)
     {
-        _ = services.Own(static sp => new ServerLifetime(sp.Require<ILoggerFactory>().CreateLogger<ServerLifetime>()));
+        _ = services.Own(static sp => new ServerLifetime(sp.Require<IServerLoggerFactory>().CreateLogger<ServerLifetime>()));
         _ = services.Own<INodeLifetime>(static provider => provider.Require<ServerLifetime>());
         var provider = new NodeProvider(services);
         return FromProvider(provider, configuration, true);
@@ -76,7 +76,7 @@ internal sealed class ServerApplication : IAsyncDisposable
             // A start can acquire resources and then throw. Include that service in rollback.
             _started.Add(service);
             await service.StartAsync(startup.Token).ConfigureAwait(false);
-            if (service is NodeWorker worker)
+            if (service is NodeWorkerBase worker)
                 TrackWorker(worker);
         }
 
@@ -125,13 +125,13 @@ internal sealed class ServerApplication : IAsyncDisposable
             throw new AggregateException(failures);
     }
 
-    private void TrackWorker(NodeWorker worker)
+    private void TrackWorker(NodeWorkerBase worker)
     {
         if (worker.ExecuteTask != null)
             _workers.Add(ObserveWorkerAsync(worker, _lifetime.ApplicationStopping));
     }
 
-    private async Task ObserveWorkerAsync(NodeWorker worker, CancellationToken stopping)
+    private async Task ObserveWorkerAsync(NodeWorkerBase worker, CancellationToken stopping)
     {
         try
         {

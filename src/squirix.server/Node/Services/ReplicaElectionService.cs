@@ -22,10 +22,10 @@ namespace Squirix.Server.Node.Services;
 /// drains the requests in flight: a led group stops heartbeating and loses its authority at once, so its followers elect a new leader
 /// while this node finishes those requests (#1092).
 /// </remarks>
-internal sealed class ReplicaElectionService : NodeWorker
+internal sealed class ReplicaElectionService : NodeWorkerBase
 {
     /// <summary>The log of each election event that names only its group and term.</summary>
-    private static readonly FrozenDictionary<ElectionEvent, Action<ILogger, string, ulong>> TermEventLogs = new Dictionary<ElectionEvent, Action<ILogger, string, ulong>>
+    private static readonly FrozenDictionary<ElectionEvent, Action<IServerLogger, string, ulong>> TermEventLogs = new Dictionary<ElectionEvent, Action<IServerLogger, string, ulong>>
     {
         [ElectionEvent.PreVoteLost] = ReplicaElectionLog.ReplicaElectionPreVoteLost,
         [ElectionEvent.VoteLost] = ReplicaElectionLog.ReplicaElectionVoteLost,
@@ -40,7 +40,7 @@ internal sealed class ReplicaElectionService : NodeWorker
     private readonly ReplicaRpcHeader _header;
     private readonly IReplicaLeadership _leadership;
     private readonly IReplicaGroupLocator _locator;
-    private readonly ILogger<ReplicaElectionService> _log;
+    private readonly IServerLogger<ReplicaElectionService> _log;
     private readonly ReplicaGroupRegistry _registry;
     private readonly IReplicaVoteGateway _votes;
 
@@ -57,7 +57,7 @@ internal sealed class ReplicaElectionService : NodeWorker
         IReplicaVoteGateway votes,
         IReplicaLeadership leadership,
         (ReadOnlyMemory<byte> Fingerprint, ulong Generation, string SelfId) identity,
-        ILogger<ReplicaElectionService> log)
+        IServerLogger<ReplicaElectionService> log)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(locator);

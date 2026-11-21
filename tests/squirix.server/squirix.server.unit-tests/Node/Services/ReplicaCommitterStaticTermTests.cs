@@ -93,7 +93,7 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(log.Count(StaticTermAboveOneEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(StaticTermAboveOneEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(StaticTermAboveOneEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
 
         await RaiseTermAsync(registry, 3, cancellationToken);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);

@@ -68,7 +68,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(OlderTermTailEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(OlderTermTailEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
 
         _ = await log.AppendAsync(new FollowerLogAppendRequest("n1", 2UL, 1UL, 1UL, 0UL, OlderEntry(2UL, clock)), cancellationToken);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
@@ -198,7 +198,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 
         _ = await Assert.That((first, second, third)).IsEqualTo((false, false, true));
         _ = await Assert.That(events.Count(StorageRetryEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(StorageRetryEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(StorageRetryEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(2UL);
     }
 

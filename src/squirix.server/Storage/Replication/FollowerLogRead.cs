@@ -31,6 +31,22 @@ internal static class FollowerLogRead
         };
     }
 
+    internal static (FollowerLogStatus Status, bool CanCommit) GetCommitReadiness(FollowerLogJournal journal, IFollowerLogState owner, ulong term)
+    {
+        var status = CaptureStatus(journal, owner);
+        var canCommit = status is { Readiness: FollowerLogReadiness.Ready, MemberState: GroupMemberState.Complete } && status.CurrentTerm <= term &&
+                        (status.LastLogIndex == status.CommitIndex || journal.HasUncommittedTerm(status.CommitIndex, term));
+        return (status, canCommit);
+    }
+
+    internal static FollowerLogTail GetLeaderTail(FollowerLogJournal journal, IFollowerLogState owner)
+    {
+        var status = CaptureStatus(journal, owner);
+        return status.LastLogIndex == status.CommitIndex
+            ? new FollowerLogTail(status, 0UL, [])
+            : new FollowerLogTail(status, GetTerm(journal, owner, status.CommitIndex), journal.CollectUncommittedTail(status.CommitIndex));
+    }
+
     internal static FollowerLogRetention GetRetention(FollowerLogJournal journal, IFollowerLogContext owner)
     {
         var snapshotIndex = journal.SnapshotBaseline.LastIncludedIndex;

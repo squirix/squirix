@@ -213,7 +213,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         journal.Writer.Flush.Release();
         await journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(logged?.Cause).IsTypeOf<TimeoutException>();
         _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);
     }
@@ -258,7 +258,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
 
     /// <summary>Records every entry and signals the first one with a watched event id.</summary>
     [ThreadSafe]
-    private sealed class SignalingLogger : ILogger
+    private sealed class SignalingLogger : IServerLogger
     {
         private readonly TaskCompletionSource _signaled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly int _watchedEventId;
@@ -281,9 +281,9 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             Recorded.Log(logLevel, eventId, state, exception, formatter);
             if (eventId.Id != _watchedEventId)

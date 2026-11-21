@@ -106,7 +106,7 @@ internal static class BinaryEndpoint
         var accessor = services.Require<BinaryRequestAccessor>();
         var operations = services.Require<BinaryDispatch>();
         var state = new CallState(connection, validator, accessor, operations);
-        var log = services.Require<ILoggerFactory>().CreateLogger<BinaryConnectionPump>();
+        var log = services.Require<IServerLoggerFactory>().CreateLogger<BinaryConnectionPump>();
         var pump = new BinaryConnectionPump(
             connection.Transport,
             connection.Abort,

@@ -14,7 +14,7 @@ namespace Squirix.Server.Node.Services;
 /// Refresh uses the client identity; Get receives a new server identity for every transport attempt.
 /// </remarks>
 [ThreadSafe]
-internal sealed class ReplicaDistributedAccessRequest : ReplicaCommitRequest
+internal sealed class ReplicaDistributedAccessRequest : ReplicaCommitRequestBase
 {
     private readonly bool _refresh;
 

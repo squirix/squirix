@@ -34,7 +34,7 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
         setup.EventLoop.ReportDeadlineWaitFallbackOnce();
 
         _ = await Assert.That(logger.Count(TimerUnavailableEventId)).IsEqualTo(1);
-        _ = await Assert.That(logger.Find(TimerUnavailableEventId)?.Level).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(logger.Find(TimerUnavailableEventId)?.Level).IsEqualTo(ServerLogLevel.Information);
     }
 
     /// <summary>The journal thread loop reports the fallback after its first idle wait, once.</summary>

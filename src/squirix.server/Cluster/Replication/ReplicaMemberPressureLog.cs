@@ -5,16 +5,16 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Logs of the member memory pressure a leader tracks.</summary>
 internal static class ReplicaMemberPressureLog
 {
-    internal static void Flagged(ILogger logger, string groupId, int slot)
+    internal static void Flagged(IServerLogger logger, string groupId, int slot)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.FlaggedEvent.Write(logger, LogLevel.Warning, null, (groupId, slot));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.FlaggedEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, slot));
     }
 
-    internal static void Cleared(ILogger logger, string groupId, int slot)
+    internal static void Cleared(IServerLogger logger, string groupId, int slot)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ClearedEvent.Write(logger, LogLevel.Information, null, (groupId, slot));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ClearedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, slot));
     }
 
     private static class Events

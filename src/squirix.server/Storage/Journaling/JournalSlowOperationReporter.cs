@@ -12,13 +12,13 @@ internal sealed class JournalSlowOperationReporter
 {
     internal const int WarningThresholdMs = 1000;
 
-    private readonly ILogger _logger;
+    private readonly IServerLogger _logger;
     private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes a new instance of the <see cref="JournalSlowOperationReporter" /> class.</summary>
     /// <param name="logger">The logger the warnings go to.</param>
     /// <param name="timeProvider">The clock every timestamp handed to this reporter is taken from and measured with.</param>
-    internal JournalSlowOperationReporter(ILogger logger, TimeProvider timeProvider)
+    internal JournalSlowOperationReporter(IServerLogger logger, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(timeProvider);

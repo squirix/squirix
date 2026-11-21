@@ -6,124 +6,124 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for node lifetime and journal shutdown.</summary>
 internal static class DiagnosticsLog
 {
-    internal static void LifetimeNotificationFailed(ILogger logger, Exception exception)
+    internal static void LifetimeNotificationFailed(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.LifetimeNotificationFailedEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.LifetimeNotificationFailedEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void ServerWorkerFailed(ILogger logger, string service, Exception exception)
+    internal static void ServerWorkerFailed(IServerLogger logger, string service, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Critical))
-            Events.ServerWorkerFailedEvent.Write(logger, LogLevel.Critical, exception, ValueTuple.Create(service));
+        if (logger.IsEnabled(ServerLogLevel.Critical))
+            Events.ServerWorkerFailedEvent.Write(logger, ServerLogLevel.Critical, exception, ValueTuple.Create(service));
     }
 
-    internal static void RecoveryReplayInterrupted(ILogger logger)
+    internal static void RecoveryReplayInterrupted(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.RecoveryReplayInterruptedEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.RecoveryReplayInterruptedEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create());
     }
 
-    internal static void RecoveryReplayStopTimedOut(ILogger logger)
+    internal static void RecoveryReplayStopTimedOut(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.RecoveryReplayStopTimedOutEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.RecoveryReplayStopTimedOutEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create());
     }
 
-    internal static void IdempotencySweepStopped(ILogger logger)
+    internal static void IdempotencySweepStopped(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.IdempotencySweepStoppedEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.IdempotencySweepStoppedEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create());
     }
 
-    internal static void LocalExpirationSweepStopped(ILogger logger)
+    internal static void LocalExpirationSweepStopped(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.LocalExpirationSweepStoppedEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.LocalExpirationSweepStoppedEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create());
     }
 
-    internal static void JournalMetricFileProbeFailed(ILogger logger, Exception exception, string file)
+    internal static void JournalMetricFileProbeFailed(IServerLogger logger, Exception exception, string file)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.JournalMetricFileProbeFailedEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create(file));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.JournalMetricFileProbeFailedEvent.Write(logger, ServerLogLevel.Debug, exception, ValueTuple.Create(file));
     }
 
-    internal static void JournalThreadExitOnCancel(ILogger logger)
+    internal static void JournalThreadExitOnCancel(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.JournalThreadExitOnCancelEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.JournalThreadExitOnCancelEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create());
     }
 
-    internal static void JournalHighResolutionTimerUnavailable(ILogger logger)
+    internal static void JournalHighResolutionTimerUnavailable(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.HighResolutionTimerUnavailableEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.HighResolutionTimerUnavailableEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create());
     }
 
-    internal static void JournalProducerQuiescenceTimedOut(ILogger logger)
+    internal static void JournalProducerQuiescenceTimedOut(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.JournalProducerQuiescenceTimedOutEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.JournalProducerQuiescenceTimedOutEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create());
     }
 
-    internal static void JournalShutdownMarkerTimedOut(ILogger logger)
+    internal static void JournalShutdownMarkerTimedOut(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.JournalShutdownMarkerTimedOutEvent.Write(logger, LogLevel.Debug, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.JournalShutdownMarkerTimedOutEvent.Write(logger, ServerLogLevel.Debug, null, ValueTuple.Create());
     }
 
-    internal static void JournalThreadJoinTimedOut(ILogger logger, int faultedInFlightWaiters, int queuedAcceptedAppends)
+    internal static void JournalThreadJoinTimedOut(IServerLogger logger, int faultedInFlightWaiters, int queuedAcceptedAppends)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.JournalThreadJoinTimedOutEvent.Write(logger, LogLevel.Error, null, (faultedInFlightWaiters, queuedAcceptedAppends));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.JournalThreadJoinTimedOutEvent.Write(logger, ServerLogLevel.Error, null, (faultedInFlightWaiters, queuedAcceptedAppends));
     }
 
-    internal static void JournalThreadLeakedOnShutdownTimeout(ILogger logger, int faultedInFlightWaiters, int queuedAcceptedAppends)
+    internal static void JournalThreadLeakedOnShutdownTimeout(IServerLogger logger, int faultedInFlightWaiters, int queuedAcceptedAppends)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.ThreadLeakedOnShutdownTimeoutEvent.Write(logger, LogLevel.Error, null, (faultedInFlightWaiters, queuedAcceptedAppends));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.ThreadLeakedOnShutdownTimeoutEvent.Write(logger, ServerLogLevel.Error, null, (faultedInFlightWaiters, queuedAcceptedAppends));
     }
 
-    internal static void JournalInFlightApplyWaitTimedOut(ILogger logger)
+    internal static void JournalInFlightApplyWaitTimedOut(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.JournalInFlightApplyWaitTimedOutEvent.Write(logger, LogLevel.Error, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.JournalInFlightApplyWaitTimedOutEvent.Write(logger, ServerLogLevel.Error, null, ValueTuple.Create());
     }
 
-    internal static void JournalDisposeFailedOnHostShutdown(ILogger logger, Exception exception)
+    internal static void JournalDisposeFailedOnHostShutdown(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.JournalDisposeFailedOnHostShutdownEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.JournalDisposeFailedOnHostShutdownEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void HostStopFailedOnDispose(ILogger logger, Exception exception)
+    internal static void HostStopFailedOnDispose(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.HostStopFailedOnDisposeEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.HostStopFailedOnDisposeEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void HostDisposeFailedAfterStartFailure(ILogger logger, Exception exception)
+    internal static void HostDisposeFailedAfterStartFailure(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.HostDisposeFailedAfterStartFailureEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.HostDisposeFailedAfterStartFailureEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void JournalStopFailedOnDispose(ILogger logger, Exception exception)
+    internal static void JournalStopFailedOnDispose(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.JournalStopFailedOnDisposeEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.JournalStopFailedOnDisposeEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
-    internal static void JournalFailureSurfacedOnStop(ILogger logger, bool latchedBeforeShutdown, Exception exception)
+    internal static void JournalFailureSurfacedOnStop(IServerLogger logger, bool latchedBeforeShutdown, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Error))
-            Events.JournalFailureSurfacedOnStopEvent.Write(logger, LogLevel.Error, exception, ValueTuple.Create(latchedBeforeShutdown));
+        if (logger.IsEnabled(ServerLogLevel.Error))
+            Events.JournalFailureSurfacedOnStopEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(latchedBeforeShutdown));
     }
 
-    internal static void JournalShutdownInducedFailureIgnored(ILogger logger, Exception exception)
+    internal static void JournalShutdownInducedFailureIgnored(IServerLogger logger, Exception exception)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ShutdownInducedFailureIgnoredEvent.Write(logger, LogLevel.Debug, exception, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ShutdownInducedFailureIgnoredEvent.Write(logger, ServerLogLevel.Debug, exception, ValueTuple.Create());
     }
 
     private static class Events

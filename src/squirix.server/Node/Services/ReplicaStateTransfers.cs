@@ -42,7 +42,7 @@ internal sealed class ReplicaStateTransfers
     private readonly IJournalDurabilityCoordinator _durability;
     private readonly ReplicaGroupEntries _entries;
     private readonly IReplicaTransferGateway _gateway;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ReplicaCatchUpMetrics? _metrics;
     private readonly ReplicaTransferOptions _options;
 
@@ -58,7 +58,7 @@ internal sealed class ReplicaStateTransfers
         ReplicaGroupEntries entries,
         IJournalDurabilityCoordinator durability,
         ReplicaTransferOptions options,
-        ILogger<ReplicaStateTransfers> log,
+        IServerLogger<ReplicaStateTransfers> log,
         ReplicaCatchUpMetrics? metrics)
     {
         ArgumentNullException.ThrowIfNull(gateway);

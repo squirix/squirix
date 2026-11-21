@@ -6,100 +6,100 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for replica elections.</summary>
 internal static class ReplicaElectionLog
 {
-    internal static void ReplicaElectionDenied(ILogger logger, string groupId, ulong term, string denial)
+    internal static void ReplicaElectionDenied(IServerLogger logger, string groupId, ulong term, string denial)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaElectionDeniedEvent.Write(logger, LogLevel.Debug, null, (groupId, term, denial));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaElectionDeniedEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, term, denial));
     }
 
-    internal static void ReplicaElectionPreVoteLost(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionPreVoteLost(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaElectionPreVoteLostEvent.Write(logger, LogLevel.Debug, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaElectionPreVoteLostEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionVoteLost(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionVoteLost(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaElectionVoteLostEvent.Write(logger, LogLevel.Information, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaElectionVoteLostEvent.Write(logger, ServerLogLevel.Information, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionElected(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionElected(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaElectionElectedEvent.Write(logger, LogLevel.Information, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaElectionElectedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionAuthorized(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionAuthorized(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaElectionAuthorizedEvent.Write(logger, LogLevel.Information, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaElectionAuthorizedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionPromotionPending(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionPromotionPending(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Debug))
-            Events.ReplicaElectionPromotionPendingEvent.Write(logger, LogLevel.Debug, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Debug))
+            Events.ReplicaElectionPromotionPendingEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionSteppedDown(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionSteppedDown(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaElectionSteppedDownEvent.Write(logger, LogLevel.Information, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaElectionSteppedDownEvent.Write(logger, ServerLogLevel.Information, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionRetirePending(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionRetirePending(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaElectionRetirePendingEvent.Write(logger, LogLevel.Warning, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaElectionRetirePendingEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionTermObserved(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionTermObserved(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaElectionTermObservedEvent.Write(logger, LogLevel.Information, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaElectionTermObservedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionTermNotDurable(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionTermNotDurable(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaElectionTermNotDurableEvent.Write(logger, LogLevel.Warning, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaElectionTermNotDurableEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionAuthorityTimedOut(ILogger logger, string groupId, ulong term, TimeSpan waited)
+    internal static void ReplicaElectionAuthorityTimedOut(IServerLogger logger, string groupId, ulong term, TimeSpan waited)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaElectionAuthorityTimedOutEvent.Write(logger, LogLevel.Warning, null, (groupId, term, waited));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaElectionAuthorityTimedOutEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, term, waited));
     }
 
-    internal static void ReplicaElectionApplyTimedOut(ILogger logger, string groupId, ulong term, TimeSpan waited)
+    internal static void ReplicaElectionApplyTimedOut(IServerLogger logger, string groupId, ulong term, TimeSpan waited)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaElectionApplyTimedOutEvent.Write(logger, LogLevel.Warning, null, (groupId, term, waited));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaElectionApplyTimedOutEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, term, waited));
     }
 
-    internal static void ReplicaElectionAppendTimedOut(ILogger logger, string groupId, ulong term, TimeSpan waited)
+    internal static void ReplicaElectionAppendTimedOut(IServerLogger logger, string groupId, ulong term, TimeSpan waited)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaElectionAppendTimedOutEvent.Write(logger, LogLevel.Warning, null, (groupId, term, waited));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaElectionAppendTimedOutEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, term, waited));
     }
 
-    internal static void ReplicaElectionApplyBlocked(ILogger logger, string groupId, ulong term)
+    internal static void ReplicaElectionApplyBlocked(IServerLogger logger, string groupId, ulong term)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaElectionApplyBlockedEvent.Write(logger, LogLevel.Warning, null, (groupId, term));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaElectionApplyBlockedEvent.Write(logger, ServerLogLevel.Warning, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionStopped(ILogger logger)
+    internal static void ReplicaElectionStopped(IServerLogger logger)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            Events.ReplicaElectionStoppedEvent.Write(logger, LogLevel.Information, null, ValueTuple.Create());
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.ReplicaElectionStoppedEvent.Write(logger, ServerLogLevel.Information, null, ValueTuple.Create());
     }
 
-    internal static void ReplicaElectionNoLog(ILogger logger, string groupId)
+    internal static void ReplicaElectionNoLog(IServerLogger logger, string groupId)
     {
-        if (logger.IsEnabled(LogLevel.Warning))
-            Events.ReplicaElectionNoLogEvent.Write(logger, LogLevel.Warning, null, ValueTuple.Create(groupId));
+        if (logger.IsEnabled(ServerLogLevel.Warning))
+            Events.ReplicaElectionNoLogEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(groupId));
     }
 
     private static class Events

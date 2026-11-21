@@ -240,7 +240,7 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
     private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, CancellationToken cancellationToken) =>
         CreateRecovery(scenario, true, NullLogger<RecoveryService<object?>>.Instance).StartAsync(cancellationToken);
 
-    private RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, bool blockOnStart, ILogger<RecoveryService<object?>> logger)
+    private RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, bool blockOnStart, IServerLogger<RecoveryService<object?>> logger)
     {
         var gate = new AsyncManualResetEvent(true);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };

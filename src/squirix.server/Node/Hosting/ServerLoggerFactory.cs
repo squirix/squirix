@@ -11,7 +11,7 @@ using Squirix.Server.Logging;
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>Creates the node's category loggers and refreshes console filters when configuration reloads.</summary>
-internal sealed class ServerLoggerFactory : ILoggerFactory
+internal sealed class ServerLoggerFactory : IServerLoggerFactory
 {
     private readonly Lock _gate = new();
     private readonly ServerLoggingSettings _settings;
@@ -26,7 +26,7 @@ internal sealed class ServerLoggerFactory : ILoggerFactory
         settings.Changed += Refresh;
     }
 
-    public ILogger CreateLogger(string categoryName)
+    public IServerLogger CreateLogger(string categoryName)
     {
         if (_loggers.TryGetValue(categoryName, out var existing))
             return existing;
@@ -45,11 +45,11 @@ internal sealed class ServerLoggerFactory : ILoggerFactory
         }
     }
 
-    private sealed class ConsoleLogger : ILogger
+    private sealed class ConsoleLogger : IServerLogger
     {
         private readonly string _name;
         private readonly ServerLoggerFactory _owner;
-        private volatile LogLevel _minimum;
+        private volatile ServerLogLevel _minimum;
         private volatile bool _includeScopes;
         private volatile bool _json;
 
@@ -63,9 +63,9 @@ internal sealed class ServerLoggerFactory : ILoggerFactory
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => _owner._scopes.Push(state);
 
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= _minimum && logLevel < LogLevel.None;
+        public bool IsEnabled(ServerLogLevel logLevel) => logLevel >= _minimum && logLevel < ServerLogLevel.None;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (!IsEnabled(logLevel))
                 return;
@@ -91,7 +91,7 @@ internal sealed class ServerLoggerFactory : ILoggerFactory
         {
             var settings = _owner._settings.Values;
             _json = string.Equals(settings.GetValueOrDefault("Console:FormatterName"), "json", StringComparison.OrdinalIgnoreCase);
-            _minimum = FindLevel(settings, "Console:LogLevel:") ?? FindLevel(settings, "LogLevel:") ?? LogLevel.Information;
+            _minimum = FindLevel(settings, "Console:LogLevel:") ?? FindLevel(settings, "LogLevel:") ?? ServerLogLevel.Information;
             _includeScopes = bool.TryParse(settings.GetValueOrDefault("Console:FormatterOptions:IncludeScopes") ?? settings.GetValueOrDefault("Console:IncludeScopes"), out var enabled) && enabled;
         }
 
@@ -138,7 +138,7 @@ internal sealed class ServerLoggerFactory : ILoggerFactory
         }
 
 #pragma warning disable MA0045 // ILogger.Log is synchronous and this UTF-8 writer targets memory.
-        private void WriteJson<TState>(LogLevel level, EventId id, string message, TState state, Exception? exception)
+        private void WriteJson<TState>(ServerLogLevel level, ServerLogEventId id, string message, TState state, Exception? exception)
         {
             var buffer = new ArrayBufferWriter<byte>();
             using var json = new Utf8JsonWriter(buffer);
@@ -169,9 +169,9 @@ internal sealed class ServerLoggerFactory : ILoggerFactory
 
 #pragma warning restore MA0045
 
-        private LogLevel? FindLevel(IReadOnlyDictionary<string, string?> levels, string prefix)
+        private ServerLogLevel? FindLevel(IReadOnlyDictionary<string, string?> levels, string prefix)
         {
-            LogLevel? result = null;
+            ServerLogLevel? result = null;
             var length = -1;
             foreach (var section in levels)
             {
@@ -181,7 +181,7 @@ internal sealed class ServerLoggerFactory : ILoggerFactory
                 var specificity = string.Equals(key, "Default", StringComparison.OrdinalIgnoreCase) ? 0 : key.Length;
                 if (specificity <= length || (specificity > 0 && !_name.StartsWith(key, StringComparison.OrdinalIgnoreCase)))
                     continue;
-                if (Enum.TryParse<LogLevel>(section.Value, true, out var level))
+                if (Enum.TryParse<ServerLogLevel>(section.Value, true, out var level))
                 {
                     result = level;
                     length = specificity;

@@ -60,7 +60,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
 
         var entry = log.Find(JournalDisposeFailedEventId);
 
-        _ = await Assert.That(entry?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(entry?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(entry?.Cause).IsSameReferenceAs(failure);
     }
 
@@ -81,7 +81,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
             2,
             new byte[32],
             1UL,
-            sp.GetRequiredService<ILoggerFactory>(),
+            sp.GetRequiredService<IServerLoggerFactory>(),
             new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
         { ElectionClock = TimeProvider.System });
         var provider = services.BuildServiceProvider();
@@ -220,7 +220,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         _ = services.AddSingleton(meter);
         _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
         if (log != null)
-            _ = services.AddSingleton<ILoggerFactory>(_ => new FixedLoggerFactory(log));
+            _ = services.AddSingleton<IServerLoggerFactory>(_ => new FixedLoggerFactory(log));
         return services.BuildServiceProvider();
     }
 }

@@ -59,6 +59,11 @@ internal sealed class ServerLoggingSettings : IDisposable
                 return;
         }
 
+        _watcher.Changed -= QueueReload;
+        _watcher.Created -= QueueReload;
+        _watcher.Deleted -= QueueReload;
+        _watcher.Renamed -= OnRenamed;
+        _watcher.Error -= OnWatcherError;
         _watcher.Dispose();
         _reload.Dispose();
     }

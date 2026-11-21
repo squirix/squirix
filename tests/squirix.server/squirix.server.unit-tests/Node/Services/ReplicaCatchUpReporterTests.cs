@@ -40,7 +40,7 @@ public sealed class ReplicaCatchUpReporterTests : ServerUnitTestBase
 
         _ = await Assert.That(log.Count(CompactedEventId)).IsEqualTo(3);
         _ = await Assert.That(log.Count(CaughtUpEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(CompactedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(CompactedEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
     }
 
     /// <summary>An unreachable follower, and a caught-up one that was not admitted, are logged at debug level on every pass.</summary>
@@ -56,7 +56,7 @@ public sealed class ReplicaCatchUpReporterTests : ServerUnitTestBase
         reporter.Report(2, "n3", Result(ReplicaCatchUpOutcome.StaleTerm), false);
 
         _ = await Assert.That(log.Count(InterruptedEventId)).IsEqualTo(3);
-        _ = await Assert.That(log.Find(InterruptedEventId)?.Level).IsEqualTo(LogLevel.Debug);
+        _ = await Assert.That(log.Find(InterruptedEventId)?.Level).IsEqualTo(ServerLogLevel.Debug);
         _ = await Assert.That(log.FindMessage(StoppedEventId)).Contains("stale_term");
     }
 
@@ -98,7 +98,7 @@ public sealed class ReplicaCatchUpReporterTests : ServerUnitTestBase
         reporter.Report(2, "n3", Result(ReplicaCatchUpOutcome.Incomplete), false);
 
         _ = await Assert.That(log.Count(StoppedEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(StoppedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(StoppedEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(StoppedEventId)).Contains("incomplete");
         await SequenceAssert.EqualAsync(["incomplete", "incomplete"], outcomes.ToArray(), StringComparer.Ordinal);
     }

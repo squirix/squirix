@@ -88,118 +88,6 @@ internal static class ServerHostingComposition
         await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
-    /// <param name="services">Node component registrations.</param>
-    private static void AddReplicaElection(NodeServices services) => _ = services.RunService(static sp =>
-    {
-        var activation = sp.Require<ReplicaGroupActivation>();
-        var topology = sp.Require<TopologyOptions>();
-        return new ReplicaElectionService(
-            sp.Require<ReplicaGroupRegistry>(),
-            sp.Require<IReplicaGroupLocator>(),
-            sp.Require<IReplicaVoteGateway>(),
-            sp.Require<ReplicaGroupCommitters>(),
-            (activation.FingerprintBytes.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaElectionService>())
-        {
-            HostStopping = sp.Require<INodeLifetime>().ApplicationStopping,
-        };
-    });
-
-    /// <summary>Registers the sweep that expires the keys of the led groups no read touches, through committed tombstones.</summary>
-    /// <param name="services">Node component registrations.</param>
-    private static void AddReplicaExpirationSweep(NodeServices services) => _ = services.RunService(static sp => new ReplicaExpirationSweepService(
-        sp.Require<ReplicaGroupCommitters>(),
-        sp.Require<ILocalCacheExpiredKeys>(),
-        sp.Require<INodeLocator>(),
-        sp.Require<ILoggerFactory>().CreateLogger<ReplicaExpirationSweepService>()));
-
-    /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
-    /// <param name="services">Node component registrations.</param>
-    private static void AddReplicaGroupAppliers(NodeServices services) => _ = services.Own(static sp => new ReplicaGroupAppliers(
-        sp.Require<ReplicaGroupRegistry>(),
-        sp.Require<OwnerLocalCache>().Value,
-        sp.Require<TopologyOptions>().NodeId,
-        sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupAppliers>(),
-        sp.Require<ReplicationMetrics>()));
-
-    /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
-    /// <param name="services">Node component registrations.</param>
-    /// <remarks>The readiness service sends the state transfers, so their registrations come with it.</remarks>
-    private static void AddReplicaGroupReadiness(NodeServices services)
-    {
-        ReplicaTransferRegistration.Add(services);
-        _ = services.RunService(static sp => new ReplicaGroupReadinessService(
-            sp.Require<ReplicaGroupCommitters>(),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupReadinessService>(),
-            sp.Require<TimeProvider>(),
-            sp.Require<ReplicaCatchUpMetrics>(),
-            sp.Require<ReplicaStateTransfers>())
-        {
-            Options = sp.Find<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
-        });
-    }
-
-    /// <summary>Registers the replica group registry and replication services for an activated node.</summary>
-    /// <param name="services">Node component registrations.</param>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="persistence">Resolved persistence options.</param>
-    /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
-    /// <remarks>
-    /// One group per owner whose replica group includes this node (its own group among them); other groups are not opened.
-    /// The logs open in <see cref="OpenStorageAsync" />, so any replication RPC fails closed until its log is ready.
-    /// </remarks>
-    private static void AddReplicaGroupRegistry(NodeServices services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions)
-    {
-        var activation = new ReplicaGroupActivation([.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes]);
-        _ = services.Use(activation);
-
-        _ = services.Own(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, activation));
-
-        _ = services.Own<IReplicaMembership>(static sp => new ReplicaMembership(
-            sp.Require<IReplicaGroupLocator>(),
-            sp.Require<ReplicaGroupRegistry>().GroupIds));
-
-        AddReplicaGroupAppliers(services);
-
-        // The cluster locator registered the static leader table; an election-led node replaces it with the table of its election state.
-        if (LeadsByElection(cluster))
-        {
-            _ = services.ReplaceFactory<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
-                    sp.Require<ReplicaGroupRegistry>(),
-                    sp.Require<TopologyOptions>().NodeId,
-                    sp.Require<IReplicaGroupLocator>()));
-        }
-
-        // Factory registrations let the container own disposal: the registry closes follower-log durability workers
-        // and the committers drain their coordinators on host shutdown.
-        _ = services.Own(static sp => CreateReplicaGroupCommitters(sp, sp.Require<ReplicaGroupActivation>().FingerprintBytes));
-        AddReplicaGroupReadiness(services);
-        ReplicaGroupBootstrapRegistration.Add(services);
-        _ = services.RunService(static sp => new ReplicaApplyService(
-            sp.Require<ReplicaGroupRegistry>(),
-            sp.Require<ReplicaGroupAppliers>(),
-            sp.Require<ReplicaGroupCommitters>(),
-            sp.Require<IJournalCoordinator>(),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaApplyService>(),
-            sp.Require<TimeProvider>()));
-        _ = services.Use(new ReplicaLogCompactionOptions());
-        _ = services.RunService(static sp => new ReplicaLogCompactionService(
-            sp.Require<ReplicaGroupCommitters>(),
-            sp.Require<IJournalCoordinator>(),
-            (sp.Require<ReplicaLogCompactionOptions>(), ReplicaLogCompactionPolicy.From(sp.Require<PersistenceOptions>())),
-            sp.Require<ReplicationMetrics>(),
-            (sp.Require<ReplicaGroupAppliers>(), sp.Require<ReplicaGroupRegistry>()),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaLogCompactionService>(),
-            sp.Require<TimeProvider>()));
-        AddReplicaExpirationSweep(services);
-
-        // Network replication is activated here; automatic failover adds the election drivers, which run for groups of three or more.
-        if (cluster.AutomaticFailoverEnabled)
-            AddReplicaElection(services);
-        ReplicaStatusRegistration.Add(services);
-    }
-
     /// <summary>
     /// Registers cluster locator, internode transport, and replication planning services.
     /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
@@ -227,7 +115,7 @@ internal static class ServerHostingComposition
             _ = services.RunService(static sp => new LocalExpirationSweepService(
                 sp.Require<ILocalCacheExpiredKeys>(),
                 sp.Require<TimeProvider>(),
-                sp.Require<ILoggerFactory>().CreateLogger<LocalExpirationSweepService>()));
+                sp.Require<IServerLoggerFactory>().CreateLogger<LocalExpirationSweepService>()));
         }
 
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
@@ -288,95 +176,6 @@ internal static class ServerHostingComposition
         _ = services.AddSquirixFrameworkServices();
         _ = services.Own(sp => new NativeClientService(sp, cluster, FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled, args.ManagementUri, args.ServerCertificate));
         _ = services.RunService(static sp => sp.Require<NativeClientService>());
-    }
-
-    /// <summary>Creates the committer of a group this node leads.</summary>
-    /// <param name="sp">The service provider.</param>
-    /// <param name="fingerprint">The static topology fingerprint.</param>
-    /// <param name="groupId">The led group.</param>
-    /// <param name="election">The election state the committer leads by; <see langword="null" /> for the own group led statically.</param>
-    /// <returns>The committer.</returns>
-    private static ReplicaGroupCommitter CreateCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint, string groupId, ReplicaGroupState? election)
-    {
-        var topology = sp.Require<TopologyOptions>();
-        return new ReplicaGroupCommitter(
-            sp.Require<ReplicaGroupRegistry>(),
-            sp.Require<IReplicaGroupLocator>(),
-            sp.Require<IReplicaRpcGateway>(),
-            sp.Require<OwnerLocalCache>().Value,
-            (groupId, topology.NodeId),
-            new ReplicaTopologyStamp(fingerprint.AsMemory(), topology.ConfigurationGeneration),
-            sp.Require<ILoggerFactory>().CreateLogger<ReplicaGroupCommitter>())
-        {
-            Recovery = sp.Require<IJournalCoordinator>(),
-            Applier = sp.Require<ReplicaGroupAppliers>().For(groupId),
-            Clock = sp.Require<TimeProvider>(),
-
-            // The commit and shutdown budgets run on the system clock, so a host clock that never advances cannot park a commit or a dispose.
-            BudgetTimeProvider = TimeProvider.System,
-            ShutdownTimeProvider = TimeProvider.System,
-            Election = election,
-            Metrics = sp.Require<ReplicationMetrics>(),
-
-            // A led group waits at most one maintenance interval for its followers and its commit gate, so a stalled group holds back no other.
-            CompactionWaitBudget = sp.Require<ReplicaLogCompactionOptions>().Interval,
-        };
-    }
-
-    /// <summary>Creates the committers of the groups this node leads: the group it owns statically, or the groups the election hands it.</summary>
-    /// <param name="sp">The service provider.</param>
-    /// <param name="fingerprint">The static topology fingerprint.</param>
-    /// <returns>The committers, which own the disposal of each committer.</returns>
-    private static ReplicaGroupCommitters CreateReplicaGroupCommitters(IServiceProvider sp, ImmutableArray<byte> fingerprint)
-    {
-        var topology = sp.Require<TopologyOptions>();
-        var owners = sp.Require<INodeLocator>();
-        var clock = sp.Require<TimeProvider>();
-        if (!LeadsByElection(topology))
-        {
-            var led = new ReplicaGroupCommitter[1];
-            led[0] = CreateCommitter(sp, fingerprint, topology.NodeId, null);
-            return new ReplicaGroupCommitters(led, topology.NodeId, owners, clock);
-        }
-
-        var registry = sp.Require<ReplicaGroupRegistry>();
-        return new ReplicaGroupCommitters(
-            groupId => CreateCommitter(sp, fingerprint, groupId, registry.StateFor(groupId)),
-            sp.Require<IGroupLeaderTable>(),
-            topology.NodeId,
-            owners,
-            clock)
-        {
-            // The receiver is resolved when a leadership starts: it depends on the committers through the state sink.
-            BeforeLeading = (groupId, cancellationToken) => sp.Require<ReplicaTransferReceiver>().ReleaseAsync(groupId, cancellationToken),
-        };
-    }
-
-    /// <summary>Creates the registry of the groups this node serves, with the election timing and clock of the host.</summary>
-    /// <param name="sp">The service provider.</param>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="dataDir">Exclusive node data directory.</param>
-    /// <param name="activation">The activated topology fingerprint.</param>
-    /// <returns>The registry; its logs open in <see cref="OpenStorageAsync" />.</returns>
-    private static ReplicaGroupRegistry CreateReplicaGroupRegistry(IServiceProvider sp, TopologyOptions cluster, string dataDir, ReplicaGroupActivation activation)
-    {
-        var peerIds = new string[cluster.Peers.Count];
-        for (var i = 0; i < peerIds.Length; i++)
-            peerIds[i] = cluster.Peers[i].NodeId;
-
-        return new ReplicaGroupRegistry(
-            dataDir,
-            ReplicaGroupMembership.GroupsServedBy(sp.Require<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
-            cluster.ReplicaCount,
-            activation.FingerprintBytes.AsMemory(),
-            cluster.ConfigurationGeneration,
-            sp.Require<ILoggerFactory>(),
-            ReplicaGroupLogOptions(sp))
-        {
-            Election = sp.Find<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
-            ElectionClock = sp.Require<TimeProvider>(),
-            QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
-        };
     }
 
     /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>
@@ -461,7 +260,7 @@ internal static class ServerHostingComposition
     private static DataDirectoryLock AcquireDataDirectoryLock(IServiceProvider sp, string dataDir)
     {
         var directoryLock = DataDirectoryLock.Acquire(dataDir);
-        var logger = sp.Require<ILoggerFactory>().CreateLogger<DataDirectoryLock>();
+        var logger = sp.Require<IServerLoggerFactory>().CreateLogger<DataDirectoryLock>();
 
         // Under the lock and before anything opens the files: data written by an earlier version may be readable by other users.
         DataDirectoryPermissions.Outcome tightened;
@@ -487,11 +286,6 @@ internal static class ServerHostingComposition
         return directoryLock;
     }
 
-    /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <returns><see langword="true" /> when an election driver leads every group; otherwise the owner leads its group statically.</returns>
-    private static bool LeadsByElection(TopologyOptions cluster) => cluster is { AutomaticFailoverEnabled: true, ReplicaCount: >= 3 };
-
     /// <summary>Registers persistence, follower-group storage, and the replica group registry on the service collection.</summary>
     /// <param name="services">Node component registrations.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -513,24 +307,8 @@ internal static class ServerHostingComposition
         _ = services.AddPersistenceServices(persistence, args.WaitForRecovery, args.MetricsEnabled);
 
         if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
-            AddReplicaGroupRegistry(services, cluster, persistence, mtlsOptions);
+            ReplicaGroups.Register(services, cluster, persistence, mtlsOptions);
     }
-
-    /// <summary>Returns the settings of the replica group logs: the idempotency window of the replication policy and the host clock.</summary>
-    /// <param name="sp">The service provider.</param>
-    /// <returns>The follower log settings.</returns>
-    /// <remarks>The policy values are hashed into the topology fingerprint, so every member of a group keeps outcomes for the same window.</remarks>
-    private static FollowerLogOptions ReplicaGroupLogOptions(IServiceProvider sp) => new()
-    {
-        IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
-        IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
-        IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
-        IdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes,
-        TimeProvider = sp.Require<TimeProvider>(),
-
-        // The shutdown budget runs on the system clock, so a host clock that never advances cannot park a dispose.
-        ShutdownTimeProvider = TimeProvider.System,
-    };
 
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
         TopologyOptions cluster,
@@ -560,6 +338,231 @@ internal static class ServerHostingComposition
 
     [Immutable]
     private sealed record ReplicaGroupActivation(ImmutableArray<byte> FingerprintBytes);
+
+    private static class ReplicaGroups
+    {
+        /// <summary>Registers the replica group registry and replication services for an activated node.</summary>
+        /// <param name="services">Node component registrations.</param>
+        /// <param name="cluster">Cluster topology configuration.</param>
+        /// <param name="persistence">Resolved persistence options.</param>
+        /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
+        /// <remarks>
+        /// One group per owner whose replica group includes this node (its own group among them); other groups are not opened.
+        /// The logs open in <see cref="OpenStorageAsync" />, so any replication RPC fails closed until its log is ready.
+        /// </remarks>
+        internal static void Register(NodeServices services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions)
+        {
+            var activation = new ReplicaGroupActivation([.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes]);
+            _ = services.Use(activation);
+
+            _ = services.Own(sp => CreateReplicaGroupRegistry(sp, cluster, persistence.DataDir, activation));
+
+            _ = services.Own<IReplicaMembership>(static sp => new ReplicaMembership(
+                sp.Require<IReplicaGroupLocator>(),
+                sp.Require<ReplicaGroupRegistry>().GroupIds));
+
+            AddReplicaGroupAppliers(services);
+
+            // The cluster locator registered the static leader table; an election-led node replaces it with the table of its election state.
+            if (LeadsByElection(cluster))
+            {
+                _ = services.ReplaceFactory<IGroupLeaderTable>(static sp => new ReplicaLeaderTable(
+                        sp.Require<ReplicaGroupRegistry>(),
+                        sp.Require<TopologyOptions>().NodeId,
+                        sp.Require<IReplicaGroupLocator>()));
+            }
+
+            // Factory registrations let the container own disposal: the registry closes follower-log durability workers
+            // and the committers drain their coordinators on host shutdown.
+            _ = services.Own(static sp => CreateReplicaGroupCommitters(sp, sp.Require<ReplicaGroupActivation>().FingerprintBytes));
+            AddReplicaGroupReadiness(services);
+            ReplicaGroupBootstrapRegistration.Add(services);
+            _ = services.RunService(static sp => new ReplicaApplyService(
+                sp.Require<ReplicaGroupRegistry>(),
+                sp.Require<ReplicaGroupAppliers>(),
+                sp.Require<ReplicaGroupCommitters>(),
+                sp.Require<IJournalCoordinator>(),
+                sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaApplyService>(),
+                sp.Require<TimeProvider>()));
+            _ = services.Use(new ReplicaLogCompactionOptions());
+            _ = services.RunService(static sp => new ReplicaLogCompactionService(
+                sp.Require<ReplicaGroupCommitters>(),
+                sp.Require<IJournalCoordinator>(),
+                (sp.Require<ReplicaLogCompactionOptions>(), ReplicaLogCompactionPolicy.From(sp.Require<PersistenceOptions>())),
+                sp.Require<ReplicationMetrics>(),
+                (sp.Require<ReplicaGroupAppliers>(), sp.Require<ReplicaGroupRegistry>()),
+                sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaLogCompactionService>(),
+                sp.Require<TimeProvider>()));
+            AddReplicaExpirationSweep(services);
+
+            // Network replication is activated here; automatic failover adds the election drivers, which run for groups of three or more.
+            if (cluster.AutomaticFailoverEnabled)
+                AddReplicaElection(services);
+            ReplicaStatusRegistration.Add(services);
+        }
+
+        /// <summary>Registers the election drivers of the served groups, which hand won terms to the committers.</summary>
+        /// <param name="services">Node component registrations.</param>
+        private static void AddReplicaElection(NodeServices services) => _ = services.RunService(static sp =>
+        {
+            var activation = sp.Require<ReplicaGroupActivation>();
+            var topology = sp.Require<TopologyOptions>();
+            return new ReplicaElectionService(
+                sp.Require<ReplicaGroupRegistry>(),
+                sp.Require<IReplicaGroupLocator>(),
+                sp.Require<IReplicaVoteGateway>(),
+                sp.Require<ReplicaGroupCommitters>(),
+                (activation.FingerprintBytes.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
+                sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaElectionService>())
+            {
+                HostStopping = sp.Require<INodeLifetime>().ApplicationStopping,
+            };
+        });
+
+        /// <summary>Registers the sweep that expires the keys of the led groups no read touches, through committed tombstones.</summary>
+        /// <param name="services">Node component registrations.</param>
+        private static void AddReplicaExpirationSweep(NodeServices services) => _ = services.RunService(static sp => new ReplicaExpirationSweepService(
+            sp.Require<ReplicaGroupCommitters>(),
+            sp.Require<ILocalCacheExpiredKeys>(),
+            sp.Require<INodeLocator>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaExpirationSweepService>()));
+
+        /// <summary>Registers the appliers of every served group, which the committers of the led groups and the apply loops of the others drive.</summary>
+        /// <param name="services">Node component registrations.</param>
+        private static void AddReplicaGroupAppliers(NodeServices services) => _ = services.Own(static sp => new ReplicaGroupAppliers(
+            sp.Require<ReplicaGroupRegistry>(),
+            sp.Require<OwnerLocalCache>().Value,
+            sp.Require<TopologyOptions>().NodeId,
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupAppliers>(),
+            sp.Require<ReplicationMetrics>()));
+
+        /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
+        /// <param name="services">Node component registrations.</param>
+        /// <remarks>The readiness service sends the state transfers, so their registrations come with it.</remarks>
+        private static void AddReplicaGroupReadiness(NodeServices services)
+        {
+            ReplicaTransferRegistration.Add(services);
+            _ = services.RunService(static sp => new ReplicaGroupReadinessService(
+                sp.Require<ReplicaGroupCommitters>(),
+                sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupReadinessService>(),
+                sp.Require<TimeProvider>(),
+                sp.Require<ReplicaCatchUpMetrics>(),
+                sp.Require<ReplicaStateTransfers>())
+            {
+                Options = sp.Find<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
+            });
+        }
+
+        /// <summary>Creates the committer of a group this node leads.</summary>
+        /// <param name="sp">The service provider.</param>
+        /// <param name="fingerprint">The static topology fingerprint.</param>
+        /// <param name="groupId">The led group.</param>
+        /// <param name="election">The election state the committer leads by; <see langword="null" /> for the own group led statically.</param>
+        /// <returns>The committer.</returns>
+        private static ReplicaGroupCommitter CreateCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint, string groupId, ReplicaGroupState? election)
+        {
+            var topology = sp.Require<TopologyOptions>();
+            return new ReplicaGroupCommitter(
+                sp.Require<ReplicaGroupRegistry>(),
+                sp.Require<IReplicaGroupLocator>(),
+                sp.Require<IReplicaRpcGateway>(),
+                sp.Require<OwnerLocalCache>().Value,
+                (groupId, topology.NodeId),
+                new ReplicaTopologyStamp(fingerprint.AsMemory(), topology.ConfigurationGeneration),
+                sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupCommitter>())
+            {
+                Recovery = sp.Require<IJournalCoordinator>(),
+                Applier = sp.Require<ReplicaGroupAppliers>().For(groupId),
+                Clock = sp.Require<TimeProvider>(),
+
+                // The commit and shutdown budgets run on the system clock, so a host clock that never advances cannot park a commit or a dispose.
+                BudgetTimeProvider = TimeProvider.System,
+                ShutdownTimeProvider = TimeProvider.System,
+                Election = election,
+                Metrics = sp.Require<ReplicationMetrics>(),
+
+                // A led group waits at most one maintenance interval for its followers and its commit gate, so a stalled group holds back no other.
+                CompactionWaitBudget = sp.Require<ReplicaLogCompactionOptions>().Interval,
+            };
+        }
+
+        /// <summary>Creates the committers of the groups this node leads: the group it owns statically, or the groups the election hands it.</summary>
+        /// <param name="sp">The service provider.</param>
+        /// <param name="fingerprint">The static topology fingerprint.</param>
+        /// <returns>The committers, which own the disposal of each committer.</returns>
+        private static ReplicaGroupCommitters CreateReplicaGroupCommitters(IServiceProvider sp, ImmutableArray<byte> fingerprint)
+        {
+            var topology = sp.Require<TopologyOptions>();
+            var owners = sp.Require<INodeLocator>();
+            var clock = sp.Require<TimeProvider>();
+            if (!LeadsByElection(topology))
+            {
+                var led = new ReplicaGroupCommitter[1];
+                led[0] = CreateCommitter(sp, fingerprint, topology.NodeId, null);
+                return new ReplicaGroupCommitters(led, topology.NodeId, owners, clock);
+            }
+
+            var registry = sp.Require<ReplicaGroupRegistry>();
+            return new ReplicaGroupCommitters(
+                groupId => CreateCommitter(sp, fingerprint, groupId, registry.StateFor(groupId)),
+                sp.Require<IGroupLeaderTable>(),
+                topology.NodeId,
+                owners,
+                clock)
+            {
+                // The receiver is resolved when a leadership starts: it depends on the committers through the state sink.
+                BeforeLeading = (groupId, cancellationToken) => sp.Require<ReplicaTransferReceiver>().ReleaseAsync(groupId, cancellationToken),
+            };
+        }
+
+        /// <summary>Creates the registry of the groups this node serves, with the election timing and clock of the host.</summary>
+        /// <param name="sp">The service provider.</param>
+        /// <param name="cluster">Cluster topology configuration.</param>
+        /// <param name="dataDir">Exclusive node data directory.</param>
+        /// <param name="activation">The activated topology fingerprint.</param>
+        /// <returns>The registry; its logs open in <see cref="OpenStorageAsync" />.</returns>
+        private static ReplicaGroupRegistry CreateReplicaGroupRegistry(IServiceProvider sp, TopologyOptions cluster, string dataDir, ReplicaGroupActivation activation)
+        {
+            var peerIds = new string[cluster.Peers.Count];
+            for (var i = 0; i < peerIds.Length; i++)
+                peerIds[i] = cluster.Peers[i].NodeId;
+
+            return new ReplicaGroupRegistry(
+                dataDir,
+                ReplicaGroupMembership.GroupsServedBy(sp.Require<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
+                cluster.ReplicaCount,
+                activation.FingerprintBytes.AsMemory(),
+                cluster.ConfigurationGeneration,
+                sp.Require<IServerLoggerFactory>(),
+                ReplicaGroupLogOptions(sp))
+            {
+                Election = sp.Find<ElectionTimerOptions>() ?? new ElectionTimerOptions(),
+                ElectionClock = sp.Require<TimeProvider>(),
+                QuorumReads = cluster.QuorumReadsEnabled && LeadsByElection(cluster),
+            };
+        }
+
+        /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
+        /// <param name="cluster">Cluster topology configuration.</param>
+        /// <returns><see langword="true" /> when an election driver leads every group; otherwise the owner leads its group statically.</returns>
+        private static bool LeadsByElection(TopologyOptions cluster) => cluster is { AutomaticFailoverEnabled: true, ReplicaCount: >= 3 };
+
+        /// <summary>Returns the settings of the replica group logs: the idempotency window of the replication policy and the host clock.</summary>
+        /// <param name="sp">The service provider.</param>
+        /// <returns>The follower log settings.</returns>
+        /// <remarks>The policy values are hashed into the topology fingerprint, so every member of a group keeps outcomes for the same window.</remarks>
+        private static FollowerLogOptions ReplicaGroupLogOptions(IServiceProvider sp) => new()
+        {
+            IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
+            IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
+            IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
+            IdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes,
+            TimeProvider = sp.Require<TimeProvider>(),
+
+            // The shutdown budget runs on the system clock, so a host clock that never advances cannot park a dispose.
+            ShutdownTimeProvider = TimeProvider.System,
+        };
+    }
 
     private static class PersistenceOptionsResolver
     {

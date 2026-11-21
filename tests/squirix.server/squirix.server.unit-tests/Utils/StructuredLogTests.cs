@@ -70,16 +70,16 @@ public sealed class StructuredLogTests
         return active;
     }
 
-    private sealed class ErrorSink : ILogger
+    private sealed class ErrorSink : IServerLogger
     {
         internal List<(int Id, Exception? Cause)> Events { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Error;
+        public bool IsEnabled(ServerLogLevel logLevel) => logLevel >= ServerLogLevel.Error;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             Events.Add((eventId.Id, exception));
     }
 }

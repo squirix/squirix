@@ -24,7 +24,7 @@ internal static class JournalCoordinatorFactory
         State manifest,
         Ledger store,
         AsyncManualResetEvent gate,
-        ILoggerFactory loggerFactory,
+        IServerLoggerFactory loggerFactory,
         TimeProvider timeProvider,
         out IReadOnlyList<JournalRepair> repairs)
     {

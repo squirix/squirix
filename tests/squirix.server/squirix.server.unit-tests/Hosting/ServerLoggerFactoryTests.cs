@@ -59,12 +59,12 @@ public sealed class ServerLoggerFactoryTests
         using var settings = new ServerLoggingSettings(Path.Join(directory, "defaults.json"), directory, "Test");
         using var factory = new ServerLoggerFactory(settings, static _ => { });
         var logger = factory.CreateLogger("Squirix.Reload");
-        _ = await Assert.That(logger.IsEnabled(LogLevel.Debug)).IsFalse();
+        _ = await Assert.That(logger.IsEnabled(ServerLogLevel.Debug)).IsFalse();
 
         var reloaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         settings.Changed += (_, _) =>
         {
-            if (logger.IsEnabled(LogLevel.Debug))
+            if (logger.IsEnabled(ServerLogLevel.Debug))
                 _ = reloaded.TrySetResult();
         };
 
@@ -73,6 +73,6 @@ public sealed class ServerLoggerFactoryTests
         File.Move(target, Path.Join(directory, "previous.json"));
         File.Move(replacement, target);
         await reloaded.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(logger.IsEnabled(LogLevel.Debug)).IsTrue();
+        _ = await Assert.That(logger.IsEnabled(ServerLogLevel.Debug)).IsTrue();
     }
 }

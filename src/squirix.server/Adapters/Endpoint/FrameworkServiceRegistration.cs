@@ -26,14 +26,14 @@ internal static class FrameworkServiceRegistration
         _ = services.Own(static sp => new ReadinessMonitor(
             sp.All<ReadinessCheck>(),
             sp,
-            sp.Require<ILoggerFactory>().CreateLogger<ReadinessMonitor>()));
+            sp.Require<IServerLoggerFactory>().CreateLogger<ReadinessMonitor>()));
 
         // One verifier is shared by every inbound consumer so an expiry on an open connection is logged once; it resolves to null (GetService) when mTLS is disabled.
         _ = services.Own(static sp => VerifiedPeerCertificates.CreateIfEnabled(
             sp.Require<TopologyOptions>(),
             sp.Require<MtlsCertificate>(),
             TimeProvider.System,
-            sp.Require<ILoggerFactory>().CreateLogger<VerifiedPeerCertificates>())!);
+            sp.Require<IServerLoggerFactory>().CreateLogger<VerifiedPeerCertificates>())!);
 
         return services;
     }

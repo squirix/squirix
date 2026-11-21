@@ -24,14 +24,14 @@ namespace Squirix.Server.Node.Services;
 /// with it; a restart applies again what memory lacks. While committed entries are pending and such a fault repeats, or a committed
 /// record stopped the group, the group is reported blocked to the election driver, see <see cref="ReplicaApplyBlock" />.
 /// </remarks>
-internal sealed class ReplicaApplyService : NodeWorker
+internal sealed class ReplicaApplyService : NodeWorkerBase
 {
     /// <summary>The longest wait between two passes of a group when no signal arrives.</summary>
     private static readonly TimeSpan FallbackInterval = TimeSpan.FromSeconds(1);
 
     private readonly ReplicaGroupAppliers _appliers;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly ILogger<ReplicaApplyService> _log;
+    private readonly IServerLogger<ReplicaApplyService> _log;
     private readonly IJournalCoordinatorLifecycle _recovery;
     private readonly ReplicaGroupRegistry _registry;
     private readonly TimeProvider _timeProvider;
@@ -48,7 +48,7 @@ internal sealed class ReplicaApplyService : NodeWorker
         ReplicaGroupAppliers appliers,
         ReplicaGroupCommitters committers,
         IJournalCoordinatorLifecycle recovery,
-        ILogger<ReplicaApplyService> log,
+        IServerLogger<ReplicaApplyService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(registry);

@@ -687,7 +687,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
     }
 
     /// <summary>Logger double that counts entries by event id and signals each event id once it is logged.</summary>
-    private sealed class SignalingLogger : ILogger<ReplicaGroupReadinessService>
+    private sealed class SignalingLogger : IServerLogger<ReplicaGroupReadinessService>
     {
         private readonly ConcurrentQueue<int> _events = new();
         private readonly ConcurrentDictionary<int, TaskCompletionSource> _logged = new();
@@ -695,9 +695,9 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             _events.Enqueue(eventId.Id);
             _ = Signal(eventId.Id).TrySetResult();

@@ -6,7 +6,7 @@ namespace Squirix.Server.Logging;
 
 /// <summary>Provides the original field values and template to structured sinks.</summary>
 /// <typeparam name="T">Tuple of event arguments in template order.</typeparam>
-internal readonly struct LogEventState<T> : IReadOnlyList<KeyValuePair<string, object?>>
+internal readonly record struct LogEventState<T> : IReadOnlyList<KeyValuePair<string, object?>>
     where T : struct, ITuple
 {
     private readonly LogEvent _event;

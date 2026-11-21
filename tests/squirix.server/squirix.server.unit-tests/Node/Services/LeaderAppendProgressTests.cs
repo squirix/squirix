@@ -156,7 +156,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
 
         _ = await Assert.That(first).IsEqualTo(1);
         _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(committer.AppendProgress().Refused).IsTrue();
     }
 
@@ -246,7 +246,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     private static Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
         LeadAsync(registry, NullLogger<ReplicaGroupCommitter>.Instance, cancellationToken);
 
-    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, ILogger<ReplicaGroupCommitter> logger, CancellationToken cancellationToken)
+    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, IServerLogger<ReplicaGroupCommitter> logger, CancellationToken cancellationToken)
     {
         if (!registry.TryGetLog("n2", out var log))
             throw new InvalidOperationException("The group log n2 is not open.");

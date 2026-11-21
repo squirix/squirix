@@ -34,7 +34,7 @@ internal sealed class ReplicaGroupApplier
 
     private readonly string _nodeId;
     private readonly ILogicalNamespacedCache<object?> _local;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ReplicationMetrics? _metrics;
     private readonly AppliedIndexSignal _advanced = new();
     private long _reseeds;
@@ -51,7 +51,7 @@ internal sealed class ReplicaGroupApplier
     /// <param name="groupId">Identifier of the replica group, the group label of the metric and the diagnostics.</param>
     /// <param name="nodeId">Identifier of this node, the node label of the metric.</param>
     /// <param name="metrics">Replication metrics counting the inconsistent records; nothing is counted when not set.</param>
-    internal ReplicaGroupApplier(ILogicalNamespacedCache<object?> local, ILogger log, string groupId = "", string nodeId = "", ReplicationMetrics? metrics = null)
+    internal ReplicaGroupApplier(ILogicalNamespacedCache<object?> local, IServerLogger log, string groupId = "", string nodeId = "", ReplicationMetrics? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(log);

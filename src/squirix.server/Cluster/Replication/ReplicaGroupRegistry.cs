@@ -21,8 +21,8 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     private readonly GroupComposition _composition;
     private readonly ulong _generation;
     private readonly string[] _groupIds;
-    private readonly ILogger<ReplicaGroupRegistry> _log;
-    private readonly ILoggerFactory _loggerFactory;
+    private readonly IServerLogger<ReplicaGroupRegistry> _log;
+    private readonly IServerLoggerFactory _loggerFactory;
     private readonly FollowerLogOptions _options;
     private readonly string _root;
     private readonly int _replicaCount;
@@ -47,7 +47,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         int replicaCount,
         ReadOnlyMemory<byte> fingerprint,
         ulong generation,
-        ILoggerFactory loggerFactory,
+        IServerLoggerFactory loggerFactory,
         FollowerLogOptions options)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);

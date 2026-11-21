@@ -89,5 +89,5 @@ public sealed class EventRecordingLoggerTests
     }
 
     private static void Write(EventRecordingLogger logger, int eventId, string message) =>
-        logger.Log(LogLevel.Information, new EventId(eventId), message, null, static (state, _) => state);
+        logger.Log(ServerLogLevel.Information, new ServerLogEventId(eventId), message, null, static (state, _) => state);
 }
