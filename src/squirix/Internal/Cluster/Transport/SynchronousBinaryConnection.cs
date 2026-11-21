@@ -1,0 +1,394 @@
+using System;
+using System.Buffers;
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Google.Protobuf;
+using Squirix.Attributes;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
+
+namespace Squirix.Internal.Cluster.Transport;
+
+/// <summary>Multiplexes blocking callers over a binary TLS connection with one reader and one writer.</summary>
+internal sealed class SynchronousBinaryConnection : IDisposable
+{
+    private readonly TcpClient _socket;
+    private readonly SslStream _tls;
+    private readonly SemaphoreSlim _slots = new(128);
+    private readonly BlockingCollection<Request> _outgoing = new(new ConcurrentQueue<Request>(), 128);
+    private readonly ConcurrentDictionary<int, Pending> _pending = [];
+    private readonly bool _supportsMutationReplay;
+    private readonly Lock _lifetime = new();
+    private int _activeCalls;
+    private int _next;
+    private int _closed;
+    private int _users = 3;
+
+    private SynchronousBinaryConnection(TcpClient socket, SslStream tls, bool supportsMutationReplay)
+    {
+        _socket = socket;
+        _tls = tls;
+        _supportsMutationReplay = supportsMutationReplay;
+    }
+
+    internal bool IsAvailable => Volatile.Read(ref _closed) == 0;
+
+    public void Dispose()
+    {
+        lock (_lifetime)
+        {
+            if (_closed != 0)
+                return;
+
+            Volatile.Write(ref _closed, 1);
+        }
+
+        Close();
+    }
+
+    [SuppressMessage("Usage", "VSTHRD002", Justification = "The blocking adapter waits for asynchronous credentials only during connection setup.")]
+    [SuppressMessage("Usage", "MA0045", Justification = "The blocking adapter waits for connection setup once per physical connection.")]
+    internal static SynchronousBinaryConnection Connect(Uri uri, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, CancellationToken token)
+    {
+        var connecting = SynchronizationContext.Current == null && TaskScheduler.Current == TaskScheduler.Default
+            ? BinaryClientProtocol.ConnectAsync(uri, provider, tlsOptions, token)
+            : Task.Run(() => BinaryClientProtocol.ConnectAsync(uri, provider, tlsOptions, token), token);
+        var (socket, tls, replay) = connecting.GetAwaiter().GetResult();
+        var connection = new SynchronousBinaryConnection(socket, tls, replay);
+        connection.StartWorkers();
+        return connection;
+    }
+
+    internal T Send<T>(BinaryOperation operation, (int Control, IMessage Message, int Size) request, MessageParser<T> parser, DateTimeOffset deadline, CancellationToken token, CancellationToken lifetime)
+        where T : class, IMessage<T>
+    {
+        EnterCall();
+        try
+        {
+            var reply = SendRequest(operation, request, parser, deadline, token, lifetime);
+            return reply as T ?? UnexpectedReply<T>();
+        }
+        finally
+        {
+            LeaveCall(token.IsCancellationRequested);
+        }
+    }
+
+    private static T UnexpectedReply<T>() => throw new InvalidDataException("Unexpected cache response type.");
+
+    private static IMessage ReadResult(in BinaryClientReply reply, bool preventReplay)
+    {
+        if (reply.Response is { } response)
+            return response;
+        if (reply.Failure is not { } failure)
+            throw new IOException("The binary cache connection closed.");
+
+        throw preventReplay && BinaryClientProtocol.IsOutcomeUnconfirmed(failure)
+            ? BinaryClientProtocol.UnknownOutcome(failure)
+            : failure;
+    }
+
+    private static void WriteTimeout(Span<byte> header, int control, DateTimeOffset deadline, DateTimeOffset now)
+    {
+        var remaining = (deadline - now).TotalMilliseconds;
+        var timeout = Convert.ToInt32(Math.Clamp(Math.Ceiling(remaining), 0, RpcAttemptTimeout.PerAttempt.TotalMilliseconds));
+        BinaryPrimitives.WriteInt32BigEndian(header[8..], control | timeout);
+    }
+
+    private void Close()
+    {
+        _outgoing.CompleteAdding();
+        _socket.Dispose();
+        foreach (var item in _pending)
+        {
+            if (_pending.TryRemove(item.Key, out var dropped))
+                dropped.Complete(default);
+        }
+
+        ReleaseUser();
+    }
+
+    [SuppressMessage("Usage", "MA0045", Justification = "The caller reserves a slot on the synchronous transport.")]
+    private IMessage SendRequest(BinaryOperation operation, (int Control, IMessage Message, int Size) request, MessageParser parser, DateTimeOffset deadline, CancellationToken token, CancellationToken lifetime)
+    {
+        _slots.Wait(token);
+        var id = Interlocked.Increment(ref _next) & int.MaxValue;
+        var pending = new Pending(parser);
+        var preventReplay = !_supportsMutationReplay && operation != BinaryOperation.GetDistributed;
+        var queued = false;
+        try
+        {
+            Enqueue(new Request(id, request.Control, request.Size, request.Message, deadline), pending, token);
+            queued = true;
+            return ReadResult(pending.Wait(token), preventReplay);
+        }
+        catch (OperationCanceledException error)
+        {
+            if (queued && preventReplay && !lifetime.IsCancellationRequested)
+                throw BinaryClientProtocol.UnknownOutcome(error);
+            throw;
+        }
+        catch (IOException error) when (queued && preventReplay && !lifetime.IsCancellationRequested)
+        {
+            throw BinaryClientProtocol.UnknownOutcome(error);
+        }
+        finally
+        {
+            _ = _pending.TryRemove(id, out _);
+            _ = _slots.Release();
+        }
+    }
+
+    private void Enqueue(in Request request, Pending pending, CancellationToken token)
+    {
+        if (!_pending.TryAdd(request.Id, pending) || !IsAvailable)
+            throw new IOException("The binary cache connection closed.");
+
+        try
+        {
+            // The queued request occupies capacity until the writer consumes it, even if its caller has left.
+            _outgoing.Add(request, token);
+        }
+        catch (InvalidOperationException error)
+        {
+            throw new IOException("The binary cache connection closed.", error);
+        }
+    }
+
+    private void StartWorkers()
+    {
+        // A connection can outlive the request that opened it.
+        if (ExecutionContext.IsFlowSuppressed())
+        {
+            Start();
+            return;
+        }
+
+        using var flow = ExecutionContext.SuppressFlow();
+        Start();
+
+        void Start()
+        {
+            _ = Task.Factory.StartNew(ReadLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            _ = Task.Factory.StartNew(SendLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        }
+    }
+
+    private void EnterCall()
+    {
+        lock (_lifetime)
+        {
+            if (_closed != 0)
+                throw new IOException("The binary cache connection closed.");
+
+            _activeCalls++;
+            _ = Interlocked.Increment(ref _users);
+        }
+    }
+
+    private void LeaveCall(bool timedOut)
+    {
+        bool retire;
+        lock (_lifetime)
+        {
+            // A caller leaves only after removing its pending reply. Coordinate retirement with new calls.
+            _activeCalls--;
+            retire = timedOut && _closed == 0 && _activeCalls == 0;
+            if (retire)
+                Volatile.Write(ref _closed, 1);
+        }
+
+        if (retire)
+            Close();
+        ReleaseUser();
+    }
+
+    private void ReadLoop()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
+        try
+        {
+            while (IsAvailable)
+            {
+                _tls.ReadExactly(buffer.AsSpan(0, Frames.HeaderBytes));
+                var (id, size, status) = Frames.Read(buffer, Frames.MaxResponseBytes);
+                BinaryClientProtocol.ValidateResponseStatus(status);
+                var body = size <= buffer.Length ? buffer : ArrayPool<byte>.Shared.Rent(size);
+                try
+                {
+                    _tls.ReadExactly(body.AsSpan(0, size));
+                    if (_pending.TryGetValue(id, out var completion))
+                    {
+                        var result = BinaryClientProtocol.ParseReply(completion.Parser, status, body.AsSpan(0, size));
+                        if (_pending.TryRemove(id, out _))
+                            completion.Complete(in result);
+                    }
+                }
+                finally
+                {
+                    if (!ReferenceEquals(body, buffer))
+                        ArrayPool<byte>.Shared.Return(body);
+                }
+            }
+        }
+        catch (Exception error) when (error is IOException or ObjectDisposedException or SocketException or InvalidDataException)
+        {
+            // Closing the transport wakes every pending caller.
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            FinishLoop();
+        }
+    }
+
+    private void SendLoop()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
+        try
+        {
+            Span<BufferedFrame> frames = stackalloc BufferedFrame[Frames.MaxBatch];
+            foreach (var first in _outgoing.GetConsumingEnumerable(CancellationToken.None))
+            {
+                var used = 0;
+                var count = 0;
+                WriteRequest(in first, buffer, frames, ref used, ref count);
+                for (var i = 1; i < Frames.MaxBatch && _outgoing.TryTake(out var next); i++)
+                    WriteRequest(in next, buffer, frames, ref used, ref count);
+
+                FlushBatch(buffer.AsSpan(0, used), frames[..count]);
+            }
+        }
+        catch (Exception error) when (error is IOException or ObjectDisposedException or SocketException)
+        {
+            // Closing the transport wakes every pending caller.
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            FinishLoop();
+        }
+    }
+
+    private void FinishLoop()
+    {
+        Dispose();
+        ReleaseUser();
+    }
+
+    [SuppressMessage("Usage", "MA0045", Justification = "The last blocking transport user owns synchronous cleanup.")]
+    private void ReleaseUser()
+    {
+        if (Interlocked.Decrement(ref _users) != 0)
+            return;
+
+        _tls.Dispose();
+        _slots.Dispose();
+        _outgoing.Dispose();
+    }
+
+    private void WriteRequest(in Request request, byte[] buffer, Span<BufferedFrame> frames, ref int used, ref int count)
+    {
+        var length = Frames.HeaderBytes + request.Size;
+        if (length > buffer.Length - used && used != 0)
+        {
+            FlushBatch(buffer.AsSpan(0, used), frames[..count]);
+            used = 0;
+            count = 0;
+        }
+
+        if (length <= buffer.Length)
+        {
+            Frames.WriteMessage(buffer.AsSpan(used), request.Id, request.Size, request.Control, request.Message);
+            frames[count++] = new BufferedFrame(used, request.Control, request.Deadline);
+            used += length;
+            return;
+        }
+
+        var large = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            Frames.WriteMessage(large, request.Id, request.Size, request.Control, request.Message);
+            WriteTimeout(large, request.Control, request.Deadline, TimeProvider.System.GetUtcNow());
+            _tls.Write(large.AsSpan(0, length));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(large);
+        }
+    }
+
+    private void FlushBatch(Span<byte> bytes, ReadOnlySpan<BufferedFrame> frames)
+    {
+        if (frames.IsEmpty)
+            return;
+
+        // The earlier flush or serialization may have consumed part of the queued requests' budgets.
+        var now = TimeProvider.System.GetUtcNow();
+        foreach (ref readonly var frame in frames)
+            WriteTimeout(bytes[frame.Offset..], frame.Control, frame.Deadline, now);
+
+        _tls.Write(bytes);
+    }
+
+    [Immutable]
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct BufferedFrame(int Offset, int Control, DateTimeOffset Deadline);
+
+    [Immutable]
+    private readonly record struct Request(int Id, int Control, int Size, IMessage Message, DateTimeOffset Deadline);
+
+    private sealed class Pending
+    {
+        private readonly object _gate = new();
+        private BinaryClientReply _result;
+        private bool _completed;
+
+        internal Pending(MessageParser parser)
+        {
+            Parser = parser;
+        }
+
+        internal MessageParser Parser { get; }
+
+        internal void Complete(in BinaryClientReply result)
+        {
+            lock (_gate)
+            {
+                _result = result;
+                _completed = true;
+                Monitor.Pulse(_gate);
+            }
+        }
+
+        [SuppressMessage("Usage", "MA0045", Justification = "The synchronous caller unregisters after releasing the reply monitor.")]
+        internal BinaryClientReply Wait(CancellationToken token)
+        {
+            using var registration = token.UnsafeRegister(static (state, _) => (state as Pending)?.Wake(), this);
+            lock (_gate)
+            {
+                while (!_completed)
+                {
+                    token.ThrowIfCancellationRequested();
+                    _ = Monitor.Wait(_gate);
+                }
+
+                return _result;
+            }
+        }
+
+        private void Wake()
+        {
+            lock (_gate)
+                Monitor.Pulse(_gate);
+        }
+    }
+}

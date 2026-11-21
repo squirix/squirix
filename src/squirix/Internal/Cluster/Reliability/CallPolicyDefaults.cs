@@ -1,4 +1,5 @@
 using System;
+using System.Security.Cryptography;
 using Squirix.Transport.Wire;
 
 namespace Squirix.Internal.Cluster.Reliability;
@@ -23,6 +24,17 @@ internal static class CallPolicyDefaults
     /// <summary>Gets the absolute deadline shared by one client operation across endpoint failover, stale-term reroute and transport retries.</summary>
     /// <remarks>See <see cref="RpcAttemptTimeout.OperationDeadline" />; the server sizes its idempotency window against the same value.</remarks>
     internal static TimeSpan OperationDeadline => RpcAttemptTimeout.OperationDeadline;
+
+    internal static TimeSpan RetryDelay(int attempt) => RetryDelay(attempt, BaseBackoff, MaxBackoff);
+
+    internal static TimeSpan RetryDelay(int attempt, TimeSpan initial, TimeSpan maximum)
+    {
+        var exponent = Math.Min(attempt - 1, 6);
+        var capped = Math.Min(maximum.TotalMilliseconds, initial.TotalMilliseconds * Math.Pow(2, exponent));
+        var jitter = 0.5 + (RandomNumberGenerator.GetInt32(0, 5000) / 10000.0);
+        var floor = Math.Min(50.0, capped);
+        return TimeSpan.FromMilliseconds(Math.Max(capped * jitter, floor));
+    }
 
     internal static CallPolicy Create(string peer, TimeProvider timeProvider) => new(timeProvider, PerAttemptTimeout, RpcAttemptTimeout.MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
 }

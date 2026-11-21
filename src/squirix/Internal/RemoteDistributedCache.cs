@@ -2,9 +2,9 @@ using System;
 using System.Net.Security;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Attributes;
 using Squirix.Core;
+using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 
@@ -39,6 +39,9 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
         return session.OpenDistributedCache(name);
     }
 
+    internal static SynchronousDistributedCache CreateSynchronous(Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, string cacheName, SslClientAuthenticationOptions? tlsOptions) =>
+        new(endpoint, provider, cacheName, tlsOptions);
+
     internal async Task<byte[]?> GetAsync(string key, CancellationToken cancellationToken)
     {
         var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
@@ -59,20 +62,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     /// <returns>A task that completes when the server confirms the Set.</returns>
     internal async Task SetAsync(string key, byte[] ownedValue, long? expiresAtUnixMs, long? ttlTicks, long? slidingTicks, CancellationToken cancellationToken)
     {
-        var request = new SetDistributedAsyncRequest
-        {
-            CacheName = _cacheName,
-            Key = key,
-            OperationId = RpcOperationIdentity.New(),
-            Value = UnsafeByteOperations.UnsafeWrap(ownedValue),
-        };
-        if (expiresAtUnixMs is { } cap)
-            request.ExpiresAtUnixMs = cap;
-        if (ttlTicks is { } ttl)
-            request.TtlTicks = ttl;
-        if (slidingTicks is { } interval)
-            request.SlidingTicks = interval;
-
+        var request = BinaryClientProtocol.CreateSetRequest(_cacheName, key, ownedValue, expiresAtUnixMs, ttlTicks, slidingTicks);
         _ = await _rpc.ExecuteAsync(
             static (client, wire, options) => new ValueTask<SetAsyncResponse>(client.SetDistributedAsync(wire, in options)),
             request,

@@ -1,17 +1,13 @@
 using System;
 using System.Buffers;
-using System.Buffers.Binary;
-using System.Diagnostics;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Squirix.Internal.Cluster.Reliability;
 using Squirix.Transport;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
@@ -132,32 +128,14 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             return response as T ?? ThrowUnexpectedResponse<T>();
         }
 
-        var bodySize = request.CalculateSize();
-        if (bodySize > Frames.MaxRequestBytes)
-            throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.ResourceExhausted, "Binary cache request is too large."));
-
-        var control = Unsafe.BitCast<BinaryOperation, int>(operation) << 16;
-        if (Activity.Current is { IdFormat: ActivityIdFormat.W3C, Id: { Length: <= Frames.MaxTraceParentLength } parent } activity)
-        {
-            var state = activity.TraceStateString;
-            request = new BinaryTracedRequest
-            {
-                TraceParent = parent,
-                TraceState = state is { Length: <= Frames.MaxTraceStateLength } ? state : string.Empty,
-                Payload = request.ToByteString(),
-            };
-            bodySize = request.CalculateSize();
-            if (bodySize > Frames.MaxRequestBytes)
-                throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.ResourceExhausted, "Binary cache request is too large."));
-            control |= Frames.TracedRequest;
-        }
+        var (control, wireRequest, bodySize) = BinaryClientProtocol.PrepareRequest(operation, request);
 
         Connection? connection = null;
         try
         {
             connection = await GetConnectionAsync(options.CancellationToken).ConfigureAwait(false);
             var preventReplay = !connection.SupportsMutationReplay && operation is not (BinaryOperation.GetEntry or BinaryOperation.GetValue or BinaryOperation.GetExpiration or BinaryOperation.GetDistributed);
-            var result = await connection.CallAsync(control, request, bodySize, parser, options, preventReplay).ConfigureAwait(false);
+            var result = await connection.CallAsync(control, wireRequest, bodySize, parser, options, preventReplay).ConfigureAwait(false);
             return result as T ?? ThrowUnexpectedResponse<T>();
         }
         catch (Exception error) when (error is AuthenticationException or ConnectionRejectedException)
@@ -254,23 +232,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         internal static async Task<Connection> ConnectAsync(
             Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, CancellationToken token)
         {
-            var socket = new TcpClient { NoDelay = true };
-            SslStream? tls = null;
-            try
-            {
-                await socket.ConnectAsync(endpoint.IdnHost, endpoint.Port, token).ConfigureAwait(false);
-                tls = new SslStream(socket.GetStream());
-                await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, tlsOptions), token).ConfigureAwait(false);
-                var supportsMutationReplay = await NegotiateAsync(tls, provider, token).ConfigureAwait(false);
-                return new Connection(socket, tls, supportsMutationReplay);
-            }
-            catch
-            {
-                if (tls != null)
-                    await tls.DisposeAsync().ConfigureAwait(false);
-                socket.Dispose();
-                throw;
-            }
+            var (socket, tls, replay) = await BinaryClientProtocol.ConnectAsync(endpoint, provider, tlsOptions, token).ConfigureAwait(false);
+            return new Connection(socket, tls, replay);
         }
 
         internal async ValueTask<IMessage> CallAsync(int control, IMessage request, int bodySize, MessageParser parser, BinaryCallOptions options, bool preventReplay)
@@ -295,7 +258,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
 
             // After a caller cancels, keep the slot until the response is consumed or the connection closes.
-            CallResult result;
+            BinaryClientReply result;
             try
             {
                 result = await pending.Completion.Task.WaitAsync(token).ConfigureAwait(false);
@@ -306,14 +269,14 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 if (!HasLiveCalls())
                     Abort();
                 if (preventReplay)
-                    throw UnknownOutcome();
+                    throw BinaryClientProtocol.UnknownOutcome();
                 throw;
             }
 
             if (result.Response != null)
                 return result.Response;
-            if (preventReplay && IsOutcomeUnconfirmed(result.Failure))
-                throw UnknownOutcome(result.Failure);
+            if (preventReplay && BinaryClientProtocol.IsOutcomeUnconfirmed(result.Failure))
+                throw BinaryClientProtocol.UnknownOutcome(result.Failure);
             if (result.Failure != null)
                 throw result.Failure;
             throw new IOException("The binary cache connection closed.");
@@ -329,49 +292,6 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             _socket.Dispose();
             for (var i = 0; i < _pending.Length; i++)
                 _ = Interlocked.Exchange(ref _pending[i], null)?.Completion.TrySetResult(default);
-        }
-
-        private static bool IsOutcomeUnconfirmed(SquirixTransportException? failure) =>
-            failure == null ||
-            ((failure.StatusCode is CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded or CacheTransportStatusCode.Cancelled or CacheTransportStatusCode.Internal)
-             && !string.Equals(failure.Status.Detail, Frames.OwnerUnreachableDetail, StringComparison.Ordinal));
-
-        private static SquirixTransportException UnknownOutcome(Exception? cause = null) =>
-            new(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownDetail.Value, cause));
-
-        private static SslClientAuthenticationOptions CreateTlsOptions(Uri endpoint, SslClientAuthenticationOptions? tlsOptions)
-        {
-            return new SslClientAuthenticationOptions
-            {
-                TargetHost = endpoint.IdnHost,
-                RemoteCertificateValidationCallback = tlsOptions?.RemoteCertificateValidationCallback,
-                CertificateRevocationCheckMode = tlsOptions?.CertificateRevocationCheckMode ?? System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck,
-            };
-        }
-
-        private static async Task<bool> NegotiateAsync(SslStream tls, Func<CancellationToken, ValueTask<string>>? provider, CancellationToken token)
-        {
-            var preface = ArrayPool<byte>.Shared.Rent(Frames.PrefaceBytes);
-            try
-            {
-                BinaryPrimitives.WriteUInt32BigEndian(preface, Frames.Preface);
-                const byte noCredentials = 0;
-                const byte bearerCredentials = 1;
-                preface[4] = provider == null ? noCredentials : bearerCredentials;
-                await tls.WriteAsync(preface.AsMemory(0, Frames.PrefaceBytes), token).ConfigureAwait(false);
-                await tls.ReadExactlyAsync(preface.AsMemory(0, 1), token).ConfigureAwait(false);
-                if (preface[0] == Frames.Rejected)
-                    throw new ConnectionRejectedException();
-                if (preface[0] is not (Frames.Accepted or Frames.AcceptedWithMutationReplay))
-                    throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, "The endpoint does not speak the Squirix cache protocol."));
-                if (provider != null)
-                    _ = await ConnectionAuthentication.AuthenticateAsync(tls, provider, token).ConfigureAwait(false);
-                return preface[0] == Frames.AcceptedWithMutationReplay;
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(preface);
-            }
         }
 
         private static void WriteRequest(Span<byte> buffer, PendingCall item, DateTime now)
@@ -463,16 +383,15 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 {
                     await _tls.ReadExactlyAsync(header.AsMemory(0, Frames.HeaderBytes), _stopToken).ConfigureAwait(false);
                     var (id, size, status) = Frames.Read(header, Frames.MaxResponseBytes);
-                    if (id >= _pending.Length || Volatile.Read(ref _pending[id]) is not { } pending || status < 0 || status > Unsafe.BitCast<CacheTransportStatusCode, int>(CacheTransportStatusCode.Unauthenticated))
+                    BinaryClientProtocol.ValidateResponseStatus(status);
+                    if (id >= _pending.Length || Volatile.Read(ref _pending[id]) is not { } pending)
                         throw new InvalidDataException("Unexpected binary cache reply.");
 
                     var body = size <= smallBody.Length ? smallBody : ArrayPool<byte>.Shared.Rent(size);
                     try
                     {
                         await _tls.ReadExactlyAsync(body.AsMemory(0, size), _stopToken).ConfigureAwait(false);
-                        var reply = status == 0
-                            ? new CallResult(pending.Parser.ParseFrom(body.AsSpan(0, size)), null)
-                            : new CallResult(null, new SquirixTransportException(new CallStatus(Unsafe.BitCast<int, CacheTransportStatusCode>(status), BinaryCallError.Parser.ParseFrom(body.AsSpan(0, size)).Detail)));
+                        var reply = BinaryClientProtocol.ParseReply(pending.Parser, status, body.AsSpan(0, size));
 
                         if (Interlocked.Exchange(ref _pending[id], null) != null)
                         {
@@ -499,11 +418,9 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
         }
 
-        private readonly record struct CallResult(IMessage? Response, SquirixTransportException? Failure);
-
         private sealed record PendingCall(int Id, int Control, IMessage Request, int BodySize, MessageParser Parser, DateTime Deadline, CancellationToken CancellationToken)
         {
-            internal TaskCompletionSource<CallResult> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            internal TaskCompletionSource<BinaryClientReply> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
     }
 }

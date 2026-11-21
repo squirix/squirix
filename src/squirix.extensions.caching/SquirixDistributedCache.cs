@@ -10,9 +10,10 @@ using Squirix.Internal;
 namespace Squirix.Extensions.Caching;
 
 /// <summary>Stores Microsoft distributed cache entries in a remote Squirix namespace.</summary>
-/// <remarks>The provider owns one lazy client session and keeps no local copies of cache entries.</remarks>
+/// <remarks>The provider opens connections lazily and stores values on the server.</remarks>
 public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IAsyncDisposable
 {
+    private readonly SynchronousDistributedCache? _synchronous;
     private readonly DistributedCacheSession<RemoteDistributedCache> _session;
 
     /// <summary>Initializes a new instance of the <see cref="SquirixDistributedCache"/> class with validated configuration.</summary>
@@ -32,7 +33,7 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     internal SquirixDistributedCache(IOptions<SquirixCacheOptions> optionsAccessor, SslClientAuthenticationOptions? tlsOptions)
     {
         ArgumentNullException.ThrowIfNull(optionsAccessor);
-        _session = CreateSession(optionsAccessor.Value, tlsOptions);
+        (_session, _synchronous) = CreateSessions(optionsAccessor.Value, tlsOptions);
     }
 
     /// <inheritdoc />
@@ -40,11 +41,23 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
 
     /// <inheritdoc />
     /// <exception cref="TimeoutException">The owned client did not finish shutting down within 30 seconds.</exception>
-    public ValueTask DisposeAsync() => _session.DisposeAsync();
+    public ValueTask DisposeAsync()
+    {
+        var disposal = _session.DisposeAsync();
+        _synchronous?.Dispose();
+        return disposal;
+    }
 
     /// <inheritdoc />
     /// <remarks>Each network attempt reads and renews the current entry atomically; retries can observe a newer value or a miss.</remarks>
-    public byte[]? Get(string key) => Block(InvokeSyncAsync(() => GetAsync(key, CancellationToken.None)));
+    public byte[]? Get(string key)
+    {
+        _session.ThrowIfDisposed();
+        RemoteDistributedCache.ValidateKey(key);
+        return _synchronous is { } cache
+            ? cache.Get(key, _session.LifetimeToken)
+            : Block(InvokeSyncAsync(() => GetAsync(key, CancellationToken.None)));
+    }
 
     /// <inheritdoc />
     /// <remarks>Each network attempt reads and renews the current entry atomically; retries can observe a newer value or a miss.</remarks>
@@ -60,7 +73,15 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
 
     /// <inheritdoc />
     /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
-    public void Refresh(string key) => Block(InvokeSyncAsync(() => RefreshAsync(key, CancellationToken.None)));
+    public void Refresh(string key)
+    {
+        _session.ThrowIfDisposed();
+        RemoteDistributedCache.ValidateKey(key);
+        if (_synchronous is { } cache)
+            cache.Refresh(key, _session.LifetimeToken);
+        else
+            Block(InvokeSyncAsync(() => RefreshAsync(key, CancellationToken.None)));
+    }
 
     /// <inheritdoc />
     /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
@@ -76,7 +97,15 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
 
     /// <inheritdoc />
     /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
-    public void Remove(string key) => Block(InvokeSyncAsync(() => RemoveAsync(key, CancellationToken.None)));
+    public void Remove(string key)
+    {
+        _session.ThrowIfDisposed();
+        RemoteDistributedCache.ValidateKey(key);
+        if (_synchronous is { } cache)
+            cache.Remove(key, _session.LifetimeToken);
+        else
+            Block(InvokeSyncAsync(() => RemoveAsync(key, CancellationToken.None)));
+    }
 
     /// <inheritdoc />
     /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
@@ -92,8 +121,22 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
 
     /// <inheritdoc />
     /// <exception cref="CommitOutcomeUnknownException">The operation may have taken effect, but its result could not be confirmed.</exception>
-    public void Set(string key, byte[] value, DistributedCacheEntryOptions options) =>
-        Block(InvokeSyncAsync(() => SetAsync(key, value, options, CancellationToken.None)));
+    public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
+    {
+        _session.ThrowIfDisposed();
+        RemoteDistributedCache.ValidateKey(key);
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(options);
+        if (_synchronous is { } cache)
+        {
+            var (cap, ttl, sliding) = Normalize(options);
+            cache.Set(key, CopyValue(value), cap, ttl, sliding, _session.LifetimeToken);
+        }
+        else
+        {
+            Block(InvokeSyncAsync(() => SetAsync(key, value, options, CancellationToken.None)));
+        }
+    }
 
     /// <inheritdoc />
     /// <remarks>The earlier of the two absolute deadlines wins when both absolute options are set.</remarks>
@@ -128,7 +171,7 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         return owned;
     }
 
-    private static DistributedCacheSession<RemoteDistributedCache> CreateSession(SquirixCacheOptions options, SslClientAuthenticationOptions? tlsOptions)
+    private static (DistributedCacheSession<RemoteDistributedCache> Async, SynchronousDistributedCache? Sync) CreateSessions(SquirixCacheOptions options, SslClientAuthenticationOptions? tlsOptions)
     {
         try
         {
@@ -144,9 +187,11 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
             }
 
             var tokenProvider = options.ClientOptions.BearerTokenProvider;
-            return new DistributedCacheSession<RemoteDistributedCache>(
+            var session = new DistributedCacheSession<RemoteDistributedCache>(
                 token => RemoteDistributedCache.ConnectAsync(endpoints, tokenProvider, name, token, tlsOptions),
                 TimeProvider.System);
+            var synchronous = endpoints.Length == 1 ? RemoteDistributedCache.CreateSynchronous(endpoints[0], tokenProvider, name, tlsOptions) : null;
+            return (session, synchronous);
         }
         catch (ArgumentException ex)
         {
