@@ -3,7 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Transport.Wire.Cache;
 

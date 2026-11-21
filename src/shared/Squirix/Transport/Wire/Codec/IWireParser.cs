@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.Transport.Binary;
+namespace Squirix.Transport.Wire.Codec;
 
 internal interface IWireParser
 {

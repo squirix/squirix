@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 
-namespace Squirix.Transport.Binary;
+namespace Squirix.Transport.Wire.Codec;
 
 /// <summary>Encodes the trace identifier, span identifier and flags of a version-zero W3C traceparent.</summary>
 internal static class WireTraceParent

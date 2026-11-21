@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
 
-namespace Squirix.Transport.Binary;
+namespace Squirix.Transport.Wire.Codec;
 
 internal abstract class WireMessage
 {

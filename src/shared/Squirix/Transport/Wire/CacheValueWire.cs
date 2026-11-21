@@ -2,8 +2,8 @@ using System;
 using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Transport.Wire;
 

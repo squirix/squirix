@@ -11,6 +11,7 @@ using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.IntegrationTests.Support;
 

@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics;
-using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Transport.Wire.Cache;
 

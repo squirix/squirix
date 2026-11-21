@@ -1,6 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Cluster;
 

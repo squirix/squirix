@@ -9,6 +9,7 @@ using System.Text;
 using Squirix.Server.Core;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -66,10 +67,7 @@ internal static class PeerFrames
             metadata & 0x3ff,
             (metadata & DigestFingerprintFlag) != 0,
             (metadata & BinaryTraceParentFlag) != 0);
-        var invalid = request.Body > EntryLimits.MaxReceiveMessageSizeBytes || (metadata >>> 29) != 0 ||
-            (request.TraceParentIsBinary && request.Parent != WireTraceParent.ByteCount) ||
-            (request.FingerprintIsDigest && request.Fingerprint != RingFingerprint.DigestBytes) ||
-            request.Fingerprint > 128 || request.Parent > Frames.MaxTraceParentLength || request.State > Frames.MaxTraceStateLength ||
+        var invalid = request.Body > EntryLimits.MaxReceiveMessageSizeBytes || !HasValidMetadata(in request, metadata) ||
             request.Budget is < -1 or 0 || request.Budget > (uint.MaxValue - 1L) * TimeSpan.TicksPerMillisecond;
         return invalid ? throw new InvalidDataException("Invalid peer frame dimensions or deadline.") : request;
     }
@@ -92,6 +90,12 @@ internal static class PeerFrames
             ? throw new InvalidDataException("Invalid peer response status or length.")
             : (status, size);
     }
+
+    private static bool HasValidMetadata(in Request request, int metadata) =>
+        (metadata >>> 29) == 0 &&
+        request.Fingerprint <= 128 && request.Parent <= Frames.MaxTraceParentLength && request.State <= Frames.MaxTraceStateLength &&
+        (!request.TraceParentIsBinary || request.Parent == WireTraceParent.ByteCount) &&
+        (!request.FingerprintIsDigest || request.Fingerprint == RingFingerprint.DigestBytes);
 
     private static int ReadPackedWord(ReadOnlySpan<byte> header)
     {

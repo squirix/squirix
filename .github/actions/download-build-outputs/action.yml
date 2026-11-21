@@ -84,3 +84,6 @@ runs:
       with:
         name: build-output-ubuntu-latest-${{ inputs.framework }}
         path: .
+        # Use the same REST artifact lookup as the wait step. The runner's internal artifact list can lag behind it.
+        github-token: ${{ inputs.wait-for-build == 'true' && github.token || '' }}
+        run-id: ${{ github.run_id }}

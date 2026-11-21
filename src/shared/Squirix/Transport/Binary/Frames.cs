@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Transport.Binary;
 

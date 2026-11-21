@@ -6,7 +6,7 @@ using System.Text;
 using Squirix.Server.Core;
 using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Utils;
-using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Node.Services;
 

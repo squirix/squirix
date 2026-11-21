@@ -1,6 +1,6 @@
 using System.IO;
 using System.Runtime.CompilerServices;
-using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Transport.Wire.Cache;
 

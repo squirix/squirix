@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Text.Unicode;
 
-namespace Squirix.Transport.Binary;
+namespace Squirix.Transport.Wire.Codec;
 
 internal ref struct WireWriter
 {

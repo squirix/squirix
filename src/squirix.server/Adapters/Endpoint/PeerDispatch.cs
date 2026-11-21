@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
