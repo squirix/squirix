@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures;
+using Squirix.Testing;
 using TUnit.Core;
 
 namespace Squirix.E2ETests.Cache.SingleNode;

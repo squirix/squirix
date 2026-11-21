@@ -1,11 +1,11 @@
 using System;
 using System.Globalization;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Testing;
 using Squirix.Transport.Wire;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;

@@ -656,6 +656,9 @@ dotnet_diagnostic.ZA0110.severity = none # test helpers keep or enumerate their 
 [tests/squirix.server/squirix.server.testkit/**]
 dotnet_diagnostic.MA0182.severity = none # internal testkit members are consumed through InternalsVisibleTo; MA0182 only sees same-assembly usages
 
+[tests/shared/FakeTimeProvider.cs]
+dotnet_diagnostic.ZA0901.severity = none # specialized test clocks derive from this TestKit type in consuming assemblies
+
 [tests/squirix.server/squirix.server.testkit/Hosting/ClusterStartOptions.cs]
 dotnet_diagnostic.ZA0901.severity = none # intentional cross-assembly base for per-project options; deriving types live in dependent test projects
 

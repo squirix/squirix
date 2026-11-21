@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Serialization.Protobuf;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;

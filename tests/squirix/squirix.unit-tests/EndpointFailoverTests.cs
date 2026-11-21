@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal;
+using Squirix.Testing;
 using Squirix.TestKit;
 using Squirix.Transport;
 using TUnit.Assertions;

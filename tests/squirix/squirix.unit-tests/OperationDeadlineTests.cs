@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;

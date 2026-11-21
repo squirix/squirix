@@ -23,6 +23,7 @@
 
     <ItemGroup>
         <Compile Include="..\..\shared\ExportedApiMetadata.cs" Link="Shared\ExportedApiMetadata.cs"/>
+        <Compile Include="..\..\shared\FakeTimeProvider.cs" Link="Shared\FakeTimeProvider.cs"/>
         <Compile Include="..\..\shared\MeasurementSink.cs" Link="Shared\MeasurementSink.cs"/>
         <Compile Include="..\..\shared\PathKit.cs" Link="Shared\PathKit.cs"/>
     </ItemGroup>

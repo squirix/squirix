@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -11,6 +10,7 @@ using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -120,7 +120,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
     [Test]
     public async Task WallStepDoesNotAgeOutcome()
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(Epoch);
         var state = new GroupIdempotencyState(4, Retention, clock);
         Resolve(state);
         clock.Advance(AgeAtCapture);
@@ -143,7 +143,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         leader.Advance(AgeAtCapture);
         var outcomes = source.ExportResolved(out var capturedUtc);
 
-        var follower = new SteppedWallClock();
+        var follower = new WallSteppedClock(Epoch);
         var target = new GroupIdempotencyState(4, Retention, follower);
         target.RestoreFromSnapshot(outcomes, capturedUtc, []);
 
@@ -239,25 +239,5 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-    }
-
-    /// <summary>A fake clock whose wall time can step while its monotonic timestamp moves forward only.</summary>
-    [ThreadSafe]
-    private sealed class SteppedWallClock : FakeTimeProvider
-    {
-        private long _wallOffsetTicks;
-
-        internal SteppedWallClock()
-            : base(Epoch)
-        {
-        }
-
-        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
-
-        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
-        /// <returns>The monotonic timestamp.</returns>
-        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
-
-        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
     }
 }

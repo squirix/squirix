@@ -2,13 +2,13 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -110,7 +110,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task WallStepLeavesPushedBudget()
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock();
         using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
 
         clock.StepWallClock(TimeSpan.FromHours(2));
@@ -126,7 +126,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task BudgetExpiresOnPushClock(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock();
         await using var policy = CreatePolicy(clock, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-clock");
         using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -147,7 +147,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task BudgetFollowsPushClock(CancellationToken cancellationToken)
     {
-        var pushClock = new SteppedWallClock();
+        var pushClock = new WallSteppedClock();
         await using var policy = CreatePolicy(TimeProvider.System, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-push-clock");
         using var scope = ServerRpcDeadlineContext.Push(pushClock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), pushClock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -165,7 +165,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task AttemptTimeoutRunsOnPolicyClock(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock();
         await using var policy = CreatePolicy(clock, new CallPolicyTimeouts(TimeSpan.FromHours(1), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "attempt-clock");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -200,26 +200,6 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         maxConcurrentPerPeer,
         peer,
         timeouts ?? new CallPolicyTimeouts());
-
-    /// <summary>A fake clock whose wall time can step while its monotonic timestamp moves forward only.</summary>
-    [ThreadSafe]
-    private sealed class SteppedWallClock : FakeTimeProvider
-    {
-        private long _wallOffsetTicks;
-
-        internal SteppedWallClock()
-            : base(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero))
-        {
-        }
-
-        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
-
-        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
-        /// <returns>The monotonic timestamp.</returns>
-        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
-
-        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
-    }
 
     private sealed class InvocationCounter
     {

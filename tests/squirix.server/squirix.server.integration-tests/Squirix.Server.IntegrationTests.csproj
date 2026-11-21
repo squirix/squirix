@@ -9,7 +9,6 @@
         <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
         <PackageReference Include="Microsoft.IdentityModel.Tokens"/>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
     </ItemGroup>
 
     <ItemGroup>
