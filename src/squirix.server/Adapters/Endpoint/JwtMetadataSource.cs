@@ -39,9 +39,9 @@ internal sealed class JwtMetadataSource : IJwtMetadataSource
         _discovery = ValidateUri(new Uri(discoveryUrl, UriKind.Absolute));
     }
 
-    public TimeSpan LastKnownGoodLifetime { get; set; } = TimeSpan.FromHours(1);
+    public TimeSpan LastKnownGoodLifetime { get; internal set; } = TimeSpan.FromHours(1);
 
-    public bool UseLastKnownGoodConfiguration { get; set; } = true;
+    public bool UseLastKnownGoodConfiguration { get; internal set; } = true;
 
     internal string MetadataAddress => _discovery.AbsoluteUri;
 
