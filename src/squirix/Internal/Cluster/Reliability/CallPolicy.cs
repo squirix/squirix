@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
@@ -276,22 +275,7 @@ internal sealed class CallPolicy : ICallPolicy
             }
         }
 
-        private TimeSpan BackoffWithJitter(int attempt)
-        {
-            // Exponential backoff with capped growth
-            var pow = Math.Min(attempt - 1, 6);
-            var cappedMs = Math.Min(_maxBackoff.TotalMilliseconds, _baseBackoff.TotalMilliseconds * Math.Pow(2, pow));
-
-            // Use jitter factor in [0.5, 1.0) to avoid near-zero waits
-            var jitterFactor = 0.5 + (RandomNumberGenerator.GetInt32(0, 5000) / 10000.0);
-            var candidateMs = cappedMs * jitterFactor;
-
-            // Enforce a small floor (50ms) per backoff when cap permits, to avoid flaky sub-50ms totals
-            var floorMs = Math.Min(50.0, cappedMs);
-            var finalMs = Math.Max(candidateMs, floorMs);
-
-            return TimeSpan.FromMilliseconds(finalMs);
-        }
+        private TimeSpan BackoffWithJitter(int attempt) => CallPolicyDefaults.RetryDelay(attempt, _baseBackoff, _maxBackoff);
 
         private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
         {

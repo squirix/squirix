@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Distributed;
@@ -17,6 +18,28 @@ public sealed class DistributedCacheProcessTests
     /// <summary>Gets the running server shared by the non-destructive scenarios.</summary>
     [ClassDataSource<DistributedCacheProcessFixture>(Shared = SharedType.PerClass)]
     public required DistributedCacheProcessFixture Fixture { get; init; }
+
+    /// <summary>Verifies the blocking adapter operations share state with the asynchronous adapter over TLS.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(60_000)]
+    public async Task SynchronousOperationsShareServerState(CancellationToken cancellationToken)
+    {
+        await using var provider = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
+        var cache = provider.GetRequiredService<IDistributedCache>();
+        const string key = "blocking-operations";
+        var options = new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(1) };
+
+        var missing = SeedWithSynchronousCalls(cache, key, options);
+        _ = await Assert.That(missing).IsNull();
+        var seeded = await cache.GetAsync(key, cancellationToken);
+        _ = await Assert.That(seeded.AsSpan().SequenceEqual(new byte[] { 12, 34 })).IsTrue();
+
+        await cache.SetAsync(key, [56, 78], options, cancellationToken);
+        var updated = ReadAndRemoveSynchronously(cache, key);
+        _ = await Assert.That(updated.AsSpan().SequenceEqual(new byte[] { 56, 78 })).IsTrue();
+        _ = await Assert.That(await cache.GetAsync(key, cancellationToken)).IsNull();
+    }
 
     /// <summary>A cancelled write leaves an empty stored value distinguishable from a miss.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -133,6 +156,24 @@ public sealed class DistributedCacheProcessTests
         await write;
         var stored = await cache.GetAsync("owned", cancellationToken);
         _ = await Assert.That(stored.AsSpan().SequenceEqual(new byte[] { 0, 255, 128 })).IsTrue();
+    }
+
+    [SuppressMessage("Usage", "MA0045", Justification = "This phase exercises the synchronous adapter methods.")]
+    private static byte[]? SeedWithSynchronousCalls(IDistributedCache cache, string key, DistributedCacheEntryOptions options)
+    {
+        var missing = cache.Get(key);
+        cache.Refresh(key);
+        cache.Set(key, [12, 34], options);
+        return missing;
+    }
+
+    [SuppressMessage("Usage", "MA0045", Justification = "This phase exercises the synchronous adapter methods.")]
+    private static byte[]? ReadAndRemoveSynchronously(IDistributedCache cache, string key)
+    {
+        cache.Refresh(key);
+        var value = cache.Get(key);
+        cache.Remove(key);
+        return value;
     }
 
     private static async Task WaitForL2Async(IDistributedCache cache, string key, bool expectedPresence, CancellationToken cancellationToken)
