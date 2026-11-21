@@ -23,7 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// rest of the pass, so it holds back no other group; the next pass retries it.
 /// Activated hosts only: on other hosts the local clock decides expiry and <see cref="LocalExpirationSweepService" /> sweeps.
 /// </remarks>
-internal sealed class ReplicaExpirationSweepService : NodeWorker
+internal sealed class ReplicaExpirationSweepService : NodeWorkerBase
 {
     /// <summary>The time between two passes.</summary>
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);

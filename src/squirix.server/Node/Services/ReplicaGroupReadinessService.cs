@@ -25,7 +25,7 @@ namespace Squirix.Server.Node.Services;
 /// other. A group the election hands this node gets its loop when its leadership starts, and the loop ends with the leadership. A loop
 /// that faults stops the others, and the service ends with its fault once they have ended. It runs on the host lifetime and stops with it.
 /// </remarks>
-internal sealed class ReplicaGroupReadinessService : NodeWorker
+internal sealed class ReplicaGroupReadinessService : NodeWorkerBase
 {
     private readonly ReplicaCatchUpMetrics? _catchUpMetrics;
     private readonly ReplicaGroupCommitters _committers;

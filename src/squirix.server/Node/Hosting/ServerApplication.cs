@@ -76,7 +76,7 @@ internal sealed class ServerApplication : IAsyncDisposable
             // A start can acquire resources and then throw. Include that service in rollback.
             _started.Add(service);
             await service.StartAsync(startup.Token).ConfigureAwait(false);
-            if (service is NodeWorker worker)
+            if (service is NodeWorkerBase worker)
                 TrackWorker(worker);
         }
 
@@ -125,13 +125,13 @@ internal sealed class ServerApplication : IAsyncDisposable
             throw new AggregateException(failures);
     }
 
-    private void TrackWorker(NodeWorker worker)
+    private void TrackWorker(NodeWorkerBase worker)
     {
         if (worker.ExecuteTask != null)
             _workers.Add(ObserveWorkerAsync(worker, _lifetime.ApplicationStopping));
     }
 
-    private async Task ObserveWorkerAsync(NodeWorker worker, CancellationToken stopping)
+    private async Task ObserveWorkerAsync(NodeWorkerBase worker, CancellationToken stopping)
     {
         try
         {

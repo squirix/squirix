@@ -23,7 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// group's compaction outcome is logged once, not on every pass. A failed step of one group is retried on the next pass without holding back the other groups; a follower
 /// group's failure is logged when it starts or changes, not on every pass. Every pass also sweeps the expired idempotency outcomes of each served group. The service runs on the host lifetime and stops with it.
 /// </remarks>
-internal sealed class ReplicaLogCompactionService : NodeWorker
+internal sealed class ReplicaLogCompactionService : NodeWorkerBase
 {
     private readonly ReplicaGroupAppliers _appliers;
     private readonly ReplicaGroupCommitters _committers;

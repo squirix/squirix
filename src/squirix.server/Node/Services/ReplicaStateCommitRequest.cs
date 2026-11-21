@@ -7,10 +7,10 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>A <see cref="ReplicaCommitRequest" /> that carries the arguments of its write.</summary>
+/// <summary>A <see cref="ReplicaCommitRequestBase" /> that carries the arguments of its write.</summary>
 /// <typeparam name="TState">The arguments of the write.</typeparam>
 [Immutable]
-internal sealed class ReplicaStateCommitRequest<TState> : ReplicaCommitRequest
+internal sealed class ReplicaStateCommitRequest<TState> : ReplicaCommitRequestBase
 {
     private readonly Func<TState, byte[]> _fingerprint;
     private readonly Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> _prepare;

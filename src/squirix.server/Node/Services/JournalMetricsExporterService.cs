@@ -21,7 +21,7 @@ namespace Squirix.Server.Node.Services;
 /// The actual filesystem scan is done on a background interval, and the gauges
 /// simply return the latest cached values to keep scrapes cheap.
 /// </summary>
-internal sealed class JournalMetricsExporterService : NodeWorker
+internal sealed class JournalMetricsExporterService : NodeWorkerBase
 {
     private const string JournalSegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
 

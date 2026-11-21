@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace Squirix.Server.Composition;
 
 /// <summary>Runs one background loop and requests its cancellation when the node stops.</summary>
-internal abstract class NodeWorker : INodeService, IDisposable
+internal abstract class NodeWorkerBase : INodeService, IDisposable
 {
     private CancellationTokenSource? _stopping;
 

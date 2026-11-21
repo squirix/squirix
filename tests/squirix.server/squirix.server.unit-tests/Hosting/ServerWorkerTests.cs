@@ -40,7 +40,7 @@ public sealed class ServerWorkerTests
         _ = await Assert.That(log.Find(3090)?.Cause).IsSameReferenceAs(failure);
     }
 
-    private sealed class FaultingWorker : NodeWorker
+    private sealed class FaultingWorker : NodeWorkerBase
     {
         private readonly Task _release;
         private readonly Exception _failure;

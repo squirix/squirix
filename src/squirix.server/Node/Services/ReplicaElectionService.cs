@@ -22,7 +22,7 @@ namespace Squirix.Server.Node.Services;
 /// drains the requests in flight: a led group stops heartbeating and loses its authority at once, so its followers elect a new leader
 /// while this node finishes those requests (#1092).
 /// </remarks>
-internal sealed class ReplicaElectionService : NodeWorker
+internal sealed class ReplicaElectionService : NodeWorkerBase
 {
     /// <summary>The log of each election event that names only its group and term.</summary>
     private static readonly FrozenDictionary<ElectionEvent, Action<IServerLogger, string, ulong>> TermEventLogs = new Dictionary<ElectionEvent, Action<IServerLogger, string, ulong>>

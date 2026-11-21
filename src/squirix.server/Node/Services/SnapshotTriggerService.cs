@@ -13,7 +13,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-internal sealed class SnapshotTriggerService : NodeWorker, ISnapshotReadinessStatus
+internal sealed class SnapshotTriggerService : NodeWorkerBase, ISnapshotReadinessStatus
 {
     private const int MaxBackoffExponent = 10;
 

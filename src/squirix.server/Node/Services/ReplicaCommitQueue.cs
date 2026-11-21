@@ -16,7 +16,7 @@ namespace Squirix.Server.Node.Services;
 [ThreadSafe]
 internal sealed class ReplicaCommitQueue
 {
-    private readonly LinkedList<ReplicaCommitRequest> _queue = [];
+    private readonly LinkedList<ReplicaCommitRequestBase> _queue = [];
     private readonly Lock _sync = new();
     private bool _combining;
     private long _commitRounds;
@@ -25,7 +25,7 @@ internal sealed class ReplicaCommitQueue
     /// <summary>Adds a request: it leads when no leader exists, otherwise it queues.</summary>
     /// <param name="request">The request.</param>
     /// <returns><see langword="true" /> when the request leads and is not queued.</returns>
-    internal bool Enter(ReplicaCommitRequest request)
+    internal bool Enter(ReplicaCommitRequestBase request)
     {
         lock (_sync)
         {
@@ -60,11 +60,11 @@ internal sealed class ReplicaCommitQueue
     /// <summary>Takes every queued request that is not canceled, for a leader that found the group disposed, and clears the leadership.</summary>
     /// <returns>The taken requests, in arrival order.</returns>
     /// <remarks>A request a leader already took is dropped from the queue without being returned: that leader decides it.</remarks>
-    internal List<ReplicaCommitRequest> TakeAll()
+    internal List<ReplicaCommitRequestBase> TakeAll()
     {
         lock (_sync)
         {
-            var taken = new List<ReplicaCommitRequest>(_queue.Count);
+            var taken = new List<ReplicaCommitRequestBase>(_queue.Count);
             while (_queue.Count > 0)
             {
                 var head = RemoveFirstLocked();
@@ -80,7 +80,7 @@ internal sealed class ReplicaCommitQueue
     /// <summary>Reads the first queued request that is not canceled, dropping the canceled ones before it.</summary>
     /// <returns>The head, or <see langword="null" /> when the queue holds no live request.</returns>
     /// <remarks>The head stays queued until <see cref="RemoveHead" />.</remarks>
-    internal ReplicaCommitRequest? PeekLive()
+    internal ReplicaCommitRequestBase? PeekLive()
     {
         lock (_sync)
         {
@@ -100,7 +100,7 @@ internal sealed class ReplicaCommitQueue
     /// <summary>Removes the head, which the leader took into its batch.</summary>
     /// <param name="expected">The request the leader took.</param>
     /// <remarks>Nothing is removed when the head is another request or the queue is empty: a disposal may have taken the queued requests meanwhile.</remarks>
-    internal void RemoveHead(ReplicaCommitRequest expected)
+    internal void RemoveHead(ReplicaCommitRequestBase expected)
     {
         lock (_sync)
         {
@@ -115,7 +115,7 @@ internal sealed class ReplicaCommitQueue
     /// <see langword="true" /> when the request is still the head and is queued again; <see langword="false" /> when a disposal took it from the queue meanwhile, so the
     /// caller decides it.
     /// </returns>
-    internal bool Restore(ReplicaCommitRequest request)
+    internal bool Restore(ReplicaCommitRequestBase request)
     {
         lock (_sync)
         {
@@ -129,7 +129,7 @@ internal sealed class ReplicaCommitQueue
 
     /// <summary>Unlinks a canceled request without waiting for the current batch.</summary>
     /// <param name="request">The request whose caller finished waiting.</param>
-    internal void RemoveCanceled(ReplicaCommitRequest request)
+    internal void RemoveCanceled(ReplicaCommitRequestBase request)
     {
         lock (_sync)
         {
@@ -154,7 +154,7 @@ internal sealed class ReplicaCommitQueue
     /// <remarks>Written under the commit gate; read cross-thread by diagnostics.</remarks>
     internal (long Rounds, long Entries) ReadRoundTotals() => (Interlocked.Read(ref _commitRounds), Interlocked.Read(ref _committedEntries));
 
-    private ReplicaCommitRequest RemoveFirstLocked()
+    private ReplicaCommitRequestBase RemoveFirstLocked()
     {
         var request = _queue.First!.Value;
         _queue.RemoveFirst();

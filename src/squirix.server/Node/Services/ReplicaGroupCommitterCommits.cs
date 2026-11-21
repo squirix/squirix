@@ -45,7 +45,7 @@ internal static class ReplicaGroupCommitterCommits
         /// The prepare runs on the commit budget, not on <paramref name="cancellationToken" />: a write a leader took into a batch is decided whatever its caller does.
         /// </remarks>
         internal async Task<TResult> CommitAsync<TResult>(
-            ReplicaCommitRequest request,
+            ReplicaCommitRequestBase request,
             Func<ReadOnlyMemory<byte>, TResult> decode,
             CancellationToken cancellationToken)
         {

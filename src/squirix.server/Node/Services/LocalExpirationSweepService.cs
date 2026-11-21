@@ -16,7 +16,7 @@ namespace Squirix.Server.Node.Services;
 /// of the cache, so it costs in proportion to the expired entries, not to the stored ones. The removal is memory-only, like the drop on
 /// read: recovery, snapshots and compaction already treat an expired entry as absent.
 /// </remarks>
-internal sealed class LocalExpirationSweepService : NodeWorker
+internal sealed class LocalExpirationSweepService : NodeWorkerBase
 {
     /// <summary>The time between two passes.</summary>
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);

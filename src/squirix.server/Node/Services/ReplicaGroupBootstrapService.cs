@@ -26,7 +26,7 @@ namespace Squirix.Server.Node.Services;
 /// once the copy is complete or incomplete, and with the host.
 /// </para>
 /// </remarks>
-internal sealed class ReplicaGroupBootstrapService : NodeWorker
+internal sealed class ReplicaGroupBootstrapService : NodeWorkerBase
 {
     /// <summary>The first delay between two iterations.</summary>
     internal static readonly TimeSpan InitialDelay = TimeSpan.FromMilliseconds(250);

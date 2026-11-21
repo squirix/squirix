@@ -258,7 +258,7 @@ public sealed class ReplicaCommitQueueTests : ServerUnitTestBase
         return references;
     }
 
-    private static void CancelAndPromote(ReplicaCommitQueue queue, ReplicaCommitRequest request) => Parallel.Invoke(
+    private static void CancelAndPromote(ReplicaCommitQueue queue, ReplicaCommitRequestBase request) => Parallel.Invoke(
         () =>
         {
             _ = request.TryCancel();
