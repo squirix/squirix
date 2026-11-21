@@ -106,6 +106,8 @@
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/benchmarks/'))">
         <IsSquirixBenchmarkProject>true</IsSquirixBenchmarkProject>
+        <!-- Benchmark hosts use the TestKit runtime without TUnit test generation. -->
+        <SquirixDroppedAnalyzerPackages>$(SquirixDroppedAnalyzerPackages);TUnit.Core;TUnit.Assertions</SquirixDroppedAnalyzerPackages>
     </PropertyGroup>
 
     <!-- Rocks' generated mock docs emit malformed or unresolvable crefs (inherited members,

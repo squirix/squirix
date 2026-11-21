@@ -10,8 +10,8 @@
 
     <ItemGroup>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="TUnit.Assertions" PrivateAssets="all"/>
-        <PackageReference Include="TUnit.Core" PrivateAssets="all"/>
+        <PackageReference Include="TUnit.Assertions" PrivateAssets="compile;contentfiles;analyzers;build;buildMultitargeting;buildTransitive;native"/>
+        <PackageReference Include="TUnit.Core" PrivateAssets="compile;contentfiles;analyzers;build;buildMultitargeting;buildTransitive;native"/>
     </ItemGroup>
 
     <ItemGroup>
