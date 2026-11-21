@@ -102,31 +102,39 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
             for (var i = 0; i < fields.Count; i++)
             {
                 var (name, value) = fields[i];
-                switch (value)
-                {
-                    case null:
-                        json.WriteNull(name);
-                        break;
-                    case bool flag:
-                        json.WriteBoolean(name, flag);
-                        break;
-                    case byte or sbyte or short or ushort or int or uint or long or ulong or decimal:
-                        json.WriteNumber(name, Convert.ToDecimal(value, CultureInfo.InvariantCulture));
-                        break;
-                    case double finite when double.IsFinite(finite):
-                        json.WriteNumber(name, finite);
-                        break;
-                    case float single when float.IsFinite(single):
-                        json.WriteNumber(name, single);
-                        break;
-                    default:
-                        json.WriteString(name, Convert.ToString(value, CultureInfo.InvariantCulture));
-                        break;
-                }
+                WriteProperty(json, name, value);
             }
 
             json.WriteEndObject();
         }
+
+        private static void WriteProperty(Utf8JsonWriter json, string name, object? value)
+        {
+            switch (value)
+            {
+                case null:
+                    json.WriteNull(name);
+                    break;
+                case bool flag:
+                    json.WriteBoolean(name, flag);
+                    break;
+                case double finite when double.IsFinite(finite):
+                    json.WriteNumber(name, finite);
+                    break;
+                case float single when float.IsFinite(single):
+                    json.WriteNumber(name, single);
+                    break;
+                default:
+                    if (IsDecimalNumber(value))
+                        json.WriteNumber(name, Convert.ToDecimal(value, CultureInfo.InvariantCulture));
+                    else
+                        json.WriteString(name, Convert.ToString(value, CultureInfo.InvariantCulture));
+                    break;
+            }
+        }
+
+        private static bool IsDecimalNumber(object value) =>
+            value is byte or sbyte or short or ushort or int or uint or long or ulong or decimal;
 
         private static void WriteScope(object scope, Utf8JsonWriter writer)
         {
