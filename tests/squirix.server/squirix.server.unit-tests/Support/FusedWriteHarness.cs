@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
@@ -25,6 +24,7 @@ using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
+using Squirix.Testing;
 using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.UnitTests.Support;

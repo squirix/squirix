@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -33,7 +32,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     [Test]
     public async Task BackwardWallStepKeepsOpsTrigger(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(DateTimeOffset.UtcNow);
         var metrics = new CountingJournalMetrics();
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var coordinator = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
@@ -52,7 +51,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     [Test]
     public async Task FillTriggerFiresInsideMinGap(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(DateTimeOffset.UtcNow);
         var metrics = new CountingJournalMetrics();
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var coordinator = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
@@ -69,7 +68,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     public async Task FillTriggerIgnoresLatencyThrottle(CancellationToken cancellationToken)
     {
         const string throttled = """{"minGapBetweenSnapshots":"00:01:00","snapshotEveryNOps":10,"latencySloMilliseconds":10}""";
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(DateTimeOffset.UtcNow);
         var metrics = new CountingJournalMetrics();
         metrics.SetLatency(100d);
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -87,7 +86,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     [Test]
     public async Task FillTriggerNeedsNewClosedSegment(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(DateTimeOffset.UtcNow);
         var metrics = new CountingJournalMetrics();
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var coordinator = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
@@ -102,7 +101,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     [Test]
     public async Task FillTriggerWaitsForSnapshotInFlight(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(DateTimeOffset.UtcNow);
         var metrics = new CountingJournalMetrics();
         var gate = new WriterGate();
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -124,7 +123,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     [Test]
     public async Task MinGapElapsesOnServerClock(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(DateTimeOffset.UtcNow);
         var metrics = new CountingJournalMetrics();
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var coordinator = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
@@ -143,7 +142,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     [Test]
     public async Task NoFillTriggerBelowHighWater(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock(DateTimeOffset.UtcNow);
         var metrics = new CountingJournalMetrics();
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var coordinator = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
@@ -199,26 +198,6 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         internal void Append(long ops) => _ = Interlocked.Add(ref _ops, ops);
 
         internal void SetLatency(double milliseconds) => Volatile.Write(ref _latency, milliseconds);
-    }
-
-    /// <summary>A fake clock whose wall time can step backward while its monotonic timestamp keeps moving forward only.</summary>
-    [ThreadSafe]
-    private sealed class SteppedWallClock : FakeTimeProvider
-    {
-        private long _wallOffsetTicks;
-
-        internal SteppedWallClock()
-            : base(DateTimeOffset.UtcNow)
-        {
-        }
-
-        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
-        /// <returns>The monotonic timestamp.</returns>
-        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
-
-        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
-
-        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
     }
 
     /// <summary>Holds the snapshot writer until the test releases it.</summary>

@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
+using Squirix.Testing;
 using Squirix.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;

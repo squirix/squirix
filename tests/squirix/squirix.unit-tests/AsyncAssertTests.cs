@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
-using Microsoft.Extensions.Time.Testing;
+using Squirix.Testing;
 using Squirix.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Exceptions;

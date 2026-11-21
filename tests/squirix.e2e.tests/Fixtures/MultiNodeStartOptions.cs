@@ -1,10 +1,10 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 
 namespace Squirix.E2ETests.Fixtures;
 

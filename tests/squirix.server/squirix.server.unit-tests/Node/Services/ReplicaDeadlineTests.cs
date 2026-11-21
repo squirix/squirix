@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -10,6 +9,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

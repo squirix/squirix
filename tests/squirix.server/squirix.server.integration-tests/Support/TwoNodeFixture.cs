@@ -1,9 +1,9 @@
 using System;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Core.Interfaces;
 
 namespace Squirix.Server.IntegrationTests.Support;

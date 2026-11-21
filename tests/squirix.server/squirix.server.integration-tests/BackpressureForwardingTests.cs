@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;

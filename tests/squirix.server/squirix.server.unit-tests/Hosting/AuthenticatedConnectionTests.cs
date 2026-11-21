@@ -1,9 +1,9 @@
 using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
