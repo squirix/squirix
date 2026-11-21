@@ -26,27 +26,9 @@ internal sealed record SignedConnectionToken(string Issuer, JwtVerificationKey S
             return null;
         try
         {
-            using var header = JsonDocument.Parse(Base64Url.DecodeFromChars(raw.AsSpan(0, first)));
-            var root = header.RootElement;
-            if (!IsUniqueObject(root) || root.TryGetProperty("crit", out _) || root.TryGetProperty("b64", out _))
-                return null;
-            var algorithm = root.GetProperty("alg").GetString();
-            if (algorithm == null)
-                return null;
-            var kid = root.TryGetProperty("kid", out var identifier) ? identifier.GetString() : null;
-            var thumbprint = root.TryGetProperty("x5t", out var thumb) ? thumb.GetString() : null;
-            var key = ResolveKey(options.SigningKey, metadata, kid, thumbprint);
-            var input = GC.AllocateUninitializedArray<byte>(last);
-            _ = Encoding.ASCII.GetBytes(raw.AsSpan(0, last), input);
-            var signature = Base64Url.DecodeFromChars(raw.AsSpan(last + 1));
-            var verifiedKey = key ?? VerifyCandidates(input, signature, algorithm, options, metadata);
-            if (key?.Verify(input, signature, algorithm) == false)
-                verifiedKey = null;
+            var verifiedKey = VerifySignature(raw, first, last, options, metadata, out refresh);
             if (verifiedKey == null)
-            {
-                refresh = true;
                 return null;
-            }
 
             var payload = Base64Url.DecodeFromChars(raw.AsSpan(first + 1, last - first - 1));
             return ValidateClaims(payload, verifiedKey, options, metadata, now, out refresh);
@@ -59,6 +41,38 @@ internal sealed record SignedConnectionToken(string Issuer, JwtVerificationKey S
 
     internal static DateTime Offset(DateTime value, TimeSpan offset) =>
         new(Math.Clamp(value.Ticks + offset.Ticks, DateTime.MinValue.Ticks, DateTime.MaxValue.Ticks), DateTimeKind.Utc);
+
+    private static JwtVerificationKey? VerifySignature(string raw, int first, int last, JwtValidationOptions options, JwtMetadata? metadata, out bool refresh)
+    {
+        refresh = false;
+        var (algorithm, kid, thumbprint) = ReadHeader(raw.AsSpan(0, first));
+        if (algorithm == null)
+            return null;
+
+        var key = ResolveKey(options.SigningKey, metadata, kid, thumbprint);
+        var input = GC.AllocateUninitializedArray<byte>(last);
+        _ = Encoding.ASCII.GetBytes(raw.AsSpan(0, last), input);
+        var signature = Base64Url.DecodeFromChars(raw.AsSpan(last + 1));
+        var verifiedKey = key ?? VerifyCandidates(input, signature, algorithm, options, metadata);
+        if (key?.Verify(input, signature, algorithm) == false)
+            verifiedKey = null;
+        refresh = verifiedKey == null;
+        return verifiedKey;
+    }
+
+    private static (string? Algorithm, string? KeyId, string? Thumbprint) ReadHeader(ReadOnlySpan<char> raw)
+    {
+        using var header = JsonDocument.Parse(Base64Url.DecodeFromChars(raw));
+        var root = header.RootElement;
+        if (!IsUniqueObject(root) || root.TryGetProperty("crit", out _) || root.TryGetProperty("b64", out _))
+            return default;
+        if (root.GetProperty("alg").GetString() is not { } algorithm)
+            return default;
+
+        var kid = root.TryGetProperty("kid", out var identifier) ? identifier.GetString() : null;
+        var thumbprint = root.TryGetProperty("x5t", out var thumb) ? thumb.GetString() : null;
+        return (algorithm, kid, thumbprint);
+    }
 
     private static JwtVerificationKey? ResolveKey(JwtVerificationKey? configured, JwtMetadata? metadata, string? kid, string? thumbprint)
     {
