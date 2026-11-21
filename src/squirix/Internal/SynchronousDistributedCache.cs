@@ -87,6 +87,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
         where T : class, IMessage<T>
     {
         var start = Stopwatch.GetTimestamp();
+        var prepared = BinaryClientProtocol.PrepareRequest(operation, request);
         SquirixTransportException? failure = null;
         for (var attempt = 1; attempt <= RpcAttemptTimeout.MaxAttempts; attempt++)
         {
@@ -98,7 +99,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
             var duration = remaining < RpcAttemptTimeout.PerAttempt ? remaining : RpcAttemptTimeout.PerAttempt;
             try
             {
-                return SendAttempt(operation, request, parser, duration, token);
+                return SendAttempt(operation, prepared, parser, duration, token);
             }
             catch (SquirixTransportException error) when (IsRetryable(error))
             {
@@ -117,7 +118,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
     }
 
     [SuppressMessage("Reliability", "CA2000", Justification = "GetConnection borrows the connection owned and disposed by this cache.")]
-    private T SendAttempt<T>(BinaryOperation operation, IMessage request, MessageParser<T> parser, TimeSpan duration, CancellationToken token)
+    private T SendAttempt<T>(BinaryOperation operation, (int Control, IMessage Message, int Size) request, MessageParser<T> parser, TimeSpan duration, CancellationToken token)
         where T : class, IMessage<T>
     {
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);

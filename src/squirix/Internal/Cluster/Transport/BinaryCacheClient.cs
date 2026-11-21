@@ -383,6 +383,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 {
                     await _tls.ReadExactlyAsync(header.AsMemory(0, Frames.HeaderBytes), _stopToken).ConfigureAwait(false);
                     var (id, size, status) = Frames.Read(header, Frames.MaxResponseBytes);
+                    BinaryClientProtocol.ValidateResponseStatus(status);
                     if (id >= _pending.Length || Volatile.Read(ref _pending[id]) is not { } pending)
                         throw new InvalidDataException("Unexpected binary cache reply.");
 

@@ -93,19 +93,18 @@ internal static class BinaryClientProtocol
     internal static SquirixTransportException UnknownOutcome(Exception? cause = null) =>
         new(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownDetail.Value, cause));
 
+    internal static void ValidateResponseStatus(int status)
+    {
+        if (status < 0 || status > Unsafe.BitCast<CacheTransportStatusCode, int>(CacheTransportStatusCode.Unauthenticated))
+            throw new InvalidDataException("Unexpected binary cache reply status.");
+    }
+
     internal static BinaryClientReply ParseReply(MessageParser parser, int status, ReadOnlySpan<byte> body)
     {
-        ValidateResponseStatus(status);
         return status == 0
             ? new BinaryClientReply(parser.ParseFrom(body), null)
             : new BinaryClientReply(null, new SquirixTransportException(
                 new CallStatus(Unsafe.BitCast<int, CacheTransportStatusCode>(status), BinaryCallError.Parser.ParseFrom(body).Detail)));
-    }
-
-    private static void ValidateResponseStatus(int status)
-    {
-        if (status < 0 || status > Unsafe.BitCast<CacheTransportStatusCode, int>(CacheTransportStatusCode.Unauthenticated))
-            throw new InvalidDataException("Unexpected binary cache reply status.");
     }
 
     private static SslClientAuthenticationOptions CreateTlsOptions(Uri endpoint, SslClientAuthenticationOptions? tlsOptions)
