@@ -20,7 +20,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>Checks cancellation of peer I/O independently of application dispatch.</summary>
+/// <summary>Checks peer I/O independently of application dispatch.</summary>
 public sealed class PeerSessionDeadlineTests
 {
     /// <summary>The sender omits optional tracing fields outside the encoded byte budget.</summary>
@@ -61,6 +61,27 @@ public sealed class PeerSessionDeadlineTests
         _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
     }
 
+    /// <summary>EOF before the next request header ends the session normally.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EndOfStreamBetweenHeadersEndsSession(CancellationToken cancellationToken)
+    {
+        await using var input = new MemoryStream();
+        var hasHeader = await NativePeerEndpoint.TryReadHeaderAsync(input, new byte[PeerFrames.RequestBytes], TimeProvider.System, cancellationToken);
+        _ = await Assert.That(hasHeader).IsFalse();
+    }
+
+    /// <summary>EOF after part of a request header remains a diagnostic failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EndOfStreamDuringHeaderReportsTruncation(CancellationToken cancellationToken)
+    {
+        await using var input = new MemoryStream(new byte[PeerFrames.RequestBytes - 1]);
+        var pending = NativePeerEndpoint.TryReadHeaderAsync(input, new byte[PeerFrames.RequestBytes], TimeProvider.System, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<EndOfStreamException, bool>(pending, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+    }
+
     /// <summary>A peer session waiting for a new frame releases the read when its idle time elapses.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -69,10 +90,10 @@ public sealed class PeerSessionDeadlineTests
         var clock = new FakeTimeProvider();
         var pipe = new Pipe();
         await using var input = pipe.Reader.AsStream();
-        var pending = NativePeerEndpoint.ReadHeaderAsync(input, new byte[PeerFrames.RequestBytes], clock, cancellationToken);
+        var pending = NativePeerEndpoint.TryReadHeaderAsync(input, new byte[PeerFrames.RequestBytes], clock, cancellationToken);
         _ = await Assert.That(pending.IsCompleted).IsFalse();
         clock.Advance(PeerFrames.IdleTimeout);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(pending, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
         await pipe.Writer.CompleteAsync();
     }
 

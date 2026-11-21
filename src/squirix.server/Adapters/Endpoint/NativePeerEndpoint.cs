@@ -37,10 +37,16 @@ internal sealed class NativePeerEndpoint
         _replication = replication;
     }
 
-    internal static async ValueTask ReadHeaderAsync(Stream stream, Memory<byte> header, TimeProvider clock, CancellationToken graceful)
+    internal static async ValueTask<bool> TryReadHeaderAsync(Stream stream, Memory<byte> header, TimeProvider clock, CancellationToken graceful)
     {
         using var idle = new TimedCancellation(PeerFrames.IdleTimeout, clock, graceful);
-        await stream.ReadExactlyAsync(header, idle.Token).ConfigureAwait(false);
+        var read = await stream.ReadAtLeastAsync(header, header.Length, false, idle.Token).ConfigureAwait(false);
+        return read switch
+        {
+            0 => false,
+            _ when read == header.Length => true,
+            _ => throw new EndOfStreamException($"Peer connection ended after {read} of {header.Length} request header bytes."),
+        };
     }
 
     internal static async Task WriteAsync(Stream stream, BinaryResponse reply, TimeProvider clock, CancellationToken abort)
@@ -75,7 +81,9 @@ internal sealed class NativePeerEndpoint
         var header = buffer.Memory[..PeerFrames.RequestBytes];
         while (!graceful.IsCancellationRequested)
         {
-            await ReadHeaderAsync(stream, header, TimeProvider.System, graceful).ConfigureAwait(false);
+            if (!await TryReadHeaderAsync(stream, header, TimeProvider.System, graceful).ConfigureAwait(false))
+                return;
+
             if (!_verifier.TryVerify(certificate, out _))
                 return;
             var frame = PeerFrames.ReadRequest(header.Span);
