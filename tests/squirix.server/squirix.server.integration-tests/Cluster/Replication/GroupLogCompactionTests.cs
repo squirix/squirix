@@ -60,14 +60,12 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await AwaitCompactedAsync(log, Threshold * 2, cancellationToken);
         var status = await log.GetStatusAsync(cancellationToken);
 
-        // The maintenance service keeps compacting until few entries remain, so the log, its file, and the readiness report are read
-        // together as one state: the reads count only when the log did not move in between.
-        var (retention, fileBytes, reported) = await ReadStableStateAsync(owner, log, cancellationToken);
+        // Maintenance may still compact the log, so read the readiness report between matching retention samples.
+        var (retention, reported) = await ReadStableStateAsync(owner, log, cancellationToken);
 
         var logs = await DescribeLogsAsync(cluster, cancellationToken);
         _ = await Assert.That(GroupSnapshotFile.Exists(owner.DataDir, OwnerId)).IsTrue().Because($"Compaction must publish the group snapshot; {logs}.");
         _ = await Assert.That(retention.RetainedEntries <= Threshold * 2).IsTrue().Because("The group log must keep at most twice the threshold.");
-        _ = await Assert.That(fileBytes).IsEqualTo(retention.LogBytes);
         _ = await Assert.That(status.LastLogIndex >= 200).IsTrue().Because("Every overwrite must stay counted in the log index.");
 
         _ = await Assert.That(reported.GetProperty("snapshotIndex").GetUInt64()).IsEqualTo(retention.SnapshotIndex);
@@ -167,10 +165,15 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var operations = await OverwriteAsync(cluster[OwnerId], Followers(cluster), overwrites, cancellationToken);
         var owner = cluster[OwnerId];
         await CompactAsync(owner, cancellationToken);
-        var compacted = await OwnerLog(owner).GetStatusAsync(cancellationToken);
+        var ownerLog = OwnerLog(owner);
+        var compacted = await ownerLog.GetStatusAsync(cancellationToken);
+        var compactedRetention = await ownerLog.GetRetentionAsync(cancellationToken);
+        var fileBytes = new FileInfo(GroupLogFile.ActivePath(owner.DataDir, OwnerId)).Length;
+        _ = await Assert.That(fileBytes).IsEqualTo(compactedRetention.LogBytes);
+
         var ownerKey = owner.FindKeyOwnedBy(CacheName, OwnerId);
         await owner.GetCache<object?>(CacheName).SetEntryAsync(operations[1], CacheName, ownerKey, Entry(2), cancellationToken);
-        _ = await Assert.That((await OwnerLog(owner).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(compacted.LastLogIndex);
+        _ = await Assert.That((await ownerLog.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(compacted.LastLogIndex);
 
         await cluster.StopNodeAsync(OwnerId);
         var restarted = await cluster.StartNodeAsync(OwnerId, Options(scope, false, ManualMaintenanceInterval), cancellationToken);
@@ -464,9 +467,9 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <param name="owner">The group owner.</param>
     /// <param name="log">The owner's group log.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The retention, the log file size, and the reported group, read while the retention did not change.</returns>
+    /// <returns>The retention and the reported group, read while the retention did not change.</returns>
     /// <exception cref="TimeoutException">The log kept changing for the whole bound.</exception>
-    private async Task<(FollowerLogRetention Retention, long FileBytes, JsonElement Reported)> ReadStableStateAsync(
+    private async Task<(FollowerLogRetention Retention, JsonElement Reported)> ReadStableStateAsync(
         ITestNodeHost owner,
         IFollowerLog log,
         CancellationToken cancellationToken)
@@ -476,10 +479,9 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         {
             var before = await log.GetRetentionAsync(cancellationToken);
             var reported = await ReadyDetailsGroupAsync(owner, cancellationToken);
-            var fileBytes = new FileInfo(GroupLogFile.ActivePath(owner.DataDir, OwnerId)).Length;
             var after = await log.GetRetentionAsync(cancellationToken);
             if (before == after)
-                return (after, fileBytes, reported);
+                return (after, reported);
 
             if (Stopwatch.GetElapsedTime(started) >= Bound)
                 throw new TimeoutException($"The owner group log kept changing; last retention {after}.");
