@@ -86,11 +86,8 @@ internal static class ModelHintHistory
             return replaced.AsReadOnly();
         }
 
-        List<ModelHintEmission> added =
-        [
-            .. previous,
-            new(sender, term, successor, -1),
-        ];
+        List<ModelHintEmission> added = [.. previous];
+        added.Add(new ModelHintEmission(sender, term, successor, -1));
         added.Sort(static (a, b) => CompareOrder(in a, in b));
         return added.AsReadOnly();
     }
