@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -41,11 +40,8 @@ internal sealed class JournalReplayKit
     /// <summary>The instant every write clock starts from, far from real time.</summary>
     internal static readonly DateTimeOffset WriteEpoch = new(2000, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
-    private readonly Meter _meter;
-
-    internal JournalReplayKit(string dir, Meter meter, bool groupCommit = false, int journalMaxTotalBytesMb = 0)
+    internal JournalReplayKit(string dir, bool groupCommit = false, int journalMaxTotalBytesMb = 0)
     {
-        _meter = meter;
         Dir = dir;
         Persistence = new PersistenceOptions
         {
@@ -62,6 +58,10 @@ internal sealed class JournalReplayKit
     /// <summary>Gets the data directory.</summary>
     private string Dir { get; }
 
+    /// <summary>Creates a restart clock at <see cref="WriteEpoch" />: a write clock started at a negative offset restarts that much later.</summary>
+    /// <returns>The clock.</returns>
+    internal static FakeTimeProvider CreateRestartClock() => new(WriteEpoch);
+
     /// <summary>Creates a write clock relative to <see cref="WriteEpoch" />, aligned to the whole millisecond the journal stores deadlines at.</summary>
     /// <param name="startOffset">The offset from <see cref="WriteEpoch" />.</param>
     /// <param name="extraTicks">Ticks added after the alignment, to start off the millisecond boundary.</param>
@@ -71,10 +71,6 @@ internal sealed class JournalReplayKit
         var now = WriteEpoch.Add(startOffset);
         return new FakeTimeProvider(now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond) + extraTicks));
     }
-
-    /// <summary>Creates a restart clock at <see cref="WriteEpoch" />: a write clock started at a negative offset restarts that much later.</summary>
-    /// <returns>The clock.</returns>
-    internal static FakeTimeProvider CreateRestartClock() => new(WriteEpoch);
 
     /// <summary>Counts the records in the journal.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

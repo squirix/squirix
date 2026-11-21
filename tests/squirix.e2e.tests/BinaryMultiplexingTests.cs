@@ -57,8 +57,7 @@ public sealed class BinaryMultiplexingTests
         var (firstId, firstKey) = await ReadGetAsync(stream, token);
         _ = await Assert.That(firstKey).IsEqualTo("first");
         await cancelled.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(
-            first, TimeSpan.FromSeconds(10), TimeProvider.System, token);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(first, TimeSpan.FromSeconds(10), TimeProvider.System, token);
 
         var second = cache.GetValueAsync("second", token);
         var (secondId, secondKey) = await ReadGetAsync(stream, token);

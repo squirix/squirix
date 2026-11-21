@@ -29,7 +29,9 @@ public sealed class BinaryTransportSurfaceTests
     public async Task ManagementDoesNotShareCacheListener(CancellationToken cancellationToken)
     {
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(ManagementDoesNotShareCacheListener), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+            nameof(ManagementDoesNotShareCacheListener),
+            timeProvider: TimeProvider.System,
+            cancellationToken: cancellationToken);
         var uri = cluster.GetUri("nodeA");
         var management = cluster.Cluster["nodeA"].ManagementUri;
         _ = await Assert.That(uri.Port).IsNotEqualTo(management.Port);
@@ -59,7 +61,9 @@ public sealed class BinaryTransportSurfaceTests
     public async Task SdkFallsBackFromManagementOrigin(CancellationToken cancellationToken)
     {
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(SdkFallsBackFromManagementOrigin), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+            nameof(SdkFallsBackFromManagementOrigin),
+            timeProvider: TimeProvider.System,
+            cancellationToken: cancellationToken);
         var tlsOptions = LoopbackHttp.CreateTlsOptions();
         var management = cluster.Cluster["nodeA"].ManagementUri;
         var options = new SquirixClientOptions();

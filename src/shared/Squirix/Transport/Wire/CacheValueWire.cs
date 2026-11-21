@@ -17,10 +17,6 @@ internal static class CacheValueWire
         AllowTrailingCommas = false,
     };
 
-    /// <summary>Builds the wire form of a null value.</summary>
-    /// <returns>A value of the null kind.</returns>
-    internal static CacheValue Null() => new() { NullValue = NullValue.NullValue };
-
     /// <summary>Builds an opaque binary wire value with an owned copy of the source.</summary>
     /// <param name="bytes">The source bytes, which the caller may reuse after this method returns.</param>
     /// <returns>A binary value independent of the source buffer, including when the source is empty.</returns>
@@ -44,6 +40,10 @@ internal static class CacheValueWire
     /// <param name="json">The JSON text; the caller never changes it again, because the message shares it.</param>
     /// <returns>A value of the JSON kind over <paramref name="json" />.</returns>
     internal static CacheValue FromJson(ReadOnlyMemory<byte> json) => new() { JsonUtf8 = UnsafeByteOperations.UnsafeWrap(json) };
+
+    /// <summary>Builds the wire form of a null value.</summary>
+    /// <returns>A value of the null kind.</returns>
+    internal static CacheValue Null() => new() { NullValue = NullValue.NullValue };
 
     /// <summary>Writes a scalar wire value as JSON text, so a reader of another type can deserialize it.</summary>
     /// <param name="value">A value of a scalar kind or of the null kind.</param>

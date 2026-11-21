@@ -40,7 +40,20 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-decided-group";
 
-    private JournalReplayKit Kit => new(Dir, _testMeter, true);
+    private JournalReplayKit Kit => new(Dir, true);
+
+    /// <summary>The expiration removal applies the journaled entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PersistAppliesJournaledEntry(CancellationToken cancellationToken)
+    {
+        var memory = await MutateAndReadMemoryAsync(
+            static (cache, ct) => cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct),
+            cancellationToken);
+
+        await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
+        _ = await Assert.That(memory.ExpiresUtc).IsNull();
+    }
 
     /// <summary>A skipped expiration removal releases the same-key guard, so an immediate set of the key succeeds.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -54,19 +67,6 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
 
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
-    }
-
-    /// <summary>The expiration removal applies the journaled entry.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PersistAppliesJournaledEntry(CancellationToken cancellationToken)
-    {
-        var memory = await MutateAndReadMemoryAsync(
-            static (cache, ct) => cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct),
-            cancellationToken);
-
-        await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
-        _ = await Assert.That(memory.ExpiresUtc).IsNull();
     }
 
     /// <summary>A snapshot cut before the tail mutation replays to the state the tail journals.</summary>
@@ -90,6 +90,18 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(persist ? null : start.Add(ExtendedTtl));
     }
 
+    /// <summary>The touch applies the journaled entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TouchAppliesJournaledEntry(CancellationToken cancellationToken)
+    {
+        var memory = await MutateAndReadMemoryAsync(
+            static (cache, ct) => cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct),
+            cancellationToken);
+
+        await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
+    }
+
     /// <summary>A skipped touch releases the same-key guard, so an immediate set of the key succeeds.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -101,18 +113,6 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
 
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
-    }
-
-    /// <summary>The touch applies the journaled entry.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TouchAppliesJournaledEntry(CancellationToken cancellationToken)
-    {
-        var memory = await MutateAndReadMemoryAsync(
-            static (cache, ct) => cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct),
-            cancellationToken);
-
-        await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
     }
 
     /// <summary>The update applies the journaled entry.</summary>

@@ -10,10 +10,10 @@ namespace Squirix.Server.Composition;
 /// <summary>Constructs each registered node singleton once and releases owned components in reverse construction order.</summary>
 internal sealed class NodeProvider : IServiceProvider, IAsyncDisposable
 {
+    private readonly List<object> _disposables = [];
     private readonly Lock _gate = new();
     private readonly FrozenDictionary<Type, List<Entry>> _services;
     private readonly HashSet<object> _tracked = [with(ReferenceEqualityComparer.Instance)];
-    private readonly List<object> _disposables = [];
     private int _disposed;
 
     internal NodeProvider(NodeServices services)
@@ -33,23 +33,6 @@ internal sealed class NodeProvider : IServiceProvider, IAsyncDisposable
         }
 
         _services = servicesByType.ToFrozenDictionary();
-    }
-
-    public object? GetService(Type serviceType)
-    {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (!_services.TryGetValue(serviceType, out var entries))
-            return null;
-
-        var entry = entries[^1];
-        if (entry.Created)
-            return entry.Value;
-
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            return Resolve(entry);
-        }
     }
 
     public async ValueTask DisposeAsync()
@@ -82,6 +65,23 @@ internal sealed class NodeProvider : IServiceProvider, IAsyncDisposable
             ExceptionDispatchInfo.Throw(failures[0]);
         if (failures != null)
             throw new AggregateException(failures);
+    }
+
+    public object? GetService(Type serviceType)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (!_services.TryGetValue(serviceType, out var entries))
+            return null;
+
+        var entry = entries[^1];
+        if (entry.Created)
+            return entry.Value;
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            return Resolve(entry);
+        }
     }
 
     internal T[] All<T>()
@@ -120,10 +120,14 @@ internal sealed class NodeProvider : IServiceProvider, IAsyncDisposable
             Created = registration.Factory == null;
         }
 
+        internal bool Created
+        {
+            get => Volatile.Read(ref field);
+            set => Volatile.Write(ref field, value);
+        }
+
         internal NodeServices.Registration Registration { get; }
 
         internal object? Value { get; set; }
-
-        internal bool Created { get => Volatile.Read(ref field); set => Volatile.Write(ref field, value); }
     }
 }

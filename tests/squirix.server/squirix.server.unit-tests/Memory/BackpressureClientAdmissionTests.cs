@@ -92,6 +92,50 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 
+    /// <summary>Verifies a client at its limit leaves slowdown capacity for another client.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ClientLimitPreservesSlowdownCapacity(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(
+            clock,
+            new AdmissionOptions
+            {
+                MaxInFlight = 2,
+                MaxQueue = 1,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.FromSeconds(1),
+                MaxQueueWait = TimeSpan.FromMinutes(1),
+                PerClientMaxInFlight = 1,
+            });
+        using var held = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
+        using var requests = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+#pragma warning disable CA2025 // Both requests are canceled and awaited in the finally block before disposal.
+        var sameClient = StartAcquireAsync(gate, "rest:client-a", requests.Token);
+        var queueDepthAfterSameClient = gate.QueueDepth;
+        var otherClient = StartAcquireAsync(gate, "rest:client-b", requests.Token);
+#pragma warning restore CA2025
+        var completed = Task.WhenAll(sameClient, otherClient);
+        try
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            var results = await completed;
+            using var sameClientLease = results[0].Lease;
+            using var otherClientLease = results[1].Lease;
+
+            _ = await Assert.That(results[0].Decision.RejectReason).IsEqualTo("client_concurrency_limit");
+            _ = await Assert.That(queueDepthAfterSameClient).IsEqualTo(0);
+            _ = await Assert.That(results[1].Decision.IsAccepted).IsTrue();
+        }
+        finally
+        {
+            await requests.CancelAsync();
+            Task drained = completed;
+            await drained.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
     /// <summary>Verifies a queued request rejected by gate disposal gives its client entry back.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -149,50 +193,6 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
 
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(baseline);
         held.Dispose();
-    }
-
-    /// <summary>Verifies a client at its limit leaves slowdown capacity for another client.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ClientLimitPreservesSlowdownCapacity(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider();
-        using var gate = CreateGate(
-            clock,
-            new AdmissionOptions
-            {
-                MaxInFlight = 2,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.FromSeconds(1),
-                MaxQueueWait = TimeSpan.FromMinutes(1),
-                PerClientMaxInFlight = 1,
-            });
-        using var held = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
-        using var requests = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-#pragma warning disable CA2025 // Both requests are canceled and awaited in the finally block before disposal.
-        var sameClient = StartAcquireAsync(gate, "rest:client-a", requests.Token);
-        var queueDepthAfterSameClient = gate.QueueDepth;
-        var otherClient = StartAcquireAsync(gate, "rest:client-b", requests.Token);
-#pragma warning restore CA2025
-        var completed = Task.WhenAll(sameClient, otherClient);
-        try
-        {
-            clock.Advance(TimeSpan.FromSeconds(1));
-            var results = await completed;
-            using var sameClientLease = results[0].Lease;
-            using var otherClientLease = results[1].Lease;
-
-            _ = await Assert.That(results[0].Decision.RejectReason).IsEqualTo("client_concurrency_limit");
-            _ = await Assert.That(queueDepthAfterSameClient).IsEqualTo(0);
-            _ = await Assert.That(results[1].Decision.IsAccepted).IsTrue();
-        }
-        finally
-        {
-            await requests.CancelAsync();
-            Task drained = completed;
-            await drained.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        }
     }
 
     /// <summary>Verifies parallel requests of one client admit exactly one and reject the rest at the per-client limit.</summary>
@@ -286,14 +286,15 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
     public async Task SlowdownRespectsCapacityTest(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
-        using var gate = CreateGate(clock, new AdmissionOptions
+        var admissionOptions = new AdmissionOptions
         {
             MaxInFlight = 2,
             MaxQueue = 1,
             SlowdownThreshold = 1,
             MaxSlowdownDelay = TimeSpan.FromSeconds(1),
             PerClientMaxInFlight = 1,
-        });
+        };
+        using var gate = CreateGate(clock, admissionOptions);
         using var held = (await gate.AcquireAsync("rest", "get", "holder", cancellationToken)).Lease;
         using var cancellation = new CancellationTokenSource();
         var waits = new Task<(Decision Decision, Lease Lease)>[64];
@@ -331,13 +332,15 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
     [Test]
     public async Task ZeroQueueSkipsSlowdownTest(CancellationToken cancellationToken)
     {
-        using var gate = CreateGate(new FakeTimeProvider(), new AdmissionOptions
-        {
-            MaxInFlight = 2,
-            MaxQueue = 0,
-            SlowdownThreshold = 1,
-            MaxSlowdownDelay = TimeSpan.FromSeconds(1),
-        });
+        using var gate = CreateGate(
+            new FakeTimeProvider(),
+            new AdmissionOptions
+            {
+                MaxInFlight = 2,
+                MaxQueue = 0,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.FromSeconds(1),
+            });
         using var held = (await gate.AcquireAsync("rest", "get", "holder", cancellationToken)).Lease;
         var (decision, lease) = await StartAcquireAsync(gate, "second", cancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
         lease.Dispose();

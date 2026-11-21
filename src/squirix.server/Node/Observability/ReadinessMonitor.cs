@@ -11,14 +11,23 @@ namespace Squirix.Server.Node.Observability;
 internal sealed class ReadinessMonitor
 {
     private readonly ReadinessCheck[] _checks;
-    private readonly IServiceProvider _services;
     private readonly IServerLogger<ReadinessMonitor> _logger;
+    private readonly IServiceProvider _services;
 
     internal ReadinessMonitor(IEnumerable<ReadinessCheck> checks, IServiceProvider services, IServerLogger<ReadinessMonitor> logger)
     {
         _checks = [.. checks];
         _services = services;
         _logger = logger;
+    }
+
+    internal Task<(string Name, ReadinessResult Result)[]> CheckAsync(CancellationToken cancellationToken)
+    {
+        var tasks = new Task<(string Name, ReadinessResult Result)>[_checks.Length];
+        for (var i = 0; i < _checks.Length; i++)
+            tasks[i] = RunAsync(_checks[i], cancellationToken);
+
+        return Task.WhenAll(tasks);
     }
 
     internal async Task<ReadinessStatus> GetStatusAsync(CancellationToken cancellationToken)
@@ -32,15 +41,6 @@ internal sealed class ReadinessMonitor
         }
 
         return status;
-    }
-
-    internal Task<(string Name, ReadinessResult Result)[]> CheckAsync(CancellationToken cancellationToken)
-    {
-        var tasks = new Task<(string Name, ReadinessResult Result)>[_checks.Length];
-        for (var i = 0; i < _checks.Length; i++)
-            tasks[i] = RunAsync(_checks[i], cancellationToken);
-
-        return Task.WhenAll(tasks);
     }
 
     private static void LogCheckFailed(IServerLogger logger, string checkName, Exception exception)
@@ -82,8 +82,8 @@ internal sealed class ReadinessMonitor
 
     private static class Events
     {
-        internal static readonly LogEvent LogCheckFailedEvent = new(3038, nameof(ReadinessMonitor.LogCheckFailed), "Readiness check {CheckName} threw an exception");
+        internal static readonly LogEvent LogCheckFailedEvent = new(3038, nameof(LogCheckFailed), "Readiness check {CheckName} threw an exception");
 
-        internal static readonly LogEvent LogNotReadyEvent = new(3039, nameof(ReadinessMonitor.LogNotReady), "Readiness check {CheckName} reported {Status}: {Description}");
+        internal static readonly LogEvent LogNotReadyEvent = new(3039, nameof(LogNotReady), "Readiness check {CheckName} reported {Status}: {Description}");
     }
 }

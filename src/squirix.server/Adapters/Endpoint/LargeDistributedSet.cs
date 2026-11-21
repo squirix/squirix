@@ -7,8 +7,8 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Locates the borrowed value of a canonical, large distributed write.</summary>
 internal static class LargeDistributedSet
 {
-    private const int Threshold = 64 * 1024;
     private const int MaxMetadata = 4096;
+    private const int Threshold = 64 * 1024;
 
     internal static bool TryParse(ReadOnlyMemory<byte> body, [NotNullWhen(true)] out SetDistributedAsyncRequest? metadata, out ReadOnlyMemory<byte> value)
     {
@@ -54,18 +54,6 @@ internal static class LargeDistributedSet
         return true;
     }
 
-    private static bool TrySkipSuffixField(ref ReadOnlySpan<byte> rest, byte tag)
-    {
-        if (tag == 50)
-            return TryDelimited(ref rest, tag, out _);
-
-        if (tag is not (32 or 40 or 56))
-            return false;
-
-        rest = rest[1..];
-        return TryVarint(ref rest, out _);
-    }
-
     private static bool TryDelimited(ref ReadOnlySpan<byte> rest, byte tag, out int length)
     {
         length = 0;
@@ -81,6 +69,18 @@ internal static class LargeDistributedSet
         return true;
     }
 
+    private static bool TrySkipSuffixField(ref ReadOnlySpan<byte> rest, byte tag)
+    {
+        if (tag == 50)
+            return TryDelimited(ref rest, tag, out _);
+
+        if (tag is not (32 or 40 or 56))
+            return false;
+
+        rest = rest[1..];
+        return TryVarint(ref rest, out _);
+    }
+
     private static bool TryVarint(ref ReadOnlySpan<byte> rest, out ulong value)
     {
         value = 0;
@@ -91,11 +91,10 @@ internal static class LargeDistributedSet
             if (i == 9 && next > 1)
                 return false;
             value |= ulong.CreateChecked(next & 127) << (i * 7);
-            if (next < 128)
-            {
-                rest = rest[(i + 1)..];
-                return true;
-            }
+            if (next >= 128)
+                continue;
+            rest = rest[(i + 1)..];
+            return true;
         }
 
         return false;

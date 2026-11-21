@@ -82,26 +82,6 @@ public sealed class SignedConnectionTokenTests
         _ = await Assert.That(result.SigningKey).IsSameReferenceAs(verificationKey);
     }
 
-    /// <summary>Selection respects a matching key identifier and permits fallback for an unrecognized identifier.</summary>
-    /// <param name="designated">Whether an available key matches the token header.</param>
-    /// <param name="thumbprint">Whether the token identifies its key with x5t.</param>
-    [Test]
-    [Arguments(false, false)]
-    [Arguments(true, false)]
-    [Arguments(false, true)]
-    [Arguments(true, true)]
-    public async Task SelectsDesignatedKeyBeforeFallback(bool designated, bool thumbprint)
-    {
-        var secret = RandomNumberGenerator.GetBytes(32);
-        var signing = new SymmetricSecurityKey(secret) { KeyId = "a" };
-        var metadata = new JwtMetadata { Issuer = "issuer" };
-        metadata.SigningKeys.Add(new JwtVerificationKey(RandomNumberGenerator.GetBytes(32)) { KeyId = designated ? "a" : "c" });
-        metadata.SigningKeys.Add(new JwtVerificationKey(secret) { KeyId = "b" });
-        var options = new JwtValidationOptions { Audience = "cache" };
-        var result = SignedConnectionToken.Verify(WriteToken(signing, "HS256", thumbprint), options, metadata, DateTime.UnixEpoch, out _);
-        _ = await Assert.That(result != null).IsEqualTo(!designated);
-    }
-
     /// <summary>A certificate can narrow both ends of the accepted JWT lifetime.</summary>
     [Test]
     public async Task CertificateCapsTokenLifetime()
@@ -124,6 +104,26 @@ public sealed class SignedConnectionTokenTests
         _ = await Assert.That(SignedConnectionToken.Verify(token, options, metadata, result.Expires, out _)).IsNull();
     }
 
+    /// <summary>Selection respects a matching key identifier and permits fallback for an unrecognized identifier.</summary>
+    /// <param name="designated">Whether an available key matches the token header.</param>
+    /// <param name="thumbprint">Whether the token identifies its key with x5t.</param>
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task SelectsDesignatedKeyBeforeFallback(bool designated, bool thumbprint)
+    {
+        var secret = RandomNumberGenerator.GetBytes(32);
+        var signing = new SymmetricSecurityKey(secret) { KeyId = "a" };
+        var metadata = new JwtMetadata { Issuer = "issuer" };
+        metadata.SigningKeys.Add(new JwtVerificationKey(RandomNumberGenerator.GetBytes(32)) { KeyId = designated ? "a" : "c" });
+        metadata.SigningKeys.Add(new JwtVerificationKey(secret) { KeyId = "b" });
+        var options = new JwtValidationOptions { Audience = "cache" };
+        var result = SignedConnectionToken.Verify(WriteToken(signing, "HS256", thumbprint), options, metadata, DateTime.UnixEpoch, out _);
+        _ = await Assert.That(result != null).IsEqualTo(!designated);
+    }
+
     private static async Task CheckInvalidSignaturesAsync(string token, JwtValidationOptions options, JwtMetadata metadata)
     {
         var start = token.AsSpan().LastIndexOf('.') + 1;
@@ -138,14 +138,12 @@ public sealed class SignedConnectionTokenTests
     private static string WriteToken(SecurityKey key, string algorithm, bool thumbprint = false)
     {
         var credentials = new SigningCredentials(key, algorithm);
-        Claim[] claims = [new Claim("sub", "subject"), new Claim("roles", "operator"), new Claim("Tenant", "first")];
+        Claim[] claims = [new("sub", "subject"), new("roles", "operator"), new("Tenant", "first")];
         var signed = new JwtSecurityToken("issuer", "cache", claims, DateTime.UnixEpoch.AddSeconds(-10), DateTime.UnixEpoch.AddSeconds(60), credentials);
-        if (thumbprint)
-        {
-            _ = signed.Header.Remove("kid");
-            signed.Header.Add("x5t", key.KeyId);
-        }
-
+        if (!thumbprint)
+            return new JwtSecurityTokenHandler().WriteToken(signed);
+        _ = signed.Header.Remove("kid");
+        signed.Header.Add("x5t", key.KeyId);
         return new JwtSecurityTokenHandler().WriteToken(signed);
     }
 }

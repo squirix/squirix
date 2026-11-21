@@ -10,12 +10,42 @@ namespace Squirix.Server.TestKit.Replication;
 /// <summary>Reads and hand-writes the slot files of a replica group snapshot, so tests do not depend on their byte layout.</summary>
 internal static class GroupSnapshotFile
 {
+    /// <summary>Copies the slot files of one group to the directory of another, as a restored backup would.</summary>
+    /// <param name="sourceRoot">The persistence data directory to copy from.</param>
+    /// <param name="sourceGroupId">The replica group identifier to copy from.</param>
+    /// <param name="targetRoot">The persistence data directory to copy to.</param>
+    /// <param name="targetGroupId">The replica group identifier to copy to.</param>
+    internal static void Copy(string sourceRoot, string sourceGroupId, string targetRoot, string targetGroupId)
+    {
+        var target = GroupStoragePaths.GetGroupDirectory(targetRoot, targetGroupId);
+        _ = Directory.CreateDirectory(target);
+        using var pointers = File.OpenHandle(PointerPath(targetRoot, targetGroupId), FileMode.Create, FileAccess.Write);
+        Span<byte> slot = stackalloc byte[GroupSnapshotPointers.SlotSize];
+        foreach (var pointer in GroupSnapshotPointers.Read(PointerPath(sourceRoot, sourceGroupId)))
+        {
+            if (pointer.Sequence == 0UL)
+                continue;
+
+            // An imported snapshot does not share the source WAL's local offsets.
+            GroupSnapshotPointers.Encode(slot, pointer.Sequence, pointer.Generation);
+            RandomAccess.Write(pointers, slot, pointer.Slot * GroupSnapshotPointers.SlotSize);
+            if (pointer.Generation == Guid.Empty)
+                continue;
+
+            var name = $"group.checkpoint-{pointer.Generation:N}.snapshot";
+            File.Copy(Path.Join(GroupStoragePaths.GetGroupDirectory(sourceRoot, sourceGroupId), name), Path.Join(target, name), true);
+        }
+    }
+
     /// <summary>Tells whether a snapshot slot file exists for a group.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
     /// <returns><see langword="true" /> when either slot file exists.</returns>
     internal static bool Exists(string persistenceRoot, string groupId) =>
         File.Exists(PointerPath(persistenceRoot, groupId));
+
+    internal static string PointerPath(string root, string groupId) =>
+        Path.Join(GroupStoragePaths.GetGroupDirectory(root, groupId), "group.snapshot.meta");
 
     /// <summary>Reads the published snapshot image of the slot the store selects, without the slot frame.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
@@ -41,6 +71,34 @@ internal static class GroupSnapshotFile
     internal static Task<byte[]?> ReadSlotBytesAsync(string persistenceRoot, string groupId, int slot, CancellationToken cancellationToken) =>
         ReadBytesAsync(SlotPath(persistenceRoot, groupId, slot), cancellationToken);
 
+    internal static string SlotPath(string root, string groupId, int slot)
+    {
+        foreach (var pointer in GroupSnapshotPointers.Read(PointerPath(root, groupId)))
+        {
+            if (pointer.Sequence != 0UL && pointer.Slot == slot)
+                return Path.Join(GroupStoragePaths.GetGroupDirectory(root, groupId), $"group.checkpoint-{pointer.Generation:N}.snapshot");
+        }
+
+        throw new FileNotFoundException("The snapshot pointer slot has not been published.");
+    }
+
+    /// <summary>Cuts a slot file short, as a torn write does.</summary>
+    /// <param name="persistenceRoot">The persistence data directory.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <param name="slot">The slot index, 0 or 1.</param>
+    /// <param name="length">The length to keep in bytes.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the file is cut.</returns>
+    internal static Task TearAsync(string persistenceRoot, string groupId, int slot, int length, CancellationToken cancellationToken)
+    {
+        var path = SlotPath(persistenceRoot, groupId, slot);
+        cancellationToken.ThrowIfCancellationRequested();
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        RandomAccess.SetLength(handle, Math.Min(length, RandomAccess.GetLength(handle)));
+        return Task.CompletedTask;
+    }
+
     /// <summary>Writes a snapshot image into freshly sealed slot files, replacing whatever the slots held.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
@@ -59,68 +117,10 @@ internal static class GroupSnapshotFile
             await File.WriteAllBytesAsync(Path.Join(directory, $"group.checkpoint-{generation:N}.snapshot"), image.ToArray(), cancellationToken).ConfigureAwait(false);
             var bytes = new byte[GroupSnapshotPointers.SlotSize];
             GroupSnapshotPointers.Encode(bytes, ulong.CreateChecked(slot + 1), generation);
-            using var handle = File.OpenHandle(PointerPath(persistenceRoot, groupId), FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
+            using var handle = File.OpenHandle(PointerPath(persistenceRoot, groupId), FileMode.OpenOrCreate, FileAccess.Write);
             await RandomAccess.WriteAsync(handle, bytes, slot * GroupSnapshotPointers.SlotSize, cancellationToken).ConfigureAwait(false);
             RandomAccess.FlushToDisk(handle);
         }
-    }
-
-    /// <summary>Cuts a slot file short, as a torn write does.</summary>
-    /// <param name="persistenceRoot">The persistence data directory.</param>
-    /// <param name="groupId">The replica group identifier.</param>
-    /// <param name="slot">The slot index, 0 or 1.</param>
-    /// <param name="length">The length to keep in bytes.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the file is cut.</returns>
-    internal static Task TearAsync(string persistenceRoot, string groupId, int slot, int length, CancellationToken cancellationToken)
-    {
-        var path = SlotPath(persistenceRoot, groupId, slot);
-        cancellationToken.ThrowIfCancellationRequested();
-        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.Read);
-        ArgumentOutOfRangeException.ThrowIfNegative(length);
-        RandomAccess.SetLength(handle, Math.Min(length, RandomAccess.GetLength(handle)));
-        return Task.CompletedTask;
-    }
-
-    /// <summary>Copies the slot files of one group to the directory of another, as a restored backup would.</summary>
-    /// <param name="sourceRoot">The persistence data directory to copy from.</param>
-    /// <param name="sourceGroupId">The replica group identifier to copy from.</param>
-    /// <param name="targetRoot">The persistence data directory to copy to.</param>
-    /// <param name="targetGroupId">The replica group identifier to copy to.</param>
-    internal static void Copy(string sourceRoot, string sourceGroupId, string targetRoot, string targetGroupId)
-    {
-        var target = GroupStoragePaths.GetGroupDirectory(targetRoot, targetGroupId);
-        _ = Directory.CreateDirectory(target);
-        using var pointers = File.OpenHandle(PointerPath(targetRoot, targetGroupId), FileMode.Create, FileAccess.Write, FileShare.Read);
-        Span<byte> slot = stackalloc byte[GroupSnapshotPointers.SlotSize];
-        foreach (var pointer in GroupSnapshotPointers.Read(PointerPath(sourceRoot, sourceGroupId)))
-        {
-            if (pointer.Sequence == 0UL)
-                continue;
-
-            // An imported snapshot does not share the source WAL's local offsets.
-            GroupSnapshotPointers.Encode(slot, pointer.Sequence, pointer.Generation);
-            RandomAccess.Write(pointers, slot, pointer.Slot * GroupSnapshotPointers.SlotSize);
-            if (pointer.Generation == Guid.Empty)
-                continue;
-
-            var name = $"group.checkpoint-{pointer.Generation:N}.snapshot";
-            File.Copy(Path.Join(GroupStoragePaths.GetGroupDirectory(sourceRoot, sourceGroupId), name), Path.Join(target, name), true);
-        }
-    }
-
-    internal static string PointerPath(string root, string groupId) =>
-        Path.Join(GroupStoragePaths.GetGroupDirectory(root, groupId), "group.snapshot.meta");
-
-    internal static string SlotPath(string root, string groupId, int slot)
-    {
-        foreach (var pointer in GroupSnapshotPointers.Read(PointerPath(root, groupId)))
-        {
-            if (pointer.Sequence != 0UL && pointer.Slot == slot)
-                return Path.Join(GroupStoragePaths.GetGroupDirectory(root, groupId), $"group.checkpoint-{pointer.Generation:N}.snapshot");
-        }
-
-        throw new FileNotFoundException("The snapshot pointer slot has not been published.");
     }
 
     private static async Task<byte[]?> ReadBytesAsync(string path, CancellationToken cancellationToken)

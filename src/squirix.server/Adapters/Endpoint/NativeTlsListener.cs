@@ -14,11 +14,11 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Accepts bounded TLS sessions and waits for admitted work before releasing the listener.</summary>
 internal sealed class NativeTlsListener
 {
-    private readonly Socket _listener;
-    private readonly Func<EndPoint, SslServerAuthenticationOptions> _tls;
-    private readonly Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> _serve;
-    private readonly IServerLogger _log;
     private readonly int _capacity;
+    private readonly Socket _listener;
+    private readonly IServerLogger _log;
+    private readonly Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> _serve;
+    private readonly Func<EndPoint, SslServerAuthenticationOptions> _tls;
 
     internal NativeTlsListener(
         Socket listener,
@@ -142,8 +142,8 @@ internal sealed class NativeTlsListener
 
     private static class Events
     {
-        internal static readonly LogEvent LogConnectionFailureEvent = new(3033, nameof(NativeTlsListener.LogConnectionFailure), "TLS connection ended before completing its session");
+        internal static readonly LogEvent LogConnectionFailureEvent = new(3033, nameof(LogConnectionFailure), "TLS connection ended before completing its session");
 
-        internal static readonly LogEvent LogSessionFailureEvent = new(3034, nameof(NativeTlsListener.LogSessionFailure), "TLS session handler failed");
+        internal static readonly LogEvent LogSessionFailureEvent = new(3034, nameof(LogSessionFailure), "TLS session handler failed");
     }
 }

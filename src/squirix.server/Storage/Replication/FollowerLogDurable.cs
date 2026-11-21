@@ -49,6 +49,13 @@ internal static class FollowerLogDurable
         }
     }
 
+    internal static async Task DrainStagedWalAsync(FollowerLogJournal journal, CancellationToken cancellationToken)
+    {
+        // A failed or canceled copy leaves an unsealed slot. Wait only for it to stop accessing the file.
+        if (journal.PreparedWal.Copy is { IsCompleted: false } copy)
+            _ = await Task.WhenAny(copy).WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, bool mirrored, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -68,22 +75,6 @@ internal static class FollowerLogDurable
         return new DeferredMirrorMetaDurableWork(owner.Acks, journal.Metadata, in meta).RunDeferredTracked();
     }
 
-    internal static Task StageWalAsync(FollowerLogJournal journal, GroupLogDurability durability, in GroupSnapshotCompaction capture, CancellationToken cancellationToken)
-    {
-        var standby = journal.Paths.GetLogSlotPath(1 - journal.LogSlot);
-        var snapshot = capture.Snapshot;
-        var retained = (capture.RetainedOffset, snapshot.WalPosition.Offset, capture.PreviousIndex + 1UL, snapshot.LastIncludedIndex);
-        var work = new GroupLogFrameCopy.Preparation(journal.LogPath, standby, durability, retained);
-        return work.RunAsync(journal.WalShutdown.Token, cancellationToken);
-    }
-
-    internal static async Task DrainStagedWalAsync(FollowerLogJournal journal, CancellationToken cancellationToken)
-    {
-        // A failed or canceled copy leaves an unsealed slot. Wait only for it to stop accessing the file.
-        if (journal.PreparedWal.Copy is { IsCompleted: false } copy)
-            _ = await Task.WhenAny(copy).WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     internal static async Task<long> ReplaceLogAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
@@ -97,8 +88,7 @@ internal static class FollowerLogDurable
         journal.PreparedWal = default;
         var standbySlot = 1 - journal.LogSlot;
         var generation = rewrittenGeneration ?? checked(journal.LogGeneration + 1UL);
-        var work = new ReplaceDurableWork(
-            owner.Acks, owner.Durability, (journal.Paths.GetLogSlotPath(standbySlot), journal.LogPath), generation, retained, staged, owner.Faults);
+        var work = new ReplaceDurableWork(owner.Acks, owner.Durability, (journal.Paths.GetLogSlotPath(standbySlot), journal.LogPath), generation, retained, staged, owner.Faults);
         try
         {
             await work.RunTrackedAsync().ConfigureAwait(false);
@@ -111,6 +101,15 @@ internal static class FollowerLogDurable
         }
 
         return work.Length;
+    }
+
+    internal static Task StageWalAsync(FollowerLogJournal journal, GroupLogDurability durability, in GroupSnapshotCompaction capture, CancellationToken cancellationToken)
+    {
+        var standby = journal.Paths.GetLogSlotPath(1 - journal.LogSlot);
+        var snapshot = capture.Snapshot;
+        var retained = (capture.RetainedOffset, snapshot.WalPosition.Offset, capture.PreviousIndex + 1UL, snapshot.LastIncludedIndex);
+        var work = new GroupLogFrameCopy.Preparation(journal.LogPath, standby, durability, retained);
+        return work.RunAsync(journal.WalShutdown.Token, cancellationToken);
     }
 
     internal static async Task<int> TruncateFromAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong logIndex, CancellationToken cancellationToken)
@@ -158,37 +157,6 @@ internal static class FollowerLogDurable
         return released;
     }
 
-    /// <summary>Encodes a batch of entries and schedules its durable write without awaiting anything.</summary>
-    /// <param name="owner">The owning follower log.</param>
-    /// <param name="toAppend">The entries to append, in log order.</param>
-    /// <returns>The ack of the scheduled work, the log index and file offset of each frame, and the log length after the batch.</returns>
-    /// <exception cref="ReplicaShutdownRefusedException">The owning log was disposed; nothing was scheduled.</exception>
-    private static ScheduledFrames ScheduleFrames(IFollowerLogContext owner, List<FollowerLogEntry> toAppend)
-    {
-        var startOffset = owner.LogLength;
-        var (buffer, totalLength, offsets) = EncodeFrames(toAppend, startOffset);
-
-        // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
-        // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
-        // token after the explicit check guarantees the callback always runs and the buffer is returned once the work is scheduled.
-        var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
-
-        owner.Faults.OnFramesScheduling();
-
-        // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
-        // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
-        // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
-        // race with the dispose, which closes the ack registry.
-        try
-        {
-            return new ScheduledFrames(work.RunTrackedAsync(), offsets, startOffset + totalLength);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
-        }
-    }
-
     /// <summary>Encodes a batch of entries into one rented buffer and records the on-disk offset of each frame.</summary>
     /// <param name="toAppend">The entries to encode, in log order.</param>
     /// <param name="startOffset">The log file offset the first frame is written at.</param>
@@ -234,70 +202,43 @@ internal static class FollowerLogDurable
         owner.LogLength = logLength;
     }
 
+    /// <summary>Encodes a batch of entries and schedules its durable write without awaiting anything.</summary>
+    /// <param name="owner">The owning follower log.</param>
+    /// <param name="toAppend">The entries to append, in log order.</param>
+    /// <returns>The ack of the scheduled work, the log index and file offset of each frame, and the log length after the batch.</returns>
+    /// <exception cref="ReplicaShutdownRefusedException">The owning log was disposed; nothing was scheduled.</exception>
+    private static ScheduledFrames ScheduleFrames(IFollowerLogContext owner, List<FollowerLogEntry> toAppend)
+    {
+        var startOffset = owner.LogLength;
+        var (buffer, totalLength, offsets) = EncodeFrames(toAppend, startOffset);
+
+        // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
+        // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
+        // token after the explicit check guarantees the callback always runs and the buffer is returned once the work is scheduled.
+        var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
+
+        owner.Faults.OnFramesScheduling();
+
+        // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
+        // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
+        // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
+        // race with the dispose, which closes the ack registry.
+        try
+        {
+            return new ScheduledFrames(work.RunTrackedAsync(), offsets, startOffset + totalLength);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
+        }
+    }
+
     /// <summary>An append batch handed to the storage.</summary>
     /// <param name="Durable">The ack of the scheduled append work.</param>
     /// <param name="Offsets">The log index and file offset of each appended frame.</param>
     /// <param name="LogLength">The log length after the appended frames.</param>
     [Immutable]
     private readonly record struct ScheduledFrames(Task Durable, List<KeyValuePair<ulong, long>> Offsets, long LogLength);
-
-    /// <summary>Durable work whose caller awaits a tracked ack instead of the pool task.</summary>
-    /// <remarks>
-    /// The pool thread owns the outcome of the operation: it completes the ack with the result or the failure of
-    /// <see cref="Run" /> and then untracks it. The only other writer is the shutdown drain of the owning log, which
-    /// faults the ack with <see cref="ObjectDisposedException" />; the first writer wins, so a late outcome is a no-op.
-    /// </remarks>
-    [Immutable]
-    private abstract class TrackedDurableWorkBase : IWorkPoolItem
-    {
-        private readonly TaskCompletionSource _ack = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        protected TrackedDurableWorkBase(FollowerLogAckRegistry acks)
-        {
-            Acks = acks;
-        }
-
-        /// <summary>Gets the registry that tracks the acks of the owning log until their outcome is written.</summary>
-        protected FollowerLogAckRegistry Acks { get; }
-
-        void IWorkPoolItem.Execute()
-        {
-            // Outcome first, then untrack: an ack is never untracked before its outcome is written, and a drain
-            // that takes an already completed ack leaves it as is and does not count it.
-            try
-            {
-                _ack.RunIsolated(this, static work => work.Run());
-            }
-            finally
-            {
-                Acks.Complete(_ack);
-            }
-        }
-
-        /// <summary>Tracks the ack and schedules the work item on a pool thread.</summary>
-        /// <remarks>Synchronous up to the scheduling: a throw means nothing was scheduled, which callers rely on to tell a definite failure from an unconfirmed one.</remarks>
-        /// <returns>The ack task; the discarded pool task never faults because <see cref="IWorkPoolItem.Execute" /> reports through the ack.</returns>
-        /// <exception cref="ObjectDisposedException">The owning log was disposed; nothing was scheduled.</exception>
-        [SuppressMessage("Usage", "VSTHRD003", Justification = "The ack is created by this work item and completed only by its own Execute or by the shutdown drain.")]
-        internal Task RunTrackedAsync()
-        {
-            Acks.Track(_ack);
-            try
-            {
-                _ = WorkPool.RunAsync(this, TaskCreationOptions.None, CancellationToken.None);
-            }
-            catch
-            {
-                Acks.Complete(_ack);
-                throw;
-            }
-
-            return _ack.Task;
-        }
-
-        /// <summary>Performs the durable operation on the pool thread.</summary>
-        protected abstract void Run();
-    }
 
     /// <summary>Background work that durably writes appended frames and flushes them.</summary>
     [Immutable]
@@ -333,31 +274,6 @@ internal static class FollowerLogDurable
             _faults.OnFrameWritten();
             _durability.Flush();
             _faults.OnFlushed();
-        }
-    }
-
-    /// <summary>Background work that durably publishes metadata through the metadata store.</summary>
-    [Immutable]
-    private sealed class MetaDurableWork : TrackedDurableWorkBase
-    {
-        private readonly GroupLogMetadata _meta;
-        private readonly bool _mirrored;
-        private readonly GroupMetadataStore _store;
-
-        internal MetaDurableWork(FollowerLogAckRegistry acks, GroupMetadataStore store, in GroupLogMetadata meta, bool mirrored)
-            : base(acks)
-        {
-            _store = store;
-            _meta = meta;
-            _mirrored = mirrored;
-        }
-
-        protected override void Run()
-        {
-            if (_mirrored)
-                _store.PublishMirrored(in _meta);
-            else
-                _store.Publish(in _meta);
         }
     }
 
@@ -418,6 +334,31 @@ internal static class FollowerLogDurable
         }
     }
 
+    /// <summary>Background work that durably publishes metadata through the metadata store.</summary>
+    [Immutable]
+    private sealed class MetaDurableWork : TrackedDurableWorkBase
+    {
+        private readonly GroupLogMetadata _meta;
+        private readonly bool _mirrored;
+        private readonly GroupMetadataStore _store;
+
+        internal MetaDurableWork(FollowerLogAckRegistry acks, GroupMetadataStore store, in GroupLogMetadata meta, bool mirrored)
+            : base(acks)
+        {
+            _store = store;
+            _meta = meta;
+            _mirrored = mirrored;
+        }
+
+        protected override void Run()
+        {
+            if (_mirrored)
+                _store.PublishMirrored(in _meta);
+            else
+                _store.Publish(in _meta);
+        }
+    }
+
     /// <summary>Writes and flushes each retained frame into the inactive generation file, seals it, and makes it the live log.</summary>
     /// <remarks>
     /// Frames are encoded into short-lived pooled buffers one at a time, so the retained tail is never materialized into a
@@ -429,10 +370,10 @@ internal static class FollowerLogDurable
         private readonly GroupLogDurability _durability;
         private readonly IFollowerLogFaultHooks _faults;
         private readonly ulong _generation;
-        private readonly string _standbyPath;
-        private readonly string _sourcePath;
         private readonly (long Start, long End, ulong First, ulong Last) _retained;
+        private readonly string _sourcePath;
         private readonly (long End, ulong Last) _staged;
+        private readonly string _standbyPath;
 
         internal ReplaceDurableWork(
             FollowerLogAckRegistry acks,
@@ -506,15 +447,69 @@ internal static class FollowerLogDurable
             // A completed preparation already flushed these exact bytes. Avoid changing the file
             // until sealing it if there are no new frames to append.
             if (start == _retained.End)
-            {
-                return _staged.Last == _retained.Last
-                    ? false
-                    : throw new InvalidDataException("The staged WAL does not reach the expected last index.");
-            }
+                return _staged.Last == _retained.Last ? false : throw new InvalidDataException("The staged WAL does not reach the expected last index.");
 
             GroupLogFrameCopy.Copy(_sourcePath, destination, (start, _retained.End, _staged.Last + 1UL, _retained.Last), outputStart, CancellationToken.None);
             return true;
         }
+    }
+
+    /// <summary>Durable work whose caller awaits a tracked ack instead of the pool task.</summary>
+    /// <remarks>
+    /// The pool thread owns the outcome of the operation: it completes the ack with the result or the failure of
+    /// <see cref="Run" /> and then untracks it. The only other writer is the shutdown drain of the owning log, which
+    /// faults the ack with <see cref="ObjectDisposedException" />; the first writer wins, so a late outcome is a no-op.
+    /// </remarks>
+    [Immutable]
+    private abstract class TrackedDurableWorkBase : IWorkPoolItem
+    {
+        private readonly TaskCompletionSource _ack = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected TrackedDurableWorkBase(FollowerLogAckRegistry acks)
+        {
+            Acks = acks;
+        }
+
+        /// <summary>Gets the registry that tracks the acks of the owning log until their outcome is written.</summary>
+        protected FollowerLogAckRegistry Acks { get; }
+
+        void IWorkPoolItem.Execute()
+        {
+            // Outcome first, then untrack: an ack is never untracked before its outcome is written, and a drain
+            // that takes an already completed ack leaves it as is and does not count it.
+            try
+            {
+                _ack.RunIsolated(this, static work => work.Run());
+            }
+            finally
+            {
+                Acks.Complete(_ack);
+            }
+        }
+
+        /// <summary>Tracks the ack and schedules the work item on a pool thread.</summary>
+        /// <remarks>Synchronous up to the scheduling: a throw means nothing was scheduled, which callers rely on to tell a definite failure from an unconfirmed one.</remarks>
+        /// <returns>The ack task; the discarded pool task never faults because <see cref="IWorkPoolItem.Execute" /> reports through the ack.</returns>
+        /// <exception cref="ObjectDisposedException">The owning log was disposed; nothing was scheduled.</exception>
+        [SuppressMessage("Usage", "VSTHRD003", Justification = "The ack is created by this work item and completed only by its own Execute or by the shutdown drain.")]
+        internal Task RunTrackedAsync()
+        {
+            Acks.Track(_ack);
+            try
+            {
+                _ = WorkPool.RunAsync(this, TaskCreationOptions.None, CancellationToken.None);
+            }
+            catch
+            {
+                Acks.Complete(_ack);
+                throw;
+            }
+
+            return _ack.Task;
+        }
+
+        /// <summary>Performs the durable operation on the pool thread.</summary>
+        protected abstract void Run();
     }
 
     /// <summary>Background work that durably truncates the log before a conflicting tail is rewritten.</summary>

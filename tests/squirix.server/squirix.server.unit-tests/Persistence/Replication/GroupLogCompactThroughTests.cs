@@ -22,27 +22,6 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     private const int EntryCount = 3;
     private const string GroupId = "grp-compact-through";
 
-    /// <summary>The first compaction retains the entire WAL as a fallback while publishing the snapshot baseline.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FirstCompactionRetainsFullWal(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-compact-through");
-        await using (var log = await SeedAsync(dir, null, cancellationToken))
-        {
-            var before = await RetentionAsync(log, cancellationToken);
-            _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-
-            var retention = await RetentionAsync(log, cancellationToken);
-            _ = await Assert.That(retention).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, Committed) { CompactionBytes = HeaderLength() });
-            await AssertCompactedStateAsync(log, cancellationToken);
-        }
-
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await reopened.OpenAsync(cancellationToken);
-        await AssertCompactedStateAsync(reopened, cancellationToken);
-    }
-
     /// <summary>
     /// A failure after the snapshot is published and the rewritten log is flushed to its temp file, before it is swapped in, leaves a log that
     /// reopens to the committed, applied state. The swapped log is the last durable step, so its reopen is the one of a completed compaction.
@@ -61,10 +40,17 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
         _ = hooks.Setups.OnMetaPublishing();
         _ = hooks.Setups.OnSnapshotPublishing();
-        await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
+        await using (var log = await SeedAsync(
+                         dir,
+                         new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() },
+                         cancellationToken))
         {
             armed = true;
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Committed, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
+                log.CompactThroughAsync(Committed, cancellationToken),
+                TimeSpan.FromSeconds(30),
+                TimeProvider.System,
+                cancellationToken);
             armed = false;
         }
 
@@ -82,6 +68,27 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).IsEmpty();
         await AssertOutcomesAsync(reopened);
         _ = await Assert.That(await reopened.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        await AssertCompactedStateAsync(reopened, cancellationToken);
+    }
+
+    /// <summary>The first compaction retains the entire WAL as a fallback while publishing the snapshot baseline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FirstCompactionRetainsFullWal(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compact-through");
+        await using (var log = await SeedAsync(dir, null, cancellationToken))
+        {
+            var before = await RetentionAsync(log, cancellationToken);
+            _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+
+            var retention = await RetentionAsync(log, cancellationToken);
+            _ = await Assert.That(retention).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, Committed) { CompactionBytes = HeaderLength() });
+            await AssertCompactedStateAsync(log, cancellationToken);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
         await AssertCompactedStateAsync(reopened, cancellationToken);
     }
 
@@ -130,7 +137,10 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
                     // With no tail the first flush during finalization seals the WAL.
                     flushToFail = appendTail ? cut : 1;
                     _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
-                        log.CompactPreparedAsync(plan, prepared!, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+                        log.CompactPreparedAsync(plan, prepared!, cancellationToken),
+                        TimeSpan.FromSeconds(30),
+                        TimeProvider.System,
+                        cancellationToken);
                     _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
                 }
 
@@ -196,7 +206,10 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     public async Task RefusesOversizedSnapshot(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compact-through-oversized");
-        await using var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 }, cancellationToken);
+        await using var log = await SeedAsync(
+            dir,
+            new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 },
+            cancellationToken);
 
         _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.SnapshotTooLarge);
 
@@ -241,7 +254,10 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-compact-through-indexes");
         var hooks = new CountingFollowerLogFaultHooks();
         FollowerLogStatus before;
-        await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken))
+        await using (var log = await SeedAsync(
+                         dir,
+                         new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks },
+                         cancellationToken))
         {
             var writesBefore = hooks.Snapshot();
             _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
@@ -259,27 +275,10 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         _ = await Assert.That((next.Success, next.LastLogIndex)).IsEqualTo((true, Committed + 1));
     }
 
-    private static async Task<GroupSnapshotCompaction> CaptureSecondCompactionAsync(FollowerLog log, CancellationToken cancellationToken)
+    private static async Task AppendAcknowledgedTailAsync(FollowerLog log, CancellationToken cancellationToken)
     {
-        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-        const ulong boundary = Committed + 1UL;
-        _ = await Assert.That((await log.AppendAsync(FollowerFoundationScenario.Append("leader", boundary, 1UL, "boundary"), cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AdvanceCommitAsync(boundary, cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AdvanceAppliedAsync(boundary, cancellationToken)).Success).IsTrue();
-        var (_, capture) = await log.CaptureCompactionAsync(boundary, cancellationToken);
-        var plan = capture.GetValueOrDefault();
-        _ = await Assert.That(plan.Snapshot.LastIncludedIndex).IsEqualTo(boundary);
-        return plan;
-    }
-
-    private static async Task AssertUnsealedWalAsync(string dir, string originalPath, GroupSnapshotCompaction plan, CancellationToken cancellationToken)
-    {
-        var source = await GroupLogFile.ReadSlotBytesAsync(dir, GroupId, 0, cancellationToken);
-        var standby = await GroupLogFile.ReadSlotBytesAsync(dir, GroupId, 1, cancellationToken);
-        _ = await Assert.That(GroupLogFile.ActivePath(dir, GroupId)).IsEqualTo(originalPath);
-        _ = await Assert.That(standby).IsNotNull();
-        _ = await Assert.That(standby.AsSpan(0, GroupLogSlots.HeaderSize).SequenceEqual(new byte[GroupLogSlots.HeaderSize])).IsTrue();
-        _ = await Assert.That(standby.AsSpan(GroupLogSlots.HeaderSize).SequenceEqual(source.AsSpan(int.CreateChecked(plan.RetainedOffset)))).IsTrue();
+        _ = await Assert.That((await log.AppendAsync(FollowerFoundationScenario.Append("leader", 5UL, 1UL, "acknowledged tail"), cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await log.AdvanceCommitAsync(5UL, cancellationToken)).Success).IsTrue();
     }
 
     private static async Task AssertCompactedStateAsync(FollowerLog log, CancellationToken cancellationToken)
@@ -292,10 +291,13 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         await AssertOutcomesAsync(log);
     }
 
-    private static async Task AppendAcknowledgedTailAsync(FollowerLog log, CancellationToken cancellationToken)
+    private static async Task AssertOutcomesAsync(FollowerLog log)
     {
-        _ = await Assert.That((await log.AppendAsync(FollowerFoundationScenario.Append("leader", 5UL, 1UL, "acknowledged tail"), cancellationToken)).Success).IsTrue();
-        _ = await Assert.That((await log.AdvanceCommitAsync(5UL, cancellationToken)).Success).IsTrue();
+        for (byte index = 1; index <= Committed; index++)
+        {
+            _ = await Assert.That(log.Idempotency.Lookup("client", OperationId(index), [index], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
+            await SequenceAssert.EqualAsync([index, index], record.OutcomePayload.ToArray());
+        }
     }
 
     private static async Task AssertRecoveredTailAsync(FollowerLog log, ulong snapshotIndex, bool appendTail, CancellationToken cancellationToken)
@@ -311,21 +313,35 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             _ = await Assert.That(Encoding.UTF8.GetString(entries[0].Payload.Span)).IsEqualTo("acknowledged tail");
     }
 
-    private static async Task AssertOutcomesAsync(FollowerLog log)
-    {
-        for (byte index = 1; index <= Committed; index++)
-        {
-            _ = await Assert.That(log.Idempotency.Lookup("client", OperationId(index), [index], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
-            await SequenceAssert.EqualAsync([index, index], record.OutcomePayload.ToArray());
-        }
-    }
-
     private static async Task AssertUnchangedAsync(FollowerLog log, CancellationToken cancellationToken)
     {
         var retention = await RetentionAsync(log, cancellationToken);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(log.SnapshotPath).IsNull();
         _ = await Assert.That((retention.RetainedEntries, retention.SnapshotIndex)).IsEqualTo((EntryCount, 0UL));
+    }
+
+    private static async Task AssertUnsealedWalAsync(string dir, string originalPath, GroupSnapshotCompaction plan, CancellationToken cancellationToken)
+    {
+        var source = await GroupLogFile.ReadSlotBytesAsync(dir, GroupId, 0, cancellationToken);
+        var standby = await GroupLogFile.ReadSlotBytesAsync(dir, GroupId, 1, cancellationToken);
+        _ = await Assert.That(GroupLogFile.ActivePath(dir, GroupId)).IsEqualTo(originalPath);
+        _ = await Assert.That(standby).IsNotNull();
+        _ = await Assert.That(standby.AsSpan(0, GroupLogSlots.HeaderSize).SequenceEqual(new byte[GroupLogSlots.HeaderSize])).IsTrue();
+        _ = await Assert.That(standby.AsSpan(GroupLogSlots.HeaderSize).SequenceEqual(source.AsSpan(int.CreateChecked(plan.RetainedOffset)))).IsTrue();
+    }
+
+    private static async Task<GroupSnapshotCompaction> CaptureSecondCompactionAsync(FollowerLog log, CancellationToken cancellationToken)
+    {
+        _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        const ulong boundary = Committed + 1UL;
+        _ = await Assert.That((await log.AppendAsync(FollowerFoundationScenario.Append("leader", boundary, 1UL, "boundary"), cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await log.AdvanceCommitAsync(boundary, cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await log.AdvanceAppliedAsync(boundary, cancellationToken)).Success).IsTrue();
+        var (_, capture) = await log.CaptureCompactionAsync(boundary, cancellationToken);
+        var plan = capture.GetValueOrDefault();
+        _ = await Assert.That(plan.Snapshot.LastIncludedIndex).IsEqualTo(boundary);
+        return plan;
     }
 
     private static void FailIfArmed(bool armed)
@@ -347,7 +363,12 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     /// <returns>The open log.</returns>
     private static async Task<FollowerLog> SeedAsync(string dir, FollowerLogOptions? options, CancellationToken cancellationToken)
     {
-        var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System });
+        var log = new FollowerLog(
+            dir,
+            GroupId,
+            GroupComposition.Create(GroupId),
+            NullLogger<FollowerLog>.Instance,
+            options ?? new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System });
         try
         {
             await log.OpenSeededAsync(cancellationToken);

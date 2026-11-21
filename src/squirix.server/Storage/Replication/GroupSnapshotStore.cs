@@ -26,10 +26,10 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <summary>The format version of the published snapshot image.</summary>
     internal const byte PublishedVersion = GroupSnapshotCodec.SnapshotVersion;
 
+    private readonly GroupSnapshotCheckpointStore _checkpoints;
+
     private readonly string _groupId;
     private readonly string _legacyPath;
-
-    private readonly GroupSnapshotCheckpointStore _checkpoints;
     private readonly int _maxSnapshotBytes;
     private readonly string _slot0Path;
     private readonly string _slot1Path;
@@ -61,6 +61,15 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <inheritdoc />
     bool IFollowerLogSnapshotStore.Fits(GroupSnapshot snapshot) => Fits(in snapshot);
 
+    Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> IFollowerLogSnapshotStore.PrepareAsync(GroupSnapshot snapshot, ulong previousIndex, CancellationToken cancellationToken)
+    {
+        if (HasOldFormat())
+            throw new InvalidDataException("The previous replica snapshot format is unsupported; the files were left unchanged.");
+
+        var stable = ValidateForPublish(in snapshot);
+        return _checkpoints.PrepareAsync(stable, previousIndex, cancellationToken);
+    }
+
     /// <inheritdoc />
     Task IFollowerLogSnapshotStore.PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) => PublishAsync(snapshot, cancellationToken);
 
@@ -70,17 +79,30 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <inheritdoc />
     Task<GroupSnapshot?> IFollowerLogSnapshotStore.ReadPublishedAsync(CancellationToken cancellationToken) => ReadPublishedAsync(cancellationToken);
 
-    Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> IFollowerLogSnapshotStore.PrepareAsync(
-        GroupSnapshot snapshot, ulong previousIndex, CancellationToken cancellationToken)
-    {
-        if (HasOldFormat())
-            throw new InvalidDataException("The previous replica snapshot format is unsupported; the files were left unchanged.");
-
-        var stable = ValidateForPublish(in snapshot);
-        return _checkpoints.PrepareAsync(stable, previousIndex, cancellationToken);
-    }
-
     bool IFollowerLogSnapshotStore.TryPublishPrepared(GroupSnapshotCheckpointStore.PreparedSnapshot prepared) => _checkpoints.TryPublishPrepared(prepared);
+
+    /// <summary>Returns the canonical contents of a verified snapshot when all string fields are ASCII.</summary>
+    /// <param name="snapshot">The snapshot with a privately owned outcomes array.</param>
+    /// <returns>The canonical contents, or null when decoding the verified file is required.</returns>
+    internal static GroupSnapshot? CanonicalizeVerifiedSnapshot(in GroupSnapshot snapshot)
+    {
+        if (!Ascii.IsValid(snapshot.GroupId) || snapshot.CommittedOutcomes is not GroupIdempotencyRecord[] records)
+            return null;
+        for (var i = 0; i < records.Length; i++)
+        {
+            var record = records[i];
+            if (!Ascii.IsValid(record.OperationScope) || !Ascii.IsValid(record.OperationId))
+                return null;
+
+            records[i] = record with
+            {
+                CreatedUtc = GroupSnapshotEncoder.CanonicalUtc(record.CreatedUtc),
+                ResolvedUtc = GroupSnapshotEncoder.CanonicalUtc(record.ResolvedUtc.GetValueOrDefault()),
+            };
+        }
+
+        return snapshot with { CapturedUtc = GroupSnapshotEncoder.CanonicalUtc(snapshot.CapturedUtc) };
+    }
 
     /// <summary>Computes the byte length of the published file image of a snapshot.</summary>
     /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
@@ -151,29 +173,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <returns>Whether the image is valid.</returns>
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure) =>
         GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion, out failure);
-
-    /// <summary>Returns the canonical contents of a verified snapshot when all string fields are ASCII.</summary>
-    /// <param name="snapshot">The snapshot with a privately owned outcomes array.</param>
-    /// <returns>The canonical contents, or null when decoding the verified file is required.</returns>
-    internal static GroupSnapshot? CanonicalizeVerifiedSnapshot(in GroupSnapshot snapshot)
-    {
-        if (!Ascii.IsValid(snapshot.GroupId) || snapshot.CommittedOutcomes is not GroupIdempotencyRecord[] records)
-            return null;
-        for (var i = 0; i < records.Length; i++)
-        {
-            var record = records[i];
-            if (!Ascii.IsValid(record.OperationScope) || !Ascii.IsValid(record.OperationId))
-                return null;
-
-            records[i] = record with
-            {
-                CreatedUtc = GroupSnapshotEncoder.CanonicalUtc(record.CreatedUtc),
-                ResolvedUtc = GroupSnapshotEncoder.CanonicalUtc(record.ResolvedUtc.GetValueOrDefault()),
-            };
-        }
-
-        return snapshot with { CapturedUtc = GroupSnapshotEncoder.CanonicalUtc(snapshot.CapturedUtc) };
-    }
 
     /// <summary>Durably publishes a transferred snapshot in two independent generations.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>

@@ -77,8 +77,12 @@ internal static class ServerHostingComposition
         else if (registry != null)
         {
             var activation = services.Require<ReplicaGroupActivation>();
-            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.FingerprintBytes.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
-               .ConfigureAwait(false);
+            await EnsureActivatedTopologyAsync(
+                persistence.DataDir,
+                activation.FingerprintBytes.AsMemory(),
+                cluster.ConfigurationGeneration,
+                cluster.ReplicaCount,
+                cancellationToken).ConfigureAwait(false);
         }
 
         await PersistenceServiceRegistration.OpenPersistenceAsync(services, cancellationToken).ConfigureAwait(false);
@@ -104,8 +108,7 @@ internal static class ServerHostingComposition
     private static void AddSquirixClusterStack(NodeServices services, TopologyOptions cluster, CompositionArgs args)
     {
         _ = services.AddSquirixClusterLocator(cluster);
-        _ = services.Use(new ReadinessCheck(
-            "ring_agreement", static sp => new RingAgreementHealthCheck(sp.Require<RingAgreement>())));
+        _ = services.Use(new ReadinessCheck("ring_agreement", static sp => new RingAgreementHealthCheck(sp.Require<RingAgreement>())));
         _ = services.AddSquirixClusterTransport(cluster, null, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
 
@@ -174,7 +177,12 @@ internal static class ServerHostingComposition
         var authEnabled = services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
         _ = services.AddSquirixFrameworkServices();
-        _ = services.Own(sp => new NativeClientService(sp, cluster, FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled, args.ManagementUri, args.ServerCertificate));
+        _ = services.Own(sp => new NativeClientService(
+            sp,
+            cluster,
+            FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled,
+            args.ManagementUri,
+            args.ServerCertificate));
         _ = services.RunService(static sp => sp.Require<NativeClientService>());
     }
 
@@ -310,10 +318,7 @@ internal static class ServerHostingComposition
             ReplicaGroups.Register(services, cluster, persistence, mtlsOptions);
     }
 
-    private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
-        TopologyOptions cluster,
-        CompositionArgs args,
-        bool persistenceEnabled)
+    private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(TopologyOptions cluster, CompositionArgs args, bool persistenceEnabled)
     {
         var uri = cluster.Uri;
         if (!uri.IsAbsoluteUri || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))

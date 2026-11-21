@@ -194,13 +194,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         set => FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in value);
     }
 
-    bool IFollowerLogContext.Refuses => Refuses;
-
     public FollowerLogReadiness Readiness
     {
         get => FollowerLogReadinessValue.FromValue(Volatile.Read(ref _readiness));
         set => Volatile.Write(ref _readiness, FollowerLogReadinessValue.ToValue(value));
     }
+
+    bool IFollowerLogContext.Refuses => Refuses;
 
     /// <summary>Gets the number of flushes of the group log file and of the metadata file this log completed.</summary>
     internal long FlushCount => _durability.FlushCount + Metadata.FlushCount;
@@ -336,6 +336,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async Task<(GroupCompactionOutcome Outcome, GroupSnapshotCompaction? Capture)> CaptureCompactionAsync(ulong index, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return Refuses ? (GroupCompactionOutcome.NotReady, null) : FollowerLogSnapshot.CaptureCompaction(_journal, this, index);
+    }
+
+    /// <inheritdoc />
     public async Task<GroupSnapshotCapture> CaptureSnapshotAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -358,32 +365,23 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        return Refuses ? GroupCompactionOutcome.NotReady : await FollowerLogSnapshot.CompactThroughAsync(_journal, this, index, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task<(GroupCompactionOutcome Outcome, GroupSnapshotCompaction? Capture)> CaptureCompactionAsync(ulong index, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return Refuses ? (GroupCompactionOutcome.NotReady, null) : FollowerLogSnapshot.CaptureCompaction(_journal, this, index);
-    }
-
-    /// <inheritdoc />
-    public Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(GroupSnapshotCompaction capture, CancellationToken cancellationToken) =>
-        FollowerLogSnapshot.PrepareCompactionAsync(_journal, this, _gate, capture, cancellationToken);
-
-    /// <inheritdoc />
     public async Task<GroupCompactionOutcome> CompactPreparedAsync(
-        GroupSnapshotCompaction capture, GroupSnapshotCheckpointStore.PreparedSnapshot prepared, CancellationToken cancellationToken)
+        GroupSnapshotCompaction capture,
+        GroupSnapshotCheckpointStore.PreparedSnapshot prepared,
+        CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         return Refuses
             ? GroupCompactionOutcome.NotReady
             : await FollowerLogSnapshot.CompactPreparedAsync(_journal, this, capture, prepared, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        return Refuses ? GroupCompactionOutcome.NotReady : await FollowerLogSnapshot.CompactThroughAsync(_journal, this, index, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -529,6 +527,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         return await FollowerLogElection.ObserveTermAsync(_journal, this, term, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(GroupSnapshotCompaction capture, CancellationToken cancellationToken) =>
+        FollowerLogSnapshot.PrepareCompactionAsync(_journal, this, _gate, capture, cancellationToken);
 
     /// <inheritdoc />
     /// <remarks>

@@ -19,39 +19,20 @@ public sealed class ServerDisposeTests
 {
     private const int HostStopFailedEventId = 3017;
 
-    /// <summary>Hosted services stop while their dependencies are still alive.</summary>
+    /// <summary>A container disposal failure reaches the first and every later caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeStopsHostBeforeContainerDispose()
+    public async Task ContainerDisposeFailureReachesAllCallers(CancellationToken cancellationToken)
     {
-        var probe = new ShutdownProbe();
+        var probe = new ShutdownProbe { ThrowOnDependencyDispose = true };
         var handle = await StartHandleAsync(probe, null);
 
-        await DisposeAsTaskAsync(handle);
+        var first = DisposeAsTaskAsync(handle);
+        var second = DisposeAsTaskAsync(handle);
 
-        _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
-        _ = await Assert.That(probe.DependencyDisposedAtStop).IsFalse();
-        _ = await Assert.That(probe.DependencyDisposed).IsTrue();
-    }
-
-    /// <summary>A failing shutdown subscriber cannot prevent services from stopping or the journal from draining.</summary>
-    [Test]
-    public async Task SubscriberFailurePreservesJournalDrain()
-    {
-        var probe = new ShutdownProbe();
-        var log = new EventRecordingLogger();
-        var stopsAtDrain = -1;
-        var handle = await StartHandleAsync(probe, log, () =>
-        {
-            stopsAtDrain = probe.StopCalls;
-            return ValueTask.CompletedTask;
-        });
-        await using var subscriber = handle.ApplicationStopping.Register(static () => throw new InvalidOperationException("subscriber failed"));
-
-        await handle.DisposeAsync();
-
-        _ = await Assert.That(stopsAtDrain).IsEqualTo(1);
-        _ = await Assert.That(probe.DependencyDisposed).IsTrue();
-        _ = await Assert.That(log.Find(3091)?.Cause).IsTypeOf<AggregateException>();
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(second, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(DisposeAsTaskAsync(handle), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Repeated and concurrent disposal stops the host exactly once and never throws.</summary>
@@ -89,6 +70,20 @@ public sealed class ServerDisposeTests
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
     }
 
+    /// <summary>Hosted services stop while their dependencies are still alive.</summary>
+    [Test]
+    public async Task DisposeStopsHostBeforeContainerDispose()
+    {
+        var probe = new ShutdownProbe();
+        var handle = await StartHandleAsync(probe, null);
+
+        await DisposeAsTaskAsync(handle);
+
+        _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
+        _ = await Assert.That(probe.DependencyDisposedAtStop).IsFalse();
+        _ = await Assert.That(probe.DependencyDisposed).IsTrue();
+    }
+
     /// <summary>Later and concurrent callers wait for the first disposal to finish.</summary>
     [Test]
     public async Task LaterCallersWaitForFirstDisposal()
@@ -112,20 +107,28 @@ public sealed class ServerDisposeTests
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
     }
 
-    /// <summary>A container disposal failure reaches the first and every later caller.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <summary>A failing shutdown subscriber cannot prevent services from stopping or the journal from draining.</summary>
     [Test]
-    public async Task ContainerDisposeFailureReachesAllCallers(CancellationToken cancellationToken)
+    public async Task SubscriberFailurePreservesJournalDrain()
     {
-        var probe = new ShutdownProbe { ThrowOnDependencyDispose = true };
-        var handle = await StartHandleAsync(probe, null);
+        var probe = new ShutdownProbe();
+        var log = new EventRecordingLogger();
+        var stopsAtDrain = -1;
+        var handle = await StartHandleAsync(
+            probe,
+            log,
+            () =>
+            {
+                stopsAtDrain = probe.StopCalls;
+                return ValueTask.CompletedTask;
+            });
+        await using var subscriber = handle.ApplicationStopping.Register(static () => throw new InvalidOperationException("subscriber failed"));
 
-        var first = DisposeAsTaskAsync(handle);
-        var second = DisposeAsTaskAsync(handle);
+        await handle.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(second, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(DisposeAsTaskAsync(handle), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(stopsAtDrain).IsEqualTo(1);
+        _ = await Assert.That(probe.DependencyDisposed).IsTrue();
+        _ = await Assert.That(log.Find(3091)?.Cause).IsTypeOf<AggregateException>();
     }
 
     private static Task DisposeAsTaskAsync(SquirixServer.ApplicationHandle handle) => handle.DisposeAsync().AsTask();
@@ -142,40 +145,6 @@ public sealed class ServerDisposeTests
         var app = ServerApplication.Build(services);
         await app.StartAsync(CancellationToken.None);
         return new SquirixServer.ApplicationHandle(app);
-    }
-
-    private sealed class ShutdownProbe
-    {
-        private int _stopCalls;
-        private volatile bool _dependencyDisposedAtStop;
-        private volatile bool _dependencyDisposed;
-
-        internal int StopCalls => Volatile.Read(ref _stopCalls);
-
-        internal bool DependencyDisposedAtStop => _dependencyDisposedAtStop;
-
-        internal bool DependencyDisposed
-        {
-            get => _dependencyDisposed;
-            set => _dependencyDisposed = value;
-        }
-
-        internal bool ThrowOnStop { get; init; }
-
-        internal bool ThrowOnDependencyDispose { get; init; }
-
-        internal TaskCompletionSource? StopGate { get; init; }
-
-        private TaskCompletionSource StopEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal Task WaitForStopAsync() => StopEntered.Task;
-
-        internal void RecordStop(bool dependencyDisposed)
-        {
-            _dependencyDisposedAtStop = dependencyDisposed;
-            _ = Interlocked.Increment(ref _stopCalls);
-            _ = StopEntered.TrySetResult();
-        }
     }
 
     private sealed class ProbeDependency : IDisposable
@@ -221,5 +190,39 @@ public sealed class ServerDisposeTests
             if (_probe.ThrowOnStop)
                 throw new InvalidOperationException("Probe stop failure.");
         }
+    }
+
+    private sealed class ShutdownProbe
+    {
+        private volatile bool _dependencyDisposed;
+        private volatile bool _dependencyDisposedAtStop;
+        private int _stopCalls;
+
+        internal bool DependencyDisposed
+        {
+            get => _dependencyDisposed;
+            set => _dependencyDisposed = value;
+        }
+
+        internal bool DependencyDisposedAtStop => _dependencyDisposedAtStop;
+
+        internal int StopCalls => Volatile.Read(ref _stopCalls);
+
+        internal TaskCompletionSource? StopGate { get; init; }
+
+        internal bool ThrowOnDependencyDispose { get; init; }
+
+        internal bool ThrowOnStop { get; init; }
+
+        private TaskCompletionSource StopEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal void RecordStop(bool dependencyDisposed)
+        {
+            _dependencyDisposedAtStop = dependencyDisposed;
+            _ = Interlocked.Increment(ref _stopCalls);
+            _ = StopEntered.TrySetResult();
+        }
+
+        internal Task WaitForStopAsync() => StopEntered.Task;
     }
 }

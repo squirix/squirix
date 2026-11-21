@@ -178,9 +178,6 @@ internal sealed class ClusterState
     internal ClusterState WithNodesMessagesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, int nextMessageId, IReadOnlyList<int> matchIndexes) =>
         With(nodes, messages, Partitions, nextMessageId, matchIndexes);
 
-    internal ClusterState WithNodesMessagesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> matchIndexes) =>
-        With(nodes, messages, matchIndexes: matchIndexes);
-
     internal ClusterState WithPartitions(IReadOnlyList<int> partitions) => With(partitions: partitions);
 
     /// <summary>Returns a state with one message removed, keeping the order and identity of the others.</summary>

@@ -25,19 +25,19 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Pools mutually authenticated peer streams, reserving each one for a single request and its reply.</summary>
 internal sealed class NativePeerClient : IPeerClient, IDisposable
 {
-    private readonly AsyncSemaphore _transfers = new(1);
-    private readonly Lock _sync = new();
-    private readonly List<PeerSession> _idle = [];
     private readonly DnsEndPoint _address;
-    private readonly Func<CancellationToken, ValueTask<EndPoint>>? _resolveEndpoint;
-    private readonly SslClientAuthenticationOptions _tls;
-    private readonly PeerHandshakeVerifier _verifier;
-    private readonly string _peer;
-    private readonly string _fingerprint;
     private readonly TrackedConnections _connections;
     private readonly TimeSpan _dial;
-    private ITimer? _idleMonitor;
+    private readonly string _fingerprint;
+    private readonly List<PeerSession> _idle = [];
+    private readonly string _peer;
+    private readonly Func<CancellationToken, ValueTask<EndPoint>>? _resolveEndpoint;
+    private readonly Lock _sync = new();
+    private readonly SslClientAuthenticationOptions _tls;
+    private readonly AsyncSemaphore _transfers = new(1);
+    private readonly PeerHandshakeVerifier _verifier;
     private bool _closed;
+    private ITimer? _idleMonitor;
     private long _lastDialTimeout;
 
     internal NativePeerClient((Uri Address, string Id) target, MtlsCertificate material, PeerHandshakeVerifier verifier, TrackedConnections connections, TimeSpan dial, string? fingerprint, PeerSocketOptions? options = null)
@@ -51,19 +51,10 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         _fingerprint = fingerprint ?? string.Empty;
         _resolveEndpoint = options?.ResolveEndpoint;
         _tls = options?.Tls ?? CreateTlsOptions(address.DnsSafeHost, peer, material, verifier);
-        if (options != null)
-        {
-            _tls.TargetHost = address.DnsSafeHost;
-            _tls.ApplicationProtocols = [PeerFrames.Protocol];
-        }
-    }
-
-    public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-        where T : IMessage<T>
-    {
-        return string.Equals(path, "replication/TransferReplicaState", StringComparison.Ordinal)
-            ? TransferAsync(path, request, parser, cancellationToken)
-            : ExchangeAsync(path, request, parser, cancellationToken);
+        if (options == null)
+            return;
+        _tls.TargetHost = address.DnsSafeHost;
+        _tls.ApplicationProtocols = [PeerFrames.Protocol];
     }
 
     public void Dispose()
@@ -77,6 +68,14 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
                 _idle[i].Dispose();
             _idle.Clear();
         }
+    }
+
+    public Task<T> SendAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+        where T : IMessage<T>
+    {
+        return string.Equals(path, "replication/TransferReplicaState", StringComparison.Ordinal)
+            ? TransferAsync(path, request, parser, cancellationToken)
+            : ExchangeAsync(path, request, parser, cancellationToken);
     }
 
     internal static SslClientAuthenticationOptions CreateTlsOptions(string host, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier)
@@ -144,18 +143,18 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         return ticks <= 0 ? throw new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.") : ticks;
     }
 
-    private async Task<T> TransferAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
-        where T : IMessage<T>
+    private ITimer CreateIdleMonitor()
     {
-        _ = RemainingBudget();
-        await _transfers.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        var interval = TimeSpan.FromSeconds(1);
+
+        if (ExecutionContext.IsFlowSuppressed())
+            return Start();
+        using var suppression = ExecutionContext.SuppressFlow();
+        return Start();
+
+        ITimer Start()
         {
-            return await ExchangeAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transfers.Release();
+            return TimeProvider.System.CreateTimer(static state => (state as NativePeerClient)?.RemoveClosedSessions(), this, interval, interval);
         }
     }
 
@@ -213,6 +212,28 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
+    /// <summary>Closes a half-closed idle stream even if the node sends no further calls to its peer.</summary>
+    private void RemoveClosedSessions()
+    {
+        lock (_sync)
+        {
+            for (var i = _idle.Count - 1; i >= 0; i--)
+            {
+                var stream = _idle[i];
+                if (stream.CanReuse)
+                    continue;
+
+                _idle.RemoveAt(i);
+                stream.Dispose();
+            }
+
+            if (_idle.Count != 0)
+                return;
+            _idleMonitor?.Dispose();
+            _idleMonitor = null;
+        }
+    }
+
     private async ValueTask<PeerSession> RentAsync(CancellationToken cancellationToken)
     {
         var idle = TakeIdle();
@@ -262,6 +283,21 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
+    private async ValueTask ReturnAsync(PeerSession stream)
+    {
+        lock (_sync)
+        {
+            if (!_closed && _idle.Count < 16)
+            {
+                _idleMonitor ??= CreateIdleMonitor();
+                _idle.Add(stream);
+                return;
+            }
+        }
+
+        await stream.DisposeAsync().ConfigureAwait(false);
+    }
+
     private PeerSession? TakeIdle()
     {
         lock (_sync)
@@ -273,7 +309,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
                 _idle.RemoveAt(_idle.Count - 1);
                 try
                 {
-                    if (stream.CanReuse && stream.RemoteCertificate is X509Certificate2 cert && _verifier.VerifyExpectedPeer(cert, _peer))
+                    if (stream is { CanReuse: true, RemoteCertificate: X509Certificate2 cert } && _verifier.VerifyExpectedPeer(cert, _peer))
                     {
                         var owned = stream;
                         stream = null;
@@ -290,56 +326,19 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         return null;
     }
 
-    private async ValueTask ReturnAsync(PeerSession stream)
+    private async Task<T> TransferAsync<T>(string path, IMessage request, MessageParser<T> parser, CancellationToken cancellationToken)
+        where T : IMessage<T>
     {
-        lock (_sync)
+        _ = RemainingBudget();
+        await _transfers.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (!_closed && _idle.Count < 16)
-            {
-                _idleMonitor ??= CreateIdleMonitor();
-                _idle.Add(stream);
-                return;
-            }
+            return await ExchangeAsync(path, request, parser, cancellationToken).ConfigureAwait(false);
         }
-
-        await stream.DisposeAsync().ConfigureAwait(false);
-    }
-
-    /// <summary>Closes a half-closed idle stream even if the node sends no further calls to its peer.</summary>
-    private void RemoveClosedSessions()
-    {
-        lock (_sync)
+        finally
         {
-            for (var i = _idle.Count - 1; i >= 0; i--)
-            {
-                var stream = _idle[i];
-                if (stream.CanReuse)
-                    continue;
-
-                _idle.RemoveAt(i);
-                stream.Dispose();
-            }
-
-            if (_idle.Count == 0)
-            {
-                _idleMonitor?.Dispose();
-                _idleMonitor = null;
-            }
+            _transfers.Release();
         }
-    }
-
-    private ITimer CreateIdleMonitor()
-    {
-        var interval = TimeSpan.FromSeconds(1);
-        ITimer Start()
-        {
-            return TimeProvider.System.CreateTimer(static state => (state as NativePeerClient)?.RemoveClosedSessions(), this, interval, interval);
-        }
-
-        if (ExecutionContext.IsFlowSuppressed())
-            return Start();
-        using var suppression = ExecutionContext.SuppressFlow();
-        return Start();
     }
 
     private sealed class PeerSession : SslStream
@@ -348,11 +347,6 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             : base(network)
         {
         }
-
-        internal Memory<byte> ReplyHeader { get; } = new byte[PeerFrames.ReplyBytes];
-
-        /// <summary>Gets or sets the timestamp before the last request was sent, a lower bound for when the peer started its idle timer.</summary>
-        internal long RequestStarted { get; set; }
 
         /// <summary>Gets a value indicating whether the idle socket has neither a pending shutdown nor an unexpected frame.</summary>
         internal bool CanReuse
@@ -369,5 +363,10 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
                 }
             }
         }
+
+        internal Memory<byte> ReplyHeader { get; } = new byte[PeerFrames.ReplyBytes];
+
+        /// <summary>Gets or sets the timestamp before the last request was sent, a lower bound for when the peer started its idle timer.</summary>
+        internal long RequestStarted { get; set; }
     }
 }

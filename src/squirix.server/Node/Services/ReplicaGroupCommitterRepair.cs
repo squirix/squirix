@@ -12,6 +12,49 @@ internal static class ReplicaGroupCommitterRepair
 {
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Admits a follower slot a catch-up session verified, under the commit gate, and commits what the slot now covers.</summary>
+        /// <param name="target">The catch-up target: the follower slot, the pipeline whose sender the session ran on, and the led term.</param>
+        /// <param name="result">The session result.</param>
+        /// <param name="cancellationToken">Cancellation token for queueing on the gate.</param>
+        /// <returns><see langword="true" /> when the slot became ready.</returns>
+        /// <remarks>
+        /// Called while the session's lease still holds the sender, so no live entry past the held index reaches the follower, and no
+        /// acknowledgement of one is lost to a slot that does not count yet, before the slot's match index is raised. A slot is never
+        /// admitted into a newer pipeline, nor once the leader log left the led term: a newer leader may have rewritten the entries the
+        /// session read, so what the follower holds proves nothing for this term. A held entry of a term above the led one is refused
+        /// for the same reason.
+        /// </remarks>
+        internal async Task<bool> AdmitCaughtUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpResult result, CancellationToken cancellationToken)
+        {
+            committer.ThrowIfDisposed();
+            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+            committer.ThrowIfDisposed();
+            if (!ReferenceEquals(committer.RunningPipeline, target.Pipeline) || committer.Coordinator is not { } coordinator ||
+                !committer.Registry.TryGetLog(committer.GroupId, out var log))
+                return false;
+
+            var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (status.CurrentTerm != target.Term || result.HeldTerm > target.Term)
+                return false;
+
+            var replicaIndex = target.ReplicaIndex;
+            var eligibility = committer.Registry.EligibilityFor(committer.GroupId);
+            var wasReady = eligibility.CanCountInWriteQuorum(replicaIndex);
+            ReplicaReadinessProbe.AdmitCaughtUp(
+                eligibility,
+                replicaIndex,
+                in result,
+                status.CommitIndex,
+                committer.Topology.Fingerprint,
+                committer.Topology.Generation,
+                coordinator);
+            if (wasReady || !eligibility.CanCountInWriteQuorum(replicaIndex))
+                return false;
+
+            _ = await committer.TryApplyPendingAsync().ConfigureAwait(false);
+            return true;
+        }
+
         /// <summary>Runs one entry catch-up session, one after another, for each follower the last verification found answering but not verified.</summary>
         /// <param name="reporter">Logs and counts the sessions.</param>
         /// <param name="cancellationToken">Cancellation token; its cancellation ends the running session by throwing.</param>
@@ -21,7 +64,8 @@ internal static class ReplicaGroupCommitterRepair
         /// that caught the follower up admits it under the commit gate before the lease ends; the live entries that waited meanwhile are
         /// then acknowledged or sent in order by the resumed sender.
         /// </remarks>
-        internal Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, CancellationToken cancellationToken) => committer.CatchUpFollowersAsync(reporter, null, cancellationToken);
+        internal Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, CancellationToken cancellationToken) =>
+            committer.CatchUpFollowersAsync(reporter, null, cancellationToken);
 
         /// <summary>Runs one catch-up session per follower the last verification found answering, repairing by state transfer a follower the log cannot catch up.</summary>
         /// <param name="reporter">Logs and counts the sessions.</param>
@@ -45,39 +89,69 @@ internal static class ReplicaGroupCommitterRepair
             return admitted;
         }
 
-        /// <summary>Admits a follower slot a catch-up session verified, under the commit gate, and commits what the slot now covers.</summary>
-        /// <param name="target">The catch-up target: the follower slot, the pipeline whose sender the session ran on, and the led term.</param>
-        /// <param name="result">The session result.</param>
-        /// <param name="cancellationToken">Cancellation token for queueing on the gate.</param>
-        /// <returns><see langword="true" /> when the slot became ready.</returns>
-        /// <remarks>
-        /// Called while the session's lease still holds the sender, so no live entry past the held index reaches the follower, and no
-        /// acknowledgement of one is lost to a slot that does not count yet, before the slot's match index is raised. A slot is never
-        /// admitted into a newer pipeline, nor once the leader log left the led term: a newer leader may have rewritten the entries the
-        /// session read, so what the follower holds proves nothing for this term. A held entry of a term above the led one is refused
-        /// for the same reason.
-        /// </remarks>
-        internal async Task<bool> AdmitCaughtUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpResult result, CancellationToken cancellationToken)
+        /// <summary>Acquires both the write gate and an idle sender without pausing heartbeats while a write holds the gate.</summary>
+        /// <param name="sender">The sender to lease for repair.</param>
+        /// <param name="cancellationToken">Ends the wait for the gate or sender.</param>
+        /// <returns>The lease and guard owned by the caller, or their defaults on a sender timeout.</returns>
+        [SuppressMessage(
+            "Reliability",
+            "CA2000:Dispose objects before losing scope",
+            Justification = "The caller owns both tuple members. Every path that does not return them releases them here.")]
+        private async ValueTask<(ReplicaFollowerCatchUp? Lease, AsyncLockHolder Guard)> AcquireCatchUpAsync(ReplicaFollowerSender sender, CancellationToken cancellationToken)
         {
-            committer.ThrowIfDisposed();
-            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
-            committer.ThrowIfDisposed();
-            if (!ReferenceEquals(committer.RunningPipeline, target.Pipeline) || committer.Coordinator is not { } coordinator || !committer.Registry.TryGetLog(committer.GroupId, out var log))
-                return false;
+            // Yield to the other repair targets if a live request twice takes the released sender.
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var lease = await committer.BeginCatchUpBoundedAsync(sender, cancellationToken).ConfigureAwait(false);
+                if (lease == null)
+                    return default;
 
-            var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-            if (status.CurrentTerm != target.Term || result.HeldTerm > target.Term)
-                return false;
+                AsyncLockHolder guard = default;
+                try
+                {
+                    var pending = committer.CatchUpGate.LockAsync(cancellationToken);
+                    if (pending.IsCompletedSuccessfully)
+                    {
+                        guard = await pending.ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        // A write can hold the gate for its entire quorum budget. While it waits, the returning follower must still receive heartbeats.
+                        lease.Dispose();
+                        lease = null;
+                        guard = await pending.ConfigureAwait(false);
+                        lease = sender.LeaseIfIdle();
+                        if (lease != null)
+                            return (lease, guard);
+                        guard.Dispose();
+                        continue;
+                    }
 
-            var replicaIndex = target.ReplicaIndex;
-            var eligibility = committer.Registry.EligibilityFor(committer.GroupId);
-            var wasReady = eligibility.CanCountInWriteQuorum(replicaIndex);
-            ReplicaReadinessProbe.AdmitCaughtUp(eligibility, replicaIndex, in result, status.CommitIndex, committer.Topology.Fingerprint, committer.Topology.Generation, coordinator);
-            if (wasReady || !eligibility.CanCountInWriteQuorum(replicaIndex))
-                return false;
+                    return (lease, guard);
+                }
+                catch
+                {
+                    lease?.Dispose();
+                    guard.Dispose();
+                    throw;
+                }
+            }
 
-            _ = await committer.TryApplyPendingAsync().ConfigureAwait(false);
-            return true;
+            return default;
+        }
+
+        private async ValueTask<ReplicaFollowerCatchUp?> BeginCatchUpBoundedAsync(ReplicaFollowerSender sender, CancellationToken cancellationToken)
+        {
+            using var deadline = new CancellationTokenSource(ReplicaVerificationProbe.ProbeTimeout, committer.BudgetTimeProvider);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+            try
+            {
+                return await sender.BeginCatchUpAsync(linked.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                return null;
+            }
         }
 
         private async Task<bool> CatchUpFollowerAsync(
@@ -132,18 +206,16 @@ internal static class ReplicaGroupCommitterRepair
                 }
 
                 var (transfers, othersWait) = pass;
-                if (transfers != null && result.Outcome is ReplicaCatchUpOutcome.Unseeded or ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete)
-                {
-                    lease.Dispose();
-                    guard.Dispose();
-                    (lease, guard) = await committer.AcquireCatchUpAsync(target.Sender, catchUpToken).ConfigureAwait(false);
-                    if (lease == null)
-                        return (new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0), false, false);
-                    var transferred = await transfers.RepairAsync(committer, target, (lease, guard), pin, result.Outcome == ReplicaCatchUpOutcome.Unseeded, othersWait, catchUpToken).ConfigureAwait(false);
-                    return (result, false, transferred);
-                }
-
-                return (result, false, result.Outcome is ReplicaCatchUpOutcome.PrefixCopied or ReplicaCatchUpOutcome.CaughtUp);
+                if (transfers == null || result.Outcome is not (ReplicaCatchUpOutcome.Unseeded or ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete))
+                    return (result, false, result.Outcome is ReplicaCatchUpOutcome.PrefixCopied or ReplicaCatchUpOutcome.CaughtUp);
+                lease.Dispose();
+                guard.Dispose();
+                (lease, guard) = await committer.AcquireCatchUpAsync(target.Sender, catchUpToken).ConfigureAwait(false);
+                if (lease == null)
+                    return (new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0), false, false);
+                var transferred = await transfers.RepairAsync(committer, target, (lease, guard), pin, result.Outcome == ReplicaCatchUpOutcome.Unseeded, othersWait, catchUpToken)
+                                                 .ConfigureAwait(false);
+                return (result, false, transferred);
             }
             catch (OperationCanceledException) when (drainStarted.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
@@ -157,69 +229,6 @@ internal static class ReplicaGroupCommitterRepair
             {
                 lease?.Dispose();
                 guard.Dispose();
-            }
-        }
-
-        /// <summary>Acquires both the write gate and an idle sender without pausing heartbeats while a write holds the gate.</summary>
-        /// <param name="sender">The sender to lease for repair.</param>
-        /// <param name="cancellationToken">Ends the wait for the gate or sender.</param>
-        /// <returns>The lease and guard owned by the caller, or their defaults on a sender timeout.</returns>
-        [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The caller owns both tuple members. Every path that does not return them releases them here.")]
-        private async ValueTask<(ReplicaFollowerCatchUp? Lease, AsyncLockHolder Guard)> AcquireCatchUpAsync(ReplicaFollowerSender sender, CancellationToken cancellationToken)
-        {
-            // Yield to the other repair targets if a live request twice takes the released sender.
-            for (var attempt = 0; attempt < 2; attempt++)
-            {
-                var lease = await committer.BeginCatchUpBoundedAsync(sender, cancellationToken).ConfigureAwait(false);
-                if (lease == null)
-                    return default;
-
-                AsyncLockHolder guard = default;
-                try
-                {
-                    var pending = committer.CatchUpGate.LockAsync(cancellationToken);
-                    if (pending.IsCompletedSuccessfully)
-                    {
-                        guard = await pending.ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        // A write can hold the gate for its entire quorum budget. While it waits, the returning follower must still receive heartbeats.
-                        lease.Dispose();
-                        lease = null;
-                        guard = await pending.ConfigureAwait(false);
-                        lease = sender.LeaseIfIdle();
-                        if (lease == null)
-                        {
-                            guard.Dispose();
-                            continue;
-                        }
-                    }
-
-                    return (lease, guard);
-                }
-                catch
-                {
-                    lease?.Dispose();
-                    guard.Dispose();
-                    throw;
-                }
-            }
-
-            return default;
-        }
-
-        private async ValueTask<ReplicaFollowerCatchUp?> BeginCatchUpBoundedAsync(ReplicaFollowerSender sender, CancellationToken cancellationToken)
-        {
-            using var deadline = new CancellationTokenSource(ReplicaVerificationProbe.ProbeTimeout, committer.BudgetTimeProvider);
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-            try
-            {
-                return await sender.BeginCatchUpAsync(linked.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                return null;
             }
         }
 

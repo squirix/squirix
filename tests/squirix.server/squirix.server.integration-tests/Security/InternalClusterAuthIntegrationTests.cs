@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -26,28 +27,31 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// <summary>Verifies external JWT auth and internal cluster mTLS auth remain separated.</summary>
 public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBase
 {
-    /// <summary>Verifies the public listener does not expose peer forwarding.</summary>
+    /// <summary>Verifies a ring fingerprint header on the public listener cannot fence a node when it is not sent by a trusted peer.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PublicListenerRejectsPeerReads(CancellationToken cancellationToken)
+    public async Task ExternalRingHeaderDoesNotFence(CancellationToken cancellationToken)
     {
-        var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "external-ring-header");
+        using var channel = CreateBinaryChannel(cluster["node-a"].Uri);
+        var client = new CacheWireClient(channel);
 
-        await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) }, cancellationToken);
+        var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+        _ = await Assert.That(response.Found).IsFalse();
+        await AssertReadyAsync(cluster["node-a"], cancellationToken);
 
-        using var channelHandler = LoopbackHttp.CreateHandler();
-        using var channel = new HttpClient(channelHandler, false) { BaseAddress = cluster["node-a"].Uri };
-        var client = channel;
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(
-            client.GetValueAsync(
-                new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" },
-                cancellationToken: cancellationToken),
+        var spoofed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "squirix-ring-fingerprint", "garbage" } };
+        using var legacyHandler = LoopbackHttp.CreateHandler();
+        using var legacy = new HttpClient(legacyHandler, false);
+        legacy.BaseAddress = cluster["node-a"].Uri;
+        var rejected = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(
+            legacy.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, spoofed, cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsNull();
+        _ = await Assert.That(rejected.StatusCode).IsNull();
+        await AssertReadyAsync(cluster["node-a"], cancellationToken);
     }
 
     /// <summary>Verifies cluster forwarding over trusted internode mTLS succeeds without propagating external JWT.</summary>
@@ -96,31 +100,12 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var tlsOptions = await CreateCaTrustingTlsOptionsAsync("node-b", peers, cancellationToken);
         var client = new PeerSocketProbe(interNodeUrl, tlsOptions);
 
-        var ex = await NodeAsyncAssert.ThrowsAnyAsync<System.IO.IOException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, cancellationToken: cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex).IsNotNull();
-    }
-
-    /// <summary>Verifies a ring fingerprint header on the public listener cannot fence a node when it is not sent by a trusted peer.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ExternalRingHeaderDoesNotFence(CancellationToken cancellationToken)
-    {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
-        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "external-ring-header");
-        using var channel = CreateBinaryChannel(cluster["node-a"].Uri);
-        var client = new CacheWireClient(channel);
-
-        var response = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
-        _ = await Assert.That(response.Found).IsFalse();
-        await AssertReadyAsync(cluster["node-a"], cancellationToken);
-
-        var spoofed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "squirix-ring-fingerprint", "garbage" } };
-        using var legacyHandler = LoopbackHttp.CreateHandler();
-        using var legacy = new HttpClient(legacyHandler, false) { BaseAddress = cluster["node-a"].Uri };
-        var legacyClient = legacy;
-        var rejected = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(legacyClient.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, spoofed, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(rejected.StatusCode).IsNull();
-        await AssertReadyAsync(cluster["node-a"], cancellationToken);
     }
 
     /// <summary>Verifies external JWT auth on the primary listener does not need to propagate to internode forwarding.</summary>
@@ -149,6 +134,69 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             cancellationToken: cancellationToken);
 
         _ = await Assert.That(setResponse.Added).IsTrue();
+    }
+
+    /// <summary>Verifies trusted internode reads with internal owner-routing metadata are rejected when the key is not owned locally.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnerRpcReadWrongNodeReturnsStaleOwner(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        var peers = cluster.Peers;
+
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "stale-owner-read");
+        var nodeBUrl = FindPeer(peers, "node-b").Uri;
+        var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
+
+        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
+        var client = new PeerSocketProbe(interNodeUrlA, tlsOptions);
+        var headers = CreateOwnerHeaders(cluster["node-a"].GetRequiredService<RingFingerprint>().Value);
+
+        var value = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, headers, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        var entry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, headers, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        var expiration = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, headers, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+
+        _ = await Assert.That(value.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(value.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(entry.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(entry.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(expiration.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(expiration.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+    }
+
+    /// <summary>Verifies a trusted internode owner call with a different ring fingerprint is refused before it executes and fences the receiver.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnerRpcWithWrongRingFingerprintRefused(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+
+        await AssertOwnerRpcRefusedAsync(cluster, CreateOwnerHeaders(new string('0', 64)), "wrong-ring-fingerprint", cancellationToken);
+    }
+
+    /// <summary>Verifies a trusted internode owner call without a ring fingerprint is refused before it executes and fences the receiver.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnerRpcWithoutRingFingerprintRefused(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+
+        await AssertOwnerRpcRefusedAsync(cluster, CreateOwnerHeaders(null), "no-ring-fingerprint", cancellationToken);
     }
 
     /// <summary>Verifies trusted internode mTLS with internal owner-routing metadata is rejected when the key is not owned locally.</summary>
@@ -188,55 +236,29 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(ex.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
     }
 
-    /// <summary>Verifies a trusted internode owner call without a ring fingerprint is refused before it executes and fences the receiver.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
+    /// <summary>Verifies the public listener does not expose peer forwarding.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task OwnerRpcWithoutRingFingerprintRefused(CancellationToken cancellationToken)
+    public async Task PublicListenerRejectsPeerReads(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
 
-        await AssertOwnerRpcRefusedAsync(cluster, CreateOwnerHeaders(null), "no-ring-fingerprint", cancellationToken);
-    }
+        await using var cluster = await StartClusterAsync(
+            "node-a",
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            cancellationToken);
 
-    /// <summary>Verifies a trusted internode owner call with a different ring fingerprint is refused before it executes and fences the receiver.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task OwnerRpcWithWrongRingFingerprintRefused(CancellationToken cancellationToken)
-    {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        using var channelHandler = LoopbackHttp.CreateHandler();
+        using var channel = new HttpClient(channelHandler, false) { BaseAddress = cluster["node-a"].Uri };
+        var client = channel;
 
-        await AssertOwnerRpcRefusedAsync(cluster, CreateOwnerHeaders(new string('0', 64)), "wrong-ring-fingerprint", cancellationToken);
-    }
+        var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" }, cancellationToken: cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
-    /// <summary>Verifies trusted internode reads with internal owner-routing metadata are rejected when the key is not owned locally.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task OwnerRpcReadWrongNodeReturnsStaleOwner(CancellationToken cancellationToken)
-    {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
-        var peers = cluster.Peers;
-
-        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "stale-owner-read");
-        var nodeBUrl = FindPeer(peers, "node-b").Uri;
-        var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
-
-        var tlsOptions = await CreateTrustedInterNodeTlsOptionsAsync("node-b", nodeBUrl, "node-a", peers, cancellationToken);
-        var client = new PeerSocketProbe(interNodeUrlA, tlsOptions);
-        var headers = CreateOwnerHeaders(cluster["node-a"].GetRequiredService<RingFingerprint>().Value);
-
-        var value = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, headers, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var entry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, headers, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var expiration = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, headers, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(value.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
-        _ = await Assert.That(value.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(entry.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
-        _ = await Assert.That(entry.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(expiration.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
-        _ = await Assert.That(expiration.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(ex.StatusCode).IsNull();
     }
 
     /// <summary>Verifies the public listener rejects peer forwarding even with JWT auth.</summary>
@@ -292,7 +314,11 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         throw new InvalidOperationException("Expected peer was not found.");
     }
 
-    private async Task AssertOwnerRpcRefusedAsync(TestCluster<IntegrationStartOptions> cluster, Dictionary<string, string> headers, string keySeed, CancellationToken cancellationToken)
+    private async Task AssertOwnerRpcRefusedAsync(
+        TestCluster<IntegrationStartOptions> cluster,
+        Dictionary<string, string> headers,
+        string keySeed,
+        CancellationToken cancellationToken)
     {
         var peers = cluster.Peers;
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", keySeed);
@@ -322,7 +348,11 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         // The receiver is fenced: even a client call is refused, and the refused write left no trace in the cache or the idempotency store.
         using var clientChannel = CreateBinaryChannel(cluster["node-a"].Uri);
         var clientA = new CacheWireClient(clientChannel);
-        var fenced = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var fenced = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(fenced.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(fenced.FindTrailer("squirix-error-code")).IsEqualTo("ring-fenced");

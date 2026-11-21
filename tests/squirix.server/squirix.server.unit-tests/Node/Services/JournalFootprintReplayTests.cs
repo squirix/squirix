@@ -28,35 +28,7 @@ public sealed class JournalFootprintReplayTests : IsolatedStorageTestBase
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-footprint-replay";
 
-    private JournalReplayKit Kit => new(Dir, _testMeter);
-
-    /// <summary>After sets, a replace, a touch and a remove, the recovered cache accounts the bytes the written cache held.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RecoveredCacheKeepsAccountedBytes(CancellationToken cancellationToken)
-    {
-        var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
-        long before;
-        int entriesBefore;
-        await using (var session = await Kit.OpenAsync(clock, cancellationToken))
-        {
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("first", expiration: TimeSpan.FromHours(1)), cancellationToken);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "b", new NodeCacheEntry<string>("second"), cancellationToken);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "c", new NodeCacheEntry<string>("third"), cancellationToken);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("a much longer replacement", expiration: TimeSpan.FromHours(1)), cancellationToken);
-            _ = await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "b", TimeSpan.FromHours(1), cancellationToken);
-            _ = await session.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "c", cancellationToken);
-            before = BytesOf(session.Physical);
-            entriesBefore = CountOf(session.Physical);
-        }
-
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken);
-
-        _ = await Assert.That(entriesBefore).IsEqualTo(2);
-        _ = await Assert.That(before).IsGreaterThan(0L);
-        _ = await Assert.That(CountOf(recovered)).IsEqualTo(entriesBefore);
-        _ = await Assert.That(BytesOf(recovered)).IsEqualTo(before);
-    }
+    private JournalReplayKit Kit => new(Dir);
 
     /// <summary>Integer and floating-point values, which the codec returns as Int64 and Double, account the same bytes after a replay as in memory before it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -93,6 +65,34 @@ public sealed class JournalFootprintReplayTests : IsolatedStorageTestBase
 
         _ = await Assert.That(CountOf(recovered)).IsEqualTo(values.Length);
         _ = await Assert.That(BytesOf(recovered)).IsEqualTo(BytesOf(written));
+    }
+
+    /// <summary>After sets, a replace, a touch and a remove, the recovered cache accounts the bytes the written cache held.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredCacheKeepsAccountedBytes(CancellationToken cancellationToken)
+    {
+        var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
+        long before;
+        int entriesBefore;
+        await using (var session = await Kit.OpenAsync(clock, cancellationToken))
+        {
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("first", expiration: TimeSpan.FromHours(1)), cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "b", new NodeCacheEntry<string>("second"), cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "c", new NodeCacheEntry<string>("third"), cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("a much longer replacement", expiration: TimeSpan.FromHours(1)), cancellationToken);
+            _ = await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "b", TimeSpan.FromHours(1), cancellationToken);
+            _ = await session.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "c", cancellationToken);
+            before = BytesOf(session.Physical);
+            entriesBefore = CountOf(session.Physical);
+        }
+
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken);
+
+        _ = await Assert.That(entriesBefore).IsEqualTo(2);
+        _ = await Assert.That(before).IsGreaterThan(0L);
+        _ = await Assert.That(CountOf(recovered)).IsEqualTo(entriesBefore);
+        _ = await Assert.That(BytesOf(recovered)).IsEqualTo(before);
     }
 
     /// <inheritdoc />

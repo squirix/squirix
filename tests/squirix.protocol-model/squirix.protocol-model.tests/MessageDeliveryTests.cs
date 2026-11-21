@@ -191,7 +191,7 @@ public sealed class MessageDeliveryTests
         _ = await Assert.That(state.Fingerprint(false)).IsEqualTo(before);
     }
 
-    private static bool ConsumedMiddle(ClusterState state) => state.Messages is [{ Id: 10 } _, { Id: 30 } _];
+    private static bool ConsumedMiddle(ClusterState state) => state.Messages is [{ Id: 10 }, { Id: 30 }];
 
     private static NodeState[] CreateNodes(int count)
     {

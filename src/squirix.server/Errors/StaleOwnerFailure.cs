@@ -26,12 +26,10 @@ internal static class StaleOwnerFailure
     {
         var error = new BinaryCallError { Detail = detail };
         error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.ErrorCodeMetadataKey, Text = code });
-        if (!string.IsNullOrEmpty(leader) && !leader.AsSpan().ContainsAnyExceptInRange(' ', '~'))
-        {
-            error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.LeaderNodeIdMetadataKey, Text = leader });
-            error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.LeaderTermMetadataKey, Text = term.ToString(CultureInfo.InvariantCulture) });
-        }
-
+        if (string.IsNullOrEmpty(leader) || leader.AsSpan().ContainsAnyExceptInRange(' ', '~'))
+            return new ServerCallException(FrameStatus.FailedPrecondition, error);
+        error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.LeaderNodeIdMetadataKey, Text = leader });
+        error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = StaleOwnerMarkers.LeaderTermMetadataKey, Text = term.ToString(CultureInfo.InvariantCulture) });
         return new ServerCallException(FrameStatus.FailedPrecondition, error);
     }
 

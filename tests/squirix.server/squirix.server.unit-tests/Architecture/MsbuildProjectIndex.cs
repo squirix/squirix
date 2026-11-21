@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -33,24 +32,6 @@ internal sealed class MsbuildProjectIndex
     internal bool ContainsElement(string localName) => _localNames.Contains(localName);
 
     internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
-
-    internal async Task<XPathNavigator> RequireIncludedElementAsync(string localName, string include)
-    {
-        _ = await Assert.That(_includedElements.TryGetValue(localName, out var elements)).IsTrue();
-        var present = (await Assert.That(elements).IsNotNull())!;
-
-        XPathNavigator? match = null;
-        for (var i = 0; i < present.Count; i++)
-        {
-            var element = present[i];
-            if (!string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
-                continue;
-            match = element;
-            break;
-        }
-
-        return await Assert.That(match).IsNotNull();
-    }
 
     internal async Task<string> RequirePropertyAsync(string propertyName)
     {

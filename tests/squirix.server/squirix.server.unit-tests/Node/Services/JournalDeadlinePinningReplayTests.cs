@@ -30,7 +30,7 @@ public sealed class JournalDeadlinePinningReplayTests : IsolatedStorageTestBase
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-pinning";
 
-    private JournalReplayKit Kit => new(Dir, _testMeter);
+    private JournalReplayKit Kit => new(Dir);
 
     /// <summary>A set with an absolute deadline one tick past a millisecond boundary keeps the rounded-up deadline in memory, journal and replay.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

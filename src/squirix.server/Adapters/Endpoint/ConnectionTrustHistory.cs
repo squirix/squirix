@@ -7,8 +7,8 @@ namespace Squirix.Server.Adapters.Endpoint;
 /// <summary>Keeps bounded, conservatively timed proof of configurations validated as current.</summary>
 internal sealed class ConnectionTrustHistory
 {
-    private readonly Lock _gate = new();
     private readonly List<Entry> _entries = [];
+    private readonly Lock _gate = new();
 
     internal static bool IsCurrent(AuthenticatedConnection connection, DateTime now)
     {
@@ -16,29 +16,6 @@ internal sealed class ConnectionTrustHistory
                (connection.Options.Metadata is { } manager &&
                 manager.UseLastKnownGoodConfiguration &&
                 now - started < manager.LastKnownGoodLifetime);
-    }
-
-    internal bool TryAuthorize(
-        JwtValidationOptions options,
-        JwtMetadata? configuration,
-        TrustEvidence token,
-        DateTime started,
-        TimeSpan observedLifetime,
-        ref DateTime expires,
-        out DateTime? historicalStarted)
-    {
-        historicalStarted = null;
-        if (configuration == null || options.Metadata is not { } manager)
-            return true;
-        if (Matches(configuration, token, options))
-        {
-            Record(configuration, options, started, observedLifetime < manager.LastKnownGoodLifetime ? observedLifetime : manager.LastKnownGoodLifetime);
-            return true;
-        }
-
-        return HasExplicitTrust(configuration, options, token) ||
-               (manager.UseLastKnownGoodConfiguration &&
-                TryHistorical(options, manager.LastKnownGoodLifetime, token, started, ref expires, out historicalStarted));
     }
 
     internal IReadOnlyList<JwtMetadata> GetCandidates(JwtValidationOptions options, DateTime now)
@@ -59,8 +36,35 @@ internal sealed class ConnectionTrustHistory
         }
     }
 
-    private static bool Matches(JwtMetadata configuration, TrustEvidence token, JwtValidationOptions parameters) =>
-        ContainsKey(configuration, token.SigningKey) && parameters.AcceptsIssuer(token.Issuer, configuration);
+    internal bool TryAuthorize(
+        JwtValidationOptions options,
+        JwtMetadata? configuration,
+        TrustEvidence token,
+        DateTime started,
+        TimeSpan observedLifetime,
+        ref DateTime expires,
+        out DateTime? historicalStarted)
+    {
+        historicalStarted = null;
+        if (configuration == null || options.Metadata is not { } manager)
+            return true;
+        if (!Matches(configuration, token, options))
+        {
+            return HasExplicitTrust(configuration, options, token) || (manager.UseLastKnownGoodConfiguration && TryHistorical(
+                options,
+                manager.LastKnownGoodLifetime,
+                token,
+                started,
+                ref expires,
+                out historicalStarted));
+        }
+
+        Record(configuration, options, started, observedLifetime < manager.LastKnownGoodLifetime ? observedLifetime : manager.LastKnownGoodLifetime);
+        return true;
+    }
+
+    private static DateTime AddClamped(DateTime started, TimeSpan lifetime) =>
+        lifetime.Ticks > DateTime.MaxValue.Ticks - started.Ticks ? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc) : started.Add(lifetime);
 
     private static bool ContainsKey(JwtMetadata configuration, JwtVerificationKey? key)
     {
@@ -77,8 +81,8 @@ internal sealed class ConnectionTrustHistory
     private static bool HasExplicitTrust(JwtMetadata configuration, JwtValidationOptions parameters, TrustEvidence token)
         => ReferenceEquals(parameters.SigningKey, token.SigningKey) && parameters.AcceptsIssuer(token.Issuer, configuration);
 
-    private static DateTime AddClamped(DateTime started, TimeSpan lifetime) =>
-        lifetime.Ticks > DateTime.MaxValue.Ticks - started.Ticks ? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc) : started.Add(lifetime);
+    private static bool Matches(JwtMetadata configuration, TrustEvidence token, JwtValidationOptions parameters) =>
+        ContainsKey(configuration, token.SigningKey) && parameters.AcceptsIssuer(token.Issuer, configuration);
 
     private void Record(JwtMetadata configuration, JwtValidationOptions options, DateTime started, TimeSpan lifetime)
     {

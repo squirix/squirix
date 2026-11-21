@@ -38,14 +38,14 @@ internal static class RecoveryLog
 
     private static class Events
     {
-        internal static readonly LogEvent JournalRecoveryFailedEvent = new(2004, nameof(RecoveryLog.JournalRecoveryFailed), "Background journal recovery failed.");
+        internal static readonly LogEvent JournalRecoveryFailedEvent = new(2004, nameof(JournalRecoveryFailed), "Background journal recovery failed.");
 
-        internal static readonly LogEvent RecoveryCompleteEvent = new(2003, nameof(RecoveryLog.RecoveryComplete), "Recovery complete. fromSegment={FromSegment}, lastAppliedSeq={Seq}");
+        internal static readonly LogEvent RecoveryCompleteEvent = new(2003, nameof(RecoveryComplete), "Recovery complete. fromSegment={FromSegment}, lastAppliedSeq={Seq}");
 
-        internal static readonly LogEvent RecoveryFailedToLoadSnapshotEvent = new(2002, nameof(RecoveryLog.RecoveryFailedToLoadSnapshot), "Failed to load snapshot at {Path}. Falling back to journal-only recovery.");
+        internal static readonly LogEvent RecoveryFailedToLoadSnapshotEvent = new(2002, nameof(RecoveryFailedToLoadSnapshot), "Failed to load snapshot at {Path}. Falling back to journal-only recovery.");
 
-        internal static readonly LogEvent RecoveryLoadedSnapshotEvent = new(2001, nameof(RecoveryLog.RecoveryLoadedSnapshot), "Loaded snapshot index={Index}, lastAppliedSeq={Seq}");
+        internal static readonly LogEvent RecoveryLoadedSnapshotEvent = new(2001, nameof(RecoveryLoadedSnapshot), "Loaded snapshot index={Index}, lastAppliedSeq={Seq}");
 
-        internal static readonly LogEvent RecoveryReplayBoundaryEvent = new(2009, nameof(RecoveryLog.RecoveryReplayBoundary), "Recovery replay boundary: snapshotPresent={SnapshotPresent}, manifestCurrentJournal={ManifestCurrentJournal}, firstAvailableJournal={FirstAvailableJournal}, chosenFromSegment={ChosenFromSegment}");
+        internal static readonly LogEvent RecoveryReplayBoundaryEvent = new(2009, nameof(RecoveryReplayBoundary), "Recovery replay boundary: snapshotPresent={SnapshotPresent}, manifestCurrentJournal={ManifestCurrentJournal}, firstAvailableJournal={FirstAvailableJournal}, chosenFromSegment={ChosenFromSegment}");
     }
 }

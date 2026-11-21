@@ -38,9 +38,7 @@ internal static class SecurityServiceRegistration
             throw new InvalidOperationException("SQUIRIX_JWT_SIGNING_KEY must be base64.", ex);
         }
 
-        return key.Length >= MinSigningKeyBytes
-            ? key
-            : throw new InvalidOperationException($"SQUIRIX_JWT_SIGNING_KEY must decode to at least {MinSigningKeyBytes} bytes.");
+        return key.Length >= MinSigningKeyBytes ? key : throw new InvalidOperationException($"SQUIRIX_JWT_SIGNING_KEY must decode to at least {MinSigningKeyBytes} bytes.");
     }
 
     private static void RegisterNativeAuthentication(NodeServices services, in ResolvedSecurityConfiguration configuration)
@@ -58,8 +56,7 @@ internal static class SecurityServiceRegistration
             Metadata = metadata,
         };
         _ = services.Use<Func<JwtValidationOptions>>(() => options);
-        _ = services.Own(static provider => new NativeConnectionAuthenticationValidator(
-            provider.Require<Func<JwtValidationOptions>>(), TimeProvider.System, provider));
+        _ = services.Own(static provider => new NativeConnectionAuthenticationValidator(provider.Require<Func<JwtValidationOptions>>(), TimeProvider.System, provider));
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()
@@ -86,6 +83,18 @@ internal static class SecurityServiceRegistration
         return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, securityOptionsOverride.JwtAllowHttpMetadata, signingKeyBytes);
     }
 
+    private static void ValidateAudience(in ResolvedSecurityConfiguration configuration)
+    {
+        if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
+            return;
+
+        if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority))
+            throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
+
+        if (configuration.SigningKeyBytes != null)
+            throw new InvalidOperationException("SQUIRIX_JWT_SIGNING_KEY requires SQUIRIX_JWT_AUDIENCE.");
+    }
+
     private static void ValidateSecurityConfiguration(in ResolvedSecurityConfiguration configuration)
     {
         if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer) && configuration.SigningKeyBytes == null && string.IsNullOrWhiteSpace(configuration.JwtAuthority))
@@ -100,25 +109,8 @@ internal static class SecurityServiceRegistration
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
     }
 
-    private static void ValidateAudience(in ResolvedSecurityConfiguration configuration)
-    {
-        if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
-            return;
-
-        if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority))
-            throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
-
-        if (configuration.SigningKeyBytes != null)
-            throw new InvalidOperationException("SQUIRIX_JWT_SIGNING_KEY requires SQUIRIX_JWT_AUDIENCE.");
-    }
-
     [Immutable]
-    private readonly record struct ResolvedSecurityConfiguration(
-        string JwtAuthority,
-        string JwtAudience,
-        string JwtIssuer,
-        bool JwtAllowHttpMetadata,
-        byte[]? SigningKeyBytes)
+    private readonly record struct ResolvedSecurityConfiguration(string JwtAuthority, string JwtAudience, string JwtIssuer, bool JwtAllowHttpMetadata, byte[]? SigningKeyBytes)
     {
         internal bool JwtEnabled => !string.IsNullOrWhiteSpace(JwtAuthority) || SigningKeyBytes != null;
     }

@@ -56,19 +56,6 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     }
 
     /// <inheritdoc />
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheValueRead<object?>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (!IsExpired(read.ExpiresUtc))
-            return read;
-
-        var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return entry == null ? default : new NodeCacheValueRead<object?>(true, entry.Value, entry.ExpiresUtc);
-    }
-
-    /// <inheritdoc />
     /// <exception cref="ServerCallException">
     /// The entry expired and its tombstone could not commit: Unavailable, retryable. Also every refusal <see cref="GetEntryAsync" /> makes
     /// before it reads.
@@ -84,6 +71,19 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
 
         var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return entry == null ? new NodeCacheValueResult<object?>(false, null) : new NodeCacheValueResult<object?>(true, entry.Value);
+    }
+
+    /// <inheritdoc />
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    public async ValueTask<NodeCacheValueRead<object?>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (!IsExpired(read.ExpiresUtc))
+            return read;
+
+        var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return entry == null ? default : new NodeCacheValueRead<object?>(true, entry.Value, entry.ExpiresUtc);
     }
 
     /// <inheritdoc />
@@ -132,15 +132,19 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
 
         var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
         var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
-        if (policy.SlidingTicks != null)
-        {
-            var (_, renewTo, expired) = DistributedCacheAccess.Decide(entry, committer.Clock.GetUtcNow().UtcDateTime);
-            if (expired || renewTo != null)
-                return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
-        }
-
-        return readOnlyResult;
+        if (policy.SlidingTicks == null)
+            return readOnlyResult;
+        var (_, renewTo, expired) = DistributedCacheAccess.Decide(entry, committer.Clock.GetUtcNow().UtcDateTime);
+        return expired || renewTo != null
+            ? await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
+            : readOnlyResult;
     }
+
+    /// <summary>Tells whether a member of the group that owns a key recently reported critical memory pressure, so a write must not grow the group.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <returns><see langword="true" /> while a member's report is within its lifetime.</returns>
+    internal bool HasMemberPressure(string cacheName, string key) => _committers.HasMemberPressure(cacheName, key);
 
     /// <summary>Reads the stored entry of a key without deciding its expiry: an entry past its deadline on the leader clock reads as absent.</summary>
     /// <param name="cacheName">Target cache name.</param>
@@ -176,25 +180,6 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         return new NodeCacheEntryPeek<object?>(entry, IsExpired(entry?.ExpiresUtc));
     }
 
-    /// <summary>Tells whether a member of the group that owns a key recently reported critical memory pressure, so a write must not grow the group.</summary>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <returns><see langword="true" /> while a member's report is within its lifetime.</returns>
-    internal bool HasMemberPressure(string cacheName, string key) => _committers.HasMemberPressure(cacheName, key);
-
-    /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
-    /// <param name="expiresUtc">The deadline of the stored entry, or <see langword="null" /> for none or no entry.</param>
-    /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>
-    private bool IsExpired(DateTime? expiresUtc) => expiresUtc is { } deadline && deadline.Ticks <= _committers.Clock.GetUtcNow().UtcDateTime.Ticks;
-
-    /// <summary>Fences a read: under quorum reads on the read index of the leader of the group that owns the key, otherwise on the seeding of the copy.</summary>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="key">Target key.</param>
-    /// <param name="cancellationToken">Cancellation token for this read.</param>
-    /// <returns>A task that completes when the read may run.</returns>
-    private ValueTask FenceReadAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _quorumReads ? new ValueTask(_committers.ForKey(cacheName, key).ConfirmReadAsync(cancellationToken)) : _committers.EnsureSeededAsync(cancellationToken);
-
     /// <summary>Expires the key on the leader and reports what the committed decision leaves.</summary>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
@@ -223,4 +208,17 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
             ? throw ServerOpContract.ExpirationPending(new InvalidOperationException("The entry passed its deadline while the batch that found it live was committing."))
             : entry;
     }
+
+    /// <summary>Fences a read: under quorum reads on the read index of the leader of the group that owns the key, otherwise on the seeding of the copy.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token for this read.</param>
+    /// <returns>A task that completes when the read may run.</returns>
+    private ValueTask FenceReadAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _quorumReads ? new ValueTask(_committers.ForKey(cacheName, key).ConfirmReadAsync(cancellationToken)) : _committers.EnsureSeededAsync(cancellationToken);
+
+    /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
+    /// <param name="expiresUtc">The deadline of the stored entry, or <see langword="null" /> for none or no entry.</param>
+    /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>
+    private bool IsExpired(DateTime? expiresUtc) => expiresUtc is { } deadline && deadline.Ticks <= _committers.Clock.GetUtcNow().UtcDateTime.Ticks;
 }

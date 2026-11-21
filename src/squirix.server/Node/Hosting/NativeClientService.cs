@@ -362,8 +362,8 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
 
     private static class Events
     {
-        internal static readonly LogEvent LogManagementCertificateMismatchEvent = new(3037, nameof(NativeClientService.LogManagementCertificateMismatch), "The TLS certificate does not cover the default management origin {ManagementUri}. Set SQUIRIX_MANAGEMENT_URI to a bound address covered by the certificate");
+        internal static readonly LogEvent LogManagementCertificateMismatchEvent = new(3037, nameof(LogManagementCertificateMismatch), "The TLS certificate does not cover the default management origin {ManagementUri}. Set SQUIRIX_MANAGEMENT_URI to a bound address covered by the certificate");
 
-        internal static readonly LogEvent LogListeningEvent = new(3036, nameof(NativeClientService.LogListening), "Listening on {Endpoint}");
+        internal static readonly LogEvent LogListeningEvent = new(3036, nameof(LogListening), "Listening on {Endpoint}");
     }
 }

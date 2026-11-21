@@ -17,41 +17,6 @@ namespace Squirix.ProtocolModel;
 /// </remarks>
 internal static class ModelHintHistory
 {
-    /// <summary>Records that a member named one more successor in a term.</summary>
-    /// <param name="previous">The evidence recorded so far.</param>
-    /// <param name="sender">The member that named a successor.</param>
-    /// <param name="term">The term it named the successor in.</param>
-    /// <param name="successor">The successor it named.</param>
-    /// <returns>
-    /// The evidence including this naming, ordered by member then term; the same list when this naming tells it nothing
-    /// new, which is the case for the first successor repeated and for every later naming once a second one is recorded.
-    /// </returns>
-    internal static IReadOnlyList<ModelHintEmission> With(
-        IReadOnlyList<ModelHintEmission> previous,
-        int sender,
-        int term,
-        int successor)
-    {
-        for (var i = 0; i < previous.Count; i++)
-        {
-            var known = previous[i];
-            if (known.Sender != sender || known.Term != term)
-                continue;
-
-            if (known.SecondSuccessor >= 0 || known.FirstSuccessor == successor)
-                return previous;
-
-            List<ModelHintEmission> replaced = [.. previous];
-            replaced[i] = known with { SecondSuccessor = successor };
-            return replaced.AsReadOnly();
-        }
-
-        List<ModelHintEmission> added = [.. previous];
-        added.Add(new ModelHintEmission(sender, term, successor, -1));
-        added.Sort(static (a, b) => CompareOrder(in a, in b));
-        return added.AsReadOnly();
-    }
-
     /// <summary>Drops the evidence about members that can no longer name another successor in that term.</summary>
     /// <param name="previous">The evidence recorded so far.</param>
     /// <param name="nodes">The members of the state being built.</param>
@@ -90,6 +55,44 @@ internal static class ModelHintHistory
         }
 
         return kept.AsReadOnly();
+    }
+
+    /// <summary>Records that a member named one more successor in a term.</summary>
+    /// <param name="previous">The evidence recorded so far.</param>
+    /// <param name="sender">The member that named a successor.</param>
+    /// <param name="term">The term it named the successor in.</param>
+    /// <param name="successor">The successor it named.</param>
+    /// <returns>
+    /// The evidence including this naming, ordered by member then term; the same list when this naming tells it nothing
+    /// new, which is the case for the first successor repeated and for every later naming once a second one is recorded.
+    /// </returns>
+    internal static IReadOnlyList<ModelHintEmission> With(
+        IReadOnlyList<ModelHintEmission> previous,
+        int sender,
+        int term,
+        int successor)
+    {
+        for (var i = 0; i < previous.Count; i++)
+        {
+            var known = previous[i];
+            if (known.Sender != sender || known.Term != term)
+                continue;
+
+            if (known.SecondSuccessor >= 0 || known.FirstSuccessor == successor)
+                return previous;
+
+            List<ModelHintEmission> replaced = [.. previous];
+            replaced[i] = known with { SecondSuccessor = successor };
+            return replaced.AsReadOnly();
+        }
+
+        List<ModelHintEmission> added =
+        [
+            .. previous,
+            new(sender, term, successor, -1),
+        ];
+        added.Sort(static (a, b) => CompareOrder(in a, in b));
+        return added.AsReadOnly();
     }
 
     private static bool CanStillName(in ModelHintEmission record, IReadOnlyList<NodeState> nodes)

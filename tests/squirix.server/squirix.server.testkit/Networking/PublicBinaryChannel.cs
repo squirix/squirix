@@ -5,6 +5,8 @@ using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Security.Authentication;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -17,11 +19,11 @@ namespace Squirix.Server.TestKit.Networking;
 /// <summary>Sends public binary frames while reusing generated protobuf method descriptors in the raw wire tests.</summary>
 public sealed class PublicBinaryChannel : IDisposable
 {
-    private readonly Uri _uri;
-    private readonly string? _token;
     private readonly Action<byte>? _acknowledgement;
     private readonly ConcurrentBag<SslStream> _idle = [];
     private readonly Lock _lifetime = new();
+    private readonly string? _token;
+    private readonly Uri _uri;
     private int _disposed;
 
     /// <summary>Initializes a new instance of the <see cref="PublicBinaryChannel" /> class.</summary>
@@ -67,11 +69,10 @@ public sealed class PublicBinaryChannel : IDisposable
             var (value, failure) = await ReadReplyAsync(stream, parser, timeout.Token).ConfigureAwait(false);
             lock (_lifetime)
             {
-                if (Volatile.Read(ref _disposed) == 0)
-                {
-                    _idle.Add(stream);
-                    stream = null;
-                }
+                if (Volatile.Read(ref _disposed) != 0)
+                    return failure == null ? value! : throw failure;
+                _idle.Add(stream);
+                stream = null;
             }
 
             return failure == null ? value! : throw failure;
@@ -84,7 +85,7 @@ public sealed class PublicBinaryChannel : IDisposable
         {
             throw new ServerCallException(FrameStatus.DataLoss, error.Message);
         }
-        catch (Exception error) when (error is IOException or SocketException or System.Security.Authentication.AuthenticationException)
+        catch (Exception error) when (error is IOException or SocketException or AuthenticationException)
         {
             throw new ServerCallException(FrameStatus.Unavailable, error.Message);
         }
@@ -94,8 +95,6 @@ public sealed class PublicBinaryChannel : IDisposable
                 await stream.DisposeAsync().ConfigureAwait(false);
         }
     }
-
-    private static void ThrowUnexpectedResponseId() => throw new InvalidDataException("Unexpected response ID.");
 
     private static async Task<(T? Value, ServerCallException? Failure)> ReadReplyAsync<T>(Stream stream, MessageParser<T> parser, CancellationToken cancellationToken)
         where T : IMessage<T>
@@ -110,6 +109,8 @@ public sealed class PublicBinaryChannel : IDisposable
         await stream.ReadExactlyAsync(body, cancellationToken).ConfigureAwait(false);
         return status == 0 ? (parser.ParseFrom(body), null) : (default, new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(body)));
     }
+
+    private static void ThrowUnexpectedResponseId() => throw new InvalidDataException("Unexpected response ID.");
 
 #pragma warning disable CA2000 // The returned TLS stream owns the socket through NetworkStream.
     private async Task<SslStream> ConnectAsync(CancellationToken cancellationToken)
@@ -156,7 +157,7 @@ public sealed class PublicBinaryChannel : IDisposable
         if (_token == null)
             return;
 
-        var token = System.Text.Encoding.UTF8.GetBytes(_token);
+        var token = Encoding.UTF8.GetBytes(_token);
         var header = GC.AllocateUninitializedArray<byte>(ConnectionAuthenticationProtocol.HeaderLength);
         ConnectionAuthenticationProtocol.WriteRequestHeader(header, token.Length);
         await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);

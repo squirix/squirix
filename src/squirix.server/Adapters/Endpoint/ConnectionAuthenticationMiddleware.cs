@@ -15,8 +15,8 @@ internal sealed class ConnectionAuthenticationMiddleware
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     private readonly Func<BinaryConnection, Task> _next;
-    private readonly NativeConnectionAuthenticationValidator? _validator;
     private readonly TimeProvider _timeProvider;
+    private readonly NativeConnectionAuthenticationValidator? _validator;
 
     internal ConnectionAuthenticationMiddleware(Func<BinaryConnection, Task> next, NativeConnectionAuthenticationValidator? validator, TimeProvider timeProvider)
     {
@@ -53,6 +53,18 @@ internal sealed class ConnectionAuthenticationMiddleware
         await _next(context).ConfigureAwait(false);
     }
 
+    private static string? DecodeToken(byte[] payload, int length)
+    {
+        try
+        {
+            return StrictUtf8.GetString(payload, 0, length);
+        }
+        catch (DecoderFallbackException)
+        {
+            return null;
+        }
+    }
+
     private static (bool IsAuthentication, byte Status, int Length) ParseHeader(in ReadOnlySequence<byte> buffer)
     {
         Span<byte> header = stackalloc byte[ConnectionAuthenticationProtocol.HeaderLength];
@@ -67,18 +79,6 @@ internal sealed class ConnectionAuthenticationMiddleware
         ConnectionAuthenticationProtocol.WriteAcknowledgement(reply.Span[..ConnectionAuthenticationProtocol.HeaderLength], status);
         context.Transport.Output.Advance(ConnectionAuthenticationProtocol.HeaderLength);
         _ = await context.Transport.Output.FlushAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static string? DecodeToken(byte[] payload, int length)
-    {
-        try
-        {
-            return StrictUtf8.GetString(payload, 0, length);
-        }
-        catch (DecoderFallbackException)
-        {
-            return null;
-        }
     }
 
     private async ValueTask<(bool Continue, AuthenticatedConnection? Identity)> ReadAuthenticationAsync(BinaryConnection context, CancellationToken cancellationToken)
@@ -101,30 +101,11 @@ internal sealed class ConnectionAuthenticationMiddleware
         }
 
         input.AdvanceTo(buffer.GetPosition(ConnectionAuthenticationProtocol.HeaderLength));
-        if (status != ConnectionAuthenticationProtocol.Accepted || _validator == null)
-        {
-            await ReplyAsync(context, status == ConnectionAuthenticationProtocol.Accepted ? ConnectionAuthenticationProtocol.InvalidCredentials : status, cancellationToken).ConfigureAwait(false);
-            return (false, null);
-        }
-
-        return await ReadIdentityAsync(context, length, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<(byte Status, AuthenticatedConnection? Identity)> ValidateTokenAsync(string? token, BinaryConnection context, CancellationToken cancellationToken)
-    {
-        if (token == null)
-            return (ConnectionAuthenticationProtocol.InvalidCredentials, null);
-        if (!_validator!.TryEnter())
-            return (ConnectionAuthenticationProtocol.Busy, null);
-        try
-        {
-            var identity = await _validator.ValidateAsync(token, context, cancellationToken).ConfigureAwait(false);
-            return (identity == null ? ConnectionAuthenticationProtocol.InvalidCredentials : ConnectionAuthenticationProtocol.Accepted, identity);
-        }
-        finally
-        {
-            _validator.Exit();
-        }
+        if (status == ConnectionAuthenticationProtocol.Accepted && _validator != null)
+            return await ReadIdentityAsync(context, length, cancellationToken).ConfigureAwait(false);
+        await ReplyAsync(context, status == ConnectionAuthenticationProtocol.Accepted ? ConnectionAuthenticationProtocol.InvalidCredentials : status, cancellationToken)
+           .ConfigureAwait(false);
+        return (false, null);
     }
 
     private async ValueTask<(bool Continue, AuthenticatedConnection? Identity)> ReadIdentityAsync(BinaryConnection context, int length, CancellationToken cancellationToken)
@@ -163,5 +144,22 @@ internal sealed class ConnectionAuthenticationMiddleware
         context.Identity = identity;
         await ReplyAsync(context, ConnectionAuthenticationProtocol.Accepted, cancellationToken).ConfigureAwait(false);
         return (true, identity);
+    }
+
+    private async ValueTask<(byte Status, AuthenticatedConnection? Identity)> ValidateTokenAsync(string? token, BinaryConnection context, CancellationToken cancellationToken)
+    {
+        if (token == null)
+            return (ConnectionAuthenticationProtocol.InvalidCredentials, null);
+        if (!_validator!.TryEnter())
+            return (ConnectionAuthenticationProtocol.Busy, null);
+        try
+        {
+            var identity = await _validator.ValidateAsync(token, context, cancellationToken).ConfigureAwait(false);
+            return (identity == null ? ConnectionAuthenticationProtocol.InvalidCredentials : ConnectionAuthenticationProtocol.Accepted, identity);
+        }
+        finally
+        {
+            _validator.Exit();
+        }
     }
 }
