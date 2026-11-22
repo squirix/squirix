@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Observability.Metrics;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -54,6 +55,94 @@ public sealed class PrometheusMetricsScraperTests
 
         _ = await Assert.That(CountSeriesLines(body, metricName + "{shard=\"0\"}")).IsEqualTo(1);
         _ = await Assert.That(body).Contains(metricName + "_last{shard=\"3\"} 1\n", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies that cache operation series retain exact totals while the exporter scrapes them.</summary>
+    [Test]
+    public async Task ConcurrentScrapesPreserveCacheSeries()
+    {
+        const int workerCount = 4;
+        const int labelCount = 128;
+        const int rounds = 12;
+        using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
+        using var barrier = new Barrier(workerCount + 1);
+        var metrics = new CacheMetrics(meter);
+        var workers = new Task[workerCount];
+        var operations = new string[labelCount];
+        operations[0] = "get";
+        operations[1] = "set";
+        for (var i = 2; i < labelCount; i++)
+            operations[i] = "op-" + i.ToString(CultureInfo.InvariantCulture);
+
+        for (var i = 0; i < workers.Length; i++)
+            workers[i] = StartWriterAsync("private-" + i.ToString(CultureInfo.InvariantCulture));
+
+        for (var round = 0; round < rounds; round++)
+        {
+            WaitForRound(barrier);
+            _ = scraper.Scrape();
+        }
+
+        await Task.WhenAll(workers);
+        var body = scraper.Scrape();
+        foreach (var operation in operations)
+            foreach (var (result, totalDuration, lastDuration) in new[] { ("ok", "12", "0.25"), ("failed", "24", "0.5") })
+            {
+                var labels = $"{{operation=\"{operation}\",result=\"{result}\"}}";
+                _ = await Assert.That(body).Contains($"squirix_ops_total{labels} 48\n", StringComparison.Ordinal);
+                _ = await Assert.That(body).Contains($"squirix_ops_total_last{labels} 1\n", StringComparison.Ordinal);
+                _ = await Assert.That(body).Contains($"squirix_op_latency_seconds{labels} {totalDuration}\n", StringComparison.Ordinal);
+                _ = await Assert.That(body).Contains($"squirix_op_latency_seconds_last{labels} {lastDuration}\n", StringComparison.Ordinal);
+            }
+
+        _ = await Assert.That(body.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length).IsEqualTo(labelCount * 2 * 4);
+
+        Task StartWriterAsync(string cache)
+        {
+            return Task.Factory.StartNew(
+                () =>
+                {
+                    for (var round = 0; round < rounds; round++)
+                    {
+                        WaitForRound(barrier);
+                        foreach (var operation in operations)
+                        {
+                            metrics.RecordOperation(cache, operation, "ok", 0.25d);
+                            metrics.RecordOperation(cache, operation, "failed", 0.5d);
+                        }
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+        }
+    }
+
+    /// <summary>Verifies that the cached and generic tag layouts update the same canonical series.</summary>
+    /// <param name="operation">The literal operation name recorded by the cache metrics.</param>
+    /// <param name="escapedOperation">The expected label value in Prometheus text format.</param>
+    [Test]
+    [Arguments("set", "set")]
+    [Arguments("a\"b\nc\\d", "a\\\"b\\nc\\\\d")]
+    public async Task CacheSeriesMergeEquivalentTagLayouts(string operation, string escapedOperation)
+    {
+        using var meter = new Meter("Squirix");
+        using var scraper = new PrometheusMetricsScraper(meter);
+        var metrics = new CacheMetrics(meter);
+        var reordered = new KeyValuePair<string, object?>[] { new("result", "ok"), new("exception_type", "secret"), new("operation", operation) };
+
+        metrics.RecordOperation("first-private-cache", operation, "ok", 0.25d);
+        metrics.RecordOperation("second-private-cache", operation, "ok", 0.25d);
+        scraper.RecordMeasurement("squirix_ops_total", false, reordered, 3d);
+        scraper.RecordMeasurement("squirix_op_latency_seconds", false, reordered, 0.5d);
+        metrics.RecordOperation("third-private-cache", operation, "ok", 0.125d);
+
+        var labels = "{operation=\"" + escapedOperation + "\",result=\"ok\"}";
+        var body = scraper.Scrape();
+        _ = await Assert.That(body).IsEqualTo(
+            $"squirix_ops_total{labels} 6\nsquirix_op_latency_seconds{labels} 1.125\n" +
+            $"squirix_ops_total_last{labels} 1\nsquirix_op_latency_seconds_last{labels} 0.125\n");
     }
 
     /// <summary>
@@ -266,12 +355,27 @@ public sealed class PrometheusMetricsScraperTests
         var own = meter.CreateCounter<long>("squirix_test_local");
         var other = otherMeter.CreateCounter<long>("squirix_test_other");
 
+        using var otherScraper = new PrometheusMetricsScraper(otherMeter);
+        var cache = new CacheMetrics(meter);
+        var otherCache = new CacheMetrics(otherMeter);
+        for (var i = 0; i < 3; i++)
+        {
+            cache.RecordOperation("own", "get", "ok", 0.25d);
+            otherCache.RecordOperation("other", "get", "ok", 0.5d);
+        }
+
         own.Add(4);
         other.Add(8);
         var body = scraper.Scrape();
 
         _ = await Assert.That(body).Contains("squirix_test_local 4", StringComparison.Ordinal);
         _ = await Assert.That(body).DoesNotContain("squirix_test_other", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_ops_total{operation=\"get\",result=\"ok\"} 3\n", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_op_latency_seconds{operation=\"get\",result=\"ok\"} 0.75\n", StringComparison.Ordinal);
+
+        var otherBody = otherScraper.Scrape();
+        _ = await Assert.That(otherBody).Contains("squirix_ops_total{operation=\"get\",result=\"ok\"} 3\n", StringComparison.Ordinal);
+        _ = await Assert.That(otherBody).Contains("squirix_op_latency_seconds{operation=\"get\",result=\"ok\"} 1.5\n", StringComparison.Ordinal);
     }
 
     /// <summary>Finite extremes and negative zero keep the exact invariant representation under a decimal-comma culture.</summary>
@@ -317,6 +421,12 @@ public sealed class PrometheusMetricsScraperTests
 
         var expected = value.ToString(CultureInfo.InvariantCulture);
         _ = await Assert.That(body).IsEqualTo($"number {expected}\nnumber_last {expected}\n");
+    }
+
+    private static void WaitForRound(Barrier barrier)
+    {
+        if (!barrier.SignalAndWait(TimeSpan.FromSeconds(30), CancellationToken.None))
+            throw new TimeoutException("Timed out synchronizing metric writers and scraper.");
     }
 
     private static int CountSeriesLines(string body, string metricName)

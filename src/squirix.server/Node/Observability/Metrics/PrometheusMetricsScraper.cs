@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.App.Decorators;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
@@ -40,24 +41,23 @@ internal sealed class PrometheusMetricsScraper : IDisposable
     /// <param name="value">The measured value.</param>
     internal void RecordMeasurement(string metric, bool isObservable, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
     {
-        var labels = PrometheusScrapeLabelPolicy.LabelBuffer.Rent();
-        try
+        _ = _metrics.TryGetValue(metric, out var series);
+        if (series?.SuccessfulCacheOperations is { } cache)
         {
-            PrometheusScrapeLabelPolicy.BuildPublicLabelKey(tags, labels);
-            var key = labels.AsSpan();
+            var slot = GetSuccessfulCacheOperationSlot(tags);
+            if (slot >= 0)
+            {
+                var existing = Volatile.Read(ref cache[slot]);
+                if (existing != null)
+                    existing.Record(value, isObservable);
+                else
+                    Volatile.Write(ref cache[slot], RecordWithPublicLabels(metric, series, isObservable, tags, value));
 
-            if (!_metrics.TryGetValue(metric, out var series))
-                series = GetOrAddMetric(metric);
+                return;
+            }
+        }
 
-            if (series.ByLabels.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(key, out var existing))
-                existing.Record(value, isObservable);
-            else
-                series.AddOrRecord(key, value, isObservable, _creationLock);
-        }
-        finally
-        {
-            PrometheusScrapeLabelPolicy.LabelBuffer.Return(labels);
-        }
+        _ = RecordWithPublicLabels(metric, series, isObservable, tags, value);
     }
 
     internal string Scrape()
@@ -69,6 +69,23 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         AppendExportedMetrics(sb, emitted, exported, true);
         AppendExportedMetrics(sb, emitted, exported, false);
         return sb.ToString();
+    }
+
+    private static int GetSuccessfulCacheOperationSlot(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+    {
+        // CacheMetrics supplies these constant keys and values. All other tags use the general label policy.
+        if (tags.Length != 3 || !ReferenceEquals(tags[0].Key, "cache") ||
+            !ReferenceEquals(tags[1].Key, "operation") || !ReferenceEquals(tags[2].Key, "result") ||
+            !ReferenceEquals(tags[2].Value, CacheOperationResults.Ok))
+            return -1;
+
+        var operation = tags[1].Value;
+        return operation switch
+        {
+            _ when ReferenceEquals(operation, CacheOperationNames.Get) => 0,
+            _ when ReferenceEquals(operation, CacheOperationNames.Set) => 1,
+            _ => -1,
+        };
     }
 
     private static void AppendExportedMetrics(StringBuilder sb, HashSet<(string Name, string Labels)> emitted, List<(MetricSeries Metric, string Labels, double Sum, double Last)> exported, bool useSum)
@@ -116,6 +133,27 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         listener.SetMeasurementEventCallback<int>((inst, m, tags, _) => RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
         listener.SetMeasurementEventCallback<double>((inst, m, tags, _) => RecordMeasurement(inst.Name, inst.IsObservable, tags, m));
         return listener;
+    }
+
+    private Series RecordWithPublicLabels(string metric, MetricSeries? series, bool isObservable, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
+    {
+        var labels = PrometheusScrapeLabelPolicy.LabelBuffer.Rent();
+        try
+        {
+            PrometheusScrapeLabelPolicy.BuildPublicLabelKey(tags, labels);
+            var key = labels.AsSpan();
+
+            series ??= GetOrAddMetric(metric);
+            if (!series.ByLabels.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(key, out var existing))
+                return series.AddOrRecord(key, value, isObservable, _creationLock);
+
+            existing.Record(value, isObservable);
+            return existing;
+        }
+        finally
+        {
+            PrometheusScrapeLabelPolicy.LabelBuffer.Return(labels);
+        }
     }
 
     private MetricSeries GetOrAddMetric(string metric)
@@ -387,28 +425,35 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             PrometheusScrapeLabelPolicy.AppendSanitizedMetricName(normalized, name);
             ExportName = normalized.ToString();
             LastExportName = ExportName + "_last";
+            if (string.Equals(name, CacheMetrics.OperationDurationName, StringComparison.Ordinal) ||
+                string.Equals(name, CacheMetrics.OperationsTotalName, StringComparison.Ordinal))
+                SuccessfulCacheOperations = new Series?[2];
         }
 
         internal ConcurrentDictionary<string, Series> ByLabels { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Gets the canonical series references for successful Get and Set operations.</summary>
+        internal Series?[]? SuccessfulCacheOperations { get; }
 
         internal string ExportName { get; }
 
         internal string LastExportName { get; }
 
-        internal void AddOrRecord(ReadOnlySpan<char> labels, double value, bool isObservable, Lock creationLock)
+        internal Series AddOrRecord(ReadOnlySpan<char> labels, double value, bool isObservable, Lock creationLock)
         {
             lock (creationLock)
             {
                 if (ByLabels.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(labels, out var existing))
                 {
                     existing.Record(value, isObservable);
-                    return;
+                    return existing;
                 }
 
                 var key = labels.ToString();
                 var series = new Series(key, value);
                 _inOrder.Add(series);
                 ByLabels[key] = series;
+                return series;
             }
         }
 
