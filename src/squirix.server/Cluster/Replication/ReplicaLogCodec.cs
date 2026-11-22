@@ -79,7 +79,11 @@ internal static class ReplicaLogCodec
     /// </returns>
     internal static bool IsWellFormed(ReadOnlySpan<byte> payload, ulong logIndex, ulong term)
     {
-        if (payload.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(payload) is not (Version or EvictionVersion))
+        if (payload.Length < VersionSize)
+            return false;
+
+        var version = BinaryPrimitives.ReadUInt16LittleEndian(payload);
+        if (version is not (Version or EvictionVersion))
             return false;
 
         var rest = payload[VersionSize..];
@@ -97,12 +101,7 @@ internal static class ReplicaLogCodec
                 return false;
         }
 
-        if (BinaryPrimitives.ReadUInt16LittleEndian(payload) == Version)
-            return rest.Length == TailSize;
-        if (rest.Length <= TailSize + LengthPrefixSize)
-            return false;
-        rest = rest[TailSize..];
-        return TrySkipField(ref rest, true) && rest.IsEmpty;
+        return version == Version ? rest.Length == TailSize : HasValidEvictionTail(rest);
     }
 
     /// <summary>Encodes a record to its canonical bytes.</summary>
@@ -167,6 +166,15 @@ internal static class ReplicaLogCodec
         if (record.EvictedKey != null)
             _ = WriteString(span[TailSize..], record.EvictedKey, victimBytes);
         return buffer;
+    }
+
+    private static bool HasValidEvictionTail(ReadOnlySpan<byte> rest)
+    {
+        if (rest.Length <= TailSize + LengthPrefixSize)
+            return false;
+
+        rest = rest[TailSize..];
+        return TrySkipField(ref rest, true) && rest.IsEmpty;
     }
 
     private static bool TrySkipField(ref ReadOnlySpan<byte> rest, bool isString)
