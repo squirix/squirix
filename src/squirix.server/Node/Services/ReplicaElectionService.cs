@@ -160,7 +160,10 @@ internal sealed class ReplicaElectionService : NodeWorkerBase
         }
         finally
         {
-            election.Stop();
+            if (HostStopping.IsCancellationRequested && LeadershipTransfer.Enabled)
+                await ReplicaGroupElection.GracefulStop.StopAndTransferAsync(election).ConfigureAwait(false);
+            else
+                election.Stop();
         }
     }
 
@@ -170,6 +173,9 @@ internal sealed class ReplicaElectionService : NodeWorkerBase
     /// <exception cref="ArgumentOutOfRangeException">The event is not one of the election events.</exception>
     private void Report(string groupId, in ElectionOutcome outcome)
     {
+        if (outcome.TransferSourceTerm != 0)
+            ReplicaElectionLog.TransferProcessed(_log, groupId, outcome.TransferSourceTerm);
+
         if (TermEventLogs.TryGetValue(outcome.Event, out var log))
         {
             log(_log, groupId, outcome.Term);

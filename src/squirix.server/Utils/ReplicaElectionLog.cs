@@ -6,6 +6,12 @@ namespace Squirix.Server.Utils;
 /// <summary>Diagnostic events for replica elections.</summary>
 internal static class ReplicaElectionLog
 {
+    internal static void TransferProcessed(IServerLogger logger, string groupId, ulong term)
+    {
+        if (logger.IsEnabled(ServerLogLevel.Information))
+            Events.TransferProcessedEvent.Write(logger, ServerLogLevel.Information, null, (groupId, term));
+    }
+
     internal static void ReplicaElectionAppendTimedOut(IServerLogger logger, string groupId, ulong term, TimeSpan waited)
     {
         if (logger.IsEnabled(ServerLogLevel.Warning))
@@ -104,6 +110,8 @@ internal static class ReplicaElectionLog
 
     private static class Events
     {
+        internal static readonly LogEvent TransferProcessedEvent = new(4088, nameof(ReplicaElectionLog.TransferProcessed), "Processed leadership transfer for group {GroupId} from term {Term}");
+
         internal static readonly LogEvent ReplicaElectionAppendTimedOutEvent = new(4074, nameof(ReplicaElectionAppendTimedOut), "Replica group {GroupId} leader of term {Term} could not append to its own log for {Waited}; it gives the group up and waits before it campaigns again");
 
         internal static readonly LogEvent ReplicaElectionApplyBlockedEvent = new(4076, nameof(ReplicaElectionApplyBlocked), "Replica group {GroupId} does not campaign after term {Term} because this node cannot apply the committed entries it holds; it still votes and accepts appends, and campaigns again only after its apply recovers");

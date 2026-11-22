@@ -139,6 +139,19 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     public ReplicaApplyProgress ApplyProgress(string groupId) => Created(groupId)?.ApplyProgress() ?? default;
 
     /// <inheritdoc />
+    public async Task<bool> FenceTransferAsync(string groupId, ulong term, CancellationToken cancellationToken)
+    {
+        if (Created(groupId) is not { } committer)
+            return false;
+
+        using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return committer.FenceTransfer(term);
+    }
+
+    /// <inheritdoc />
+    public ulong? MatchIndex(string groupId, int slot) => Created(groupId)?.ReadCoordinator()?.MatchIndexFor(slot);
+
+    /// <inheritdoc />
     public ReplicaAppendProgress AppendProgress(string groupId) => Created(groupId)?.AppendProgress() ?? default;
 
     /// <inheritdoc />

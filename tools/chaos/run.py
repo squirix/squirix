@@ -18,7 +18,7 @@ import time
 import uuid
 
 
-FAULTS = ("kill", "pause", "partition", "bridge", "one-way", "latency", "clock", "disk-full")
+FAULTS = ("graceful-stop", "kill", "pause", "partition", "bridge", "one-way", "latency", "clock", "disk-full")
 
 
 class CommandFailed(RuntimeError):
@@ -67,6 +67,7 @@ class Cluster:
     def __init__(self, args):
         self.args = args
         self.scenario = getattr(args, "scenario", "chaos")
+        self.leader_exit = self.scenario in ("leader-exit", "leader-dns-loss")
         self.root = args.output.resolve()
         self.root.mkdir(parents=True, exist_ok=False)
         self.name = "squirix-chaos-" + uuid.uuid4().hex[:12]
@@ -76,7 +77,11 @@ class Cluster:
         self.created = []
         self.events = []
         self.network_created = False
-        self.plan = schedule(args.seed, args.replicas) if self.scenario == "chaos" else [{"kind": "disk-full", "nodes": [1, 0, 2]}]
+        self.plan = schedule(args.seed, args.replicas)
+        if self.leader_exit:
+            self.plan = [step for step in self.plan if step["kind"] in ("graceful-stop", "kill")]
+        elif self.scenario == "disk-recovery":
+            self.plan = [{"kind": "disk-full", "nodes": [1, 0, 2]}]
         self.signing_key = secrets.token_bytes(32)
         self.token = token_for(self.signing_key)
 
@@ -108,12 +113,13 @@ class Cluster:
 
     def start(self):
         self.started = time.monotonic()
-        filesystem = command("stat", "-f", "-c", "%T", self.root).strip()
-        if filesystem in {"9p", "drvfs", "cifs", "smb2", "virtiofs"}:
-            raise RuntimeError(
-                f"Process chaos requires local Linux storage; output is on {filesystem}. "
-                "Keep the run directory, clock files and disk images inside the Linux VM, "
-                "then copy artifacts to the host after cleanup.")
+        if not self.leader_exit:
+            filesystem = command("stat", "-f", "-c", "%T", self.root).strip()
+            if filesystem in {"9p", "drvfs", "cifs", "smb2", "virtiofs"}:
+                raise RuntimeError(
+                    f"Process chaos requires local Linux storage; output is on {filesystem}. "
+                    "Keep the run directory, clock files and disk images inside the Linux VM, "
+                    "then copy artifacts to the host after cleanup.")
         self.record("starting", image_id=command("docker", "image", "inspect", "-f", "{{.Id}}", self.args.image).strip())
         self.certificates()
         command("docker", "network", "create", self.name)
@@ -122,20 +128,13 @@ class Cluster:
         for i, name in enumerate(self.nodes):
             directory = self.root / str(i)
             directory.mkdir()
-            data = directory / "data"
-            data.mkdir()
-            disk = directory / "disk.img"
-            with disk.open("wb") as stream:
-                stream.truncate(256 * 1024 * 1024)
-            command("mkfs.ext4", "-q", "-F", "-m", "0", disk)
-            privileged("mount", "-o", "loop", disk, data)
-            self.mounted.append(data)
+            data_mount = self.data_mount(directory)
             (directory / "clock").write_text("+0", encoding="ascii")
             settings = {"Squirix": {"Cluster": {
                 "ClusterId": self.name, "NodeId": f"n{i}", "Uri": peers[i]["Uri"], "Peers": peers,
                 "ReplicaCount": self.args.replicas, "PersistenceEnabled": True, "ReplicationEnabled": True,
                 # Static ownership keeps the full owner responsible for the regression's refused write.
-                "AutomaticFailoverEnabled": self.scenario == "chaos", "QuorumReadsEnabled": self.scenario == "chaos",
+                "AutomaticFailoverEnabled": self.scenario != "disk-recovery", "QuorumReadsEnabled": self.scenario != "disk-recovery",
                 "DataDirectory": "/data",
             }, "PrometheusMetrics": {"enabled": True}}}
             (directory / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
@@ -155,24 +154,54 @@ class Cluster:
                 "SQUIRIX_JWT_AUDIENCE": "squirix-chaos",
                 "SQUIRIX_JWT_SIGNING_KEY": base64.b64encode(self.signing_key).decode("ascii"),
             }
+            if self.leader_exit:
+                del environment["LD_PRELOAD"]
+                environment["Logging__LogLevel__Default"] = "Information"
             if self.scenario == "disk-recovery":
                 environment["Logging__Console__FormatterName"] = "json"
-            arguments = ["docker", "run", "-d", "--name", name, "--network", self.name, "--cap-add", "NET_ADMIN",
+            network = self.name
+            if self.scenario == "leader-exit":
+                # A process exit leaves the machine address routable. Docker otherwise unpublishes its DNS name too.
+                anchor = name + "-address"
+                self.created.append(anchor)
+                command("docker", "run", "-d", "--name", anchor, "--network", self.name, "--network-alias", name,
+                        "--entrypoint", "/bin/sleep", self.args.image, "infinity")
+                network = "container:" + anchor
+            arguments = ["docker", "run", "-d", "--name", name, "--network", network,
                          "--mount", f"type=bind,src={self.root / 'certs'},dst=/certs,readonly",
                          "--mount", f"type=bind,src={directory},dst=/config,readonly",
-                         "--mount", f"type=bind,src={data},dst=/data"]
+                         "--mount", data_mount]
+            if not self.leader_exit:
+                arguments.extend(["--cap-add", "NET_ADMIN"])
             for key, value in environment.items():
                 arguments += ["-e", f"{key}={value}"]
             self.created.append(name)
+            if self.scenario != "disk-recovery":
+                arguments.extend(["-e", "SQUIRIX_EXPERIMENTAL_LEADERSHIP_TRANSFER=1"])
             command(*arguments, self.args.image, "dotnet", "/app/server/Squirix.Server.Host.dll", "run",
                     "--settings", "/config/settings.json", "--persist", "--enable-replication", "--metrics")
-        self.ips = [command("docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", n).strip() for n in self.nodes]
+        addresses = [n + "-address" for n in self.nodes] if self.scenario == "leader-exit" else self.nodes
+        self.ips = [command("docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", n).strip() for n in addresses]
         self.record("nodes-started", addresses=self.ips)
         time.sleep(10)
         for name in self.nodes:
             if command("docker", "inspect", "-f", "{{.State.Running}}", name).strip() != "true":
                 raise RuntimeError("Node failed startup: " + command("docker", "logs", name))
         self.start_client()
+
+    def data_mount(self, directory):
+        if self.leader_exit:
+            # The anonymous Linux volume survives stop/start and is removed with this container.
+            return "type=volume,dst=/data"
+        data = directory / "data"
+        data.mkdir()
+        disk = directory / "disk.img"
+        with disk.open("wb") as stream:
+            stream.truncate(256 * 1024 * 1024)
+        command("mkfs.ext4", "-q", "-F", "-m", "0", disk)
+        privileged("mount", "-o", "loop", disk, data)
+        self.mounted.append(data)
+        return f"type=bind,src={data},dst=/data"
 
     def start_client(self):
         control = self.root / "control"
@@ -240,7 +269,7 @@ class Cluster:
         return output
 
     def target_leader(self, planned):
-        if planned["kind"] not in ("kill", "pause"):
+        if planned["kind"] not in ("graceful-stop", "kill", "pause"):
             return planned
         observed = None
         def ready():
@@ -252,7 +281,7 @@ class Cluster:
         return {**planned, "nodes": nodes, "leader_before": observed}
 
     def await_replacement(self, step):
-        if step["kind"] not in ("kill", "pause"):
+        if step["kind"] not in ("graceful-stop", "kill", "pause"):
             return
         observed = None
         recent_polls = deque(maxlen=5)
@@ -273,11 +302,27 @@ class Cluster:
             raise
         self.record("leader-replaced-before-resume", before=step["leader_before"], after=observed)
 
+    def transfer_witnesses(self, step):
+        before = step["leader_before"]
+        witness = re.compile(rf"Processed leadership transfer for group {re.escape(before['group'])} from term {before['term']}(?![0-9])")
+        targets = []
+        for index in step["nodes"][1:]:
+            log = command("docker", "logs", self.nodes[index])
+            targets.extend([index] * len(witness.findall(log)))
+        if len(targets) != (1 if step["kind"] == "graceful-stop" else 0):
+            raise RuntimeError(f"Unexpected transfer campaigns after {step['kind']}: {targets}")
+        return targets
+
     def fault(self, step):
         kind, nodes = step["kind"], step["nodes"]
         victim = nodes[0]
         if kind == "kill":
             command("docker", "kill", "--signal", "KILL", self.nodes[victim])
+        elif kind == "graceful-stop":
+            command("docker", "stop", "--signal", "TERM", "--timeout", "20", self.nodes[victim])
+            exit_code = command("docker", "inspect", "-f", "{{.State.ExitCode}}", self.nodes[victim]).strip()
+            if exit_code != "0":
+                raise RuntimeError(f"Leader failed to exit gracefully: exit code {exit_code}")
         elif kind == "pause":
             command("docker", "pause", self.nodes[victim])
         elif kind in ("partition", "bridge", "one-way"):
@@ -313,7 +358,7 @@ class Cluster:
     def heal(self, step):
         kind, nodes = step["kind"], step["nodes"]
         victim = nodes[0]
-        if kind == "kill":
+        if kind in ("graceful-stop", "kill"):
             command("docker", "start", self.nodes[victim])
         elif kind == "pause":
             command("docker", "unpause", self.nodes[victim])
@@ -367,9 +412,24 @@ class Cluster:
                 return ready.exists()
             wait_until(prepared, 120, f"workload {index} did not become ready")
             step = self.target_leader(step)
+            fault_start = time.monotonic()
+            self.record("fault-start", **step)
             self.fault(step)
-            time.sleep(self.args.fault_seconds)
+            active = time.monotonic()
+            if self.scenario == "leader-dns-loss":
+                network = json.loads(command("docker", "network", "inspect", self.name))[0]
+                attached = {entry["Name"] for entry in network["Containers"].values()}
+                expected = set(self.nodes) - {self.nodes[step["nodes"][0]]}
+                if attached.intersection(self.nodes) != expected:
+                    raise RuntimeError("Expected only the stopped leader to lose its Docker network endpoint")
+                self.record("leader-endpoint-withdrawn", node=step["nodes"][0])
             self.await_replacement(step)
+            if step["kind"] in ("graceful-stop", "kill"):
+                elapsed = (time.monotonic() - fault_start) * 1000
+                self.record("replacement-observed", kind=step["kind"], elapsed_ms=elapsed)
+                if self.leader_exit:
+                    self.record("transfer-witnesses", kind=step["kind"], targets=self.transfer_witnesses(step))
+            time.sleep(max(0, self.args.fault_seconds - (time.monotonic() - active)))
             self.heal(step)
             if index == len(self.plan) - 1:
                 command("docker", "restart", *self.nodes)
@@ -457,7 +517,7 @@ class Cluster:
             (self.root / f"{name}.log").write_text(command("docker", "logs", "--timestamps", name, check=False),
                                                  encoding="utf-8")
             try:
-                command("docker", "rm", "-f", name)
+                command("docker", "rm", "-f", "-v", name)
             except CommandFailed as error:
                 failures.append(str(error))
         if self.network_created:
@@ -493,9 +553,9 @@ def main():
     parser.add_argument("--commit", required=True)
     parser.add_argument("--seed", type=int, default=os.environ.get("SQUIRIX_FAULT_SEED") or str(secrets.randbits(31)))
     parser.add_argument("--fault-seconds", type=int, default=15)
-    parser.add_argument("--scenario", choices=("chaos", "disk-recovery"), default="chaos")
+    parser.add_argument("--scenario", choices=("chaos", "leader-exit", "leader-dns-loss", "disk-recovery"), default="chaos")
     args = parser.parse_args()
-    if sys.platform != "linux":
+    if args.scenario not in ("leader-exit", "leader-dns-loss") and sys.platform != "linux":
         parser.error("Linux is required for network namespaces and bounded ext4 disks")
     if args.fault_seconds < 10:
         parser.error("faults must last at least ten seconds to cover leader expiry")

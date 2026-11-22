@@ -67,6 +67,8 @@ internal sealed class SquirixReplicationServiceAdapter
         _configurationGeneration = cluster.ConfigurationGeneration;
     }
 
+    internal bool TransferEnabled { private get; init; } = LeadershipTransfer.Enabled;
+
     /// <summary>Builds the follower append batch from a wire request.</summary>
     /// <param name="request">The append request.</param>
     /// <param name="header">Validated replication envelope identity.</param>
@@ -148,13 +150,25 @@ internal sealed class SquirixReplicationServiceAdapter
         };
     }
 
-    internal async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, PeerCallContext context)
+    internal async Task<ReplicaVoteResponse> TransferLeadershipAsync(LeadershipTransferRequest request, PeerCallContext context)
+    {
+        var h = EnsureHeader(request.Header, context, true);
+        if (RefusesVotes(h.GroupId) || !TransferTopologyMatches(h) || !string.Equals(request.Target, _nodeId, StringComparison.Ordinal) || string.Equals(h.SenderNodeId, _nodeId, StringComparison.Ordinal))
+            return StubVoteRefusal();
+
+        var header = new ReplicaRpcHeader(h.GroupId, h.TopologyFingerprint, h.ConfigurationGeneration, h.Term, h.LeaderNodeId, h.SenderNodeId);
+        var accepted = await _follower.AcceptTransferAsync(header, context.RequestAborted).ConfigureAwait(false);
+        return new ReplicaVoteResponse { Granted = accepted };
+    }
+
+    internal async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, PeerCallContext context, bool transfer = false)
     {
         var h = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(h.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint, h.ConfigurationGeneration, Ballot(h, request), context.RequestAborted)
+        var transferred = transfer && TransferTopologyMatches(h) && !string.Equals(h.SenderNodeId, h.LeaderNodeId, StringComparison.Ordinal);
+        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint, h.ConfigurationGeneration, Ballot(h, request), context.RequestAborted, transferred ? h.LeaderNodeId : null)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }
@@ -211,6 +225,9 @@ internal sealed class SquirixReplicationServiceAdapter
         Granted = false,
         RefusalCode = RefusalCodes.NotReady,
     };
+
+    private bool TransferTopologyMatches(EnvelopeHeader h) =>
+        TransferEnabled && h.ConfigurationGeneration == _configurationGeneration && h.TopologyFingerprint.Span.SequenceEqual(_topologyFingerprint.Bytes);
 
     /// <summary>Checks whether votes for a group are refused before storage is reached.</summary>
     /// <param name="groupId">Replica group identifier of the vote.</param>

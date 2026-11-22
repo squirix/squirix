@@ -25,6 +25,8 @@ internal static class PeerProtocol
         PeerOperation.AppendReplicaEntries => (Prefix + "replication/" + nameof(PeerOperation.AppendReplicaEntries), null),
         PeerOperation.GetReplicaStatus => (Prefix + "replication/" + nameof(PeerOperation.GetReplicaStatus), null),
         PeerOperation.OfferReplicaBootstrap => (Prefix + "replication/" + nameof(PeerOperation.OfferReplicaBootstrap), null),
+        PeerOperation.TransferLeadership => (Prefix + "replication/" + nameof(PeerOperation.TransferLeadership), null),
+        PeerOperation.TransferPreVote => (Prefix + "replication/" + nameof(PeerOperation.TransferPreVote), null),
         PeerOperation.PreVote => (Prefix + "replication/" + nameof(PeerOperation.PreVote), null),
         PeerOperation.RequestVote => (Prefix + "replication/" + nameof(PeerOperation.RequestVote), null),
         PeerOperation.TransferReplicaState => (Prefix + "replication/" + nameof(PeerOperation.TransferReplicaState), null),

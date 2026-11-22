@@ -57,6 +57,12 @@ jobs:
                     --results-directory "$CONTROLS_ROOT/model-results" \
                     "-bl:$CONTROLS_ROOT/model-controls-{}.binlog"
 
+            - name: Verify leadership transfer policy controls
+              run: |
+                  dotnet test --project tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj \
+                    --treenode-filter '/*/*/(*Transfer*Tests)|(ProtocolHintPolicyTests)/*' --report-trx --minimum-expected-tests 16 --zero-tests-policy strict \
+                    --results-directory "$CONTROLS_ROOT/transfer-results"
+
             - name: Upload checker control results
               if: always()
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -67,7 +73,6 @@ jobs:
                   path: ${{ runner.temp }}/squirix-chaos-controls/**
 
     process-chaos:
-        if: github.event_name == 'workflow_dispatch'
         needs: checker-controls
         runs-on: ubuntu-latest
         timeout-minutes: 35
@@ -108,7 +113,7 @@ jobs:
                   docker build -f tools/chaos/Dockerfile -t squirix-chaos:local "$CHAOS_ROOT/bundle"
 
             - name: Verify disk-full write refusal and recovery
-              if: matrix.replicas == 3
+              if: matrix.replicas == 3 && github.event_name == 'workflow_dispatch'
               run: |
                   python3 tools/chaos/run.py --replicas 3 --scenario disk-recovery \
                     --output "$CHAOS_ROOT/disk-recovery" --commit "$(git rev-parse HEAD)"
@@ -116,7 +121,13 @@ jobs:
             - name: Run real-process nemeses
               run: |
                   python3 tools/chaos/run.py --replicas '${{ matrix.replicas }}' \
+                    --scenario '${{ github.event_name == 'schedule' && 'leader-exit' || 'chaos' }}' \
                     --output "$CHAOS_ROOT/run" --commit "$(git rev-parse HEAD)"
+
+            - name: Verify leader exit with Docker DNS withdrawal
+              run: |
+                  python3 tools/chaos/run.py --replicas '${{ matrix.replicas }}' --scenario leader-dns-loss \
+                    --output "$CHAOS_ROOT/dns-loss" --commit "$(git rev-parse HEAD)"
 
             - name: Upload histories and fault evidence
               if: always()
@@ -126,6 +137,9 @@ jobs:
                   retention-days: 30
                   if-no-files-found: error
                   path: |
+                      ${{ runner.temp }}/squirix-chaos/dns-loss/run.json
+                      ${{ runner.temp }}/squirix-chaos/dns-loss/*.log
+                      ${{ runner.temp }}/squirix-chaos/dns-loss/control/**
                       ${{ runner.temp }}/squirix-chaos/run/run.json
                       ${{ runner.temp }}/squirix-chaos/run/*.log
                       ${{ runner.temp }}/squirix-chaos/run/control/**

@@ -66,6 +66,47 @@ public sealed class TrackedConnectionStreamTests : ServerUnitTestBase
         _ = await Assert.That(stream.CanRead).IsFalse();
     }
 
+    /// <summary>Independent calls can abandon a blocked lookup and a later dial resolves the peer again after its address changes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DialCancellationPreservesSharedLookup(CancellationToken cancellationToken)
+    {
+        var first = new TaskCompletionSource<IPAddress[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lookups = 0;
+        var addresses = new PeerHostAddresses(new DnsEndPoint("peer", 5001), _ =>
+            ++lookups == 1 ? first.Task : Task.FromResult(new[] { IPAddress.IPv6Loopback }));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var cancelled = addresses.ResolveAsync(deadline.Token);
+        var survivor = addresses.ResolveAsync(cancellationToken);
+
+        await deadline.CancelAsync();
+        _ = await Assert.That(cancelled.IsCanceled).IsTrue();
+        _ = await Assert.That(survivor.IsCompleted).IsFalse();
+        _ = await Assert.That(lookups).IsEqualTo(1);
+
+        first.SetResult([IPAddress.Loopback]);
+        _ = await Assert.That((await survivor)[0]).IsEqualTo(IPAddress.Loopback);
+        _ = await Assert.That((await addresses.ResolveAsync(cancellationToken))[0]).IsEqualTo(IPAddress.IPv6Loopback);
+        _ = await Assert.That(lookups).IsEqualTo(2);
+    }
+
+    /// <summary>A failed DNS lookup is retried when the next call arrives after the peer returns.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NextDialRetriesFailedLookup(CancellationToken cancellationToken)
+    {
+        var first = new TaskCompletionSource<IPAddress[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lookups = 0;
+        var addresses = new PeerHostAddresses(new DnsEndPoint("peer", 5001), _ =>
+            ++lookups == 1 ? first.Task : Task.FromResult(new[] { IPAddress.Loopback }));
+        var pending = addresses.ResolveAsync(cancellationToken);
+        first.SetException(new SocketException());
+
+        _ = await NodeAsyncAssert.ThrowsAsync<SocketException>(pending, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That((await addresses.ResolveAsync(cancellationToken))[0]).IsEqualTo(IPAddress.Loopback);
+        _ = await Assert.That(lookups).IsEqualTo(2);
+    }
+
     private static SocketsHttpHandler CreateHandler(TrackedConnections connections) => new()
     {
         ConnectCallback = (context, cancellationToken) => TrackedConnectionStream.ConnectAsync(connections, context.DnsEndPoint, cancellationToken),

@@ -62,4 +62,10 @@ internal enum PeerOperation : byte
 
     /// <summary>Transfers a part of the replica state.</summary>
     TransferReplicaState = 21,
+
+    /// <summary>Invites one successor to campaign after retirement.</summary>
+    TransferLeadership = 22,
+
+    /// <summary>Requests a pre-vote on behalf of a retired leader.</summary>
+    TransferPreVote = 23,
 }

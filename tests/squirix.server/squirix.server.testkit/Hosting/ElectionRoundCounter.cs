@@ -20,6 +20,12 @@ internal sealed class ElectionRoundCounter
 {
     private readonly ConcurrentDictionary<(string GroupId, string Sender, string Target), int> _preVotes = new();
 
+    internal Action<string, string, string, string, ulong>? Observe { get; init; }
+
+    internal bool DropHints { get; init; }
+
+    internal string[]? BroadcastMembers { get; init; }
+
     /// <summary>Gets the number of pre-vote rounds a node ran in a group so far.</summary>
     /// <param name="groupId">The replica group.</param>
     /// <param name="nodeId">The campaigning node.</param>
@@ -83,8 +89,24 @@ internal sealed class ElectionRoundCounter
             _counter = counter;
         }
 
+        public Task SendTransferAsync(string target, ReplicaRpcHeader header, CancellationToken cancellationToken)
+        {
+            if (_counter.BroadcastMembers is not { } members)
+                return SendHintAsync(target, in header, cancellationToken);
+
+            var calls = new System.Collections.Generic.List<Task>();
+            foreach (var member in members)
+            {
+                if (!string.Equals(member, header.SenderNodeId, StringComparison.Ordinal))
+                    calls.Add(SendHintAsync(member, in header, cancellationToken));
+            }
+
+            return Task.WhenAll(calls);
+        }
+
         public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
         {
+            _counter.Observe?.Invoke(header.GroupId, header.SenderNodeId, nodeId, header.TransferSource == null ? "pre-vote" : "transfer-pre-vote", header.Term);
             try
             {
                 return await _inner.PreVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
@@ -95,7 +117,16 @@ internal sealed class ElectionRoundCounter
             }
         }
 
-        public Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken) =>
-            _inner.RequestVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
+        public Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
+        {
+            _counter.Observe?.Invoke(header.GroupId, header.SenderNodeId, nodeId, "vote", header.Term);
+            return _inner.RequestVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
+        }
+
+        private Task SendHintAsync(string target, in ReplicaRpcHeader header, CancellationToken cancellationToken)
+        {
+            _counter.Observe?.Invoke(header.GroupId, header.SenderNodeId, target, "hint", header.Term);
+            return _counter.DropHints ? Task.CompletedTask : _inner.SendTransferAsync(target, header, cancellationToken);
+        }
     }
 }

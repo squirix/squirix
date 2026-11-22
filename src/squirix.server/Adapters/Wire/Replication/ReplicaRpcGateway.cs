@@ -32,11 +32,23 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     }
 
     /// <inheritdoc />
+    public async Task SendTransferAsync(string target, ReplicaRpcHeader header, CancellationToken cancellationToken)
+    {
+        using var lease = _pool.LeaseChannel(target, cancellationToken);
+        var request = new LeadershipTransferRequest { Header = MapHeader(in header), Target = target };
+        _ = await lease.Client.SendAsync(PeerOperation.TransferLeadership, request, ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var response = await lease.Client.SendAsync(PeerOperation.PreVote, MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
+        var request = MapVoteRequest(in header, lastLogIndex, lastLogTerm);
+        var transfer = header.TransferSource != null;
+        if (transfer)
+            request.Header!.LeaderNodeId = header.TransferSource!;
+        var response = await lease.Client.SendAsync(transfer ? PeerOperation.TransferPreVote : PeerOperation.PreVote, request, ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
         return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 
