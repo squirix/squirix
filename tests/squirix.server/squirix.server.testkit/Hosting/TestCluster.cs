@@ -424,6 +424,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     {
         return new NodeHostStartOptions
         {
+            EvictionBudgetBytes = startOptions?.EvictionBudgetBytes,
             ConsoleLogging = false,
             PersistenceOptions = persistenceOptions,
             PeerOptionsFactory = peerOptionsFactory,

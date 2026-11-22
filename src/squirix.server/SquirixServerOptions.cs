@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Observability.Metrics;
 
 namespace Squirix.Server;
@@ -121,6 +122,8 @@ public sealed class SquirixServerOptions
 
     /// <summary>Gets or sets a value indicating whether startup waits for journal recovery before serving traffic.</summary>
     public bool WaitForRecovery { get; set; } = true;
+
+    internal EvictionOptions? Eviction { get; set; }
 
     /// <summary>Validates the current configuration without throwing.</summary>
     /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>

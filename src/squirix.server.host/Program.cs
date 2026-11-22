@@ -22,9 +22,9 @@ internal static class Program
         private const string DoctorReplicaMismatch =
             "Durable replica state in the data directory does not match the configured topology; see the MISMATCH, UNREADABLE, or MISSING lines above.";
 
-        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
+        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
-                                        "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" + "  version\n" + "  help\n";
+                                        "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
 
         internal static async Task<int> RunAsync(string[] args)
         {
@@ -98,7 +98,7 @@ internal static class Program
         {
             var settingsPath = ResolveSettingsPath(command);
             var options = settingsPath == null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
-            Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist, command.EnableReplication);
+            command.ApplyOverrides(options);
             return options;
         }
 
@@ -117,7 +117,7 @@ internal static class Program
                     if (command.EnableMetrics)
                         options.MetricsEnabled = true;
 
-                    Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist, command.EnableReplication);
+                    command.ApplyOverrides(options);
                 },
                 command.SettingsPath,
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
@@ -248,10 +248,20 @@ internal static class Program
         [Immutable]
         private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, bool EnableReplication, bool EnableMetrics, string? SettingsPath)
         {
+            private string? EvictionMode { get; init; }
+
+            private int? MaxKeys { get; init; }
+
             internal static SquirixServerCommand Parse(string[] args)
             {
                 var name = ResolveName(args);
                 return ApplyFlags(args, ResolveFlagStart(args, name), name);
+            }
+
+            internal void ApplyOverrides(SquirixServerOptions options)
+            {
+                Configurator.ApplyCacheEvictionOverrides(options, EvictionMode, MaxKeys);
+                Configurator.ApplyCommandLineOverrides(options, Uri, DataDirectory, Persist, EnableReplication);
             }
 
             private static SquirixServerCommand ApplyFlags(string[] args, int start, string name)
@@ -263,7 +273,14 @@ internal static class Program
                         return HelpCommand();
                 }
 
-                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnableMetrics, state.SettingsPath);
+                var command = new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnableMetrics, state.SettingsPath)
+                {
+                    EvictionMode = state.EvictionMode,
+                    MaxKeys = state.MaxKeys,
+                };
+                return (state.EvictionMode != null || state.MaxKeys != null) && name is not ("run" or "doctor")
+                    ? throw new InvalidOperationException("Cache eviction flags apply only to run and doctor.")
+                    : command;
             }
 
             private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, false, false, null);
@@ -329,10 +346,20 @@ internal static class Program
             /// <param name="state">The accumulated flag state.</param>
             /// <param name="index">The current argument index, advanced past the consumed value.</param>
             /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
+            /// <exception cref="InvalidOperationException">A value is missing or the key limit is invalid.</exception>
             private static bool TryApplyValueFlag(string[] args, string flag, FlagState state, ref int index)
             {
                 switch (flag)
                 {
+                    case "--cache-eviction":
+                        state.EvictionMode = ReadFlagValue(args, ref index);
+                        return true;
+                    case "--max-keys":
+                        var value = ReadFlagValue(args, ref index);
+                        state.MaxKeys = int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count > 0
+                            ? count
+                            : throw new InvalidOperationException("--max-keys requires a positive 32-bit integer.");
+                        return true;
                     case "--urls":
                         state.SetUri(new Uri(ReadFlagValue(args, ref index), UriKind.Absolute));
                         return true;
@@ -354,6 +381,10 @@ internal static class Program
                 internal bool EnableMetrics { get; private set; }
 
                 internal bool EnableReplication { get; private set; }
+
+                internal string? EvictionMode { get; set; }
+
+                internal int? MaxKeys { get; set; }
 
                 internal bool Persist { get; private set; }
 

@@ -23,6 +23,7 @@ internal static class NodeConfiguration
             Configurator.ToClusterConfig(options),
             args =>
             {
+                args.Eviction = options.Eviction;
                 args.WaitForRecovery = options.WaitForRecovery;
                 args.PersistenceOptions = persistenceOptions;
                 args.BackpressureOptions = options.Backpressure.ToAdmissionOptions();

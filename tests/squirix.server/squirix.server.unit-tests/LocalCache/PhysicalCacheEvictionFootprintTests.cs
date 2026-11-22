@@ -102,7 +102,7 @@ public sealed class PhysicalCacheEvictionFootprintTests : ServerUnitTestBase
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
 
-    private static long Cost(CacheKey key, NodeCacheEntry<string> entry) => Estimator.EstimateBytes(key, entry, false);
+    private static long Cost(CacheKey key, NodeCacheEntry<string> entry) => 40 + Estimator.EstimateBytes(key, entry, false);
 
     private static int CountOf(ILocalCacheStats stats) => stats.EntryCount;
 

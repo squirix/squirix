@@ -87,4 +87,6 @@ public class ClusterStartOptions
 
     /// <summary>Gets an optional hook that registers additional services on the node after the server composition, for test probes.</summary>
     internal Action<TestServiceCollection>? ServicesConfigure { get; init; }
+
+    internal long? EvictionBudgetBytes { get; init; }
 }

@@ -57,7 +57,7 @@ internal sealed partial class PhysicalCache<T>
                     _owner._deadlines.MovedLocked(node, previous);
                 }
 
-                _owner.TouchOrderLocked(key, node);
+                BoundedNode.RecordAccess(node);
                 return refresh ? null : payload;
             }
         }

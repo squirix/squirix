@@ -54,6 +54,12 @@ internal static class NodeHost
             args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions { Enabled = _options.PrometheusMetricsEnabled };
             args.BackpressureOptions = _options.BackpressureOptions;
             args.MemoryPressureOptions = _options.MemoryPressureOptions;
+            if (_options.EvictionBudgetBytes is { } budget)
+            {
+                args.Eviction = new Squirix.Server.Core.EvictionOptions { EvictOnMemoryPressure = true };
+                args.MemoryPressureOptions = new Squirix.Server.Node.MemoryPressure.PressureOptions { MaxEstimatedCacheBytes = budget };
+            }
+
             args.SecurityOptions = _options.SecurityOptions;
             args.MtlsOptions = _options.MtlsOptions;
             args.Certificate = _options.Certificate;

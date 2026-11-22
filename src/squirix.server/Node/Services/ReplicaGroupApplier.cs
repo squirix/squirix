@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Logging;
@@ -81,6 +82,8 @@ internal sealed class ReplicaGroupApplier
 
     /// <summary>Gets the identifier of the replica group whose entries this applier applies.</summary>
     internal string GroupId { get; }
+
+    internal INodeLocator? Owners { get; init; }
 
     /// <summary>Waits until the applied index reaches <paramref name="index" />, woken by the apply that gets it there, without polling.</summary>
     /// <param name="index">The log index that must be applied.</param>
@@ -254,6 +257,8 @@ internal sealed class ReplicaGroupApplier
         {
             record = ReplicaLogCodec.DecodeBorrowed(canonicalPayload) ??
                 ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
+            if (record.EvictedKey is { } victim && Owners != null && !string.Equals(Owners.GetOwner(record.CacheName, victim), GroupId, StringComparison.Ordinal))
+                throw new InvalidDataException($"Replica log entry {logIndex} evicts a key from another group.");
             effect = ReplicaCacheApplier.Resolve(in record, out entry, out encodedLength);
             if (outcomes != null)
                 outcome = BuildOutcome(logIndex, in record);

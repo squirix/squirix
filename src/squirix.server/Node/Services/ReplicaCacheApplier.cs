@@ -69,7 +69,15 @@ internal static class ReplicaCacheApplier
         {
             case ReplicaEffectKind.Upsert:
                 ArgumentNullException.ThrowIfNull(entry);
-                await cache.SetEntryAsync(record.OperationId, record.CacheName, Encoding.UTF8.GetString(record.KeyPayload.Span), entry, encodedLength, cancellationToken).ConfigureAwait(false);
+                var key = Encoding.UTF8.GetString(record.KeyPayload.Span);
+                if (record.EvictedKey is { } victim)
+                {
+                    _ = await cache.RemoveAsync(record.OperationId, record.CacheName, victim, cancellationToken).ConfigureAwait(false);
+                    if (string.Equals(key, victim, StringComparison.Ordinal))
+                        break;
+                }
+
+                await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, encodedLength, cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Delete:
                 // The result reflects the local liveness of the key, not the committed outcome.
@@ -126,6 +134,9 @@ internal static class ReplicaCacheApplier
     {
         if (!ReplicaOutcomeCodec.TryDecode(record.OutcomePayload, out var applied, out var previous))
             throw Inconsistent(in record, "the outcome payload is undecodable", false);
+        if (record.EvictedKey != null && (!applied || record.MutationKind is not (ReplicaMutationKinds.Set or ReplicaMutationKinds.TryAdd)))
+            throw Inconsistent(in record, "only an applied insertion may evict a key", applied);
+
         var range = WireBounds.IsUtcTicks(record.ExpiresUtcTicks);
         return range ? ResolveMutationKind(in record, applied, previous) : throw Inconsistent(in record, "the deadline is out of range", applied);
     }

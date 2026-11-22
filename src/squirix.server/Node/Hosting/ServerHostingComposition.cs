@@ -123,6 +123,17 @@ internal static class ServerHostingComposition
                 sp.Require<IServerLoggerFactory>().CreateLogger<LocalExpirationSweepService>()));
         }
 
+        if (args.Eviction?.EvictOnMemoryPressure == true)
+        {
+            _ = services.RunService(sp => new MemoryEvictionService(
+                sp.Require<PhysicalCache<object?>>(),
+                sp.Require<IMemoryPressureStateEvaluator>(),
+                sp.Require<OwnerLocalCache>().Value,
+                feature.NetworkReplicationEnabled ? sp.Require<ReplicaGroupCommitters>() : null,
+                sp.Require<TimeProvider>(),
+                sp.Require<IServerLoggerFactory>().CreateLogger<MemoryEvictionService>()));
+        }
+
         if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
             return;
         _ = services.Own(static sp => new SquirixReplicationServiceAdapter(
@@ -171,6 +182,8 @@ internal static class ServerHostingComposition
             _ = services.Own(static sp => new PrometheusMetricsScraper(sp.Require<Meter>()));
         }
 
+        if (args.Eviction != null)
+            _ = services.Use(args.Eviction);
         _ = services.AddSquirixRuntimeServices(args.MetricsEnabled);
         AddSquirixClusterStack(services, cluster, args);
         RegisterPersistenceAndReplication(services, cluster, persistence, mtlsOptions, args);
@@ -445,7 +458,8 @@ internal static class ServerHostingComposition
             sp.Require<OwnerLocalCache>().Value,
             sp.Require<TopologyOptions>().NodeId,
             sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupAppliers>(),
-            sp.Require<ReplicationMetrics>()));
+            sp.Require<ReplicationMetrics>(),
+            sp.Require<INodeLocator>()));
 
         /// <summary>Registers the verification of the followers of the led groups, with its retry schedule.</summary>
         /// <param name="services">Node component registrations.</param>
@@ -473,6 +487,7 @@ internal static class ServerHostingComposition
         private static ReplicaGroupCommitter CreateCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint, string groupId, ReplicaGroupState? election)
         {
             var topology = sp.Require<TopologyOptions>();
+            var physical = sp.Require<PhysicalCache<object?>>();
             return new ReplicaGroupCommitter(
                 sp.Require<ReplicaGroupRegistry>(),
                 sp.Require<IReplicaGroupLocator>(),
@@ -482,6 +497,7 @@ internal static class ServerHostingComposition
                 new ReplicaTopologyStamp(fingerprint.AsMemory(), topology.ConfigurationGeneration),
                 sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupCommitter>())
             {
+                SelectCapacityVictim = physical.HasCapacity ? physical.SelectCapacityVictim : null,
                 Recovery = sp.Require<IJournalCoordinator>(),
                 Applier = sp.Require<ReplicaGroupAppliers>().For(groupId),
                 Clock = sp.Require<TimeProvider>(),

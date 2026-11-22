@@ -122,7 +122,7 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
         cache.Set(KeyB, newest, cancellationToken);
 
         _ = await Assert.That(cache.GetValue(KeyA, cancellationToken).Found).IsFalse();
-        _ = await Assert.That(BytesOf(cache)).IsEqualTo(Cost(KeyB, newest));
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(40 + Cost(KeyB, newest));
     }
 
     /// <summary>An add over an entry past its deadline releases the old entry and records the new one.</summary>

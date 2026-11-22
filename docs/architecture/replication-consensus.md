@@ -801,3 +801,36 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
 | Time-based leader lease                | Clock skew / false authority without quorum       |
 | Embed model inside `Squirix.Server`    | Shared-bug risk; ambiguous isolation              |
 | Unbounded model checking as merge gate | Non-terminating; residual risk must stay explicit |
+
+## Capacity eviction
+
+The internal default is unbounded LRU. A finite test configuration limits the number of resident keys in one named
+cache for each original owner. All copies of a key count once toward that owner's limit. Expired entries count until
+removed. The limit is fixed at startup. Ordinary memory admission runs before a write is prepared. It can refuse a
+growing write even when replacing another key might free enough memory. A refused write leaves the resident intact.
+
+On a replicated host, a group prepares a bounded write alone under its commit gate, after earlier committed writes
+have been applied. An insertion into a full scope records the victim selected by the leader. Filling an empty slot
+and overwriting an existing resident use the ordinary record. FIFO takes the oldest insertion. LFU takes the oldest
+resident still at frequency one. If all residents have already been accessed, the new key itself has the unique
+minimum frequency and is discarded. This is exact for insertion-triggered eviction with fixed capacity. Selection and
+first-hit bookkeeping take constant time. An LFU reader only enters its scope's gate on the first hit. LRU samples
+up to 16 consecutive residents of a dense array and advances the sample window on each eviction. Hits publish a
+monotonic-clock timestamp on the observed node. Near-simultaneous accesses and sampling make LRU approximate.
+Successful live lookups and updates count. Raw reads, including snapshot enumeration and journal inspection,
+do not change recency. A stale reader can update only the node it observed.
+
+Version 6 remains the encoding for every write without an eviction. Version 7 appends the selected key in the same
+cache to the record for an applied Set or TryAdd. All members must understand version 7 before a finite capacity is
+enabled. The leader and followers apply the deletion before the insertion. If the incoming key is itself the victim,
+only the deletion is applied. The group applied index advances after both effects. A crash between the effects can leave
+a local journal with only the removal. Replaying the committed group record repeats that removal and completes the
+insertion. A retry retains the original operation fingerprint and outcome. Unfenced reads may observe the interval
+between effects. Quorum readers wait for the applied index.
+
+Only committed effects change membership on replicated hosts. A promoted leader uses its local access history for
+future decisions. Snapshot installation and journal recovery rebuild policy state from the installed entries. Neither
+access timestamps nor read frequencies are replicated. Previously committed victims are replayed verbatim.
+
+On a 64-bit runtime the bounded node adds 40 bytes. The LRU sample array also holds a reference slot per resident,
+with spare slots from resizing. Admission budgets 52 additional bytes per LRU entry and 40 for LFU or FIFO.

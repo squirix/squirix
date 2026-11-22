@@ -15,21 +15,10 @@ namespace Squirix.Server.LocalCache;
 /// <summary>In-memory cache store (KV and expiration).</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
 /// <remarks>
-/// <para>Every mutation runs under a single <see cref="_lock" />, so writers are serialized. A non-live read, as <see cref="EnumerateLiveAsync" /> and
-/// <see cref="RawReader" /> make, and a live lookup on a cache without a capacity take no lock: the <see cref="Store" /> finds the node of a key
-/// without it, and the <see cref="Node" /> hands out its fields under a sequence lock, so a reader sees the fields of one write, never of two. A
-/// live lookup takes the lock when a capacity is set, since the read counts as an access for the eviction policy, and when the entry is past its
-/// deadline, which it re-checks and removes under the lock. Any read takes the lock when a writer kept the node or the store busy while it
-/// looked.</para>
-/// <para>The value store and the
-/// eviction-order bookkeeping used to be two independently synchronized structures (a lock-free
-/// <c language="csharp">ConcurrentDictionary</c> plus a separately locked index). Any interleaving of concurrent
-/// inserts, removals, expirations, and evictions across those two structures could leave them
-/// out of sync - a key present in one but not the other. Merging both into one <see cref="Node" /> per key, mutated only
-/// inside <see cref="_lock" />, makes that class of bug structurally impossible: there is no
-/// second structure left to diverge from. A deadline index finds the entries whose deadline passed without walking the store: under
-/// <see cref="CacheExpiryAuthority.CommittedRecords" /> it lists them, under <see cref="CacheExpiryAuthority.LocalClock" /> the local expiry
-/// sweep removes them.</para>
+/// Mutations serialize under the cache lock. Reads use a sequence lock and retry under the cache lock on contention or local expiry.
+/// A live read records access on the observed node. LRU publishes a timestamp, and LFU unlinks the first hit from the frequency-one
+/// candidates under the scope's own gate. Raw reads and snapshot enumeration do not affect policy order.
+/// Each namespace and original owner has its own index. Committed-record caches only apply removals selected by the leader.
 /// </remarks>
 [Immutable]
 internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
@@ -39,7 +28,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     private readonly CacheExpiryAuthority _expiry;
     private readonly Footprint _footprint;
     private readonly Lock _lock = new();
-    private readonly LinkedList<CacheKey> _order = new();
+    private readonly Dictionary<(string Namespace, string Group), EvictionScope>? _scopes;
+    private readonly Func<CacheKey, string>? _groupForKey;
     private readonly Store _store = new();
     private readonly TimeProvider _timeProvider;
 
@@ -51,16 +41,26 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// Who decides expiry. <see cref="CacheExpiryAuthority.LocalClock" /> treats an entry past its deadline as absent;
     /// <see cref="CacheExpiryAuthority.CommittedRecords" /> keeps it present until a committed record removes it.
     /// </param>
+    /// <param name="groupForKey">Original replication owner of a key for bounded caches.</param>
     internal PhysicalCache(
         TimeProvider timeProvider,
         ICacheEntrySizeEstimator<T> estimator,
         EvictionOptions? eviction = null,
-        CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
+        CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock,
+        Func<CacheKey, string>? groupForKey = null)
     {
         ArgumentNullException.ThrowIfNull(estimator);
         _timeProvider = timeProvider;
-        _footprint = new Footprint(estimator);
         _eviction = eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru };
+        _footprint = new Footprint(CacheEntrySizeEstimator<T>.ForEviction(estimator, _eviction));
+        _groupForKey = groupForKey;
+        if (_eviction.Enabled)
+        {
+            if (_eviction.Capacity <= 0 || (_eviction.EvictOnMemoryPressure && (_eviction.Capacity != null || _eviction.Policy != EvictionPolicyType.Lru)))
+                throw new ArgumentOutOfRangeException(nameof(eviction));
+            _scopes = [];
+        }
+
         _expiry = expiry;
         _deadlines = new DeadlineIndex(this);
         RawReader = new PhysicalCacheRawReader(this);
@@ -95,6 +95,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     internal ILocalCacheExpiredKeys ExpiredKeys => _deadlines;
 
     internal ILocalCacheRawReader<T> RawReader { get; }
+
+    internal bool HasCapacity => _eviction.Capacity != null;
 
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -193,7 +195,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 node.WriteExpiresUtc(null);
             }
 
-            TouchOrderLocked(key, node);
+            BoundedNode.RecordAccess(node);
             return hadDeadline;
         }
     }
@@ -228,7 +230,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var previous = node.ExpiresUtc;
             node.WriteExpiresUtc(expiresUtc);
             _deadlines.MovedLocked(node, previous);
-            TouchOrderLocked(key, node);
+            BoundedNode.RecordAccess(node);
             return true;
         }
     }
@@ -252,34 +254,32 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
             _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
             node.WriteValue(value);
-            TouchOrderLocked(key, node);
+            BoundedNode.RecordAccess(node);
             return true;
         }
     }
 
-    private void EnforceCapacityLocked()
+    /// <summary>Returns the key to evict for an insertion under the leader's serialized commit gate.</summary>
+    /// <param name="key">The key being inserted.</param>
+    /// <returns>The victim, or null if this write needs no eviction.</returns>
+    internal CacheKey? SelectCapacityVictim(CacheKey key)
     {
-        if (_eviction.Capacity is not { } cap)
-            return;
-
-        while (_store.Count > cap)
+        lock (_lock)
         {
-            var candidate = _eviction.Policy switch
-            {
-                EvictionPolicyType.Fifo => _order.Last?.Value,
-                EvictionPolicyType.Lru => _order.Last?.Value,
-                EvictionPolicyType.Lfu => _store.LeastFrequentLocked(_order),
-                _ => throw new InvalidOperationException("Unsupported eviction policy."),
-            };
+            if (!HasCapacity || _scopes == null || _store.TryGetLocked(key, out _) ||
+                !_scopes.TryGetValue(BoundedNode.ScopeOf(this, key), out var scope) || scope.Count < _eviction.Capacity)
+                return null;
 
-            if (candidate is not { } victim)
-                break;
-
-            if (!_store.RemoveLocked(victim, out var node))
-                break; // Shouldn't happen: order and store are updated together now.
-
-            UntrackLocked(node);
+            return scope.Victim()?.Key ?? key;
         }
+    }
+
+    internal CacheKey? SelectPressureVictim(string group)
+    {
+        lock (_lock)
+            return _eviction.EvictOnMemoryPressure && _scopes!.TryGetValue((string.Empty, group), out var scope)
+                ? scope.Victim()?.Key
+                : null;
     }
 
     /// <summary>Tells whether this node treats an entry as gone because its deadline passed on the node clock.</summary>
@@ -328,31 +328,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         return !expired;
     }
 
-    private void TouchOrderLocked(CacheKey key, Node node)
-    {
-        if (_eviction.Capacity == null || _eviction.Policy is EvictionPolicyType.Fifo)
-            return;
-
-        if (_eviction.Policy is EvictionPolicyType.Lfu)
-        {
-            node.Frequency = CacheAccessFrequency.Increment(node.Frequency);
-            return;
-        }
-
-        // Moving the list node of the entry, rather than linking a new one, keeps an access from allocating.
-        if (node.OrderNode is { } orderNode)
-        {
-            _order.Remove(orderNode);
-            _order.AddFirst(orderNode);
-        }
-        else
-        {
-            node.OrderNode = _order.AddFirst(key);
-        }
-
-        node.Frequency = CacheAccessFrequency.Increment(node.Frequency);
-    }
-
     private bool TryGetLiveLocked(CacheKey key, bool touchOrder, [NotNullWhen(true)] out Node? node)
     {
         if (!_store.TryGetLocked(key, out node))
@@ -367,7 +342,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
 
         if (touchOrder)
-            TouchOrderLocked(key, node);
+            BoundedNode.RecordAccess(node);
 
         return true;
     }
@@ -380,19 +355,18 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// </param>
     /// <param name="read">The fields of the entry.</param>
     /// <returns><see langword="true" /> when the key holds an entry to return.</returns>
-    /// <remarks>A live read with a capacity set runs under the lock, since it touches eviction order.</remarks>
+    /// <remarks>Policy tracking uses the observed node. Reinserting the same key creates a different node.</remarks>
     private bool TryRead(CacheKey key, bool live, out EntryRead read)
     {
-        if (!live || _eviction.Capacity == null)
-        {
-            // Lock-free by design: Store.Read reports Unsure when a writer gets in the way, and the read repeats under _lock.
-            // ReSharper disable once InconsistentlySynchronizedField
-            var outcome = _store.Read(key, out read);
-            if (outcome == ReadOutcome.Absent)
-                return false;
+        var outcome = _store.Read(key, out read, out var observed);
+        if (outcome == ReadOutcome.Absent)
+            return false;
 
-            if (outcome == ReadOutcome.Present && !(live && IsExpired(read.ExpiresUtc)))
-                return true;
+        if (outcome == ReadOutcome.Present && !(live && IsExpired(read.ExpiresUtc)))
+        {
+            if (live && _scopes != null)
+                BoundedNode.RecordAccess(observed!);
+            return true;
         }
 
         lock (_lock)
@@ -417,11 +391,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         // A reader that found the node before it left the store sees it removed. A stale item of the deadline index may keep the node
         // reachable until its old deadline: do not let it keep the value alive.
         node.MarkRemoved();
-        if (node.OrderNode == null)
-            return;
-
-        _order.Remove(node.OrderNode);
-        node.OrderNode = null;
+        if (node is BoundedNode bounded)
+        {
+            bounded.Scope.Remove(bounded);
+            if (bounded.Scope.Count == 0 && _scopes != null)
+                _ = _scopes.Remove(BoundedNode.ScopeOf(this, node.Key));
+        }
     }
 
     private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
@@ -436,18 +411,16 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         if (node == null)
         {
-            node = new Node(key, normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
+            node = _scopes == null
+                ? new Node(key, normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
+                : BoundedNode.Create(this, key, normalized);
+            if (node == null)
+                return true;
+
             _store.AddLocked(node);
             _footprint.Resize(node, bytes);
             _deadlines.RecordLocked(node);
 
-            if (_eviction.Capacity != null)
-            {
-                node.OrderNode = _order.AddFirst(key);
-                node.Frequency = 1;
-            }
-
-            EnforceCapacityLocked();
             return true;
         }
 
@@ -458,7 +431,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         var previous = node.ExpiresUtc;
         node.Write(normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
         _deadlines.MovedLocked(node, previous);
-        TouchOrderLocked(key, node);
+        BoundedNode.RecordAccess(node);
         return false;
     }
 
@@ -538,7 +511,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// <para>A node never changes key. A removed node is marked removed, its value and tags dropped, in the same write, and is never stored again; a
     /// key stored again gets a new node. The rest is writer-only bookkeeping, changed under the cache lock.</para>
     /// </remarks>
-    private sealed class Node
+    private class Node
     {
         /// <summary>
         /// The bits <see cref="_expires" /> holds for no deadline: no <see cref="DateTime" /> has them, since its ticks would exceed
@@ -576,9 +549,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <summary>Gets the deadline; read under the cache lock.</summary>
         internal DateTime? ExpiresUtc => Decode(_expires);
 
-        /// <summary>Gets or sets the access frequency, maintained only for the LFU policy.</summary>
-        internal long Frequency { get; set; } = 1;
-
         /// <summary>Gets the hash code of <see cref="Key" />.</summary>
         internal int Hash { get; }
 
@@ -597,9 +567,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         /// <summary>Gets the link to the next node of the same bucket of the <see cref="Store" />.</summary>
         internal ref Node? Next => ref _next;
-
-        /// <summary>Gets or sets the node in the shared eviction-order list, or <see langword="null" /> when eviction is unbounded.</summary>
-        internal LinkedListNode<CacheKey>? OrderNode { get; set; }
 
         /// <summary>Gets the tags; read under the cache lock.</summary>
         internal FrozenDictionary<string, string>? Tags => _tags;
@@ -824,35 +791,14 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             return keys;
         }
 
-        /// <summary>Picks the key with the lowest access count, the least recently used among equals; call under the cache lock.</summary>
-        /// <param name="order">The eviction order, most recently used first.</param>
-        /// <returns>The key, or <see langword="null" /> when the order is empty.</returns>
-        internal CacheKey? LeastFrequentLocked(LinkedList<CacheKey> order)
-        {
-            CacheKey? chosen = null;
-            var minFrequency = long.MaxValue;
-
-            for (var node = order.Last; node != null; node = node.Previous)
-            {
-                if (!TryGetLocked(node.Value, out var entry) || (chosen != null && entry.Frequency >= minFrequency))
-                    continue;
-
-                minFrequency = entry.Frequency;
-                chosen = node.Value;
-                if (minFrequency == 1)
-                    break;
-            }
-
-            return chosen;
-        }
-
         /// <summary>Reads the stored entry of a key without the cache lock.</summary>
         /// <param name="key">The key to read.</param>
         /// <param name="read">The fields of the entry when the outcome is <see cref="ReadOutcome.Present" />.</param>
+        /// <param name="node">The node observed by the lookup.</param>
         /// <returns>Whether the key holds an entry, or <see cref="ReadOutcome.Unsure" /> when a writer got in the way and the caller must read under the lock.</returns>
-        internal ReadOutcome Read(CacheKey key, out EntryRead read)
+        internal ReadOutcome Read(CacheKey key, out EntryRead read, out Node? node)
         {
-            var outcome = Find(key, out var node);
+            var outcome = Find(key, out node);
             if (node != null)
                 return node.Read(out read);
 

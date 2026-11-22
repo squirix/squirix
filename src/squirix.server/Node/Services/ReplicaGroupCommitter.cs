@@ -200,6 +200,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the local cache pipeline used for prepare reads and memory applies.</summary>
     internal ILogicalNamespacedCache<object?> Local { get; }
 
+    internal Func<CacheKey, CacheKey?>? SelectCapacityVictim { get; init; }
+
     /// <summary>Gets the record of the appends to the owned group log; it outlives the pipelines, which are recreated after a failed append.</summary>
     internal ReplicaLocalAppends LocalAppends { get; } = new();
 

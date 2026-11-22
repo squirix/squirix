@@ -13,6 +13,8 @@ namespace Squirix.Server.TestKit.Hosting;
 [Immutable]
 internal sealed class NodeHostStartOptions
 {
+    internal long? EvictionBudgetBytes { get; init; }
+
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
     internal MtlsCertificate? Certificate { get; init; }

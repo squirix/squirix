@@ -18,7 +18,7 @@ See [containerization.md](containerization.md) for dev and release image layouts
 
 The standalone CLI and `SquirixServer.StartAsync()` load `Squirix:Cluster` through `Configurator`.
 The host also loads `Squirix:PrometheusMetrics` from the selected settings file. An explicit `--settings custom.json`
-selects both sections from that file. `MemoryPressure` and `Snapshot` use standard file discovery independently.
+selects those sections and `Squirix:CacheEviction` from that file. `MemoryPressure` and `Snapshot` use standard file discovery independently.
 Keep all sections in `Squirix.settings.json` in the working directory to apply them together.
 `validate-config --settings custom.json --strict` validates optional sections in the named file.
 
@@ -380,6 +380,7 @@ The following optional settings are available at startup.
 
 | Section | Loaded from `Squirix.settings.json`? | Notes |
 | --- | --- | --- |
+| `CacheEviction` | Yes | Disabled by default. See [Cache eviction](#cache-eviction) for key-count and memory modes. |
 | `MemoryPressure` | Yes | Merged when present |
 | `Snapshot` | Yes | Merged when present |
 | `PrometheusMetrics` | Yes | Enables HTTP export when metrics collection is on. Disabled by default |
@@ -389,7 +390,7 @@ The following optional settings are available at startup.
 | Journal metrics exporter interval | No | Fixed at 5 seconds |
 
 `squirix-server validate-config --settings Squirix.settings.json --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
-sections together with cluster settings.
+sections together with cluster settings. Validation checks `CacheEviction` in both standard and strict mode.
 
 ### Persistence (host defaults)
 
@@ -428,6 +429,33 @@ the snapshot triggers say, and pauses an incoming state transfer. Keep `JournalM
 below that mark. Use a frame allowance of 514 MiB without replication or 34 MiB with replication. The node warns at startup when it does not fit.
 
 Journal group commit is configured through the [Journal](#journal) section. See [journal group commit](journal-group-commit.md) for how it works.
+
+### Cache eviction
+
+Omitting `Squirix:CacheEviction` disables eviction. The same default applies to an explicit
+`{"mode":"disabled"}`. To enable eviction, add one of these objects under `Squirix` and restart the node.
+
+| CacheEviction object | Behavior |
+| --- | --- |
+| `{"mode":"keyCount","maxKeys":10000}` | Keeps up to 10,000 entries per named cache per original replication group. The limit must be a positive 32-bit integer. |
+| `{"mode":"memory"}` | Starts reclaiming entries when estimated cache memory on the node reaches its configured high memory-pressure threshold (80% by default). |
+
+The standalone host accepts the same modes without a settings file:
+
+```sh
+squirix-server run --cache-eviction keyCount --max-keys 10000
+squirix-server run --cache-eviction memory
+squirix-server run --cache-eviction disabled
+```
+
+The flags also apply to `doctor`. Command-line values override the selected file for this process.
+With an existing `keyCount` configuration, `--max-keys` alone changes the limit.
+With no file and no eviction flags, eviction is disabled.
+
+Memory eviction runs in the background. Admission can still reject writes at critical pressure.
+In a replicated cluster, a node evicts from groups it leads and followers apply the committed removals.
+Use the same mode and key limit on all nodes so that a leadership change preserves the policy.
+Upgrade every replica to a version supporting capacity eviction before enabling `keyCount`; older servers cannot read its compound eviction records.
 
 ### Snapshot
 
