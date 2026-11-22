@@ -220,14 +220,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         {
             while (IsAvailable)
             {
-                _tls.ReadExactly(buffer.AsSpan(0, Frames.ReplyBytes));
-                var (id, size, status) = Frames.ReadReply(buffer);
-                if (size == Frames.ExtendedSize)
-                {
-                    _tls.ReadExactly(buffer.AsSpan(0, Frames.ExtendedReplyBytes));
-                    size = Frames.ReadExtendedSize(buffer);
-                }
-
+                var (id, size, status) = ReadReplyHeader(buffer);
                 _ = _pending.TryGetValue(id, out var completion);
                 var result = BinaryClientProtocol.ReadBlockingReply(_tls, completion?.Parser, status, size, buffer);
                 if (completion != null && _pending.TryRemove(id, out _))
@@ -243,6 +236,19 @@ internal sealed class SynchronousBinaryConnection : IDisposable
             ArrayPool<byte>.Shared.Return(buffer);
             FinishLoop();
         }
+    }
+
+    private (int Id, int Size, int Status) ReadReplyHeader(byte[] buffer)
+    {
+        _tls.ReadExactly(buffer.AsSpan(0, Frames.ReplyBytes));
+        var reply = Frames.ReadReply(buffer);
+        if (reply.Size == Frames.ExtendedSize)
+        {
+            _tls.ReadExactly(buffer.AsSpan(0, Frames.ExtendedReplyBytes));
+            reply.Size = Frames.ReadExtendedSize(buffer);
+        }
+
+        return reply;
     }
 
     private void SendLoop()

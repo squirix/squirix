@@ -227,6 +227,13 @@ internal sealed class CallPolicy : ICallPolicy
             }
         }
 
+        private static Exception MapLastAttemptFailure(Exception? last) => last switch
+        {
+            OperationCanceledException => new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "All attempts timed out.")),
+            SquirixTransportException { StatusCode: CacheTransportStatusCode.Cancelled } => new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
+            _ => last!,
+        };
+
         private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining != null && perAttempt >= budgetRemaining.Value;
 
         private bool IsSharedBudgetSpent(DeadlineBudget? budget) => budget is { } value && UsesClock(value.Clock) && value.Remaining <= TimeSpan.Zero;
@@ -371,14 +378,7 @@ internal sealed class CallPolicy : ICallPolicy
                 throw rpc;
 
             if (budget == null || (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget)))
-            {
-                throw last switch
-                {
-                    TaskCanceledException or OperationCanceledException => new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "All attempts timed out.")),
-                    SquirixTransportException { StatusCode: CacheTransportStatusCode.Cancelled } => new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
-                    _ => last!,
-                };
-            }
+                throw MapLastAttemptFailure(last);
 
             RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
             throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));

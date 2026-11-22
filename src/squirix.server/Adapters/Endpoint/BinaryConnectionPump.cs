@@ -170,18 +170,22 @@ internal sealed class BinaryConnectionPump
             examined = buffer.End;
             stop.ThrowIfCancellationRequested();
 
-            if (!result.IsCompleted || buffer.Length != result.Buffer.Length)
-                return null;
-
-            // Drain an already accepted call before closing a full connection at EOF.
-            waitingForSlot = !_slots.Reader.TryPeek(out _);
-            return waitingForSlot ? null : throw new EndOfStreamException();
+            waitingForSlot = WaitForSlotOnEof(result, buffer.Length);
+            return null;
         }
         finally
         {
             input.AdvanceTo(consumed, examined);
             QueueExecution(ref queued, ref queuedCount);
         }
+    }
+
+    private bool WaitForSlotOnEof(ReadResult result, long remaining)
+    {
+        var reachedEof = result.IsCompleted && remaining == result.Buffer.Length;
+
+        // Drain an already accepted call before closing a full connection at EOF.
+        return reachedEof && _slots.Reader.TryPeek(out _) ? throw new EndOfStreamException() : reachedEof;
     }
 
     private void Dispatch(int slot, in RequestFrame frame, byte[] body, ref QueuedCall[]? batch, ref int count)
