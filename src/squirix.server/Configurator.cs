@@ -109,20 +109,7 @@ public static class Configurator
         target.PrometheusMetricsPath = source.PrometheusMetricsPath;
         target.DataDirectory = source.DataDirectory;
         target.ForwardConnectTimeout = source.ForwardConnectTimeout;
-        ArgumentNullException.ThrowIfNull(source.Backpressure);
-        target.Backpressure = new SquirixServerBackpressureOptions
-        {
-            MaxInFlight = source.Backpressure.MaxInFlight,
-            MaxQueue = source.Backpressure.MaxQueue,
-            MaxQueueWait = source.Backpressure.MaxQueueWait,
-            MaxSlowdownDelay = source.Backpressure.MaxSlowdownDelay,
-            NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
-            NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
-            PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
-            PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
-            PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
-            SlowdownThreshold = source.Backpressure.SlowdownThreshold,
-        };
+        CopyBackpressureOptions(source, target);
         ArgumentNullException.ThrowIfNull(source.Journal);
         target.Journal = new SquirixServerJournalOptions
         {
@@ -349,6 +336,24 @@ public static class Configurator
     {
         options.Validate();
         return SquirixServerOptions.BuildTopology(options);
+    }
+
+    private static void CopyBackpressureOptions(SquirixServerOptions source, SquirixServerOptions target)
+    {
+        ArgumentNullException.ThrowIfNull(source.Backpressure);
+        target.Backpressure = new SquirixServerBackpressureOptions
+        {
+            MaxInFlight = source.Backpressure.MaxInFlight,
+            MaxQueue = source.Backpressure.MaxQueue,
+            MaxQueueWait = source.Backpressure.MaxQueueWait,
+            MaxSlowdownDelay = source.Backpressure.MaxSlowdownDelay,
+            NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
+            NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
+            PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
+            PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
+            PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
+            SlowdownThreshold = source.Backpressure.SlowdownThreshold,
+        };
     }
 
     private static async Task<SquirixServerOptions> LoadHostingSettingsAsync(string path, CancellationToken cancellationToken)

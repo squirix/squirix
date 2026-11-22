@@ -46,8 +46,6 @@ internal static class RuntimeServiceRegistration
             _ = services.Own<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
                 sp.Require<IMemoryPressureStateEvaluator>(),
                 sp.Require<IMemoryUsageAccounting>()));
-            services.UseDefault(new EvictionOptions());
-            _ = services.Own<ICacheEntrySizeEstimator<object?>>(static sp => CacheEntrySizeEstimator<object?>.ForEviction(new ObjectCacheEntrySizeEstimator(), sp.Require<EvictionOptions>()));
             _ = services.AddLocalCacheServices();
 
             if (metricsEnabled)
@@ -109,6 +107,9 @@ internal static class RuntimeServiceRegistration
 
         private NodeServices AddLocalCacheServices()
         {
+            services.UseDefault(new EvictionOptions());
+            _ = services.Own<ICacheEntrySizeEstimator<object?>>(static sp => CacheEntrySizeEstimator<object?>.ForEviction(new ObjectCacheEntrySizeEstimator(), sp.Require<EvictionOptions>()));
+
             // Default server clock. Tests may register a fake TimeProvider that overrides this, so cache
             // expiration can be advanced deterministically instead of relying on real-time delays.
             _ = services.Use(TimeProvider.System);

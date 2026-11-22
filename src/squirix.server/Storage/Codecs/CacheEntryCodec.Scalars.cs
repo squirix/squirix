@@ -23,9 +23,7 @@ internal static partial class CacheEntryCodec
             byte[] bytes => 1 + 4 + bytes.Length,
             sbyte or byte or short or ushort or int or uint or long => 1 + 8,
             float or double => 1 + 8,
-            decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
-            JsonUtf8Value json => 1 + 4 + json.Length,
-            _ => ComputeLength(NodeCacheEntry<object?>.NormalizeValue(value)),
+            _ => ComputeDecimalOrStructuredLength(value),
         };
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
@@ -71,6 +69,18 @@ internal static partial class CacheEntryCodec
             byte[] bytes => CacheEntryValueWriteCodec.WriteBytes(bytes, destination),
             sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
             float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
+            _ => WriteDecimalOrStructuredValue(value, destination),
+        };
+
+        private static int ComputeDecimalOrStructuredLength(object value) => value switch
+        {
+            decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
+            JsonUtf8Value json => 1 + 4 + json.Length,
+            _ => ComputeLength(NodeCacheEntry<object?>.NormalizeValue(value)),
+        };
+
+        private static int WriteDecimalOrStructuredValue(object value, Span<byte> destination) => value switch
+        {
             decimal m => CacheEntryValueWriteCodec.WriteDecimal(m, destination),
             JsonUtf8Value json => CacheEntryValueWriteCodec.WriteJson(json, destination),
             _ => WriteInternal(NodeCacheEntry<object?>.NormalizeValue(value), destination),

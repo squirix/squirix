@@ -79,30 +79,16 @@ internal static class ReplicaLogCodec
     /// </returns>
     internal static bool IsWellFormed(ReadOnlySpan<byte> payload, ulong logIndex, ulong term)
     {
-        if (payload.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(payload) is not (Version or EvictionVersion))
+        if (payload.Length < VersionSize)
+            return false;
+
+        var version = BinaryPrimitives.ReadUInt16LittleEndian(payload);
+        if (version is not (Version or EvictionVersion))
             return false;
 
         var rest = payload[VersionSize..];
-        if (rest.Length < 2 * sizeof(ulong))
-            return false;
-
-        if (BinaryPrimitives.ReadUInt64LittleEndian(rest) != logIndex || BinaryPrimitives.ReadUInt64LittleEndian(rest[sizeof(ulong)..]) != term)
-            return false;
-
-        rest = rest[(2 * sizeof(ulong))..];
-
-        for (var field = 0; field < LengthPrefixedFieldCount; field++)
-        {
-            if (!TrySkipField(ref rest, ((StringFieldMask >> field) & 1) != 0))
-                return false;
-        }
-
-        if (BinaryPrimitives.ReadUInt16LittleEndian(payload) == Version)
-            return rest.Length == TailSize;
-        if (rest.Length <= TailSize + LengthPrefixSize)
-            return false;
-        rest = rest[TailSize..];
-        return TrySkipField(ref rest, true) && rest.IsEmpty;
+        return TrySkipRecordFields(ref rest, logIndex, term)
+            && (version == Version ? rest.Length == TailSize : HasValidEvictionTail(rest));
     }
 
     /// <summary>Encodes a record to its canonical bytes.</summary>
@@ -147,11 +133,7 @@ internal static class ReplicaLogCodec
         var buffer = GC.AllocateUninitializedArray<byte>(int.CreateChecked(length));
         var span = buffer.AsSpan();
 
-        BinaryPrimitives.WriteUInt16LittleEndian(span, record.EvictedKey == null ? Version : EvictionVersion);
-        span = span[VersionSize..];
-        BinaryPrimitives.WriteUInt64LittleEndian(span, record.LogIndex);
-        BinaryPrimitives.WriteUInt64LittleEndian(span[sizeof(ulong)..], record.Term);
-        span = span[(2 * sizeof(ulong))..];
+        span = WriteRecordHeader(span, in record);
         span = WriteString(span, record.OperationId, operationIdLength);
         span = WriteString(span, record.OperationScope, operationScopeLength);
         span = WriteBytes(span, record.OperationFingerprint.Span);
@@ -162,11 +144,36 @@ internal static class ReplicaLogCodec
         BinaryPrimitives.WriteInt32LittleEndian(span, mutationLength);
         mutation = buffer.AsMemory(buffer.Length - span.Length + LengthPrefixSize, mutationLength);
         span = span[(LengthPrefixSize + mutationLength)..];
-        span = WriteBytes(span, record.OutcomePayload.Span);
-        WriteTimestamps(span, in record);
-        if (record.EvictedKey != null)
-            _ = WriteString(span[TailSize..], record.EvictedKey, victimBytes);
+        WriteRecordTail(span, in record, victimBytes);
         return buffer;
+    }
+
+    private static bool TrySkipRecordFields(ref ReadOnlySpan<byte> rest, ulong logIndex, ulong term)
+    {
+        if (rest.Length < 2 * sizeof(ulong))
+            return false;
+
+        if (BinaryPrimitives.ReadUInt64LittleEndian(rest) != logIndex || BinaryPrimitives.ReadUInt64LittleEndian(rest[sizeof(ulong)..]) != term)
+            return false;
+
+        rest = rest[(2 * sizeof(ulong))..];
+
+        for (var field = 0; field < LengthPrefixedFieldCount; field++)
+        {
+            if (!TrySkipField(ref rest, ((StringFieldMask >> field) & 1) != 0))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasValidEvictionTail(ReadOnlySpan<byte> rest)
+    {
+        if (rest.Length <= TailSize + LengthPrefixSize)
+            return false;
+
+        rest = rest[TailSize..];
+        return TrySkipField(ref rest, true) && rest.IsEmpty;
     }
 
     private static bool TrySkipField(ref ReadOnlySpan<byte> rest, bool isString)
@@ -198,6 +205,23 @@ internal static class ReplicaLogCodec
         BinaryPrimitives.WriteInt32LittleEndian(destination, byteCount);
         _ = Encoding.UTF8.GetBytes(value, destination.Slice(LengthPrefixSize, byteCount));
         return destination[(LengthPrefixSize + byteCount)..];
+    }
+
+    private static Span<byte> WriteRecordHeader(Span<byte> span, scoped in ReplicaLogRecord record)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(span, record.EvictedKey == null ? Version : EvictionVersion);
+        span = span[VersionSize..];
+        BinaryPrimitives.WriteUInt64LittleEndian(span, record.LogIndex);
+        BinaryPrimitives.WriteUInt64LittleEndian(span[sizeof(ulong)..], record.Term);
+        return span[(2 * sizeof(ulong))..];
+    }
+
+    private static void WriteRecordTail(Span<byte> span, in ReplicaLogRecord record, int victimBytes)
+    {
+        span = WriteBytes(span, record.OutcomePayload.Span);
+        WriteTimestamps(span, in record);
+        if (record.EvictedKey != null)
+            _ = WriteString(span[TailSize..], record.EvictedKey, victimBytes);
     }
 
     private static void WriteTimestamps(Span<byte> destination, in ReplicaLogRecord record)

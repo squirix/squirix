@@ -182,31 +182,28 @@ internal sealed class ReplicaElectionService : NodeWorkerBase
             return;
         }
 
-        if (outcome is { Event: ElectionEvent.Denied, Denial: FailoverDenial.ApplyBlocked })
+        if (outcome.Event == ElectionEvent.Denied)
+            ReportDenied(groupId, in outcome);
+        else if (outcome.Event == ElectionEvent.SteppedDown)
+            ReportSteppedDown(groupId, in outcome);
+        else if (outcome.Event == ElectionEvent.ApplyTimedOut)
+            ReplicaElectionLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+        else if (outcome.Event == ElectionEvent.AppendTimedOut)
+            ReplicaElectionLog.ReplicaElectionAppendTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+        else if (outcome.Event != ElectionEvent.None)
+            throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");
+    }
+
+    private void ReportDenied(string groupId, in ElectionOutcome outcome)
+    {
+        if (outcome.Denial == FailoverDenial.ApplyBlocked)
         {
             ReplicaElectionLog.ReplicaElectionApplyBlocked(_log, groupId, outcome.Term);
+            return;
         }
-        else if (outcome.Event == ElectionEvent.Denied)
-        {
-            var denial = DenialName(outcome.Denial);
-            ReplicaElectionLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
-        }
-        else if (outcome.Event == ElectionEvent.SteppedDown)
-        {
-            ReportSteppedDown(groupId, in outcome);
-        }
-        else if (outcome.Event == ElectionEvent.ApplyTimedOut)
-        {
-            ReplicaElectionLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
-        }
-        else if (outcome.Event == ElectionEvent.AppendTimedOut)
-        {
-            ReplicaElectionLog.ReplicaElectionAppendTimedOut(_log, groupId, outcome.Term, outcome.Waited);
-        }
-        else if (outcome.Event != ElectionEvent.None)
-        {
-            throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");
-        }
+
+        var denial = DenialName(outcome.Denial);
+        ReplicaElectionLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
     }
 
     /// <summary>Logs a step-down: a leadership that got no authority within its deadline names how long it waited.</summary>
