@@ -30,6 +30,35 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     private const string NodeId = "binary-node";
     private const string CacheName = "binary";
 
+    /// <summary>Read and mutation handlers retain their respective error order for an invalid cache name and key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InvalidKeyKeepsWireErrorOrder(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions(), cancellationToken);
+        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
+        var client = new CacheWireClient(channel);
+        var timeout = TimeSpan.FromSeconds(30);
+
+        var read = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.GetEntryAsync(new GetEntryAsyncRequest(), cancellationToken: cancellationToken), timeout, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(read.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(read.Message).IsEqualTo("Cache key is required.");
+
+        var remove = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.RemoveAsync(new RemoveAsyncRequest(), cancellationToken: cancellationToken), timeout, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(remove.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(remove.Message).IsEqualTo("cache_name is required for internal cluster RPCs.");
+
+        var routed = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = "bad\u0001" }, cancellationToken: cancellationToken),
+            timeout,
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(routed.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
+        _ = await Assert.That(routed.Message).IsEqualTo("Cache key contains control characters.");
+    }
+
     /// <summary>Large removals keep only booleans and replay without deleting a replacement.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Backpressure;
@@ -25,6 +26,23 @@ internal sealed class InboundAdmissionScope : IDisposable
         // Invalidate inherited execution contexts before the owning admission lease is released.
         _ = Interlocked.Exchange(ref _gate, null);
         Current.Value = _previous;
+    }
+
+    internal static ValueTask<(Decision Decision, Lease Lease)> AcquireIfNeededAsync(
+        IBackpressureGate gate,
+        string transport,
+        string operation,
+        IBackpressureClientIdResolver clients,
+        CancellationToken cancellationToken)
+    {
+        if (gate is AdmissionGate admission && IsAdmitted(admission))
+        {
+            ObjectDisposedException.ThrowIf(admission.IsDisposed, admission);
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult((Decision.Accepted(), Lease.Empty));
+        }
+
+        return gate.AcquireAsync(transport, operation, clients.Resolve(), cancellationToken);
     }
 
     internal static InboundAdmissionScope Enter(IBackpressureGate gate) => new(gate);

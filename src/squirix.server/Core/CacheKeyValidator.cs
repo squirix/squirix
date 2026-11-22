@@ -55,12 +55,25 @@ internal static class CacheKeyValidator
         return true;
     }
 
+    internal static bool TryValidate(string? key, IRoutedKeyContext? routing, out ServerKeyValidationError error)
+    {
+        if (routing?.TryGet(key, out var routedError) == true)
+        {
+            error = routedError.GetValueOrDefault();
+            return routedError == null;
+        }
+
+        return TryValidate(key, out error);
+    }
+
     /// <summary>Validates a key and returns it, or throws <see cref="ArgumentException" />.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="parameterName">The caller parameter name for the exception.</param>
+    /// <param name="routing">The inbound routing result, if available for this key.</param>
     /// <returns>The original key when valid.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="key" /> is invalid.</exception>
-    internal static string Validate(string? key, string parameterName) => TryValidate(key, out var error) ? key! : throw new ArgumentException(GetMessage(error), parameterName);
+    internal static string Validate(string? key, string parameterName, IRoutedKeyContext? routing = null) =>
+        TryValidate(key, routing, out var error) ? key! : throw new ArgumentException(GetMessage(error), parameterName);
 
     /// <summary>Equivalent to <see cref="char.IsControl(char)" /> over the string: C0 and C1 control ranges.</summary>
     /// <param name="key">The key to inspect.</param>

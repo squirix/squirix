@@ -41,7 +41,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
     public async Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
     {
         var operation = refresh ? CacheOperationNames.Touch : CacheOperationNames.Get;
-        var (admission, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clients.Resolve(), cancellationToken).ConfigureAwait(false);
+        var (admission, lease) = await InboundAdmissionScope.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clients, cancellationToken).ConfigureAwait(false);
         if (!admission.IsAccepted)
             throw ServerOpContract.TooManyRequests(admission.RejectReason ?? "unknown").ToServerCallException();
 

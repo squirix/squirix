@@ -10,9 +10,9 @@ internal static class SquirixServiceAdapterValidation
         ? throw new ServerCallException(FrameStatus.InvalidArgument, "cache_name is required for internal cluster RPCs.")
         : cacheName;
 
-    internal static void RequireValidCacheKey(string key)
+    internal static void RequireValidCacheKey(string key, IRoutedKeyContext? routing)
     {
-        if (!CacheKeyValidator.TryValidate(key, out var error))
+        if (!CacheKeyValidator.TryValidate(key, routing, out var error))
             throw ServerOpContract.InvalidCacheKey(CacheKeyValidator.GetMessage(error)).ToServerCallException();
     }
 }

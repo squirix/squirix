@@ -107,6 +107,48 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         _ = await Assert.That(Volatile.Read(ref setEntryCalls)).IsEqualTo(1);
     }
 
+    /// <summary>Nested reads and writes reuse the inbound slot before resolving the client id.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdmittedCallsSkipClientResolution(CancellationToken cancellationToken)
+    {
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 0,
+                SlowdownThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+            },
+            new BackpressureMetrics(_testMeter),
+            TimeProvider.System);
+
+        var (decision, lease) = await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", cancellationToken);
+        using (lease)
+        {
+            _ = await Assert.That(decision.IsAccepted).IsTrue();
+            var entry = new NodeCacheEntry<string>("value");
+            var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+            _ = inner.Setups.GetValueAsync("c", "k", cancellationToken).ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<string>(true, "value")));
+            _ = inner.Setups.SetEntryAsync("op-1", "c", "k", entry, cancellationToken).ReturnValue(ValueTask.CompletedTask);
+            var clients = new IBackpressureClientIdResolverCreateExpectations();
+            var cache = new BackpressureCacheDecorator<string>(inner.Instance(), gate, clients.Instance());
+
+            using (InboundAdmissionScope.Enter(gate))
+            {
+                await cache.SetEntryAsync("op-1", "c", "k", entry, cancellationToken);
+                var read = await cache.GetValueAsync("c", "k", cancellationToken);
+                _ = await Assert.That(read.Value).IsEqualTo("value");
+                _ = await Assert.That(gate.InFlight).IsEqualTo(1);
+                _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
+            }
+
+            inner.Verify();
+        }
+
+        _ = await Assert.That(gate.InFlight).IsEqualTo(0);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 

@@ -203,7 +203,16 @@ internal sealed class NativePeerEndpoint
                 agreement.EnsureInboundAgreement(frame.Fingerprint == 0 ? null : PeerFrames.Text.GetString(meta, 0, frame.Fingerprint), peer);
             var call = new BinaryRequestContext { Path = fullPath, RequestAborted = cancellationToken, TraceParent = parent, TraceState = state };
             var request = new BinaryDispatch.Request(call, DateTime.MaxValue, Task.CompletedTask, true);
-            return await _services.Require<BinaryDispatch>().ExecuteAsync(operation, body, in request).ConfigureAwait(false);
+            var accessor = _services.Require<BinaryRequestAccessor>();
+            accessor.Current = call;
+            try
+            {
+                return await _services.Require<BinaryDispatch>().ExecuteAsync(operation, body, in request).ConfigureAwait(false);
+            }
+            finally
+            {
+                accessor.Current = null;
+            }
         }
 
         if (!_replication)

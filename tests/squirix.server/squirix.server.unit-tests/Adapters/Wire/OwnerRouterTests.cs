@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Rocks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -132,6 +137,67 @@ public sealed class OwnerRouterTests
         _ = await calls.RunAsync(OwnerRouters.Static(ownership.Instance(), CreateInvocationState(true), Self), cacheName, key);
 
         _ = await Assert.That(string.Join(',', calls.Targets)).IsEqualTo(RouterCalls.Local);
+    }
+
+    /// <summary>The local guard reuses the router's group and reads authority on every operation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RoutedGroupUsesCurrentAuthority(CancellationToken cancellationToken)
+    {
+        var request = new BinaryRequestAccessor { Current = new BinaryRequestContext { Path = "/cache/Get" } };
+        var ownership = new INodeOwnershipResolverCreateExpectations();
+        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
+        _ = ownership.Setups.GetOwner("c", "k").ReturnValue(Self);
+        var router = new OwnerRouter(
+            ownership.Instance(),
+            CreateInvocationState(false),
+            RingAgreements.Create(),
+            new StaticLeaderTable(Self),
+            OwnerRouters.LeaderWait,
+            TimeProvider.System,
+            OwnerRouters.Locator(Self))
+        {
+            KeyContext = request,
+        };
+
+        var view = new StrongBox<GroupLeaderView>(new GroupLeaderView(true, true, false, 1, 1, new LeaderRoute(Self, 1)));
+        var leaders = new IGroupLeaderTableCreateExpectations();
+        _ = leaders.Setups.Read(Self).Callback(_ => view.Value).ExpectedCallCount(2);
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetValueAsync("c", "k", cancellationToken)
+                 .ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)));
+        var guard = new OwnershipGuardCacheDecorator<string>(
+            Self,
+            new INodeLocatorCreateExpectations().Instance(),
+            leaders.Instance(),
+            true,
+            inner.Instance(),
+            request);
+
+        _ = await router.ExecuteAsync(
+            "c",
+            "k",
+            guard,
+            static (_, _, _) => throw new InvalidOperationException("The request must stay local."),
+            static (cache, token) => cache.GetValueAsync("c", "k", token).AsTask(),
+            cancellationToken);
+
+        view.Value = new GroupLeaderView(true, false, false, 2, 2, new LeaderRoute(Remote, 2));
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
+            ReadAsync(guard, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(failure.FindTrailer("squirix-leader-node-id")).IsEqualTo(Remote);
+        _ = await Assert.That(failure.FindTrailer("squirix-leader-term")).IsEqualTo("2");
+        inner.Verify();
+        leaders.Verify();
+        ownership.Verify();
+
+        static async Task ReadAsync(OwnershipGuardCacheDecorator<string> cache, CancellationToken token)
+        {
+            _ = await cache.GetValueAsync("c", "k", token);
+        }
     }
 
     private static IRemoteInvocationState CreateInvocationState(bool internalCall)
