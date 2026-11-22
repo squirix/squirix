@@ -22,6 +22,8 @@ namespace Squirix.Server.Node.Hosting;
 /// <summary>Owns the node's public TLS socket and drains it before the storage services stop.</summary>
 internal sealed class NativeClientService : INodeService, IAsyncDisposable
 {
+    private const string Localhost = "localhost";
+
     private readonly IServiceProvider _services;
     private readonly TopologyOptions _topology;
     private readonly bool _mutationReplay;
@@ -144,7 +146,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         var port = primary.Port <= 65533 ? primary.Port + 2 : primary.Port - 2;
         if (port == peerPort)
             port = primary.Port <= 65532 ? primary.Port + 3 : primary.Port - 3;
-        var host = certificateMatchesLocalhost ? "localhost" : IPAddress.Loopback.ToString();
+        var host = certificateMatchesLocalhost ? Localhost : IPAddress.Loopback.ToString();
         return new UriBuilder(Uri.UriSchemeHttps, host, port).Uri;
     }
 
@@ -169,7 +171,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
     private static async ValueTask<IPAddress[]?> ResolveManagementAddressesAsync(Uri uri, CancellationToken cancellationToken)
     {
         var host = uri.DnsSafeHost;
-        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(host, out _))
+        if (string.Equals(host, Localhost, StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(host, out _))
             return null;
 
         var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
@@ -205,7 +207,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         }
 
         var host = uri.DnsSafeHost;
-        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(host, Localhost, StringComparison.OrdinalIgnoreCase))
         {
             Add(IPAddress.Loopback);
             if (Socket.OSSupportsIPv6)
@@ -262,7 +264,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
     private async ValueTask<(Uri Uri, IPAddress[]? Addresses)> ResolveManagementBindingAsync(X509Certificate2 certificate, int peerPort, CancellationToken cancellationToken)
     {
         var configured = _managementUri ?? ReadManagementUri();
-        var uri = configured ?? ResolveDefaultManagementUri(_topology.Uri, peerPort, certificate.MatchesHostname("localhost"));
+        var uri = configured ?? ResolveDefaultManagementUri(_topology.Uri, peerPort, certificate.MatchesHostname(Localhost));
         if (configured == null && !certificate.MatchesHostname(uri.IdnHost))
             LogManagementCertificateMismatch(_services.Require<IServerLoggerFactory>().CreateLogger<NativeClientService>(), uri);
         var addresses = await ResolveManagementAddressesAsync(uri, cancellationToken).ConfigureAwait(false);

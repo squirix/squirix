@@ -17,7 +17,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 [Immutable]
 public sealed partial class ServerLogEventIdTests
 {
-    [GeneratedRegex(@"\bstatic\s+readonly\s+LogEvent\s+(?<name>\w+)\s*=\s*(?:new\s*(?:LogEvent\s*)?\(\s*(?<id>[0-9]+)\s*,)?", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture | RegexOptions.NonBacktracking)]
+    [GeneratedRegex(@"\bstatic\s+readonly\s+LogEvent\s+(?<name>\w+)\s*=\s*(?:new\s*(?:LogEvent\s*)?\(\s*(?<id>[0-9]+)\s*,)?", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, 1000)]
     private static partial Regex DescriptorPattern { get; }
 
     /// <summary>Checks all event descriptors, including those on private component types.</summary>

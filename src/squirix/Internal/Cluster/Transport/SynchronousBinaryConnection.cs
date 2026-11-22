@@ -19,6 +19,8 @@ namespace Squirix.Internal.Cluster.Transport;
 /// <summary>Multiplexes blocking callers over a binary TLS connection with one reader and one writer.</summary>
 internal sealed class SynchronousBinaryConnection : IDisposable
 {
+    private const string ConnectionClosedMessage = "The binary cache connection closed.";
+
     private readonly TcpClient _socket;
     private readonly SslStream _tls;
     private readonly SemaphoreSlim _slots = new(128);
@@ -91,7 +93,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         if (reply.Response is { } response)
             return response;
         if (reply.Failure is not { } failure)
-            throw new IOException("The binary cache connection closed.");
+            throw new IOException(ConnectionClosedMessage);
 
         throw preventReplay && BinaryClientProtocol.IsOutcomeUnconfirmed(failure)
             ? BinaryClientProtocol.UnknownOutcome(failure)
@@ -152,7 +154,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     private void Enqueue(in Request request, Pending pending, CancellationToken token)
     {
         if (!_pending.TryAdd(request.Id, pending) || !IsAvailable)
-            throw new IOException("The binary cache connection closed.");
+            throw new IOException(ConnectionClosedMessage);
 
         try
         {
@@ -161,7 +163,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         }
         catch (InvalidOperationException error)
         {
-            throw new IOException("The binary cache connection closed.", error);
+            throw new IOException(ConnectionClosedMessage, error);
         }
     }
 
@@ -189,7 +191,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         lock (_lifetime)
         {
             if (_closed != 0)
-                throw new IOException("The binary cache connection closed.");
+                throw new IOException(ConnectionClosedMessage);
 
             _activeCalls++;
             _ = Interlocked.Increment(ref _users);

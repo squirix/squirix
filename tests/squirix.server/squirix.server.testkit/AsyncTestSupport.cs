@@ -7,6 +7,8 @@ namespace Squirix.Server.TestKit;
 /// <summary>Async polling helpers shared across the test suite.</summary>
 public static class AsyncTestSupport
 {
+    private const string WaitTimeoutMessage = "Timed out waiting for the expected condition.";
+
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
 
     /// <summary>Polls <paramref name="condition"/> against <paramref name="state"/> until it holds, with the default budget.</summary>
@@ -70,7 +72,7 @@ public static class AsyncTestSupport
         {
             var remaining = timeout - timeProvider.GetElapsedTime(started);
             if (remaining <= TimeSpan.Zero)
-                throw new TimeoutException("Timed out waiting for the expected condition.");
+                throw new TimeoutException(WaitTimeoutMessage);
 
             await Task.Delay(remaining < PollInterval ? remaining : PollInterval, timeProvider, cancellationToken).ConfigureAwait(false);
         }
@@ -90,19 +92,19 @@ public static class AsyncTestSupport
             {
                 var satisfied = await condition(state, linkedSource.Token).ConfigureAwait(false);
                 if (timeoutSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                    throw new TimeoutException("Timed out waiting for the expected condition.");
+                    throw new TimeoutException(WaitTimeoutMessage);
                 if (satisfied)
                     return;
             }
             catch (OperationCanceledException exception) when (timeoutSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
-                throw new TimeoutException("Timed out waiting for the expected condition.", exception);
+                throw new TimeoutException(WaitTimeoutMessage, exception);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
 
             if (timeoutSource.IsCancellationRequested)
-                throw new TimeoutException("Timed out waiting for the expected condition.");
+                throw new TimeoutException(WaitTimeoutMessage);
 
             try
             {
@@ -110,7 +112,7 @@ public static class AsyncTestSupport
             }
             catch (OperationCanceledException exception) when (timeoutSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
-                throw new TimeoutException("Timed out waiting for the expected condition.", exception);
+                throw new TimeoutException(WaitTimeoutMessage, exception);
             }
         }
     }
