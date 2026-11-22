@@ -20,6 +20,8 @@ internal static class ProtocolPolicyChecker
     /// <summary>The policy that a hint leaves a leader that has already retired in the term the hint names.</summary>
     internal const string HintSourceRetired = "TransferHintSourceRetired";
 
+    private const string NodePrefix = "Node ";
+
     /// <summary>Gets every rule this checker can report, which is every policy report the CLI can write.</summary>
     /// <remarks>
     /// A report is named after the rule it carries, so this set is exactly the set of report names the CLI can produce.
@@ -244,10 +246,10 @@ internal static class ProtocolPolicyChecker
     private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static string NamedItselfDetail(in InFlightMessage message) =>
-        "Node " + Int(message.From) + " named itself as the successor in term " + Int(message.Term);
+        NodePrefix + Int(message.From) + " named itself as the successor in term " + Int(message.Term);
 
     private static string StillServingDetail(in InFlightMessage message) =>
-        "Node " + Int(message.From) + " sent a transfer hint in term " + Int(message.Term) + " while it is still the leader of that term, so it did not retire";
+        NodePrefix + Int(message.From) + " sent a transfer hint in term " + Int(message.Term) + " while it is still the leader of that term, so it did not retire";
 
     private static string TwoHintsEvent(in ModelHintEmission emission) =>
         "TransferHint(from=" + Int(emission.Sender) + ",to=" + Int(emission.FirstSuccessor) + ",term=" +
@@ -255,10 +257,10 @@ internal static class ProtocolPolicyChecker
         Int(emission.SecondSuccessor) + ",term=" + Int(emission.Term) + ")";
 
     private static string TwoSuccessorsDetail(in InFlightMessage message, int count) =>
-        "Node " + Int(message.From) + " named " + Int(count) + " different successors in term " + Int(message.Term) + ", so the retirement did not name one";
+        NodePrefix + Int(message.From) + " named " + Int(count) + " different successors in term " + Int(message.Term) + ", so the retirement did not name one";
 
     private static string TwoSuccessorsInTermDetail(in ModelHintEmission emission) =>
-        "Node " + Int(emission.Sender) + " named " + Int(emission.FirstSuccessor) + " and " +
+        NodePrefix + Int(emission.Sender) + " named " + Int(emission.FirstSuccessor) + " and " +
         Int(emission.SecondSuccessor) + " as different successors in term " + Int(emission.Term) +
         ", so the retirement did not name one";
 }

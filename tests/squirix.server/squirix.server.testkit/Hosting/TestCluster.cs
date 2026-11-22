@@ -451,14 +451,13 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(topology);
 
         PersistenceOptions? persistenceOptions = null;
-        var dataDir = options?.DataDir;
-        if (dataDir != null)
+        if (options is { DataDir: { } dataDir })
         {
             if (string.IsNullOrWhiteSpace(dataDir))
                 throw new ArgumentException("DataDir must be non-empty when persistence is enabled.", nameof(options));
 
             persistenceOptions = new PersistenceOptions { DataDir = dataDir };
-            if (options?.ReplicaLogCompactionEntries is { } entries)
+            if (options.ReplicaLogCompactionEntries is { } entries)
                 persistenceOptions = persistenceOptions with { ReplicaLogCompactionEntries = entries };
         }
 

@@ -194,8 +194,7 @@ internal sealed class CallPolicy : ICallPolicy
                 // The operation deadline can expire while queued on the per-peer semaphore. Surface it as
                 // the same deadline-budget SquirixTransportException the retry loop produces instead of leaking a raw
                 // OperationCanceledException.
-                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-                throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
+                throw CreateBudgetExceeded();
             }
 
             CallPolicyMetrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
@@ -348,10 +347,7 @@ internal sealed class CallPolicy : ICallPolicy
             // expiry first, it is the exhausted operation budget, not a per-attempt timeout to retry.
             if (rx.StatusCode is CacheTransportStatusCode.Cancelled or CacheTransportStatusCode.DeadlineExceeded && !cancellationToken.IsCancellationRequested &&
                 budget?.Remaining is { } remainingBudget && remainingBudget <= TimeSpan.Zero)
-            {
-                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-                throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
-            }
+                throw CreateBudgetExceeded();
 
             var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget);
             if (!canRetry)
@@ -380,8 +376,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (budget == null || (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget)))
                 throw MapLastAttemptFailure(last);
 
-            RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
-            throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
+            throw CreateBudgetExceeded();
         }
 
         private void ThrowIfDraining()

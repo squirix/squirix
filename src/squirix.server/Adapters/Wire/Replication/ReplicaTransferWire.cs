@@ -10,6 +10,8 @@ namespace Squirix.Server.Adapters.Wire.Replication;
 /// <remarks>The server side hands payload bytes to the receiver as views of the request; the client side wraps the caller buffers without copying them.</remarks>
 internal static class ReplicaTransferWire
 {
+    private const string SequenceNumberOutOfRange = "sequence-number-out-of-range";
+
     /// <summary>Creates the abort request of a transfer.</summary>
     /// <param name="header">The envelope identity.</param>
     /// <param name="transferId">The transfer to abort.</param>
@@ -137,7 +139,7 @@ internal static class ReplicaTransferWire
     {
         var end = request.End;
         return request.Sequence > int.MaxValue
-            ? OutOfRange(receiver, request, "End", "sequence-number-out-of-range")
+            ? OutOfRange(receiver, request, "End", SequenceNumberOutOfRange)
             : await receiver.EndAsync(SenderOf(request), int.CreateChecked(request.Sequence), end.EntryCount, end.EntriesCrc32C, cancellationToken).ConfigureAwait(false);
     }
 
@@ -149,7 +151,7 @@ internal static class ReplicaTransferWire
     private static async Task<ReplicaTransferReply> EntriesAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         return request.Sequence > int.MaxValue
-            ? OutOfRange(receiver, request, "Entries", "sequence-number-out-of-range")
+            ? OutOfRange(receiver, request, "Entries", SequenceNumberOutOfRange)
             : await receiver.EntriesAsync(SenderOf(request), int.CreateChecked(request.Sequence), request.Entries.Entries, cancellationToken).ConfigureAwait(false);
     }
 
@@ -181,7 +183,7 @@ internal static class ReplicaTransferWire
     /// <param name="cancellationToken">Cancellation token of the RPC.</param>
     /// <returns>The wipe reply or a checksum refusal for an out-of-range sequence.</returns>
     private static async Task<ReplicaTransferReply> WipeAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken) =>
-        request.Sequence > int.MaxValue ? OutOfRange(receiver, request, "Wipe", "sequence-number-out-of-range") : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
+        request.Sequence > int.MaxValue ? OutOfRange(receiver, request, "Wipe", SequenceNumberOutOfRange) : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
 
     /// <summary>Forwards a snapshot chunk after diagnosing sequence and offset bounds before their numeric conversions.</summary>
     /// <param name="receiver">The local transfer receiver.</param>
@@ -193,7 +195,7 @@ internal static class ReplicaTransferWire
         var s = r.Snapshot;
         return true switch
         {
-            _ when r.Sequence > int.MaxValue => OutOfRange(receiver, r, "Snapshot", "sequence-number-out-of-range"),
+            _ when r.Sequence > int.MaxValue => OutOfRange(receiver, r, "Snapshot", SequenceNumberOutOfRange),
             _ when s.Offset > long.MaxValue => OutOfRange(receiver, r, "Snapshot", "snapshot-offset-out-of-range"),
             _ => await receiver.SnapshotAsync(SenderOf(r), int.CreateChecked(r.Sequence), long.CreateChecked(s.Offset), s.Chunk, cancellationToken).ConfigureAwait(false),
         };

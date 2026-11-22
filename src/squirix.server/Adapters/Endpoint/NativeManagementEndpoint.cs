@@ -23,6 +23,8 @@ internal sealed class NativeManagementEndpoint
     internal static readonly FrozenSet<string> Probes = new[] { "/health", "/health/live", "/health/ready", "/health/ready/details" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     private const string JsonContentType = "application/json; charset=utf-8";
 
+    private const string OkStatus = "200 OK";
+
     private const int MaxHeaderBytes = 16 * 1024;
     private const string TextContentType = "text/plain";
 
@@ -228,8 +230,8 @@ internal sealed class NativeManagementEndpoint
         var status = await _services.Require<ReadinessMonitor>().GetStatusAsync(cancellationToken).ConfigureAwait(false);
         return status switch
         {
-            ReadinessStatus.Healthy => new Response("200 OK", TextContentType, HealthyBody, true),
-            ReadinessStatus.Degraded => new Response("200 OK", TextContentType, DegradedBody, true),
+            ReadinessStatus.Healthy => new Response(OkStatus, TextContentType, HealthyBody, true),
+            ReadinessStatus.Degraded => new Response(OkStatus, TextContentType, DegradedBody, true),
             _ => new Response("503 Service Unavailable", TextContentType, UnhealthyBody, true),
         };
     }
@@ -238,10 +240,10 @@ internal sealed class NativeManagementEndpoint
     {
         _ = Probes.TryGetValue(request.Path, out var probe);
         if (string.Equals(probe, "/health", StringComparison.Ordinal))
-            return new Response("200 OK", JsonContentType, CompatibilityHealthBody, false);
+            return new Response(OkStatus, JsonContentType, CompatibilityHealthBody, false);
 
         if (string.Equals(probe, "/health/live", StringComparison.Ordinal))
-            return new Response("200 OK", TextContentType, HealthyBody, true);
+            return new Response(OkStatus, TextContentType, HealthyBody, true);
         if (string.Equals(probe, "/health/ready", StringComparison.Ordinal))
             return await CheckReadinessAsync(cancellationToken).ConfigureAwait(false);
 
@@ -254,7 +256,7 @@ internal sealed class NativeManagementEndpoint
             var snapshot = await provider.GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
             var details = HealthDetailsResponseMapper.Build(snapshot);
             var body = JsonSerializer.SerializeToUtf8Bytes(details, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
-            return new Response("200 OK", JsonContentType, body, false);
+            return new Response(OkStatus, JsonContentType, body, false);
         }
 
         var metrics = _services.Require<PrometheusMetricsEndpointOptions>();
@@ -263,7 +265,7 @@ internal sealed class NativeManagementEndpoint
             _services.Find<PrometheusMetricsScraper>() is { } scraper)
         {
             response = await CanAccessDetailsAsync(remote, request.Bearer, cancellationToken).ConfigureAwait(false)
-                ? new Response("200 OK", "text/plain; version=0.0.4", Encoding.UTF8.GetBytes(scraper.Scrape()), false)
+                ? new Response(OkStatus, "text/plain; version=0.0.4", Encoding.UTF8.GetBytes(scraper.Scrape()), false)
                 : Response.Empty("401 Unauthorized");
         }
 
