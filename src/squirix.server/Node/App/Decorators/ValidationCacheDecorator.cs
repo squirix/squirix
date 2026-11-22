@@ -1,9 +1,12 @@
 using System;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App.Decorators;
@@ -14,11 +17,13 @@ namespace Squirix.Server.Node.App.Decorators;
 internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
+    private readonly int _valueLimit;
 
-    internal ValidationCacheDecorator(ILogicalNamespacedCache<T> inner)
+    internal ValidationCacheDecorator(ILogicalNamespacedCache<T> inner, int valueLimit = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(inner);
         _inner = inner;
+        _valueLimit = valueLimit;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -61,6 +66,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+        ValidateLocalValue(entry.Value);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -78,6 +84,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+        ValidateLocalValue(entry.Value);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -87,6 +94,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+        ValidateLocalValue(entry.Value);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.AddOrGetAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -95,8 +103,23 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         _ = CacheKeyValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
-
-        // Local-owner update sizing runs in the ownership inner chain (journal prepare or local guard).
+        ValidateLocalValue(value);
         return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
+    }
+
+    private void ValidateLocalValue(T? value)
+    {
+        if (RemoteInvocationContext.IsRemoteInvocation || _valueLimit == int.MaxValue)
+            return;
+
+        var length = NodeCacheEntry<T>.NormalizeValue(value) switch
+        {
+            byte[] bytes => bytes.Length,
+            JsonUtf8Value json => json.Length,
+            string text when text.Length > _valueLimit / 3 => Encoding.UTF8.GetByteCount(text),
+            _ => 0,
+        };
+        if (length > _valueLimit)
+            throw ServerOpContract.PayloadTooLarge(_valueLimit);
     }
 }

@@ -14,6 +14,22 @@ namespace Squirix.E2ETests;
 [Immutable]
 public sealed class BinaryValueTests
 {
+    /// <summary>The SDK sends and reads a typed value that needs extended frames.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TypedSdkUsesExtendedFrames(CancellationToken cancellationToken)
+    {
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(TypedSdkUsesExtendedFrames), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+        var cache = await cluster.GetCacheAsync<string>("extended-frames", cancellationToken: cancellationToken);
+        var value = new string('x', 9 * 1024 * 1024) + "end";
+
+        await cache.SetAsync("large", value, cancellationToken: cancellationToken);
+        var result = await cache.GetValueAsync("large", cancellationToken);
+
+        _ = await Assert.That(result.Found).IsTrue();
+        _ = await Assert.That(string.Equals(value, result.Value, StringComparison.Ordinal)).IsTrue();
+    }
+
     /// <summary>Binary reads survive restart, return owned arrays and observe removal on the server.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

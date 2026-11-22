@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Threading;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -32,21 +31,19 @@ internal sealed class PreparedJournalValue : IDisposable
             return;
 
         if (_buffer is { } buffer)
-            ArrayPool<byte>.Shared.ReturnCleared(buffer);
+            PayloadBuffer.Release(buffer);
     }
 
-    /// <summary>Checks the value size, retaining immutable JSON or snapshotting other normalized values into a pooled encoding.</summary>
+    /// <summary>Retains immutable JSON or snapshots another normalized value into a pooled encoding.</summary>
     /// <param name="normalizedValue">The normalized value.</param>
     /// <returns>The prepared value.</returns>
-    /// <exception cref="Squirix.Server.Errors.SquirixException">The value alone exceeds the entry size limit.</exception>
     internal static PreparedJournalValue Create(object? normalizedValue)
     {
         var length = CacheEntryCodec.ComputeValueLength(normalizedValue);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
         if (normalizedValue is JsonUtf8Value json)
             return new PreparedJournalValue(null, json, length);
 
-        var buffer = ArrayPool<byte>.Shared.Rent(length);
+        var buffer = PayloadBuffer.Rent(length);
         try
         {
             CacheEntryCodec.WriteValue(normalizedValue, buffer);
@@ -54,7 +51,7 @@ internal sealed class PreparedJournalValue : IDisposable
         }
         catch
         {
-            ArrayPool<byte>.Shared.ReturnCleared(buffer);
+            PayloadBuffer.Release(buffer);
             throw;
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.IO.Pipelines;
 using System.Net.Security;
@@ -25,6 +26,27 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>Checks peer I/O independently of application dispatch.</summary>
 public sealed class PeerSessionDeadlineTests
 {
+    /// <summary>Short and extended peer frames retain the version-two protocol identifiers.</summary>
+    /// <param name="length">The short-form length or the marker for an extended length.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(Frames.ExtendedSize)]
+    public async Task PeerFramesKeepVersionTwo(int length)
+    {
+        var requestHeader = GC.AllocateUninitializedArray<byte>(PeerFrames.RequestBytes);
+        var replyHeader = GC.AllocateUninitializedArray<byte>(PeerFrames.ReplyBytes);
+        var request = new PeerFrames.Request(length, -1, PeerOperation.Ping, 0, 0, 0);
+        PeerFrames.WriteRequest(requestHeader, in request);
+        PeerFrames.WriteReply(replyHeader, 0, length);
+
+        const uint versionTwoMagic = 0x53515032;
+        _ = await Assert.That(PeerFrames.Protocol).IsEqualTo(new SslApplicationProtocol("squirix-peer/2"));
+        _ = await Assert.That(BinaryPrimitives.ReadUInt32BigEndian(requestHeader)).IsEqualTo(versionTwoMagic);
+        _ = await Assert.That(BinaryPrimitives.ReadUInt32BigEndian(replyHeader)).IsEqualTo(versionTwoMagic);
+        _ = await Assert.That(PeerFrames.ReadRequest(requestHeader).Body).IsEqualTo(length);
+        _ = await Assert.That(PeerFrames.ReadReply(replyHeader).Size).IsEqualTo(length);
+    }
+
     /// <summary>The sender omits optional tracing fields outside the encoded byte budget.</summary>
     [Test]
     public async Task TraceMetadataHonorsEncodedByteLimit()

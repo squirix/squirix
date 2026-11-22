@@ -39,7 +39,7 @@ internal static class PeerFrames
 
     internal static void WriteRequest(Span<byte> header, in Request request)
     {
-        if (request.Body is < 0 or > EntryLimits.MaxSendMessageSizeBytes ||
+        if (request.Body < 0 || (request.Body > EntryLimits.MaxSendMessageSizeBytes && request.Body != Frames.ExtendedSize) ||
             request.Fingerprint is < 0 or > 128 || (request.FingerprintIsDigest && request.Fingerprint != RingFingerprint.DigestBytes) ||
             request.Parent is < 0 or > Frames.MaxTraceParentLength || (request.TraceParentIsBinary && request.Parent != WireTraceParent.ByteCount) ||
             request.State is < 0 or > Frames.MaxTraceStateLength)
@@ -67,7 +67,7 @@ internal static class PeerFrames
             metadata & 0x3ff,
             (metadata & DigestFingerprintFlag) != 0,
             (metadata & BinaryTraceParentFlag) != 0);
-        var invalid = request.Body > EntryLimits.MaxReceiveMessageSizeBytes || !HasValidMetadata(in request, metadata) ||
+        var invalid = (request.Body > EntryLimits.MaxReceiveMessageSizeBytes && request.Body != Frames.ExtendedSize) || !HasValidMetadata(in request, metadata) ||
             request.Budget is < -1 or 0 || request.Budget > (uint.MaxValue - 1L) * TimeSpan.TicksPerMillisecond;
         return invalid ? throw new InvalidDataException("Invalid peer frame dimensions or deadline.") : request;
     }
@@ -77,7 +77,8 @@ internal static class PeerFrames
         ArgumentOutOfRangeException.ThrowIfNegative(status);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(status, 16);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(length, EntryLimits.MaxSendMessageSizeBytes);
+        if (length != Frames.ExtendedSize)
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(length, EntryLimits.MaxSendMessageSizeBytes);
         BinaryPrimitives.WriteUInt64BigEndian(header, (ulong.CreateChecked(Magic) << 32) | uint.CreateTruncating((status << 24) | length));
     }
 
@@ -86,7 +87,7 @@ internal static class PeerFrames
         var word = ReadPackedWord(header);
         var status = word >>> 24;
         var size = word & SizeMask;
-        return status > 16 || size > EntryLimits.MaxReceiveMessageSizeBytes
+        return status > 16 || (size > EntryLimits.MaxReceiveMessageSizeBytes && size != Frames.ExtendedSize)
             ? throw new InvalidDataException("Invalid peer response status or length.")
             : (status, size);
     }

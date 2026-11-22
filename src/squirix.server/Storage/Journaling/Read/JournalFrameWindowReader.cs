@@ -53,7 +53,7 @@ internal sealed class JournalFrameWindowReader : IDisposable
         ArrayPool<byte>.Shared.ReturnCleared(_window);
         if (_payload == null)
             return;
-        ArrayPool<byte>.Shared.ReturnCleared(_payload);
+        PayloadBuffer.Release(_payload);
         _payload = null;
     }
 
@@ -103,9 +103,9 @@ internal sealed class JournalFrameWindowReader : IDisposable
             return _payload;
 
         if (_payload != null)
-            ArrayPool<byte>.Shared.ReturnCleared(_payload);
+            PayloadBuffer.Release(_payload);
 
-        _payload = ArrayPool<byte>.Shared.Rent(Math.Max(length, 1));
+        _payload = PayloadBuffer.Rent(Math.Max(length, 1));
         return _payload;
     }
 

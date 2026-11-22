@@ -42,7 +42,7 @@ public class CacheWriteSizingBenchmarks
             new MemoryUsageAccounting(physical),
             "node",
             _meter);
-        _cache = new MemoryAdmissionCacheDecorator<object?>(new OwnerPutPayloadGuardDecorator<object?>(client), gate, estimator);
+        _cache = new MemoryAdmissionCacheDecorator<object?>(client, gate, estimator);
     }
 
     /// <summary>Writes a fresh request entry, overwriting one key so memory usage stays bounded.</summary>

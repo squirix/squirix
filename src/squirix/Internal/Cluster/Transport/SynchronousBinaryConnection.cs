@@ -25,17 +25,19 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     private readonly BlockingCollection<Request> _outgoing = new(new ConcurrentQueue<Request>(), 128);
     private readonly ConcurrentDictionary<int, Pending> _pending = [];
     private readonly bool _supportsMutationReplay;
+    private readonly bool _supportsExtendedFrames;
     private readonly Lock _lifetime = new();
     private int _activeCalls;
     private int _next;
     private int _closed;
     private int _users = 3;
 
-    private SynchronousBinaryConnection(TcpClient socket, SslStream tls, bool supportsMutationReplay)
+    private SynchronousBinaryConnection(TcpClient socket, SslStream tls, bool supportsMutationReplay, bool supportsExtendedFrames)
     {
         _socket = socket;
         _tls = tls;
         _supportsMutationReplay = supportsMutationReplay;
+        _supportsExtendedFrames = supportsExtendedFrames;
     }
 
     internal bool IsAvailable => Volatile.Read(ref _closed) == 0;
@@ -60,8 +62,8 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         var connecting = SynchronizationContext.Current == null && TaskScheduler.Current == TaskScheduler.Default
             ? BinaryClientProtocol.ConnectAsync(uri, provider, tlsOptions, token)
             : Task.Run(() => BinaryClientProtocol.ConnectAsync(uri, provider, tlsOptions, token), token);
-        var (socket, tls, replay) = connecting.GetAwaiter().GetResult();
-        var connection = new SynchronousBinaryConnection(socket, tls, replay);
+        var (socket, tls, replay, extended) = connecting.GetAwaiter().GetResult();
+        var connection = new SynchronousBinaryConnection(socket, tls, replay, extended);
         connection.StartWorkers();
         return connection;
     }
@@ -72,7 +74,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         EnterCall();
         try
         {
-            var prepared = BinaryClientProtocol.PrepareRequest(operation, request, _supportsMutationReplay);
+            var prepared = BinaryClientProtocol.PrepareRequest(operation, request, _supportsMutationReplay, _supportsExtendedFrames);
             var reply = SendRequest(operation, in prepared, parser, deadline, token, lifetime);
             return reply as T ?? UnexpectedReply<T>();
         }
@@ -220,6 +222,12 @@ internal sealed class SynchronousBinaryConnection : IDisposable
             {
                 _tls.ReadExactly(buffer.AsSpan(0, Frames.ReplyBytes));
                 var (id, size, status) = Frames.ReadReply(buffer);
+                if (size == Frames.ExtendedSize)
+                {
+                    _tls.ReadExactly(buffer.AsSpan(0, Frames.ExtendedReplyBytes));
+                    size = Frames.ReadExtendedSize(buffer);
+                }
+
                 _ = _pending.TryGetValue(id, out var completion);
                 var result = BinaryClientProtocol.ReadBlockingReply(_tls, completion?.Parser, status, size, buffer);
                 if (completion != null && _pending.TryRemove(id, out _))
@@ -284,7 +292,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
 
     private void WriteRequest(in Request request, byte[] buffer, Span<BufferedFrame> frames, ref int used, ref int count)
     {
-        var length = Frames.RequestBytes + request.Frame.Size;
+        var length = request.Frame.HeaderBytes + request.Frame.Size;
         if (length > buffer.Length - used && used != 0)
         {
             FlushBatch(buffer.AsSpan(0, used), frames[..count]);
@@ -297,6 +305,20 @@ internal sealed class SynchronousBinaryConnection : IDisposable
             request.Frame.WriteTo(buffer.AsSpan(used), request.Id);
             frames[count++] = new BufferedFrame(used, request.Deadline);
             used += length;
+            return;
+        }
+
+        if (request.Frame.Size > Frames.MaxRequestBytes)
+        {
+            using var message = new WireSegments();
+            var header = message.GetSpan(request.Frame.HeaderBytes);
+            request.Frame.WriteHeader(header, request.Id);
+            WriteTimeout(header, request.Deadline, TimeProvider.System.GetUtcNow());
+            message.Advance(request.Frame.HeaderBytes);
+            request.Frame.Message.WriteTo(message, request.Frame.MutationOperationId);
+            foreach (var chunk in message.Chunks())
+                _tls.Write(chunk.Span);
+
             return;
         }
 

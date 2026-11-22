@@ -36,6 +36,8 @@ internal sealed class BinaryConnection : IDisposable
 
     internal AuthenticatedConnection? Identity { get; set; }
 
+    internal bool SupportsExtendedFrames { get; set; }
+
     public void Dispose()
     {
         _draining.Dispose();

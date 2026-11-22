@@ -135,7 +135,7 @@ internal sealed class EndpointFailover
     /// <summary>Determines whether <paramref name="ex" /> is a retryable transport failure.</summary>
     /// <param name="ex">The transport exception from the attempted endpoint.</param>
     /// <returns><see langword="true" /> for retryable transport status codes; otherwise <see langword="false" />.</returns>
-    private static bool IsRetryableTransport(SquirixTransportException ex) => ConnectionRejectedException.Map(ex) == null &&
+    private static bool IsRetryableTransport(SquirixTransportException ex) => !ex.Status.PayloadTooLarge && ConnectionRejectedException.Map(ex) == null &&
         ex.StatusCode is CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded or CacheTransportStatusCode.Internal or CacheTransportStatusCode.ResourceExhausted;
 
     private static bool CanFailOver(Exception exception, bool hasMoreEndpoints) => hasMoreEndpoints && ConnectionRejectedException.Map(exception) == null;

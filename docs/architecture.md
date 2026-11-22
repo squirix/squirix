@@ -35,10 +35,9 @@ Each operation defines the order of its fields. Flags encode booleans and option
 
 Peers exchange versioned binary messages on the internal mTLS listener.
 Owner forwarding, log replication, elections and state transfer use this protocol.
-The client preface is SQB3 and the peer ALPN is squirix-peer/2. Request and reply headers pack their fields into fixed-width words.
-Peers send SHA-256 ring fingerprints and W3C trace identifiers as bytes.
-Update SDKs and servers together. Stop all old cluster members and start the new version
-on empty data directories.
+The client preface is SQB3 and the peer ALPN is `squirix-peer/2`. Peer frames use a reserved length marker for large messages.
+The SDK negotiates extended lengths for large values. The public ingress checks the declared value length before allocating the body buffer.
+Peers send SHA-256 ring fingerprints and W3C trace identifiers as bytes. The ring fingerprint includes the value limit, so cluster members must agree on it.
 
 The shared transport code defines routing signals such as stale-owner markers.
 Wire message types are internal to their assemblies.

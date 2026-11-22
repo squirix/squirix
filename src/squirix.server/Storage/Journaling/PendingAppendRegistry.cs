@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -144,7 +143,7 @@ internal sealed class PendingAppendRegistry
         }
 
         for (var i = 0; i < taken.Count; i++)
-            ArrayPool<byte>.Shared.ReturnCleared(taken[i]);
+            PayloadBuffer.Release(taken[i]);
 
         return taken.Count;
     }

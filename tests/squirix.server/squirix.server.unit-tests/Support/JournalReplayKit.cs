@@ -40,13 +40,13 @@ internal sealed class JournalReplayKit
     /// <summary>The instant every write clock starts from, far from real time.</summary>
     internal static readonly DateTimeOffset WriteEpoch = new(2000, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
-    internal JournalReplayKit(string dir, bool groupCommit = false, int journalMaxTotalBytesMb = 0)
+    internal JournalReplayKit(string dir, bool groupCommit = false, int journalMaxTotalBytesMb = 0, int journalMaxSegmentMb = 1)
     {
         Dir = dir;
         Persistence = new PersistenceOptions
         {
             DataDir = dir,
-            JournalMaxSegmentMb = 1,
+            JournalMaxSegmentMb = journalMaxSegmentMb,
             JournalMaxTotalBytesMb = journalMaxTotalBytesMb,
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : TimeSpan.Zero,
         };

@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -139,7 +138,7 @@ internal static class JournalRecoveryScan
 
         var firstFrame = JournalFrameReader.ReadNext(handle, JournalFraming.FileHeaderSize, length, out var rentedBuffer, out _);
         if (rentedBuffer != null)
-            ArrayPool<byte>.Shared.ReturnCleared(rentedBuffer);
+            PayloadBuffer.Release(rentedBuffer);
 
         return firstFrame.Status == JournalFrameReadStatus.Success
             ? HeaderState.Damaged

@@ -1,6 +1,4 @@
 using System;
-using System.Buffers;
-using System.Text;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 
@@ -23,14 +21,13 @@ internal static class JournalEntryPayload
         try
         {
             var length = prepared.EncodedLength;
-            pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
+            pooledBuffer = PayloadBuffer.Rent(length);
             if (WriteWithin(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) == length)
                 return new PooledJournalPayload(pooledBuffer, length);
-            ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
+            PayloadBuffer.Release(pooledBuffer);
             pooledBuffer = null;
             length = CacheEntryCodec.ComputeEncodedLength(prepared.ObjectEntry);
-            EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
-            pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
+            pooledBuffer = PayloadBuffer.Rent(length);
             return CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length
                 ? throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.")
                 : new PooledJournalPayload(pooledBuffer, length);
@@ -38,7 +35,7 @@ internal static class JournalEntryPayload
         catch
         {
             if (pooledBuffer != null)
-                ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
+                PayloadBuffer.Release(pooledBuffer);
 
             throw;
         }
@@ -68,8 +65,7 @@ internal static class JournalEntryPayload
             throw CreateRelativeExpirationException();
 
         var length = CacheEntryCodec.ComputeEncodedLength(entry.ExpiresUtc, entry.Expiration, entry.Tags, value.EncodedLength);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
-        var pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
+        var pooledBuffer = PayloadBuffer.Rent(length);
         try
         {
             var offset = CacheEntryCodec.WriteHeader(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, pooledBuffer);
@@ -78,23 +74,9 @@ internal static class JournalEntryPayload
         }
         catch
         {
-            ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
+            PayloadBuffer.Release(pooledBuffer);
             throw;
         }
-    }
-
-    internal static void EnsureEncodedLengthWithinLimit<T>(NodeCacheEntry<T> entry)
-    {
-        EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        if (entry.Value is string { Length: <= EntryLimits.MaxEntrySizeBytes } text)
-        {
-            // The string value encoding is a kind byte, a four-byte length and its UTF-8 bytes.
-            var valueBound = 1 + sizeof(int) + Encoding.UTF8.GetMaxByteCount(text.Length);
-            if (MeasureSerializedBytes(entry, valueBound) <= EntryLimits.MaxEntrySizeBytes)
-                return;
-        }
-
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(PreparedJournalEntry.MeasureEncodedLength(entry));
     }
 
     /// <summary>Checks an encoded entry without materializing its value or tags.</summary>

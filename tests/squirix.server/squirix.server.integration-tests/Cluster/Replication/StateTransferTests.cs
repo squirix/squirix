@@ -47,14 +47,14 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     /// <summary>The number of retained entries at which the nodes compact a group log.</summary>
     private const int Threshold = 16;
 
-    /// <summary>The journal quota of the returning follower in the tight tests, in megabytes; its high-water mark is about 25.6 MB.</summary>
-    private const int TightJournalMb = 32;
+    /// <summary>The journal quota of the returning follower in the tight tests, in MiB.</summary>
+    private const int TightJournalMb = 96;
 
-    /// <summary>The keys written while the follower is down when the journal of the returning follower is tight: about 60 MB of values, more than twice the high-water mark of that journal.</summary>
+    /// <summary>The keys written while the follower is down when the journal of the returning follower is tight: enough to exceed twice the high-water mark of that journal.</summary>
     private const int TightLaterKeys = 1000;
 
     /// <summary>The padding of every value written for the tight journal.</summary>
-    private const int TightValueBytes = 60_000;
+    private const int TightValueBytes = 165_000;
 
     private const string TransferCounter = "squirix_replication_state_transfers_total";
 
@@ -321,7 +321,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         TimeSpan? stallBudget = null)
     {
         var persistence = tightJournal
-            ? new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb, JournalMaxTotalBytesMb = TightJournalMb, ReplicaLogCompactionEntries = Threshold }
+            ? new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinimumSegmentMb(EntryLimits.MaxReplicatedValueBytes), JournalMaxTotalBytesMb = TightJournalMb, ReplicaLogCompactionEntries = Threshold }
             : new PersistenceOptions { JournalMaxSegmentMb = 64, ReplicaLogCompactionEntries = Threshold };
         return new IntegrationStartOptions
         {

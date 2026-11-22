@@ -6,6 +6,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
+using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 using Squirix.Transport.Wire.Codec;
 
@@ -59,16 +60,19 @@ internal sealed class BinaryDispatch
         in Request context)
         where TRequest : WireMessage
         where TResponse : WireMessage =>
-        DispatchAsync(parser.ParseFrom(body.Span), method, context);
+        DispatchAsync(body.Length > Frames.MaxRequestBytes ? parser.ParseBorrowed(body) : parser.ParseFrom(body.Span), method, context);
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<BinaryResponse> DispatchAsync<TRequest, TResponse>(
         TRequest request,
         Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
         Request context)
+        where TRequest : WireMessage
         where TResponse : WireMessage
     {
         var call = context.Call;
+        if (context.ValueBytes is { } bytes && CacheWritePayload.Length(request) != bytes)
+            return new BinaryResponse(FrameStatus.InvalidArgument);
 
         // Preparation can overlap, but admission and execution must observe earlier mutations.
         if (!context.Predecessor.IsCompletedSuccessfully)
@@ -120,5 +124,5 @@ internal sealed class BinaryDispatch
         }
     }
 
-    internal readonly record struct Request(BinaryRequestContext Call, DateTime Deadline, Task Predecessor, bool Forwarded = false);
+    internal readonly record struct Request(BinaryRequestContext Call, DateTime Deadline, Task Predecessor, bool Forwarded = false, int? ValueBytes = null);
 }

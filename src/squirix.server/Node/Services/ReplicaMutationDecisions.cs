@@ -31,7 +31,7 @@ internal static class ReplicaMutationDecisions
 
         var outcome = access.RenewTo != null ? ReplicaOutcomeCodec.Applied : ReplicaOutcomeCodec.NotApplied;
         return access.RenewTo is { } deadline
-            ? new ReplicaDecision(PreparedJournalEntry.ForReplicaUpsert(current!.Value, current.Version, current.Tags, deadline), outcome, deadline.Ticks)
+            ? new ReplicaDecision(PreparedJournalEntry.ForReplicaUpsert(current!.Value, current.Version, current.Tags), outcome, deadline.Ticks)
             : new ReplicaDecision(null, outcome, 0);
     }
 
@@ -167,8 +167,7 @@ internal static class ReplicaMutationDecisions
     /// </remarks>
     private static ReplicaDecision Upsert(object? value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks)
     {
-        DateTime? expiresUtc = expiresUtcTicks == 0 ? null : new DateTime(expiresUtcTicks, DateTimeKind.Utc);
-        var prepared = PreparedJournalEntry.ForReplicaUpsert(value, version, tags, expiresUtc);
+        var prepared = PreparedJournalEntry.ForReplicaUpsert(value, version, tags);
         return new ReplicaDecision(prepared, ReplicaOutcomeCodec.Applied, expiresUtcTicks);
     }
 

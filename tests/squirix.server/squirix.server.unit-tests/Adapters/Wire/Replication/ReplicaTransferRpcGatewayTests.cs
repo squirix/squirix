@@ -14,6 +14,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -114,18 +115,18 @@ public sealed class ReplicaTransferRpcGatewayTests : ServerUnitTestBase
         _ = await Assert.That(transport.Received.Count).IsEqualTo(0);
     }
 
-    /// <summary>A snapshot chunk of the whole message budget and a batch of the smallest entries counted at the budget both stay within the native peer message limit.</summary>
+    /// <summary>A maximum-sized snapshot chunk fits an extended frame and a batch at its target fits a short peer frame.</summary>
     [Test]
     public async Task MessageBudgetFitsThePeerFrameLimit()
     {
         var chunk = new byte[ReplicaTransferOptions.MessageBudgetBytes];
         var snapshot = ReplicaTransferWire.MessageRequest(Header(), Message(ReplicaTransferStep.Snapshot, 1, long.MaxValue, chunk));
         var counted = Encoding.UTF8.GetByteCount("c") + 1 + 1 + ReplicaTransferOptions.EntryFramingBytes;
-        var small = new ReplicaStateEntry[ReplicaTransferOptions.MessageBudgetBytes / counted];
+        var small = new ReplicaStateEntry[ReplicaTransferOptions.EntryBatchTargetBytes / counted];
         Array.Fill(small, new ReplicaStateEntry("c", new byte[] { 1 }, new byte[] { 1 }, long.MaxValue));
         var batch = ReplicaTransferWire.MessageRequest(Header(), Message(ReplicaTransferStep.Entries, int.MaxValue, entries: small));
 
-        _ = await Assert.That(snapshot.CalculateSize()).IsLessThanOrEqualTo(EntryLimits.MaxSendMessageSizeBytes);
+        _ = await Assert.That(snapshot.CalculateSize()).IsLessThanOrEqualTo(Frames.MaxExtendedBodyBytes);
         _ = await Assert.That(batch.CalculateSize()).IsLessThanOrEqualTo(EntryLimits.MaxSendMessageSizeBytes);
     }
 

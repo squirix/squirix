@@ -40,8 +40,6 @@ internal static class ServerOpContract
 
     private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
 
-    private const string PayloadTooLargeDetail = "Payload size limit is 4194304 bytes.";
-
     /// <summary>Creates the refusal of a replicated write before its local append, while the group has no verified write majority.</summary>
     /// <returns><see cref="FrameStatus.Unavailable" /> without the unknown-outcome code: nothing was written, so a retry may run elsewhere or later.</returns>
     internal static ServerCallException NoWriteMajority() => new(FrameStatus.Unavailable, NoWriteMajorityDetail);
@@ -114,7 +112,10 @@ internal static class ServerOpContract
 
     internal static SquirixException OperationIdTooLong() => new(SquirixErrorCode.OperationIdTooLong, "OperationIdTooLong", RpcMutationContracts.OperationIdTooLongDetail);
 
-    internal static SquirixException PayloadTooLarge() => new(SquirixErrorCode.PayloadTooLarge, "PayloadTooLarge", PayloadTooLargeDetail);
+    internal static SquirixException PayloadTooLarge(int limit) => new(
+        SquirixErrorCode.PayloadTooLarge,
+        "PayloadTooLarge",
+        $"Payload size limit is {limit} bytes.");
 
     internal static SquirixException TooManyRequests(string reason) => new(SquirixErrorCode.TooManyRequests, "TooManyRequests", $"Server is overloaded ({reason}).");
 }

@@ -25,7 +25,7 @@ internal static class SquirixErrorMapper
     {
         SquirixErrorCode.None => "INTERNAL_ERROR",
         SquirixErrorCode.InvalidCacheKey => "INVALID_CACHE_KEY",
-        SquirixErrorCode.PayloadTooLarge => "PAYLOAD_TOO_LARGE",
+        SquirixErrorCode.PayloadTooLarge => Frames.PayloadTooLargeCode,
         SquirixErrorCode.TooManyRequests => "TOO_MANY_REQUESTS",
         SquirixErrorCode.MemoryPressure => "MEMORY_PRESSURE",
         SquirixErrorCode.OperationIdRequired => "OPERATION_ID_REQUIRED",

@@ -192,23 +192,26 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await AssertValueAsync(recovered, "empty", [], cancellationToken);
     }
 
-    /// <summary>The encoded entry limit accepts the exact binary boundary and rejects one extra byte without overwriting.</summary>
+    /// <summary>The replicated value limit accepts the exact binary boundary and rejects one extra byte without overwriting.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task BinarySizeBoundaryIsAtomic(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
-        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", WipedCluster.Options("binary-size-boundary", true), cancellationToken);
+        await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
+        var owner = cluster["node-a"];
+        var key = owner.FindKeyOwnedBy(CacheName, "node-a");
+        using var channel = CreateBinaryChannel(owner.Uri);
         var client = new CacheWireClient(channel);
 
-        // Two flags, Int64 version, UInt16 tag count, byte kind and Int32 byte length.
-        var maximum = new byte[EntryLimits.MaxEntrySizeBytes - 17];
+        var maximum = new byte[EntryLimits.MaxReplicatedValueBytes];
         maximum[^1] = 255;
-        _ = await client.SetEntryAsync(Request("limit", maximum), cancellationToken: cancellationToken);
+        _ = await client.SetEntryAsync(Request(key, maximum), cancellationToken: cancellationToken);
         var tooLarge = new byte[maximum.Length + 1];
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.SetEntryAsync(Request("limit", tooLarge), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.SetEntryAsync(Request(key, tooLarge), cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
-        await AssertValueAsync(client, "limit", maximum, cancellationToken);
+        _ = await Assert.That(failure.FindTrailer(Frames.ErrorCodeTrailer)).IsEqualTo(Frames.PayloadTooLargeCode);
+        await AssertValueAsync(client, key, maximum, cancellationToken);
     }
 
     /// <summary>Forwarded binary writes replicate and a wiped follower receives the same bytes during state transfer.</summary>
@@ -416,7 +419,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var policy = new DistributedCachePolicy(cap, TimeSpan.FromMinutes(5).Ticks);
 
         // An untagged binary entry adds a 17-byte header and an Int64 deadline.
-        var bytes = new byte[maximum ? EntryLimits.MaxEntrySizeBytes - 17 - sizeof(long) - DistributedCachePolicy.HeaderLength : 65536];
+        var bytes = new byte[maximum ? EntryLimitKit.LargeFixtureBytes - 17 - sizeof(long) - DistributedCachePolicy.HeaderLength : 65536];
         _ = await client.SetDistributedAsync(
             new SetDistributedAsyncRequest
             {

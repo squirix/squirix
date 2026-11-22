@@ -1,12 +1,11 @@
 using System;
-using System.Buffers;
 using System.Threading;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Pool-backed journal payload buffer returned by <see cref="JournalEntryPayload.Encode" />.</summary>
-/// <remarks>Dispose returns the underlying array to the shared <see cref="ArrayPool{T}" />; callers must not retain the buffer after disposal.</remarks>
+/// <remarks>Callers must not retain the buffer after disposal.</remarks>
 [Immutable]
 internal sealed class PooledJournalPayload : IDisposable
 {
@@ -26,6 +25,6 @@ internal sealed class PooledJournalPayload : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        ArrayPool<byte>.Shared.ReturnCleared(_buffer);
+        PayloadBuffer.Release(_buffer);
     }
 }

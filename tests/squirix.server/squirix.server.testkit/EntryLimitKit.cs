@@ -9,13 +9,14 @@ namespace Squirix.Server.TestKit;
 /// <summary>Helpers for constructing entry payloads near fixed size limits in tests.</summary>
 public static class EntryLimitKit
 {
+    internal const int LargeFixtureBytes = 4 * 1024 * 1024;
+
     private static readonly Dictionary<int, string> AtMostCache = [];
     private static readonly Lock AtMostGate = new();
-    private static readonly Lazy<string> OverEntryLimit = new(static () => new string('x', FindLongestFittingLength(EntryLimits.MaxEntrySizeBytes) + 1));
 
     /// <summary>Returns the largest string payload whose encoded entry bytes fit the fixed server entry limit.</summary>
     /// <returns>A near-limit string value for benchmarks and integration tests.</returns>
-    public static string CreateNearLimitStringValue() => CreateStringAtMostSerializedBytes(EntryLimits.MaxEntrySizeBytes);
+    public static string CreateNearLimitStringValue() => CreateStringAtMostSerializedBytes(LargeFixtureBytes);
 
     /// <summary>Returns the largest string payload whose encoded entry size is at most <paramref name="maxSerializedBytes" />.</summary>
     /// <param name="maxSerializedBytes">Maximum allowed entry byte length.</param>
@@ -32,10 +33,6 @@ public static class EntryLimitKit
             return value;
         }
     }
-
-    /// <summary>Returns the smallest string payload whose encoded entry exceeds <see cref="EntryLimits.MaxEntrySizeBytes" />.</summary>
-    /// <returns>A string value guaranteed to exceed the entry limit once serialized. The value is shared between calls.</returns>
-    public static string CreateStringOverEntryLimit() => OverEntryLimit.Value;
 
     /// <summary>Finds the longest string length that fits; a string value encodes as a fixed header plus one byte per ASCII character, so two small measurements suffice.</summary>
     /// <param name="maxSerializedBytes">Maximum allowed entry byte length.</param>

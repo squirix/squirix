@@ -189,14 +189,14 @@ replica group retains only the boolean result of a committed removal.
 
 | Limit | Value |
 | :---- | :---- |
-| Encoded entry payload | 4 MiB |
+| Serialized value without replication | 512 MiB |
+| Serialized value with replication | 32 MiB |
 | Tags per entry | 32 |
 | Tag key UTF-8 size | 256 bytes |
 | Tag value UTF-8 size | 1024 bytes |
 
-The 4 MiB limit applies to the encoded entry, including value encoding, expiration, version, and tag metadata, not just
-to the original application value. A byte array written through the native typed SDK with the default serializer becomes
-Base64 JSON. The distributed cache adapter sends bytes directly. Leave room for entry and adapter metadata within the 4 MiB limit.
+The ingress server checks the serialized value length before admitting the write. Key, expiry, tags and protocol metadata have separate bounds.
+The typed SDK measures the value in its serialized representation, including any serializer expansion. The distributed cache adapter sends bytes directly.
 The v0.1 SDK has no public API for assigning entry tags; the tag limits also apply to raw binary entries.
 
 Violations return stable public codes: `INVALID_ENTRY_TAGS` as `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as

@@ -207,7 +207,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
             if (!detail.StartsWith("Payload size limit is ", StringComparison.Ordinal))
                 return;
 
-            throw ServerOpContract.PayloadTooLarge();
+            throw new SquirixException(SquirixErrorCode.PayloadTooLarge, "PayloadTooLarge", detail);
         }
     }
 }

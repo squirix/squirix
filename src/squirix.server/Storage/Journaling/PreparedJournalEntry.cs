@@ -20,20 +20,17 @@ internal sealed record PreparedJournalEntry
 
     internal NodeCacheEntry<object?> ObjectEntry { get; }
 
-    /// <summary>Prepares the deadline-free replica payload and checks the size the entry will have when applied with its deadline.</summary>
+    /// <summary>Prepares the deadline-free replica payload.</summary>
     /// <param name="value">The requested value.</param>
     /// <param name="version">The entry version.</param>
     /// <param name="tags">The entry tags.</param>
-    /// <param name="expiresUtc">The absolute deadline stored separately in the replica record.</param>
     /// <returns>The measured entry for the mutation payload.</returns>
-    internal static PreparedJournalEntry ForReplicaUpsert(object? value, long version, FrozenDictionary<string, string>? tags, DateTime? expiresUtc)
+    internal static PreparedJournalEntry ForReplicaUpsert(object? value, long version, FrozenDictionary<string, string>? tags)
     {
         EntryTagsGuard.EnsureWithinLimits(tags);
         var normalized = NodeCacheEntry<object?>.NormalizeValue(value);
         var valueLength = CacheEntryCodec.ComputeValueLength(normalized);
         var payloadLength = CacheEntryCodec.ComputeEncodedLength(null, null, tags, valueLength);
-        var appliedLength = expiresUtc != null ? CacheEntryCodec.ComputeEncodedLength(expiresUtc, null, tags, valueLength) : payloadLength;
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(appliedLength);
         return new PreparedJournalEntry(new NodeCacheEntry<object?>(normalized, version, null, null, tags), payloadLength);
     }
 

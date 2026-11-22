@@ -100,6 +100,11 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         try
         {
             dimensions = PeerFrames.ReadReply(header.Span);
+            if (dimensions.Size == Frames.ExtendedSize)
+            {
+                await stream.ReadExactlyAsync(header[..Frames.ExtendedReplyBytes], cancellationToken).ConfigureAwait(false);
+                dimensions.Size = Frames.ReadExtendedSize(header.Span);
+            }
         }
         catch (InvalidDataException error)
         {
@@ -123,6 +128,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
                         return await ReadOwnedReplyAsync(stream, parser, size, prefix, cancellationToken).ConfigureAwait(false);
                 }
             }
+
+            if (status == 0 && size > Frames.MaxResponseBytes)
+                return await ReadOwnedReplyAsync(stream, parser, size, prefix, cancellationToken).ConfigureAwait(false);
 
             var buffer = ArrayPool<byte>.Shared.Rent(size);
             try
@@ -212,7 +220,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     {
         _ = RemainingBudget();
         var size = request.CalculateSize();
-        if (size > EntryLimits.MaxSendMessageSizeBytes)
+        if (size > Frames.MaxExtendedBodyBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The request exceeds the peer message limit.");
 
         var activity = Activity.Current;
@@ -228,30 +236,11 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             stream = await RentAsync(cancellationToken).ConfigureAwait(false);
             var budget = RemainingBudget();
             var frame = new PeerFrames.Request(size, budget ?? -1, operation, _fingerprint.Length, parentBytes, stateBytes, _fingerprintIsDigest, binaryParent);
-            var length = checked(PeerFrames.RequestBytes + frame.Metadata + size);
-            var packet = ArrayPool<byte>.Shared.Rent(length);
-            try
-            {
-                PeerFrames.WriteRequest(packet, in frame);
-                _fingerprint.AsSpan().CopyTo(packet.AsSpan(PeerFrames.RequestBytes));
-                var offset = PeerFrames.RequestBytes + _fingerprint.Length;
-                if (binaryParent)
-                    WireTraceParent.Write(packet.AsSpan(offset), in context);
-                else
-                    _ = PeerFrames.Text.GetBytes(parent, packet.AsSpan(offset));
-
-                offset += parentBytes;
-                offset += PeerFrames.Text.GetBytes(state, packet.AsSpan(offset));
-                request.WriteTo(packet.AsSpan(offset, size));
-                cancellationToken.ThrowIfCancellationRequested();
-                stream.RequestStarted = Stopwatch.GetTimestamp();
-                sent = true;
-                await stream.WriteAsync(packet.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(packet, true);
-            }
+            var metadata = new RequestMetadata(parent, state, context);
+            cancellationToken.ThrowIfCancellationRequested();
+            stream.RequestStarted = Stopwatch.GetTimestamp();
+            sent = true;
+            await WriteRequestAsync(stream, request, frame, metadata, cancellationToken).ConfigureAwait(false);
 
             var reply = await ReadReplyAsync(stream, parser, stream.ReplyHeader, cancellationToken).ConfigureAwait(false);
             await ReturnAsync(stream).ConfigureAwait(false);
@@ -267,6 +256,56 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             if (stream != null)
                 await stream.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    private async Task WriteRequestAsync(Stream stream, WireMessage request, PeerFrames.Request frame, RequestMetadata metadata, CancellationToken cancellationToken)
+    {
+        if (frame.Body > EntryLimits.MaxSendMessageSizeBytes)
+        {
+            using var message = new WireSegments();
+            var wireFrame = frame with { Body = Frames.ExtendedSize };
+            var headerSize = PeerFrames.RequestBytes + sizeof(int) + frame.Metadata;
+            var header = message.GetMemory(headerSize);
+            WriteRequestHeader(header.Span, in wireFrame, metadata, frame.Body);
+            message.Advance(headerSize);
+            request.WriteTo(message);
+            await message.SendAsync(stream, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var bodyOffset = PeerFrames.RequestBytes + frame.Metadata;
+        var length = checked(bodyOffset + frame.Body);
+        var packet = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            WriteRequestHeader(packet, in frame, metadata, null);
+            request.WriteTo(packet.AsSpan(bodyOffset, frame.Body));
+            await stream.WriteAsync(packet.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(packet, true);
+        }
+    }
+
+    private void WriteRequestHeader(Span<byte> header, in PeerFrames.Request frame, RequestMetadata metadata, int? size)
+    {
+        PeerFrames.WriteRequest(header, in frame);
+        var offset = PeerFrames.RequestBytes;
+        if (size is { } extended)
+        {
+            Frames.WriteExtendedSize(header[offset..], extended);
+            offset += sizeof(int);
+        }
+
+        _fingerprint.AsSpan().CopyTo(header[offset..]);
+        offset += _fingerprint.Length;
+        if (frame.TraceParentIsBinary)
+            WireTraceParent.Write(header[offset..], metadata.Context);
+        else
+            _ = PeerFrames.Text.GetBytes(metadata.Parent, header[offset..]);
+
+        _ = PeerFrames.Text.GetBytes(metadata.State, header[(offset + frame.Parent)..]);
     }
 
     /// <summary>Closes a half-closed idle stream even if the node sends no further calls to its peer.</summary>
@@ -397,6 +436,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             _transfers.Release();
         }
     }
+
+    private sealed record RequestMetadata(string Parent, string State, ActivityContext Context);
 
     private sealed class PeerSession : SslStream
     {

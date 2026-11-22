@@ -49,7 +49,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         try
         {
             var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, idempotencyRecords, bodyLengths);
-            writeBuffer = ArrayPool<byte>.Shared.Rent(Math.Max(SnapshotFileEncoder.WriteBatchSize, maxRecordLength));
+            writeBuffer = PayloadBuffer.Rent(Math.Max(SnapshotFileEncoder.WriteBatchSize, maxRecordLength));
             await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, bodyLengths, writeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
             var snap = SnapshotFileName.BuildPath(_dataDir, index);
             return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException("Failed to publish snapshot.");
@@ -58,7 +58,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         {
             ArrayPool<int>.Shared.ReturnCleared(bodyLengths);
             if (writeBuffer != null)
-                ArrayPool<byte>.Shared.ReturnCleared(writeBuffer);
+                PayloadBuffer.Release(writeBuffer);
 
             _ = FileEx.TryDeleteFile(tmp);
         }

@@ -349,9 +349,6 @@ internal sealed class RoutedCacheOperations<T>
                 if (!policy.IsValid() || ttl is <= 0)
                     throw new ServerCallException(FrameStatus.InvalidArgument, "The distributed cache expiration policy is invalid.");
 
-                if (payload.Length > EntryLimits.MaxEntrySizeBytes - DistributedCachePolicy.HeaderLength)
-                    throw ServerOpContract.PayloadTooLarge().ToServerCallException();
-
                 var write = new DistributedCacheWrite(in policy, payload.Span, ttl);
                 if (write is not T value)
                     throw new ServerCallException(FrameStatus.Internal, "The node cannot store distributed cache values.");

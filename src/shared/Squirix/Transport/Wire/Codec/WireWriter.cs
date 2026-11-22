@@ -25,9 +25,10 @@ internal ref struct WireWriter
         MutationOperationId = mutationOperationId;
     }
 
-    internal WireWriter(IBufferWriter<byte> output)
+    internal WireWriter(IBufferWriter<byte> output, string? mutationOperationId = null)
     {
         _output = output;
+        MutationOperationId = mutationOperationId;
     }
 
     internal int Written { get; private set; }
@@ -101,10 +102,21 @@ internal ref struct WireWriter
     internal void Bytes(ReadOnlyMemory<byte> value)
     {
         Unsigned(ulong.CreateChecked(value.Length));
-        Raw(value.Span);
+        TailBytes(value);
     }
 
-    internal void TailBytes(ReadOnlyMemory<byte> value) => Raw(value.Span);
+    internal void TailBytes(ReadOnlyMemory<byte> value)
+    {
+        if (_output is WireSegments segments && !value.IsEmpty)
+        {
+            segments.Write(value);
+            Written = checked(Written + value.Length);
+        }
+        else
+        {
+            Raw(value.Span);
+        }
+    }
 
     internal void OperationId(string value)
     {

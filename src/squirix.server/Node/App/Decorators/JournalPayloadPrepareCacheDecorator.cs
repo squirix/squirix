@@ -47,7 +47,6 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
             return SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
         var durable = _journal.ResolveExpiration(entry);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
         return _journal.SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, JournalEntryPayload.PrepareEncode(durable, length), cancellationToken);
     }
 

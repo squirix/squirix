@@ -1,10 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Wire;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
@@ -15,161 +13,91 @@ using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
-/// <summary>Integration coverage for fixed entry payload size limits (issue #2).</summary>
+/// <summary>Exercises public admission and transport of large single-copy writes.</summary>
 public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 {
-    private const string NodeId = "node-payload-limit";
+    private const string CacheName = "default";
+    private const string NodeA = "node-a";
+    private const string NodeB = "node-b";
 
-    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when the remote owner rejects an oversized entry.</summary>
+    /// <summary>The ingress server answers an oversized header without waiting for the value.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ForwardRejectsTooLargeRemotePayload(CancellationToken cancellationToken)
+    public async Task RejectsOversizedHeaderBeforeReadingValue(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeA, cancellationToken: cancellationToken);
+        using var channel = CreateBinaryChannel(cluster[NodeA].Uri);
+        var refusal = await channel.ReadWriteHeaderRejectionAsync(BinaryOperation.SetEntry, Frames.MaxValueBytes + 1, cancellationToken);
 
-        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit");
-        var value = EntryLimitKit.CreateStringOverEntryLimit();
-
-        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
-        var clientA = new CacheWireClient(channelA);
-        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
-            clientA.AddEntryIfAbsentAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    OperationId = RpcOperationIdentity.New(),
-                    CacheName = "default",
-                    Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
-                },
-                cancellationToken: cancellationToken),
-            TimeSpan.FromSeconds(30),
-            TimeProvider.System,
-            cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
-
-        using var channelB = CreateBinaryChannel(cluster["node-b"].Uri);
-        var clientB = new CacheWireClient(channelB);
-        var getResponse = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
-        _ = await Assert.That(getResponse.Found).IsFalse();
+        _ = await Assert.That(refusal?.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(refusal!.Error.Detail).Contains("536870912", StringComparison.Ordinal);
     }
 
-    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when a remote owner rejects an oversized update.</summary>
+    /// <summary>Large requests and replies keep their complete value when routed through another node.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ForwardedUpdatePreservesLargePayload(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
-
-        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit-update");
-
-        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri);
-        var clientA = new CacheWireClient(channelA);
-
-        _ = await clientA.SetEntryAsync(
-            new SetEntryAsyncRequest
-            {
-                OperationId = RpcOperationIdentity.New(),
-                CacheName = "default",
-                Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToWire(),
-            },
-            cancellationToken: cancellationToken);
-
-        var value = EntryLimitKit.CreateStringOverEntryLimit();
-        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
-            clientA.UpdateAsync(
-                new UpdateAsyncRequest
-                {
-                    OperationId = RpcOperationIdentity.New(),
-                    CacheName = "default",
-                    Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToWire(),
-                },
-                cancellationToken: cancellationToken),
-            TimeSpan.FromSeconds(30),
-            TimeProvider.System,
-            cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
-
-        var getResponse = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
-        _ = await Assert.That(getResponse.Found).IsTrue();
-        _ = await Assert.That(getResponse.Value!.StringValue).IsEqualTo("small");
-    }
-
-    /// <summary>Verifies gRPC insert above the limit returns ResourceExhausted and does not persist.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task OversizedInsertReturnsResourceExhausted(CancellationToken cancellationToken)
-    {
-        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
-
-        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
+        await using var cluster = await StartClusterAsync(NodeA, NodeB, cancellationToken: cancellationToken);
+        var key = cluster[NodeB].FindKeyOwnedBy(CacheName, NodeB);
+        using var channel = CreateBinaryChannel(cluster[NodeA].Uri);
         var client = new CacheWireClient(channel);
-        var value = EntryLimitKit.CreateStringOverEntryLimit();
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
-            client.SetEntryAsync(
-                new SetEntryAsyncRequest
-                {
-                    OperationId = RpcOperationIdentity.New(),
-                    CacheName = "default",
-                    Key = "grpc-over-limit",
-                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
-                },
-                cancellationToken: cancellationToken),
-            TimeSpan.FromSeconds(30),
-            TimeProvider.System,
-            cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
-        _ = await Assert.That(ex.Message).Contains("4194304", StringComparison.Ordinal);
-
-        var getResponse = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: cancellationToken);
-        _ = await Assert.That(getResponse.Found).IsFalse();
-    }
-
-    /// <summary>Verifies updating an existing entry above the limit returns ResourceExhausted and preserves the prior value.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task OversizedUpdateKeepsOriginalValue(CancellationToken cancellationToken)
-    {
-        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
-
-        using var channel = CreateBinaryChannel(cluster[NodeId].Uri);
-        var client = new CacheWireClient(channel);
-
         _ = await client.SetEntryAsync(
             new SetEntryAsyncRequest
             {
-                OperationId = RpcOperationIdentity.New(),
-                CacheName = "default",
-                Key = "grpc-update-over-limit",
-                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToWire(),
+                CacheName = CacheName,
+                Key = key,
+                Entry = new CacheEntryWire { Value = new CacheValue { StringValue = "original" } },
             },
             cancellationToken: cancellationToken);
 
-        var value = EntryLimitKit.CreateStringOverEntryLimit();
-        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(
-            client.UpdateAsync(
-                new UpdateAsyncRequest
-                {
-                    OperationId = RpcOperationIdentity.New(),
-                    CacheName = "default",
-                    Key = "grpc-update-over-limit",
-                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToWire(),
-                },
-                cancellationToken: cancellationToken),
-            TimeSpan.FromSeconds(30),
-            TimeProvider.System,
-            cancellationToken);
+        var data = new byte[9 * 1024 * 1024];
+        data[^1] = 42;
+        var update = await client.UpdateAsync(
+            new UpdateAsyncRequest
+            {
+                CacheName = CacheName,
+                Key = key,
+                Entry = new CacheEntryWire { Value = CacheValue.FromOwnedBinary(data) },
+            },
+            cancellationToken: cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
-        _ = await Assert.That(ex.Message).Contains("4194304", StringComparison.Ordinal);
+        _ = await Assert.That(update.Updated).IsTrue();
+        var result = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
+        _ = await Assert.That(result.Found).IsTrue();
+        _ = await Assert.That(result.Value!.BinaryValue.Span.SequenceEqual(data)).IsTrue();
+    }
 
-        var getResponse = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-update-over-limit" }, cancellationToken: cancellationToken);
-        _ = await Assert.That(getResponse.Found).IsTrue();
-        _ = await Assert.That(getResponse.Value!.StringValue).IsEqualTo("small");
+    /// <summary>A payload exactly at the limit survives the journal and recovery with its expiration envelope.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [NotInParallel]
+    public async Task RecoversMaximumSingleCopyValue(CancellationToken cancellationToken)
+    {
+        var persistence = new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false };
+        await using var cluster = await StartClusterAsync(NodeA, persistence, cancellationToken);
+        using var channel = CreateBinaryChannel(cluster[NodeA].Uri);
+        var client = new CacheWireClient(channel);
+        var data = new byte[Frames.MaxValueBytes];
+        data[0] = 7;
+        data[^1] = 42;
+        const string key = "maximum-single-copy";
+        _ = await client.SetDistributedAsync(
+            new SetDistributedAsyncRequest
+            {
+                CacheName = CacheName,
+                Key = key,
+                OperationId = RpcOperationIdentity.New(),
+                Value = data,
+                TtlTicks = TimeSpan.FromMinutes(5).Ticks,
+            },
+            cancellationToken: cancellationToken);
+
+        var restarted = await cluster.RestartNodeAsync(NodeA, cancellationToken: cancellationToken);
+        using var recoveryChannel = CreateBinaryChannel(restarted.Uri);
+        var recoveryClient = new CacheWireClient(recoveryChannel);
+        var result = await recoveryClient.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
+        _ = await Assert.That(result.Found).IsTrue();
+        _ = await Assert.That(result.Value.Span.SequenceEqual(data)).IsTrue();
     }
 }

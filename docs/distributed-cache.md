@@ -53,7 +53,7 @@ Choose that duration for the application's staleness tolerance. HybridCache's st
 HybridCache can also cache tag invalidation timestamps independently of L1 entries.
 After `RemoveByTagAsync`, an existing process that already cached the tag timestamp can continue serving the previous value until the shared entry expires.
 
-Keys must fit within 1,024 UTF-16 code units. Server values have a 4 MiB encoded-entry limit, including Squirix metadata.
+Keys must fit within 1,024 UTF-16 code units. A distributed cache value can contain up to 512 MiB without replication or 32 MiB with replication.
 HybridCache adds its own envelope and tag metadata. Replicated sliding renewal records include the updated entry and replication metadata.
 Get responses and removed values are not retained in the mutation-outcome budget. Renewal still writes and replicates the entry;
 large values and high request rates can reach server admission limits.
