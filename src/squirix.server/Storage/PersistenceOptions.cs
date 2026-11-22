@@ -15,8 +15,6 @@ internal sealed record PersistenceOptions
     /// <summary>Smallest accepted positive group commit wait.</summary>
     private static readonly TimeSpan MinGroupCommitWait = TimeSpan.FromMilliseconds(1);
 
-    private readonly int? _journalMaxSegmentMb;
-
     /// <summary>Gets the root directory for durable storage, journal, snapshot, and manifest files.</summary>
     internal string DataDir { get; init; } = string.Empty;
 
@@ -35,12 +33,11 @@ internal sealed record PersistenceOptions
     /// <summary>Gets the maximum number of journal segments; a write that would exceed it is refused until retention frees segments.</summary>
     internal int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;
 
-    /// <summary>Gets the maximum size of a single journal segment in megabytes.</summary>
-    internal int JournalMaxSegmentMb
-    {
-        get => _journalMaxSegmentMb ?? Math.Max(JournalSegmentLimits.DefaultMaxSegmentMb, MinimumSegmentMb);
-        init => _journalMaxSegmentMb = value;
-    }
+    /// <summary>Gets the configured maximum size of a single journal segment in megabytes, if specified.</summary>
+    internal int? JournalMaxSegmentMb { get; init; }
+
+    /// <summary>Gets the segment size limit, using a default that fits the largest admitted frame.</summary>
+    internal int EffectiveJournalMaxSegmentMb => JournalMaxSegmentMb ?? Math.Max(JournalSegmentLimits.DefaultMaxSegmentMb, MinimumSegmentMb);
 
     /// <summary>Gets the largest serialized value admitted by the hosting pipeline.</summary>
     internal int ValueLimitBytes { get; init; }
@@ -90,7 +87,7 @@ internal sealed record PersistenceOptions
         ValidateGroupCommit();
 
         RequirePositive(JournalMaxSegmentCount, nameof(JournalMaxSegmentCount));
-        RequireHoldsLargestFrame(JournalMaxSegmentMb, nameof(JournalMaxSegmentMb), MinimumSegmentMb);
+        RequireHoldsLargestFrame(EffectiveJournalMaxSegmentMb, nameof(JournalMaxSegmentMb), MinimumSegmentMb);
         RequireHoldsLargestFrame(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb), MinimumSegmentMb);
         RequirePositive(JournalStallDegradedThreshold, nameof(JournalStallDegradedThreshold));
         RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
