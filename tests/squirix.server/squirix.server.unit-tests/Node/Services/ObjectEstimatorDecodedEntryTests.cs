@@ -42,7 +42,7 @@ public sealed class ObjectEstimatorDecodedEntryTests
             var key = new CacheKey("ns", $"k{i}");
             var bytes = JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>(values[i], 3, deadline, null, tags));
 
-            var isDecoded = JournalEntryPayload.TryDecode<object?>(bytes, out var decoded);
+            var isDecoded = JournalEntryPayload.TryDecode<object?>(bytes, out var decoded, out _);
             _ = await Assert.That(isDecoded).IsTrue();
             await cache.InsertRecoveryAsync(key, decoded!, cancellationToken);
 

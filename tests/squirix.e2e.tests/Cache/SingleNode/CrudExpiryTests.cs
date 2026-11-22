@@ -13,26 +13,18 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 [Immutable]
 public sealed class CrudExpiryTests : ClockTestBase
 {
-    /// <summary>Verifies TryAddAsync with options preserves expiration metadata through the public API.</summary>
+    /// <summary>Verifies both add operations store the requested relative expiration.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AddAbsentPreservesExpiry(CancellationToken cancellationToken)
+    public async Task AddOperationsPreserveRelativeExpiry(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<string>("missing-try-add-entry-expiration", cancellationToken);
-        var added = await cache.TryAddAsync("k", "v", Expiry.In(TimeSpan.FromSeconds(10)), cancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-relative-expiry", cancellationToken);
+        var expiry = Expiry.In(TimeSpan.FromSeconds(10));
+        var added = await cache.TryAddAsync("try-add", "v", expiry, cancellationToken);
         _ = await Assert.That(added).IsTrue();
-        var expiration = await cache.GetExpirationAsync("k", cancellationToken);
-        _ = await Assert.That(expiration.Value > TimeSpan.Zero).IsTrue();
-    }
+        _ = await Assert.That((await cache.GetExpirationAsync("try-add", cancellationToken)).Value > TimeSpan.Zero).IsTrue();
 
-    /// <summary>Verifies AddAsync with options preserves expiration metadata through the public API.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddPreservesExpiry(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("missing-add-entry-expiration", cancellationToken);
-        await cache.AddAsync("k", "v", Expiry.In(TimeSpan.FromSeconds(10)), cancellationToken);
-        var expiration = await cache.GetExpirationAsync("k", cancellationToken);
-        _ = await Assert.That(expiration.Value > TimeSpan.Zero).IsTrue();
+        await cache.AddAsync("add", "v", expiry, cancellationToken);
+        _ = await Assert.That((await cache.GetExpirationAsync("add", cancellationToken)).Value > TimeSpan.Zero).IsTrue();
     }
 }

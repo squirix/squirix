@@ -17,8 +17,8 @@ public sealed class TopologyFingerprintTests
     /// <param name="quorumReads">Whether quorum reads are enabled.</param>
     /// <param name="expected">The golden uppercase hex digest.</param>
     [Test]
-    [Arguments(false, false, "96F6A110F518034563B22E5B6C1B0979377211EBA28F676B37619E48A6599F6F")]
-    [Arguments(true, true, "8260549A6141A96FDA5BEB5778A7CD3C1A0E188C4218D5ED22AFEC9DAD622602")]
+    [Arguments(false, false, "5860A5D7DF805567C548B8A0DF94E2B81018C0EA92D6FC5AE6F354DBC8746B35")]
+    [Arguments(true, true, "874BE8347215DC03611DD714EA959F022903B3D5E45B547EF43C535051DA6E76")]
     public async Task ComputeMatchesGoldenVector(bool failover, bool quorumReads, string expected)
     {
         var inputs = new FingerprintInputs
@@ -286,6 +286,32 @@ public sealed class TopologyFingerprintTests
             ]));
         _ = await Assert.That(right).IsEqualTo(left);
         _ = await Assert.That(left.Bytes.SequenceEqual(right.Bytes)).IsTrue();
+    }
+
+    /// <summary>The response-bearing preview schema cannot join the new compact-outcome topology.</summary>
+    [Test]
+    public async Task CompactOutcomesFencePreviousPreview()
+    {
+        var current = CreateInputs(CreatePeers());
+        var previous = new FingerprintInputs
+        {
+            ClusterId = current.ClusterId,
+            ConfigurationGeneration = current.ConfigurationGeneration,
+            ReplicaCount = current.ReplicaCount,
+            VirtualNodes = current.VirtualNodes,
+            Peers = current.Peers,
+            Policy = current.Policy with { DurabilitySchemaVersion = 1 },
+            MinClusterPackageVersion = "0.1.0-preview.10",
+            QuorumAckMode = current.QuorumAckMode,
+            AutomaticFailoverEnabled = current.AutomaticFailoverEnabled,
+            QuorumReadsEnabled = current.QuorumReadsEnabled,
+        };
+
+        var currentFingerprint = TopologyFingerprint.Compute(current);
+        var previousFingerprint = TopologyFingerprint.Compute(previous);
+
+        _ = await Assert.That(currentFingerprint).IsNotEqualTo(previousFingerprint);
+        _ = await Assert.That(currentFingerprint.Bytes.SequenceEqual(previousFingerprint.Bytes)).IsFalse();
     }
 
     private static FingerprintInputs CreateInputs(ReadOnlySpan<FingerprintPeer> peers, int replicaCount = 2, bool failover = false, bool quorumReads = false)

@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
+using Squirix.Testing;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 

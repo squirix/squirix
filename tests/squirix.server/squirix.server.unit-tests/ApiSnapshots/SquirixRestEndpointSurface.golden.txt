@@ -2,4 +2,3 @@ GET /health
 GET /health/live
 GET /health/ready
 GET /health/ready/details
-GET /metrics

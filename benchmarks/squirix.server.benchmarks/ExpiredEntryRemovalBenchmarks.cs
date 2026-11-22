@@ -45,7 +45,7 @@ public class ExpiredEntryRemovalBenchmarks
         for (var i = 0; i < Stored; i++)
         {
             var ttl = i < due ? TimeSpan.FromMinutes(1) : TimeSpan.FromDays(1);
-            _cache.SetAsync(_keys[i], new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            _cache.Set(_keys[i], new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None);
         }
 
         clock.Now += TimeSpan.FromHours(1);

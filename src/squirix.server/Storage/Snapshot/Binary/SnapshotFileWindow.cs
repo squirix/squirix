@@ -37,11 +37,10 @@ internal sealed class SnapshotFileWindow : IDisposable
     {
         // The buffers hold cached user data, so they are cleared before returning to the shared pool.
         ArrayPool<byte>.Shared.ReturnCleared(_window);
-        if (_large != null)
-        {
-            ArrayPool<byte>.Shared.ReturnCleared(_large);
-            _large = null;
-        }
+        if (_large == null)
+            return;
+        PayloadBuffer.Release(_large);
+        _large = null;
     }
 
     /// <summary>Consumes the bytes returned by the last successful <see cref="TryRead" />.</summary>
@@ -102,9 +101,9 @@ internal sealed class SnapshotFileWindow : IDisposable
         if (_large == null || _large.Length < count)
         {
             if (_large != null)
-                ArrayPool<byte>.Shared.ReturnCleared(_large);
+                PayloadBuffer.Release(_large);
 
-            _large = ArrayPool<byte>.Shared.Rent(count);
+            _large = PayloadBuffer.Rent(count);
         }
 
         var buffered = _end - _start;

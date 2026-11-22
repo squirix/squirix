@@ -4,8 +4,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -14,6 +12,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -80,11 +79,11 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         ILocalCacheStats stats = copy.Cache;
         var filledBytes = stats.EstimatedBytes;
         var filledEntries = stats.EntryCount;
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = filledBytes });
-        var gateOfNode = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(copy.Cache), "n2", meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = filledBytes };
+        var gateOfNode = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(copy.Cache), "n2", meter);
         var admission = new MemoryAdmissionCacheDecorator<object?>(copy.Local, gateOfNode, estimator);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await CommitAsync(committer, 3, cancellationToken, 4);
         await gateway.AppendedAsync("n2", 6).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         await copy.CatchUpAsync(followers.Logs["n2"], cancellationToken);
@@ -94,9 +93,9 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         _ = await Assert.That(filledEntries).IsGreaterThan(0);
         _ = await Assert.That(stats.EntryCount).IsGreaterThan(filledEntries);
         _ = await Assert.That(appliedBytes).IsGreaterThan(filledBytes);
-        _ = await Assert.That(removed.Removed).IsTrue();
+        _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That(stats.EstimatedBytes).IsLessThan(appliedBytes);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static async Task CommitAsync(ReplicaGroupCommitter committer, int count, CancellationToken cancellationToken, int first = 1)

@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
@@ -30,12 +32,18 @@ public sealed class LoopbackBindFailureTests
         ClusterIdentity? identity = null;
         var peers = ClusterIdentity.CreatePeers([new ClusterNode(NodeId, held.HttpUri)], ref identity);
         var cluster = new TopologyOptions(peers) { NodeId = NodeId, Uri = held.HttpUri };
-        var options = new NodeHostStartOptions { ServerCertificate = certificate };
+        var phases = new List<string>();
+        var options = new NodeHostStartOptions
+        {
+            ServerCertificate = certificate,
+            ServicesConfigure = services => services.Insert(0, TestServiceRegistration.Singleton<INodeService>(_ => new StartupProbe(phases))),
+        };
         held.Dispose();
 
         var start = NodeHost.StartAsync(cluster, options, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await SequenceAssert.EqualAsync<string>(["started", "stopped", "disposed"], phases, StringComparer.Ordinal);
     }
 
     private static X509Certificate2 CreateClientOnlyCertificate()
@@ -45,5 +53,30 @@ public sealed class LoopbackBindFailureTests
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid(ClientAuthenticationUsage)], true));
         using var selfSigned = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-CertificateValidityDays), DateTimeOffset.UtcNow.AddDays(CertificateValidityDays));
         return X509CertificateLoader.LoadPkcs12(selfSigned.Export(X509ContentType.Pfx), null);
+    }
+
+    private sealed class StartupProbe : INodeService, IDisposable
+    {
+        private readonly List<string> _phases;
+
+        internal StartupProbe(List<string> phases)
+        {
+            _phases = phases;
+        }
+
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            _phases.Add("started");
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _phases.Add("stopped");
+            return Task.CompletedTask;
+        }
+
+        public void Dispose() => _phases.Add("disposed");
     }
 }

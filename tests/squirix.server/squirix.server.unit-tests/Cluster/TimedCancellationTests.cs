@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
-using Squirix.Transport.Grpc;
+using Squirix.Testing;
+using Squirix.Transport.Wire;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

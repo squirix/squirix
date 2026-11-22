@@ -14,7 +14,7 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class DurabilityAckRegistry
 {
     private readonly Lock _sync = new();
-    private List<TaskCompletionSource> _pending = [];
+    private HashSet<TaskCompletionSource> _pending = [];
     private List<TaskCompletionSource> _inFlight = [];
     private Exception? _failure;
 
@@ -27,7 +27,7 @@ internal sealed class DurabilityAckRegistry
             if (_failure != null)
                 ExceptionDispatchInfo.Capture(_failure).Throw();
 
-            _pending.Add(ack);
+            _ = _pending.Add(ack);
         }
     }
 
@@ -64,8 +64,7 @@ internal sealed class DurabilityAckRegistry
 
             // The in-flight entries leave the registry with the drain; the journal thread still writes
             // their outcome, which is a no-op on a source the drain already faulted.
-            var taken = _pending;
-            taken.AddRange(_inFlight);
+            List<TaskCompletionSource> taken = [.. _pending, .. _inFlight];
             _pending = [];
             _inFlight = [];
             return taken;

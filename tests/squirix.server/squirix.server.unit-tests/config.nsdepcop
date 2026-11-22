@@ -110,7 +110,7 @@
   <!-- General-helper tests mirror the product boundary against wire types and transport serialization. -->
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
-      To="/^(?:Grpc|Google\.Protobuf|Squirix\.Transport|Squirix\.Server\.Serialization)(?:\.|$)/" />
+      To="/^(?:Grpc|Squirix\.Transport|Squirix\.Server\.Serialization)(?:\.|$)/" />
 
   <!-- Kernel: threading primitive tests follow the same kernel set as Utils. -->
   <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Storage.*" />
@@ -188,7 +188,7 @@
 
   <!-- Cluster.Replication: protocol automaton tests stay free of routing transport, owner cache, kernel helpers,
        and runtime (mirrors Squirix.Server.Cluster.Replication rules; adapter-level replication tests
-       belong to UnitTests.Adapters.Grpc.Replication). -->
+       belong to UnitTests.Adapters.Wire.Replication). -->
   <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.Cluster.Transport.*" />
   <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.LocalCache.*" />
   <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.Errors.*" />

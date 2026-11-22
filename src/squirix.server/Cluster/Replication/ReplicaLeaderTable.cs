@@ -62,7 +62,7 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
     /// member learned in term zero, because it served a fallback, gives way to any hint of a higher term, even one that is already stale; such a
     /// hint answers stale in its turn and is then forgotten.
     /// </remarks>
-    public void Learn(string groupId, in LeaderRoute hint)
+    void IGroupLeaderTable.Learn(string groupId, in LeaderRoute hint)
     {
         if (string.IsNullOrEmpty(hint.NodeId) || string.Equals(hint.NodeId, _selfId, StringComparison.Ordinal))
             return;
@@ -98,7 +98,7 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
     }
 
     /// <inheritdoc />
-    public void Refute(string groupId, in LeaderRoute route)
+    void IGroupLeaderTable.Refute(string groupId, in LeaderRoute route)
     {
         if (string.IsNullOrEmpty(route.NodeId))
             return;

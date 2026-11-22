@@ -144,8 +144,8 @@ internal static class ReplicaCommitterDoubles
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(false);
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
@@ -211,7 +211,7 @@ internal static class ReplicaCommitterDoubles
         public ulong NextSequence => 1;
 
         /// <summary>Gets a task that completes when a caller waited for the startup gate.</summary>
-        public Task Requested => _requested.Task;
+        internal Task Requested => _requested.Task;
 
         public Exception? GetJournalThreadFailure() => null;
 

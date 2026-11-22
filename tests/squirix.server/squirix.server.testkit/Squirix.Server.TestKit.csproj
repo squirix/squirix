@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
         <RootNamespace>Squirix.Server.TestKit</RootNamespace>
@@ -9,10 +9,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
-        <PackageReference Include="Grpc.Net.Client"/>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="TUnit" PrivateAssets="all"/>
+        <PackageReference Include="TUnit.Assertions" PrivateAssets="compile;contentfiles;analyzers;build;buildMultitargeting;buildTransitive;native"/>
+        <PackageReference Include="TUnit.Core" PrivateAssets="compile;contentfiles;analyzers;build;buildMultitargeting;buildTransitive;native"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -21,8 +20,12 @@
 
     <ItemGroup>
         <Compile Include="..\..\shared\ExportedApiMetadata.cs" Link="Shared\ExportedApiMetadata.cs"/>
+        <Compile Include="..\..\shared\FakeTimeProvider.cs" Link="Shared\FakeTimeProvider.cs"/>
         <Compile Include="..\..\shared\MeasurementSink.cs" Link="Shared\MeasurementSink.cs"/>
         <Compile Include="..\..\shared\PathKit.cs" Link="Shared\PathKit.cs"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <Compile Include="..\..\shared\ExceptionTypeGuard.cs" Link="ExceptionTypeGuard.cs"/>
+    </ItemGroup>
 </Project>

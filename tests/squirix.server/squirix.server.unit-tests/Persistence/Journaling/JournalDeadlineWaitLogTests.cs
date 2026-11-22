@@ -2,8 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
@@ -34,7 +34,7 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
         setup.EventLoop.ReportDeadlineWaitFallbackOnce();
 
         _ = await Assert.That(logger.Count(TimerUnavailableEventId)).IsEqualTo(1);
-        _ = await Assert.That(logger.Find(TimerUnavailableEventId)?.Level).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(logger.Find(TimerUnavailableEventId)?.Level).IsEqualTo(ServerLogLevel.Information);
     }
 
     /// <summary>The journal thread loop reports the fallback after its first idle wait, once.</summary>

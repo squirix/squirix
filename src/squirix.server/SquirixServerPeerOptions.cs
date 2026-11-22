@@ -2,7 +2,7 @@ using System;
 
 namespace Squirix.Server;
 
-/// <summary>Describes a Squirix cluster peer for ASP.NET Core custom hosting.</summary>
+/// <summary>Describes a Squirix cluster peer for a native Squirix node.</summary>
 public sealed class SquirixServerPeerOptions
 {
     /// <summary>Gets or sets the peer node identifier.</summary>

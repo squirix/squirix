@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Cluster;
 
@@ -19,13 +20,13 @@ internal sealed class RingAgreement
     private const string UnknownFingerprint = "unknown";
 
     private readonly RingFingerprint _local;
-    private readonly ILogger<RingAgreement> _logger;
+    private readonly IServerLogger<RingAgreement> _logger;
     private readonly HashSet<string> _reportedPeers = [with(StringComparer.Ordinal)];
     private readonly Lock _sync = new();
     private RingMismatchReport? _firstMismatch;
     private bool _fenced;
 
-    internal RingAgreement(RingFingerprint local, ILogger<RingAgreement> logger)
+    internal RingAgreement(RingFingerprint local, IServerLogger<RingAgreement> logger)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(logger);
@@ -47,7 +48,7 @@ internal sealed class RingAgreement
     internal bool IsFenced => Volatile.Read(ref _fenced);
 
     /// <summary>Throws when this node is fenced.</summary>
-    /// <exception cref="Grpc.Core.RpcException">The ring-fenced refusal when this node detected a ring mismatch.</exception>
+    /// <exception cref="ServerCallException">The ring-fenced refusal when this node detected a ring mismatch.</exception>
     internal void EnsureNotFenced()
     {
         if (IsFenced)
@@ -57,7 +58,7 @@ internal sealed class RingAgreement
     /// <summary>Checks the ring fingerprint a peer sent with an internal owner call.</summary>
     /// <param name="peerFingerprint">The fingerprint header value, or <see langword="null" /> when the peer sent none.</param>
     /// <param name="peerNodeId">The calling peer node id.</param>
-    /// <exception cref="Grpc.Core.RpcException">The ring-mismatch refusal when the fingerprint is missing or differs; this node is fenced.</exception>
+    /// <exception cref="ServerCallException">The ring-mismatch refusal when the fingerprint is missing or differs; this node is fenced.</exception>
     internal void EnsureInboundAgreement(string? peerFingerprint, string peerNodeId)
     {
         if (string.Equals(peerFingerprint, _local.Value, StringComparison.Ordinal))
@@ -65,6 +66,15 @@ internal sealed class RingAgreement
 
         Record(peerNodeId, RingMismatchDirection.Inbound, peerFingerprint ?? MissingFingerprint);
         throw RingMismatchFailure.Mismatch();
+    }
+
+    /// <summary>Checks a raw ring digest without constructing a diagnostic string for matching peers.</summary>
+    /// <param name="peerDigest">The digest received from the peer.</param>
+    /// <param name="peerNodeId">The calling peer node id.</param>
+    internal void EnsureInboundDigestAgreement(ReadOnlySpan<byte> peerDigest, string peerNodeId)
+    {
+        if (!peerDigest.SequenceEqual(_local.Digest.Span))
+            EnsureInboundAgreement(Convert.ToHexString(peerDigest), peerNodeId);
     }
 
     /// <summary>Records that a key owner refused a forwarded call because its ring differs from the ring of this node.</summary>
@@ -85,6 +95,6 @@ internal sealed class RingAgreement
         }
 
         if (firstForPeer)
-            ServerLog.RingMismatchDetected(_logger, peerNodeId, direction == RingMismatchDirection.Inbound ? "Inbound" : "Outbound", _local.Value, peerFingerprint);
+            TransportLog.RingMismatchDetected(_logger, peerNodeId, direction == RingMismatchDirection.Inbound ? "Inbound" : "Outbound", _local.Value, peerFingerprint);
     }
 }

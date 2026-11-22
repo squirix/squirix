@@ -35,7 +35,7 @@ internal static partial class CacheEntryCodec
             return length;
         }
 
-        internal static bool TryReadTag(ReadOnlySpan<byte> source, out FrozenDictionary<string, string>? tags, out int bytesRead)
+        internal static bool TryReadTag(ReadOnlySpan<byte> source, bool materialize, out FrozenDictionary<string, string>? tags, out int bytesRead)
         {
             tags = null;
             bytesRead = 0;
@@ -47,21 +47,19 @@ internal static partial class CacheEntryCodec
             if (count == 0)
                 return true;
 
-            var dict = new Dictionary<string, string>(count, StringComparer.Ordinal);
+            // Even empty keys and values need two length prefixes per tag.
+            if (count > (source.Length - bytesRead) / (2 * sizeof(ushort)))
+                return false;
+
+            var dict = materialize ? new Dictionary<string, string>(count, StringComparer.Ordinal) : null;
             for (var i = 0; i < count; i++)
             {
-                if (!TryReadUtf8Prefixed(source[bytesRead..], out var key, out var keyBytes))
+                if (!TryReadPair(source, materialize, ref bytesRead, out var key, out var value))
                     return false;
-
-                bytesRead += keyBytes;
-                if (!TryReadUtf8Prefixed(source[bytesRead..], out var value, out var valueBytes))
-                    return false;
-
-                bytesRead += valueBytes;
-                dict[key] = value;
+                dict?[key] = value;
             }
 
-            tags = dict.ToFrozenDictionary(StringComparer.Ordinal);
+            tags = dict?.ToFrozenDictionary(StringComparer.Ordinal);
             return true;
         }
 
@@ -82,7 +80,7 @@ internal static partial class CacheEntryCodec
             return true;
         }
 
-        internal static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, out string text, out int bytesRead)
+        internal static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, bool materialize, out string text, out int bytesRead)
         {
             text = string.Empty;
             bytesRead = 0;
@@ -94,7 +92,8 @@ internal static partial class CacheEntryCodec
             if (!WireBounds.Fits(length, 2, source.Length))
                 return false;
 
-            text = Encoding.UTF8.GetString(source.Slice(2, length));
+            if (materialize)
+                text = Encoding.UTF8.GetString(source.Slice(2, length));
             return true;
         }
 
@@ -141,6 +140,20 @@ internal static partial class CacheEntryCodec
             BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
             _ = Encoding.UTF8.GetBytes(text, destination[2..]);
             return 2 + byteCount;
+        }
+
+        private static bool TryReadPair(ReadOnlySpan<byte> source, bool materialize, ref int bytesRead, out string key, out string value)
+        {
+            value = string.Empty;
+            if (!TryReadUtf8Prefixed(source[bytesRead..], materialize, out key, out var keyBytes))
+                return false;
+
+            bytesRead += keyBytes;
+            if (!TryReadUtf8Prefixed(source[bytesRead..], materialize, out value, out var valueBytes))
+                return false;
+
+            bytesRead += valueBytes;
+            return true;
         }
     }
 }

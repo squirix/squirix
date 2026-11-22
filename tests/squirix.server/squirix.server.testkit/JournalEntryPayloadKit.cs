@@ -3,7 +3,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.TestKit;
 
-/// <summary>Helpers for building journal Put entry payloads in tests and benchmarks.</summary>
+/// <summary>Helpers for building journal Put entry payloads in tests.</summary>
 public static class JournalEntryPayloadKit
 {
     /// <summary>Encodes a cache entry into an exact-size owned buffer for tests.</summary>
@@ -13,8 +13,7 @@ public static class JournalEntryPayloadKit
     public static byte[] Encode<T>(NodeCacheEntry<T> entry)
     {
         var prepared = JournalEntryPayload.PrepareEncode(entry);
-        using var buffer = JournalEntryPayload.Encode(in prepared);
-        return FixtureBufferKit.CopyToOwned(buffer.Memory.Span);
+        return JournalEntryPayload.EncodeOwned(in prepared);
     }
 
     /// <summary>Encodes a Put journal payload for the given cache value into an exact-size owned buffer.</summary>

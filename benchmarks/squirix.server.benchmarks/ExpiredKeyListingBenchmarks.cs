@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.Threading;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -36,16 +35,15 @@ public class ExpiredKeyListingBenchmarks
     public int ListExpired() => ThrowHelper.Required(_cache, "Benchmark cache was not initialized.").ExpiredKeys.ListExpired(_listedAt, MaxListed, static _ => true).Count;
 
     /// <summary>Stores the entries: <see cref="Due" /> of them expire within a minute, the others in a day.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
     [GlobalSetup]
-    public async Task SetupAsync()
+    public void Setup()
     {
         _cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         for (var i = 0; i < Stored; i++)
         {
             var ttl = i < Due ? TimeSpan.FromMinutes(1) : TimeSpan.FromDays(1);
             var key = CacheKey.Default("k" + i.ToString(CultureInfo.InvariantCulture));
-            await _cache.SetAsync(key, new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None).ConfigureAwait(false);
+            _cache.Set(key, new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None);
         }
 
         _listedAt = TimeProvider.System.GetUtcNow().UtcDateTime.AddHours(1);

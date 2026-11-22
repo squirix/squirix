@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -14,9 +12,11 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -328,7 +328,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         await service.StartAsync(cancellationToken);
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!, HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -424,7 +424,16 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             // The apply of group n3 is not canceled, so the service cannot end before it is released, while the loop of group n2 ends at
             // once. The grace only gives a service that ended early the time to show it; a correct one never ends within it.
             stopped = service.StopAsync(cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(service.ExecuteTask!.WaitAsync(StopGrace, TimeProvider.System, cancellationToken));
+            try
+            {
+                await service.ExecuteTask!.WaitAsync(StopGrace, TimeProvider.System, cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                // This test observes a pending task; the assertion below rejects a timeout raised by the task itself.
+            }
+
+            _ = await Assert.That(service.ExecuteTask!.IsCompleted).IsFalse();
         }
         finally
         {
@@ -481,7 +490,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = factory.PrepareSet(NewOperationId(), "cache", key, Entry(key), logIndex);
-        return ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        return ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
     }
 
     internal static FollowerBatch Batch(in ReplicaLogRecord record, ulong prevLogIndex, ulong leaderCommitIndex) => new(
@@ -537,8 +546,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = await factory.PrepareTryAddAsync(NewOperationId(), "cache", "bad", Entry("bad"), 1UL, cancellationToken);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ??
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ??
                      ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
-        return record with { OutcomePayload = ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) };
+        return record with { OutcomePayload = ReplicaOutcomeTestBytes.Encode(false, ReadOnlyMemory<byte>.Empty) };
     }
 }

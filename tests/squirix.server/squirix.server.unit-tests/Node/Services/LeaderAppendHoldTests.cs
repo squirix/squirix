@@ -1,14 +1,16 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -53,7 +55,7 @@ public sealed class LeaderAppendHoldTests : ServerUnitTestBase
 
         hooks.Arm();
         for (var i = 0UL; i < FailedWrites; i++)
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsOneOfAsync<SquirixException, ServerCallException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         hooks.Disarm();
         await committer.ConfirmReadAsync(cancellationToken);

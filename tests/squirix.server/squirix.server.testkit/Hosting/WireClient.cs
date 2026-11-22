@@ -1,28 +1,28 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Net.Client;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit.Networking;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
 
-/// <summary>Sends <see cref="WireMutation" /> instances to one node over the public gRPC contract, without the SDK.</summary>
+/// <summary>Sends <see cref="WireMutation" /> instances to one node over the public binary contract, without the SDK.</summary>
 [Immutable]
 internal sealed class WireClient : IAsyncDisposable
 {
     /// <summary>The detail of the refusal a node returns when it knows no leader with authority for the group of a call.</summary>
     internal const string NoLeaderRefusalDetail = ServerOpContract.NoLeaderAuthorityDetail;
 
-    private readonly GrpcChannel _channel;
-    private readonly SquirixCacheService.SquirixCacheServiceClient _client;
+    private readonly PublicBinaryChannel _channel;
+    private readonly CacheWireClient _client;
 
-    private WireClient(GrpcChannel channel)
+    private WireClient(PublicBinaryChannel channel)
     {
         _channel = channel;
-        _client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        _client = new CacheWireClient(channel);
     }
 
     /// <inheritdoc />
@@ -38,7 +38,7 @@ internal sealed class WireClient : IAsyncDisposable
     internal static WireClient Connect(Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
-        return new WireClient(GrpcChannel.ForAddress(uri, new GrpcChannelOptions { HttpHandler = LoopbackHttp.CreateHandler(), DisposeHttpClient = true }));
+        return new WireClient(new PublicBinaryChannel(uri));
     }
 
     /// <summary>Reads a key once, with no retry and no reroute.</summary>
@@ -50,7 +50,7 @@ internal sealed class WireClient : IAsyncDisposable
     internal async Task<bool> ReadAsync(string cacheName, string key, TimeSpan deadline, CancellationToken cancellationToken)
     {
         var request = new GetValueAsyncRequest { CacheName = WireMutation.Canonical(cacheName), Key = key };
-        var response = await _client.GetValueAsync(request, deadline: DateTime.UtcNow.Add(deadline), cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await ObserveAsync(_client.GetValueAsync(request, DateTime.UtcNow.Add(deadline), cancellationToken)).ConfigureAwait(false);
         return response.Found;
     }
 
@@ -62,6 +62,18 @@ internal sealed class WireClient : IAsyncDisposable
     internal Task<WireOutcome> SendAsync(WireMutation mutation, TimeSpan deadline, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(mutation);
-        return mutation.SendAsync(_client, DateTime.UtcNow.Add(deadline), cancellationToken);
+        return ObserveAsync(mutation.SendAsync(_client, DateTime.UtcNow.Add(deadline), cancellationToken));
+    }
+
+    private static async Task<T> ObserveAsync<T>(Task<T> call)
+    {
+        try
+        {
+            return await call.ConfigureAwait(false);
+        }
+        catch (ServerCallException error)
+        {
+            throw new WireCallException(error);
+        }
     }
 }

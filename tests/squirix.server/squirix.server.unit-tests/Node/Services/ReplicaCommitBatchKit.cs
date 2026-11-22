@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaCommitterDoubles;
 
@@ -88,11 +88,12 @@ internal static class ReplicaCommitBatchKit
         string key,
         Func<ReplicaMutationFactory, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
         CancellationToken cancellationToken) => committer.CommitAsync(
-        (Cache, NewOperationId(), key),
-        prepare,
-        static _ => Fingerprint,
-        static (factory, state, index, token) => state(factory, index, token),
-        static _ => new ValueTask<bool>(true),
+        new ReplicaStateCommitRequest<Func<ReplicaMutationFactory, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>>>(
+            (Cache, NewOperationId(), key),
+            prepare,
+            static _ => Fingerprint,
+            static (factory, state, index, token) => state(factory, index, token)),
+        static _ => true,
         cancellationToken);
 
     internal static Task[] QueueSets(ReplicaGroupCommitter committer, int count, CancellationToken cancellationToken)

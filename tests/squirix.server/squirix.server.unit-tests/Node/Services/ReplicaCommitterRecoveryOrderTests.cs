@@ -1,8 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -10,8 +8,10 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -69,7 +69,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         await recovery.Requested.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await canceling.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(local.EntryReads).IsEqualTo(0);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(0UL);
@@ -145,7 +145,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         await committer.DisposeAsync();
         recovery.Release();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(Volatile.Read(ref probes)).IsEqualTo(0);
     }
@@ -166,10 +166,10 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         await committer.DisposeAsync();
         recovery.Release();
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(refused.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(local.EntryReads).IsEqualTo(0);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(0UL);
     }

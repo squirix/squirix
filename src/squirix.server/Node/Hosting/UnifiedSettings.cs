@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
@@ -18,17 +17,18 @@ namespace Squirix.Server.Node.Hosting;
 /// </summary>
 internal static class UnifiedSettings
 {
-    /// <summary>Merges the <c language="csharp">Snapshot</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.</summary>
-    /// <param name="baseline">Baseline options when the section is absent.</param>
+    /// <summary>Loads snapshot trigger options from the discovered settings file, if present.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">Snapshot</c> object,
-    /// and <c language="csharp">Merged</c> is the merged result.
-    /// </returns>
-    internal static async Task<(bool Found, TriggerOptions Merged)> MergeSnapshotFromFileAsync(TriggerOptions baseline, CancellationToken cancellationToken = default)
+    /// <returns>The snapshot trigger options.</returns>
+    internal static async Task<TriggerOptions> LoadSnapshotOptionsAsync(CancellationToken cancellationToken)
     {
+        var baseline = new TriggerOptions();
         var path = SettingsJson.FindSettingsPath();
-        return path == null ? (false, baseline) : await MergeAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        if (path == null)
+            return baseline;
+
+        var (_, merged) = await MergeAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return merged;
     }
 
     /// <summary>
@@ -58,9 +58,8 @@ internal static class UnifiedSettings
         if (snapshotFound)
         {
             var snapshotValidator = new TriggerOptionsValidator();
-            var snapshotResult = snapshotValidator.Validate(Options.DefaultName, snapshot);
-            if (snapshotResult.Failed)
-                failures.AddRange(snapshotResult.Failures);
+            var snapshotResult = snapshotValidator.Check(snapshot);
+            failures.AddRange(snapshotResult);
         }
 
         var options = new PrometheusMetricsEndpointOptions();
@@ -69,9 +68,8 @@ internal static class UnifiedSettings
             return;
 
         var validator = new PrometheusEndpointOptionsValidator();
-        var result = validator.Validate(Options.DefaultName, prometheus);
-        if (result.Failed)
-            failures.AddRange(result.Failures);
+        var result = validator.Check(prometheus);
+        failures.AddRange(result);
     }
 
     private static async Task<(bool Found, TriggerOptions Merged)> MergeAsync(string path, TriggerOptions baseline, CancellationToken cancellationToken = default)

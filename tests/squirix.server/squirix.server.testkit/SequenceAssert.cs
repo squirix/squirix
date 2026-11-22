@@ -28,7 +28,7 @@ public static class SequenceAssert
         ArgumentNullException.ThrowIfNull(comparer);
 
         var mismatch = actual.Count == expected.Length ? FirstMismatch(expected, actual, comparer) : -1;
-        return EqualSpanCoreAsync(expected.Length, actual.Count, mismatch);
+        return AssertEqualAsync(expected.Length, actual.Count, mismatch);
     }
 
     /// <summary>Asserts two sequences contain equal items in the same order using a custom comparer.</summary>
@@ -43,7 +43,8 @@ public static class SequenceAssert
         ArgumentNullException.ThrowIfNull(actual);
         ArgumentNullException.ThrowIfNull(comparer);
 
-        return EqualCoreAsync(expected, actual, comparer);
+        var mismatch = expected.Count == actual.Count ? FirstMismatch(expected, actual, comparer) : -1;
+        return AssertEqualAsync(expected.Count, actual.Count, mismatch);
     }
 
     /// <summary>Asserts two sequences contain equal items in the same order.</summary>
@@ -56,7 +57,8 @@ public static class SequenceAssert
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(actual);
 
-        return EqualCoreAsync(expected, actual);
+        var mismatch = expected.Count == actual.Count ? FirstMismatch(expected, actual) : -1;
+        return AssertEqualAsync(expected.Count, actual.Count, mismatch);
     }
 
     /// <summary>Asserts two memory blocks contain equal items in the same order.</summary>
@@ -66,37 +68,39 @@ public static class SequenceAssert
     /// <returns>A task representing the asynchronous assertion.</returns>
     public static Task EqualMemoryAsync<T>(ReadOnlyMemory<T> expected, ReadOnlyMemory<T> actual) => EqualMemoryAsync(expected, actual, EqualityComparer<T>.Default);
 
-    private static T[] CopyToArray<T>(IReadOnlyCollection<T> source)
+    private static int FirstMismatch<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
     {
-        var items = new T[source.Count];
-        var index = 0;
-        foreach (var item in source)
-            items[index++] = item;
-
-        return items;
-    }
-
-    private static async Task EqualCoreAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
-    {
-        _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
         for (var i = 0; i < expected.Count; i++)
-            _ = await Assert.That(comparer.Equals(expected[i], actual[i])).IsTrue().Because($"Sequences differ at index {i}.");
+        {
+            if (!comparer.Equals(expected[i], actual[i]))
+                return i;
+        }
+
+        return -1;
     }
 
-    private static async Task EqualCoreAsync<T>(IReadOnlyCollection<T> expected, IReadOnlyCollection<T> actual)
+    private static int FirstMismatch<T>(IReadOnlyCollection<T> expected, IReadOnlyCollection<T> actual)
     {
         var comparer = EqualityComparer<T>.Default;
-        _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
-        var expectedItems = CopyToArray(expected);
-        var actualItems = CopyToArray(actual);
-        for (var i = 0; i < expectedItems.Length; i++)
-            _ = await Assert.That(comparer.Equals(expectedItems[i], actualItems[i])).IsTrue().Because($"Sequences differ at index {i}.");
+        using var expectedItems = expected.GetEnumerator();
+        using var actualItems = actual.GetEnumerator();
+        var index = 0;
+        while (expectedItems.MoveNext())
+        {
+            if (!actualItems.MoveNext() || !comparer.Equals(expectedItems.Current, actualItems.Current))
+                return index;
+
+            index++;
+        }
+
+        return actualItems.MoveNext() ? index : -1;
     }
 
-    private static async Task EqualSpanCoreAsync(int expectedCount, int actualCount, int mismatch)
+    private static async Task AssertEqualAsync(int expectedCount, int actualCount, int mismatch)
     {
         _ = await Assert.That(actualCount).IsEqualTo(expectedCount);
-        _ = await Assert.That(mismatch).IsEqualTo(-1).Because($"Sequences differ at index {mismatch}.");
+        if (mismatch >= 0)
+            _ = await Assert.That(mismatch).IsEqualTo(-1).Because($"Sequences differ at index {mismatch}.");
     }
 
     private static int FirstMismatch<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)

@@ -4,9 +4,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Utils;
 
@@ -192,7 +192,7 @@ public class ReplicaSnapshotBenchmarks
             var reserveResult = source.Idempotency.Reserve("benchmark", operationId, [1], GroupRecordKind.UserMutation, index, 1UL, new GroupReserveOptions(false, 1));
             if (reserveResult != GroupIdempotencyReserveResult.Success)
                 throw new InvalidOperationException($"Benchmark idempotency reserve failed at index {index}: {reserveResult}.");
-            if (!source.Idempotency.TryResolve("benchmark", operationId, [2], index, 1UL))
+            if (!source.Idempotency.TryResolve("benchmark", operationId, new byte[] { 2 }, index, 1UL))
                 throw new InvalidOperationException($"Benchmark idempotency resolve failed at index {index}.");
         }
 

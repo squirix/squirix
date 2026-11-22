@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -6,7 +5,6 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Storage.Journaling;
@@ -20,7 +18,6 @@ using TUnit.Core;
 [assembly: Rock(typeof(INodeOwnershipResolver), BuildType.Create)]
 [assembly: Rock(typeof(IRemoteInvocationState), BuildType.Create)]
 [assembly: Rock(typeof(IRemoteInvocationScopeFactory), BuildType.Create)]
-[assembly: Rock(typeof(IRpcMutationIdempotencyCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IInboundEndpointCacheOperations<>), BuildType.Create)]
 [assembly: Rock(typeof(ICacheApi<>), BuildType.Create)]
 [assembly: Rock(typeof(IMemoryBudgetProvider), BuildType.Create)]
@@ -29,10 +26,8 @@ using TUnit.Core;
 [assembly: Rock(typeof(IBackpressureClientIdResolver), BuildType.Create)]
 [assembly: Rock(typeof(IBackpressureGate), BuildType.Create)]
 [assembly: Rock(typeof(ILogicalNamespacedCache<>), BuildType.Create)]
-[assembly: Rock(typeof(ISquirixServerEntryCachePipeline<>), BuildType.Create)]
 [assembly: Rock(typeof(IJournalEventLoopHost), BuildType.Create)]
 [assembly: Rock(typeof(IJournalCoordinator), BuildType.Create)]
-[assembly: Rock(typeof(IJournalMutationContext), BuildType.Create)]
 [assembly: Rock(typeof(IJournalDurabilityCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IFollowerLog), BuildType.Create)]
 [assembly: Rock(typeof(IFollowerLogFaultHooks), BuildType.Create)]
@@ -50,10 +45,8 @@ using TUnit.Core;
 [assembly: Rock(typeof(ICriticalMemoryPressureReader), BuildType.Create)]
 [assembly: Rock(typeof(IMemoryUsageAccounting), BuildType.Create)]
 [assembly: Rock(typeof(ISnapshotEntryCapture), BuildType.Create)]
-[assembly: Rock(typeof(IIdempotencySnapshotExporter), BuildType.Create)]
 [assembly: Rock(typeof(ISnapshotWriter), BuildType.Create)]
 [assembly: Rock(typeof(IManifestRetentionFailureMetrics), BuildType.Create)]
 [assembly: Rock(typeof(IRetentionCleanupReadinessStatus), BuildType.Create)]
 [assembly: Rock(typeof(ISnapshotReadinessStatus), BuildType.Create)]
-[assembly: Rock(typeof(IHttpContextAccessor), BuildType.Create)]
 [assembly: ParallelLimiter<Squirix.Server.UnitTests.ServerUnitParallelLimit>]

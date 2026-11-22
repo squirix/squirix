@@ -4,13 +4,13 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -139,6 +139,19 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     public ReplicaApplyProgress ApplyProgress(string groupId) => Created(groupId)?.ApplyProgress() ?? default;
 
     /// <inheritdoc />
+    public async Task<bool> FenceTransferAsync(string groupId, ulong term, CancellationToken cancellationToken)
+    {
+        if (Created(groupId) is not { } committer)
+            return false;
+
+        using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return committer.FenceTransfer(term);
+    }
+
+    /// <inheritdoc />
+    public ulong? MatchIndex(string groupId, int slot) => Created(groupId)?.ReadCoordinator()?.MatchIndexFor(slot);
+
+    /// <inheritdoc />
     public ReplicaAppendProgress AppendProgress(string groupId) => Created(groupId)?.AppendProgress() ?? default;
 
     /// <inheritdoc />
@@ -180,7 +193,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <summary>Refuses a read of the group this node leads statically while its copy is not complete.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes once the read may be served; it completes at once when the led set is handed over by election, whose reads are fenced.</returns>
-    /// <exception cref="Grpc.Core.RpcException">The copy of the group on this node is not complete: Unavailable, nothing was read.</exception>
+    /// <exception cref="ServerCallException">The copy of the group on this node is not complete: Unavailable, nothing was read.</exception>
     /// <remarks>A copy never becomes unseeded again, so the first complete status is remembered and later reads cost nothing.</remarks>
     internal async ValueTask EnsureSeededAsync(CancellationToken cancellationToken)
     {
@@ -215,7 +228,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// <param name="cacheName">Canonical cache name of the operation.</param>
     /// <param name="key">User key of the operation.</param>
     /// <returns>The committer of the owning group.</returns>
-    /// <exception cref="Grpc.Core.RpcException">
+    /// <exception cref="ServerCallException">
     /// This node may not write to the owning group: stale-term when a higher term deposed it, the stale-owner refusal when another leader
     /// is known (or the led set is fixed), the retryable Unavailable refusal otherwise; nothing was appended.
     /// </exception>
@@ -288,7 +301,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     /// node leads the group without authority yet or knows no leader.
     /// </returns>
     /// <remarks>The leader table hides refuted routes on purpose, so this refusal never names a leader that already answered as stale.</remarks>
-    private RpcException Refusal(string groupId)
+    private ServerCallException Refusal(string groupId)
     {
         if (_authority == null)
             return StaleOwnerFailure.Create(groupId, _selfId);

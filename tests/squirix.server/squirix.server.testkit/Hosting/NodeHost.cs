@@ -1,75 +1,35 @@
 using System;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability.Metrics;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
 
 internal static class NodeHost
 {
-    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions? options = null, CancellationToken cancellationToken = default)
+    internal static async Task<ServerApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions options, CancellationToken cancellationToken)
     {
-        options ??= new NodeHostStartOptions();
-        var builder = CreateBuilder(options.ConfigureLogging);
-        var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
-        if (options.ServerCertificate == null)
-            DevelopmentCertificate.AddTo(builder.Services);
-        else
-            AddServerCertificate(builder.Services, options.ServerCertificate);
+        var services = TestNodeBuilder.CreateServices(options.ConsoleLogging);
 
-        await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
+        var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
+        await TestNodeServices.ConfigureBuilderAsync(services, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
+
+        configureArgs.ConfigureServices(services);
+
+        if (options.PeerOptionsFactory is { } createPeerOptions)
+            _ = services.AddSingleton(createPeerOptions);
 
         if (options.TrackRequests)
-            InFlightRequestTracker.AddTo(builder.Services);
+            InFlightRequestTracker.AddTo(services);
 
-        var app = builder.Build();
-        try
-        {
-            _ = await ServerHostingComposition.MapServerAsync(app, cancellationToken).ConfigureAwait(false);
-            await app.StartAsync(cancellationToken).ConfigureAwait(false);
-            return app;
-        }
-        catch
-        {
-            await app.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-    }
-
-    private static void AddServerCertificate(IServiceCollection services, X509Certificate2 certificate)
-        => services.AddOptions<KestrelServerOptions>().Configure(kestrel => kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate = certificate));
-
-    private static WebApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
-    {
-        // The empty builder registers no configuration sources, so the process environment, appsettings files, user secrets
-        // and data protection stay out of every host; the squirix node reads no configuration keys. Only Kestrel, routing and logging are added back.
-        var builder = WebApplication.CreateEmptyBuilder(
-            new WebApplicationOptions
-            {
-                Args = [],
-                ApplicationName = "Squirix.Server",
-                EnvironmentName = Environments.Production,
-            });
-
-        // Host settings written through UseSetting need one source to land in.
-        _ = builder.Configuration.AddInMemoryCollection();
-        _ = builder.WebHost.UseKestrelCore();
-        _ = builder.Services.AddRouting();
-        _ = builder.Services.AddLogging();
-        (configureLogging ?? TestHostLogging.Configure).Invoke(builder.Logging);
-        return builder;
+        var app = services.BuildNode();
+        await SquirixServer.ApplicationHandle.StartWithRollbackAsync(app, static (node, token) => ServerHostingComposition.OpenStorageAsync(node.Services, token), cancellationToken).ConfigureAwait(false);
+        return app;
     }
 
     [Immutable]
@@ -84,23 +44,31 @@ internal static class NodeHost
             _nodeId = nodeId;
         }
 
-        internal void Configure(ICompositionArgs args)
+        internal void Configure(CompositionArgs args)
         {
+            args.ManagementUri = _options.ManagementUri ?? new Uri("https://127.0.0.1:0");
+            args.ServerCertificate = _options.ServerCertificate ?? DevelopmentCertificate.Shared;
             args.WaitForRecovery = _options.WaitForRecovery;
-            args.ConfigureGrpc = _options.ConfigureGrpc;
-            args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
-            args.PeerHandlerFactory = _options.PeerHandlerFactory;
+            args.MetricsEnabled = _options.MetricsEnabled;
+            args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions { Enabled = _options.PrometheusMetricsEnabled };
             args.BackpressureOptions = _options.BackpressureOptions;
             args.MemoryPressureOptions = _options.MemoryPressureOptions;
+            if (_options.EvictionBudgetBytes is { } budget)
+            {
+                args.Eviction = new Squirix.Server.Core.EvictionOptions { EvictOnMemoryPressure = true };
+                args.MemoryPressureOptions = new Squirix.Server.Node.MemoryPressure.PressureOptions { MaxEstimatedCacheBytes = budget };
+            }
+
             args.SecurityOptions = _options.SecurityOptions;
             args.MtlsOptions = _options.MtlsOptions;
             args.Certificate = _options.Certificate;
             args.FoundationOnly = _options.FoundationOnly;
-            args.Extensions = _options.Extensions;
         }
 
-        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
+        internal void ConfigureServices(TestServiceCollection services) => ComposeServices(_options, _nodeId)?.Invoke(services);
+
+        private static Action<TestServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
         {
             if (options.TimeProvider == null && options.ElectionTiming == null)
                 return options.ServicesConfigure;

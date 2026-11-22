@@ -5,16 +5,17 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
@@ -82,11 +83,13 @@ public class ReplicaLeaderReapplyBenchmarks
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("replica-reapply-bench", options, CancellationToken.None).ConfigureAwait(false);
+        var cache = new InMemoryCache();
         _cache = new JournalLoggingCacheDecorator<object?>(
-            new InMemoryCache(),
+            cache,
             _host.Coordinator,
             new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
-            TimeProvider.System);
+            TimeProvider.System,
+            cache);
         var entry = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?> { Value = "v", Version = 1 });
         _records = new byte[Backlog][];
         var logIndex = 0UL;
@@ -104,7 +107,7 @@ public class ReplicaLeaderReapplyBenchmarks
                 Encoding.UTF8.GetBytes("k" + NodeInvariantIndexStrings.Format(i)),
                 ReplicaMutationKinds.Set,
                 entry,
-                ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
+                ReplicaOutcomeCodec.Applied,
                 0,
                 0,
                 0);
@@ -124,9 +127,12 @@ public class ReplicaLeaderReapplyBenchmarks
 
     /// <summary>Memory side of the journaled cache: the decorator under measurement writes the journal frame, this stores the entry.</summary>
     [ThreadSafe]
-    private sealed class InMemoryCache : ILogicalNamespacedCache<object?>
+    private sealed class InMemoryCache : ILogicalNamespacedCache<object?>, ILocalCacheRawReader<object?>
     {
         private readonly ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>> _store = new();
+
+        public NodeCacheEntry<object?>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
+            _store.GetValueOrDefault(key);
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_store.GetValueOrDefault(new CacheKey(cacheName, key)));
@@ -136,8 +142,8 @@ public class ReplicaLeaderReapplyBenchmarks
                 ? new NodeCacheValueResult<object?>(true, entry.Value)
                 : new NodeCacheValueResult<object?>(false, null));
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
-            _store.TryRemove(new CacheKey(cacheName, key), out var entry) ? new CacheRemoveResult<object?>(true, entry.Value) : new CacheRemoveResult<object?>(false, null));
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
+            _store.TryRemove(new CacheKey(cacheName, key), out _));
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -8,13 +9,37 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 
 internal static class JournalReader
 {
+    /// <summary>Lists paths of positive journal segments strictly below the replay floor, without sorting them.</summary>
+    /// <param name="dataDir">The journal directory.</param>
+    /// <param name="replayFromSegment">The first segment that recovery still needs.</param>
+    /// <returns>The obsolete paths in directory enumeration order.</returns>
+    /// <remarks>The directory listing completes before the first path is returned, so enumeration failures precede any deletion.</remarks>
+    internal static IEnumerable<string> EnumerateObsoleteSegmentPaths(string dataDir, int replayFromSegment)
+    {
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
+            yield break;
+
+        foreach (var path in files)
+        {
+            if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1 && index < replayFromSegment)
+                yield return path;
+        }
+    }
+
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
     {
         if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length == 0)
             return [];
 
-        Array.Sort(files, StringComparer.Ordinal);
-        return CollectSegments(files, fromSegment);
+        var segments = CollectSegments(files, fromSegment);
+        Array.Sort(
+            segments,
+            static (left, right) =>
+            {
+                var byIndex = left.Index.CompareTo(right.Index);
+                return byIndex != 0 ? byIndex : string.CompareOrdinal(left.Path, right.Path);
+            });
+        return segments;
     }
 
     /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
@@ -22,6 +47,55 @@ internal static class JournalReader
     /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
     internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir) =>
         !Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) ? default : SumSegmentStats(files);
+
+    /// <summary>Returns the lowest and highest valid segment indexes.</summary>
+    /// <param name="dataDir">The journal directory.</param>
+    /// <returns>The boundary indexes, or zeros when no valid segment is found.</returns>
+    internal static (int FirstAvailableSegment, int LastAvailableSegment) GetSegmentRange(string dataDir)
+    {
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
+            return default;
+
+        var firstIndex = 0;
+        var lastIndex = 0;
+        foreach (var path in files)
+        {
+            if (!TryParseJournalSegmentIndex(Path.GetFileName(path.AsSpan()), out var index) || index < 1)
+                continue;
+
+            if (firstIndex == 0 || index < firstIndex)
+                firstIndex = index;
+            if (index > lastIndex)
+                lastIndex = index;
+        }
+
+        return (firstIndex, lastIndex);
+    }
+
+    /// <summary>Checks for a segment without collecting or sorting the directory.</summary>
+    /// <param name="dataDir">The journal directory.</param>
+    /// <returns>Whether a file has a valid positive segment index.</returns>
+    internal static bool HasSegments(string dataDir)
+    {
+        if (!Directory.Exists(dataDir))
+            return false;
+
+        try
+        {
+            var directory = FilePathValidator.ResolveValidatedDirectoryPath(dataDir);
+            foreach (var path in Directory.EnumerateFiles(directory, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly))
+            {
+                if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1)
+                    return true;
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        return false;
+    }
 
     private static JournalSegment[] CollectSegments(string[] files, int fromSegment)
     {
@@ -45,7 +119,7 @@ internal static class JournalReader
         for (var i = 0; i < files.Length; i++)
         {
             var path = files[i];
-            if (!TryParseJournalSegment(path, 1, out _))
+            if (!TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) || index < 1)
                 continue;
 
             segmentCount++;

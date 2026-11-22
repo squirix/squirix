@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 
+[assembly: InternalsVisibleTo("Squirix.Extensions.Caching")]
+
 [assembly: InternalsVisibleTo("Squirix.UnitTests")]
 [assembly: InternalsVisibleTo("Squirix.IntegrationTests")]
 [assembly: InternalsVisibleTo("Squirix.E2ETests")]

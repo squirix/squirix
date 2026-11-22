@@ -34,6 +34,16 @@ internal interface IReplicaCommitPipeline
     /// <returns>An asynchronous operation.</returns>
     ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken);
 
+    /// <summary>Advances the commit index for a normal write after durable quorum. Returns whether the index was checkpointed.</summary>
+    /// <param name="commitIndex">New contiguous commit index.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Whether the index is durable.</returns>
+    async ValueTask<bool> AdvanceWriteCommitAsync(ulong commitIndex, CancellationToken cancellationToken)
+    {
+        await AdvanceCommitIndexAsync(commitIndex, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>Applies a committed mutation to memory.</summary>
     /// <param name="mutation">Prepared mutation.</param>
     /// <param name="cancellationToken">Absolute-deadline cancellation token.</param>

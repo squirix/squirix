@@ -135,7 +135,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
         var operation = Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A discovered settings file without a cluster section makes the default loader throw.</summary>
@@ -147,7 +147,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         await File.WriteAllTextAsync(path, """{"Squirix":{"MemoryPressure":{}}}""", cancellationToken);
 
         var operation = Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("Squirix.Cluster", StringComparison.Ordinal);
     }

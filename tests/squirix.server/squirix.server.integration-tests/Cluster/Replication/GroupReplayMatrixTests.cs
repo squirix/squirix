@@ -1,14 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf;
-using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Wire;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -54,8 +53,8 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, CleanTestDir = true, ExtraScope = $"group-replay-{mutation}" };
         await using var cluster = await StartClusterAsync(Owner, "node-b", "node-c", options, cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[Owner], cancellationToken);
-        using var channel = CreateGrpcChannel(cluster[Owner].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        using var channel = CreateBinaryChannel(cluster[Owner].Uri);
+        var client = new CacheWireClient(channel);
         var key = cluster[Owner].FindKeyOwnedBy(CacheName, Owner);
         _ = await client.SetEntryAsync(CreateSet(key, "initial", TimeSpan.FromHours(1)), cancellationToken: cancellationToken);
         var operationId = RpcOperationIdentity.New();
@@ -64,11 +63,11 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         _ = await client.SetEntryAsync(CreateSet(key, "intervening", null), cancellationToken: cancellationToken);
         var second = await SendAsync(mutation, client, key, operationId, cancellationToken);
 
-        _ = await Assert.That(second.Span.SequenceEqual(first.Span)).IsTrue();
+        _ = await Assert.That(second.AsSpan().SequenceEqual(first)).IsTrue();
         var value = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         var expiration = await client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(value.Found).IsTrue();
-        _ = await Assert.That(value.Value.StringValue).IsEqualTo("intervening");
+        _ = await Assert.That(value.Value!.StringValue).IsEqualTo("intervening");
         _ = await Assert.That(expiration.HasExpiration).IsFalse();
     }
 
@@ -77,25 +76,25 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         OperationId = RpcOperationIdentity.New(),
         CacheName = CacheName,
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToProto(),
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1, Expiration = expiration }.MapToWire(),
     };
 
-    private static async Task<ByteString> SendAsync(GroupMutation mutation, SquirixCacheService.SquirixCacheServiceClient client, string key, string operationId, CancellationToken cancellationToken)
+    private static async Task<byte[]> SendAsync(GroupMutation mutation, CacheWireClient client, string key, string operationId, CancellationToken cancellationToken)
     {
-        var entry = new NodeCacheEntry<object?> { Value = "mutated", Version = 1 }.MapToProto();
+        var entry = new NodeCacheEntry<object?> { Value = "mutated", Version = 1 }.MapToWire();
         return mutation switch
         {
-            GroupMutation.Remove => (await client.RemoveAsync(new RemoveAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key }, cancellationToken: cancellationToken)).ToByteString(),
+            GroupMutation.Remove => (await client.RemoveAsync(new RemoveAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key }, cancellationToken: cancellationToken)).ToByteArray(),
             GroupMutation.RemoveExpiration => (await client.RemoveExpirationAsync(
                 new RemoveExpirationAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key },
-                cancellationToken: cancellationToken)).ToByteString(),
+                cancellationToken: cancellationToken)).ToByteArray(),
             GroupMutation.SetEntry => (await client.SetEntryAsync(new SetEntryAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Entry = entry }, cancellationToken: cancellationToken))
-               .ToByteString(),
+               .ToByteArray(),
             GroupMutation.Touch => (await client.TouchAsync(
-                new TouchAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Expiration = Duration.FromTimeSpan(TimeSpan.FromHours(2)) },
-                cancellationToken: cancellationToken)).ToByteString(),
+                new TouchAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Expiration = TimeSpan.FromHours(2) },
+                cancellationToken: cancellationToken)).ToByteArray(),
             GroupMutation.Update => (await client.UpdateAsync(new UpdateAsyncRequest { OperationId = operationId, CacheName = CacheName, Key = key, Entry = entry }, cancellationToken: cancellationToken))
-               .ToByteString(),
+               .ToByteArray(),
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), mutation, "Unsupported mutation."),
         };
     }

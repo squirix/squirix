@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -75,7 +75,7 @@ internal static class ReplicaExpiryKit
         var read = await log.ReadEntriesAsync(1, 256, cancellationToken);
         var records = new List<ReplicaLogRecord>(read.Entries.Count);
         foreach (var entry in read.Entries)
-            records.Add(ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode.")));
+            records.Add(ReplicaLogCodec.DecodeBorrowed(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode.")));
 
         return records;
     }
@@ -98,7 +98,7 @@ internal static class ReplicaExpiryKit
 
         public ValueTask DisposeAsync() => Committer.DisposeAsync();
 
-        internal ValueTask<NodeCacheEntry<object?>?> RawAsync(string key, CancellationToken cancellationToken) =>
-            Physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, key), cancellationToken);
+        internal NodeCacheEntry<object?>? Raw(string key, CancellationToken cancellationToken) =>
+            Physical.RawReader.GetEntryRaw(new CacheKey(CacheName, key), cancellationToken);
     }
 }

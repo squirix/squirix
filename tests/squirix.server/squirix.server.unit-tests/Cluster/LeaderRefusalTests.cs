@@ -1,9 +1,9 @@
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -37,9 +37,9 @@ public sealed class LeaderRefusalTests : ServerUnitTestBase
         var failure = LeaderRefusal.Create(kind, in view, Self, true);
 
         _ = await Assert.That(kind).IsEqualTo(LeaderRefusalKind.StaleTerm);
-        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-term");
-        _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "stale-term"));
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-term");
+        _ = await Assert.That(failure.Error.Trailers.Count).IsEqualTo(1);
     }
 
     /// <summary>A known other leader is named in the stale-owner refusal and, when elections lead the group, in the hint trailers.</summary>
@@ -53,10 +53,10 @@ public sealed class LeaderRefusalTests : ServerUnitTestBase
         var plain = LeaderRefusal.Create(kind, in view, Self, false);
 
         _ = await Assert.That(kind).IsEqualTo(LeaderRefusalKind.StaleOwner);
-        _ = await Assert.That((hinted.StatusCode, hinted.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "Key is owned by 'n3', not current node 'n1'."));
-        _ = await Assert.That(hinted.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That((hinted.Trailers.GetValue("squirix-leader-node-id"), hinted.Trailers.GetValue("squirix-leader-term"))).IsEqualTo(("n3", "7"));
-        _ = await Assert.That((plain.Status.Detail, plain.Trailers.Count)).IsEqualTo((hinted.Status.Detail, 1));
+        _ = await Assert.That((hinted.StatusCode, hinted.Message)).IsEqualTo((FrameStatus.FailedPrecondition, "Key is owned by 'n3', not current node 'n1'."));
+        _ = await Assert.That(hinted.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That((hinted.FindTrailer("squirix-leader-node-id"), hinted.FindTrailer("squirix-leader-term"))).IsEqualTo(("n3", "7"));
+        _ = await Assert.That((plain.Message, plain.Error.Trailers.Count)).IsEqualTo((hinted.Message, 1));
     }
 
     /// <summary>A leader whose identifier is not printable ASCII is left out of the trailers; the refusal itself stays the same.</summary>
@@ -69,9 +69,9 @@ public sealed class LeaderRefusalTests : ServerUnitTestBase
 
             var failure = LeaderRefusal.Create(LeaderRefusalKind.StaleOwner, in view, Self, true);
 
-            _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, $"Key is owned by '{leader}', not current node 'n1'."));
-            _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-            _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
+            _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.FailedPrecondition, $"Key is owned by '{leader}', not current node 'n1'."));
+            _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+            _ = await Assert.That(failure.Error.Trailers.Count).IsEqualTo(1);
         }
     }
 
@@ -86,7 +86,7 @@ public sealed class LeaderRefusalTests : ServerUnitTestBase
 
         _ = await Assert.That(LeaderRefusal.Classify(in unknown, Self)).IsEqualTo(LeaderRefusalKind.NoLeader);
         _ = await Assert.That(LeaderRefusal.Classify(in onlySelf, Self)).IsEqualTo(LeaderRefusalKind.NoLeader);
-        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     /// <summary>A leader whose leader-term entry is not committed yet, with no higher term seen, refuses retryably.</summary>
@@ -106,6 +106,6 @@ public sealed class LeaderRefusalTests : ServerUnitTestBase
 
         var failure = LeaderRefusal.Create(LeaderRefusalKind.None, in view, Self, true);
 
-        _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 }

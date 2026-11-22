@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -20,7 +20,7 @@ internal sealed class JournalStallProbe
     /// The clock every recorded timestamp is taken from; readers measure them with the same clock. Its timestamps must be non-zero,
     /// since zero marks an idle slot.
     /// </param>
-    internal JournalStallProbe(ILogger log, TimeProvider timeProvider)
+    internal JournalStallProbe(IServerLogger log, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         _timeProvider = timeProvider;

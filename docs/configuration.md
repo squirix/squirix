@@ -1,7 +1,7 @@
 # Configuration
 
-squirix validates node options on startup. Invalid values fail fast with `OptionsValidationException` before the node
-starts serving traffic.
+Squirix validates node configuration before serving traffic. See [Validation failures](#validation-failures) for
+examples of configuration errors that stop startup.
 
 ## File discovery
 
@@ -16,24 +16,30 @@ Search order:
 In Docker, mount settings read-only (for example `docker/node-a/Squirix.settings.json` → `/app/Squirix.settings.json`).
 See [containerization.md](containerization.md) for dev and release image layouts.
 
-The standalone `squirix-server` host, `await builder.AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()` load
-`Squirix:Cluster` through `Configurator` when a settings file is discovered or supplied. `StartAsync()`
-then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServerAsync` pipeline as the standalone executable.
-Other sections such as `MemoryPressure`, `Snapshot`, and `PrometheusMetrics` are still merged from the same settings file
-at runtime when present. Custom ASP.NET Core hosts configure cluster topology and optional persistence through
-`SquirixServerOptions` (`UsePersistence()`); `await app.MapSquirixServerAsync()` opens node storage and maps gRPC, health, and metrics endpoints.
+The standalone CLI and `SquirixServer.StartAsync()` load `Squirix:Cluster` through `Configurator`.
+The host also loads `Squirix:PrometheusMetrics` from the selected settings file. An explicit `--settings custom.json`
+selects those sections and `Squirix:CacheEviction` from that file. `MemoryPressure` and `Snapshot` use standard file discovery independently.
+Keep all sections in `Squirix.settings.json` in the working directory to apply them together.
+`validate-config --settings custom.json --strict` validates optional sections in the named file.
+
+Relative settings and data paths are resolved against the process working directory, not the settings file directory.
+Use paths without `.` or `..` segments, for example `config/node.json` and `data`; paths such as `./data` are rejected.
+CLI listen, persistence, data-directory, replication, and metrics flags apply after loading settings.
+For an embedded node, pass a `SquirixServerOptions` instance to `SquirixServer.StartAsync`. To start from a
+named settings file, first load it with `Configurator.LoadAsync`, then apply any overrides to those options.
 
 ## Remote client (`SquirixClientOptions`)
 
-Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
+Configure the client when calling `SquirixClient.ConnectAsync`:
 
-| Member                | Purpose                                                                                                           |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `Endpoints`           | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md). |
-| `BearerTokenProvider` | Supplies a JWT bearer token for each gRPC call when the server requires authentication.                           |
-| `Serializer`          | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).  |
+| Member                   | Purpose                                                                                                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Endpoints`              | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md).                                    |
+| `BearerTokenProvider`    | Supplies a JWT when a new physical cache connection authenticates; reconnect and renewal can invoke it again.                                        |
+| `Serializer`             | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).                                     |
+| `JsonSerializerContexts` | Source-generated metadata for application value types used by the default serializer. See [Serialization](serialization.md#application-value-types). |
 
-For local HTTPS development, trust the ASP.NET Core development certificate with
+To use a local .NET development certificate, create or trust it with
 `dotnet dev-certs https --trust`.
 
 Example (requires a JWT in `SQUIRIX_CLIENT_JWT`, for example `export SQUIRIX_CLIENT_JWT=...` /
@@ -41,8 +47,12 @@ Example (requires a JWT in `SQUIRIX_CLIENT_JWT`, for example `export SQUIRIX_CLI
 
 ```csharp
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
+
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
 
 await using var client = await SquirixClient.ConnectAsync(
     options =>
@@ -61,7 +71,9 @@ await using var client = await SquirixClient.ConnectAsync(
     cancellationToken);
 ```
 
-Client authentication uses `BearerTokenProvider` when the server requires JWT bearer authentication.
+Client authentication uses `BearerTokenProvider` once per new physical TLS transport when the server requires JWT authentication.
+RPCs then use the connection identity without bearer metadata. See [cache connection authentication](security/connection-authentication.md)
+for credential refresh, transport compatibility and migration from per-RPC authentication.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="memory-pressure-squirixsettingsjson"></a>
@@ -71,7 +83,7 @@ Client authentication uses `BearerTokenProvider` when the server requires JWT be
 The optional `Squirix:MemoryPressure` section is merged when present (same file discovery as `Squirix:Cluster`).
 Environment variables listed below override merged file values. Memory pressure is **always active** at runtime.
 The node may reject **growing** writes under critical estimated memory usage. Those rejections occur before durable
-journal append. gRPC returns **`ResourceExhausted`** with stable pressure details (bounded payloads; field semantics are
+journal append. Cache calls return **`ResourceExhausted`** with stable pressure details (bounded payloads; field semantics are
 in the table below).
 
 | Field                              | Type  | Default                        | Validation                                                                                          |
@@ -82,6 +94,11 @@ in the table below).
 
 Available process RAM is read from `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` at startup (in containers this is
 usually the pod memory limit). Legacy JSON fields such as `enabled` and `rejectWritesOnCriticalPressure` are ignored.
+
+The pressure percentages are relative to `MaxEstimatedCacheBytes`, not to process RAM. With the defaults, high pressure
+starts at 64% of available process RAM (`80%` of the `80%` budget), and critical pressure at 76% (`95%` of that budget).
+Admission also checks the estimated size after a growing write: it may reject a write that would reach critical pressure
+even when current usage is below the threshold. This is an estimate for cache entries, not a hard cap on process memory.
 
 The estimated bytes and the entry count cover every entry the node holds: the groups it leads, the copies it holds as a
 follower, and the entries recovered at start. `MaxEstimatedCacheBytes` bounds all of it, so a node that holds several
@@ -114,7 +131,7 @@ Example fragment:
 ## Cluster settings
 
 `Squirix:Cluster` is loaded by `Configurator` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
-standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
+standalone host and `SquirixServer.StartAsync()`.
 
 | Field                      | Type     | Default                                | Validation                                                                                                                                                                            |
 | -------------------------- | -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -160,16 +177,16 @@ Example:
 }
 ```
 
-For local standalone hosts, `https://localhost:5001` is the default gRPC listen URL. In Docker Compose and other container
+For local standalone hosts, `https://localhost:5001` is the default public TLS listen URL. In Docker Compose and other container
 networks, set `Uri` and the local peer entry to the **service hostname** reachable by other nodes (for example
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Uri` must exactly match `Cluster.Uri`.
 
 When exposing a container to host client apps: map the primary HTTPS listener (for example host **5001** → container **5000**)
-so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS port. See [containerization.md](containerization.md).
+for binary cache clients. Publish the management port separately for health and metrics. See [containerization.md](containerization.md).
 
 ## Hosting options (`SquirixServerOptions`)
 
-Configure these through `await builder.AddSquirixServerAsync(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
+Pass these options to `SquirixServer.StartAsync(options)`, or use the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
 | Field                      | Type     | Default                  | Validation                                                                                                                                                                            |
@@ -191,7 +208,7 @@ section in settings (mapped into the same options model).
 | `WaitForRecovery`          | bool     | `true`                   | Any boolean; applies when persistence is enabled                                                                                                                                      |
 | `DataDirectory`            | string?  | `null`                   | Optional path when persistence is enabled; requires `UsePersistence()`                                                                                                                |
 
-Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable journal/snapshot persistence. The standalone
+Call `options.UsePersistence()` (or `options.UsePersistence("data")`) to enable journal/snapshot persistence. The standalone
 host accepts `--persist`; `--data-dir` requires `--persist`.
 
 `ReplicaCount`, `ConfigurationGeneration`, `AutomaticFailoverEnabled`, and `QuorumReadsEnabled` have no CLI flag; the
@@ -203,12 +220,13 @@ the two switches through its topology fingerprint; later RF>1 starts with a diff
 Example:
 
 ```csharp
-await builder.AddSquirixServerAsync(options =>
+var options = new SquirixServerOptions
 {
-    options.NodeId = "node-a";
-    options.Uri = new Uri("https://localhost:5001");
-    options.UsePersistence("./data");
-});
+    NodeId = "node-a",
+    Uri = new Uri("https://localhost:5001"),
+};
+options.UsePersistence("data");
+await using var server = await SquirixServer.StartAsync(options);
 ```
 
 ### Replication opt-in (`ReplicationEnabled`)
@@ -276,14 +294,8 @@ same node fail the same way at once for one more bound, instead of each waiting 
 
 - Name resolution and the attempts on every resolved address count against the bound, so a slow resolver or a peer name
   with several addresses uses it up sooner.
-- It covers new connections only. Connections to other nodes that carry forwards are checked with HTTP/2 keepalive
-  pings (one per second of silence, closed when unanswered for two seconds), so a peer that stops answering without
-  closing the connection is found within about five seconds and the next forward connects anew. The two-second answer
-  time trades one more second of detection for fewer healthy connections closed by a paused process. A forward already
-  written to such a connection still ends as an ambiguous timeout or failure.
-- A live node accepts the connection at once; the TLS handshake that follows keeps a longer bound, so a loaded node is
-  not cut off. The setting applies to client forwards only: replication and election traffic between nodes keeps its
-  own longer bounds.
+- The dial timeout covers new connections. Existing peer calls use the forwarded operation deadline.
+  An in-flight call that loses its response after sending can have an ambiguous outcome.
 
 ### Activated topology stamp (`topology.stamp`)
 
@@ -364,39 +376,37 @@ during startup.
 
 ## Node settings file (`Squirix.settings.json`)
 
-Except for `Squirix:Cluster:Backpressure` and `Squirix:Cluster:Journal`, which are properties of `SquirixServerOptions`, the optional sections below are
-**not** properties on `SquirixServerOptions`. In v0.1 public hosting, only some of them are merged from the settings file
-at startup:
+The following optional settings are available at startup.
 
 | Section | Loaded from `Squirix.settings.json`? | Notes |
 | --- | --- | --- |
+| `CacheEviction` | Yes | Disabled by default. See [Cache eviction](#cache-eviction) for key-count and memory modes. |
 | `MemoryPressure` | Yes | Merged when present |
 | `Snapshot` | Yes | Merged when present |
-| `PrometheusMetrics` | Yes | Merged when present |
+| `PrometheusMetrics` | Yes | Enables HTTP export when metrics collection is on. Disabled by default |
 | Persistence knobs (`PersistenceOptions`) | No | Host defaults when `--persist` / `UsePersistence()`; not a JSON section today |
 | Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
 | Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
-| Idempotency store | Env only | `SQUIRIX_IDEMPOTENCY_*` overrides; not a JSON section |
 | Journal metrics exporter interval | No | Fixed at 5 seconds |
 
-`squirix-server validate-config --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
-sections together with cluster settings.
+`squirix-server validate-config --settings Squirix.settings.json --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
+sections together with cluster settings. Validation checks `CacheEviction` in both standard and strict mode.
 
 ### Persistence (host defaults)
 
 When persistence is enabled (`UsePersistence()` / `--persist`), the node uses internal `PersistenceOptions` defaults.
-There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putting a Persistence object in
+There is **no** `Squirix:Persistence` JSON merge in public hosting — putting a Persistence object in
 `Squirix.settings.json` has no effect. Data directory comes from `SquirixServerOptions.DataDirectory` / `--data-dir`
 (otherwise the host resolves a per-node default under local app data).
 
 | Field                         | Type   | Default in node host                                       | Validation                                                                                                                                 |
 | ----------------------------- | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DataDir`                     | string | `%LocalAppData%/squirix/<cluster>/<node>` or temp fallback | Required, non-empty when persistence is enabled                                                                                            |
-| `JournalMaxSegmentMb`         | int    | `64`                                                       | `>= 9`: a segment must hold the largest journal frame (an entry or a recorded reply of up to 8 MiB, plus framing)                          |
+| `JournalMaxSegmentMb`         | int    | `514` without replication, `64` with replication           | At least `514` without replication or `34` with replication, to fit the largest journal frame                                              |
 | Journal group commit wait     | span   | `0` (disabled)                                             | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | Journal group commit batch    | int    | `32`                                                       | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
-| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `>= 9` (Pipelined journal total on-disk size hard cap; must hold one segment with the largest journal frame)                               |
+| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | At least `514` without replication or `34` with replication, to fit one full journal frame                                                 |
 | `ReplicaLogCompactionMb`      | int    | `64`                                                       | `> 0` (RF>1: group log size of each served replica group that triggers its compaction)                                                     |
 | `ReplicaLogCompactionEntries` | int    | `100000`                                                   | `> 0` (RF>1: entries in each served replica group log that trigger its compaction)                                                         |
 | `ReplicaLogRetentionMaxMb`    | int    | `1024`                                                     | `>= ReplicaLogCompactionMb` (RF>1: group log size of a led group past which followers not ready or behind stop holding it)                 |
@@ -411,15 +421,41 @@ Additional host defaults (also not merged from `Squirix.settings.json`):
   `journal_maintenance` reports readiness **Degraded**
 
 `JournalMaxTotalBytesMb` soft high-water for `/health/ready/details` is fixed at 80% of this limit. Durable writes
-that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`); readiness
-stays healthy. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
+that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (`ResourceExhausted`). Quota pressure alone does
+not change readiness. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
 
 At the same high-water mark (80% of `JournalMaxTotalBytesMb`, or of `JournalMaxSegmentCount`) the node takes a snapshot, whatever
 the snapshot triggers say, and pauses an incoming state transfer. Keep `JournalMaxSegmentMb` plus the largest journal frame
-below that mark (with the 9 MB minimum frame allowance, a quota of at least `(JournalMaxSegmentMb + 9) / 0.8` MB); the node
-warns at startup when it does not fit.
+below that mark. Use a frame allowance of 514 MiB without replication or 34 MiB with replication. The node warns at startup when it does not fit.
 
 Journal group commit is configured through the [Journal](#journal) section. See [journal group commit](journal-group-commit.md) for how it works.
+
+### Cache eviction
+
+Omitting `Squirix:CacheEviction` disables eviction. The same default applies to an explicit
+`{"mode":"disabled"}`. To enable eviction, add one of these objects under `Squirix` and restart the node.
+
+| CacheEviction object | Behavior |
+| --- | --- |
+| `{"mode":"keyCount","maxKeys":10000}` | Keeps up to 10,000 entries per named cache per original replication group. The limit must be a positive 32-bit integer. |
+| `{"mode":"memory"}` | Starts reclaiming entries when estimated cache memory on the node reaches its configured high memory-pressure threshold (80% by default). |
+
+The standalone host accepts the same modes without a settings file:
+
+```sh
+squirix-server run --cache-eviction keyCount --max-keys 10000
+squirix-server run --cache-eviction memory
+squirix-server run --cache-eviction disabled
+```
+
+The flags also apply to `doctor`. Command-line values override the selected file for this process.
+With an existing `keyCount` configuration, `--max-keys` alone changes the limit.
+With no file and no eviction flags, eviction is disabled.
+
+Memory eviction runs in the background. Admission can still reject writes at critical pressure.
+In a replicated cluster, a node evicts from groups it leads and followers apply the committed removals.
+Use the same mode and key limit on all nodes so that a leadership change preserves the policy.
+Upgrade every replica to a version supporting capacity eviction before enabling `keyCount`; older servers cannot read its compound eviction records.
 
 ### Snapshot
 
@@ -436,16 +472,22 @@ uses the fields below (omit the section to keep host defaults).
 | `LatencySloMilliseconds`     | double          | `0`                  | finite, `>= 0` |
 | `LatencyThrottleDuration`    | TimeSpan string | `00:00:10`           | `>= 0`         |
 
-A failed snapshot attempt does not stop the node. It is logged at `Error`, retried with an exponential backoff of up to
-60 seconds, and reported by `squirix_snapshot_consecutive_failures{node}` and a **Degraded** `/health/ready`. While
-snapshots fail, the journal keeps every write but cannot be trimmed; once it reaches its quota, durable writes are refused
-with `JOURNAL_DISK_QUOTA`. See [operational-runbook.md](operational-runbook.md#snapshot-artifacts-and-memory-pressure).
+A retriable snapshot failure, such as a file-access error, is logged at `Error` and retried with exponential backoff
+capped at 60 seconds. Consecutive failures appear in `squirix_snapshot_consecutive_failures{node}` and make readiness
+**Degraded**. A successful snapshot clears that state; a skipped attempt does not.
+
+An error outside the retriable set, or a snapshot failure while the journal pipeline is latched as failed, stops the
+snapshot service and makes readiness **Unhealthy**. The host process can remain running, so liveness alone does not show
+that snapshots are working; investigate the logged cause before restarting. While snapshots cannot complete, retention
+cannot advance and the journal can reach its quota, refusing durable writes with `JOURNAL_DISK_QUOTA`. See
+[snapshot failure handling](operational-runbook.md#snapshot-artifacts-and-memory-pressure).
 
 ### Journal
 
 Journal group commit is configured through `SquirixServerOptions.Journal` (`SquirixServerJournalOptions`) or the
 `Squirix:Cluster:Journal` settings object; every key is optional and keeps the default listed below. Group commit lets
-concurrent durable mutations share one journal flush at the cost of up to `GroupCommitMaxWait` of extra commit latency.
+concurrent RF=1 durable mutations share a node journal flush. A durability wait can add up to `GroupCommitMaxWait`
+before the flush starts; the flush itself takes additional time.
 It is off by default and requires persistence (`PersistenceEnabled`, `UsePersistence()` or `--persist`). Changes apply on
 the next host start.
 
@@ -469,16 +511,20 @@ the next host start.
 | `GroupCommitMaxBatch` | int      | `32`       | `1..4096`; used only when `GroupCommitMaxWait` is greater than zero                                |
 
 `TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form; a number is rejected and the error names the field.
-A bare `"5"` is read as five days and rejected by the range check. With RF>1 group commit affects the node journal only, and a
-replicated commit stretches by up to `GroupCommitMaxWait`. Unknown keys in the `Journal` object fail loading, and `Journal`
-must not be `null`. Invalid values fail host startup, `validate-config`, and settings loading, for example with `Journal GroupCommitMaxWait must be zero or between 1 and 100
-whole milliseconds (for example "00:00:00.005").`
+A bare `"5"` is read as five days and rejected by the range check. With RF>1, this setting affects the node cache journal,
+not the replica group log. Replicated applies skip the per-write cache journal durability wait; background log maintenance
+waits for that journal before advancing its persisted applied index. See
+[group commit scope](journal-group-commit.md#scope-and-failure-behaviour).
+
+Unknown keys in the `Journal` object fail loading, and `Journal` must not be `null`. Invalid values fail host startup,
+`validate-config`, and settings loading. For example, an invalid wait reports:
+`Journal GroupCommitMaxWait must be zero or between 1 and 100 whole milliseconds (for example "00:00:00.005").`
 
 ### Backpressure
 
 Backpressure is configured through `SquirixServerOptions.Backpressure` (`SquirixServerBackpressureOptions`) or the
 `Squirix:Cluster:Backpressure` settings object; every key is optional and keeps the default listed below. Limits apply
-before logical reads and writes under load. gRPC transport adapters still enforce transport-level limits (auth, payload
+before logical reads and writes under load. Cache transport adapters still enforce transport-level limits (auth, payload
 size, deadlines, cancellation). Memory pressure is a separate policy. Node-wide admission control is always on and
 cannot be switched off from public options.
 
@@ -507,7 +553,7 @@ id** resolved for each cache operation:
 | Source | Client id | When |
 | ------ | --------- | ---- |
 | JWT bearer principal | `jwt:{subject}` | Authenticated request with a non-empty `sub` / `NameIdentifier` claim |
-| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, authenticated token missing `sub`) |
+| Binary connection | `conn:{connectionId}` | Request has a connection identity and no usable JWT subject |
 | Internal owner RPC | `internal` | Trusted owner-routed call from another cluster node (peer mTLS on the internal listener). Admitted only to a free slot: no per-client limits, slowdown or queueing; the node rate limit applies |
 | In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
 
@@ -515,7 +561,7 @@ Setting `PerClientMaxInFlight` or `PerClientRateLimitPerSecond` turns on per-cal
 share one bucket and no caller identity is computed per request; internal owner calls forwarded from another node are still
 told apart.
 
-v0.1 external auth is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
+External authentication is JWT-only; there is no API-key principal. A request forwarded to its key owner is admitted on the
 entry node under the caller's own client id, including the slowdown delay and queue wait, and holds that admission for
 the whole hop. The owner treats it as an internal owner call (mTLS on the internal listener): it skips per-client limits,
 the slowdown delay and the queue, so a forwarded request waits in at most one queue and traffic is not pooled into one
@@ -527,7 +573,7 @@ The entry node also limits forwarded calls per owner to half of `MaxInFlight` (a
 that finds all of them taken is refused at once with `peer_busy` and does not wait while holding its admission slot, so a
 slow or hung owner cannot pin more than that many slots. The entry node sends each forwarded call once and does not
 retry it against the owner; the Squirix client retries transient failures (`Unavailable`, `Internal`, `ResourceExhausted`
-and deadline expiry) with the same operation id. A raw gRPC caller that does not use the Squirix client must retry them
+and deadline expiry) for eligible requests. On replicated hosts, mutating retries carry the same operation ID. A raw binary caller that does not use the Squirix client must retry them
 itself.
 
 | Field                         | Type            | Default        | Validation                                       |
@@ -543,17 +589,24 @@ itself.
 | `MaxSlowdownDelay`            | TimeSpan string | `00:00:00.025` | `0` to `00:00:05`                                |
 | `MaxQueueWait`                | TimeSpan string | `00:00:00.250` | `> 0` and at most `00:01:00`                     |
 
+Defaults are retained independently when fields are omitted. For example, setting only `MaxInFlight` to `64` fails
+validation because the default `SlowdownThreshold` is `192`. A smaller concurrency cap needs a matching threshold,
+for example `"MaxInFlight": 64` with `"SlowdownThreshold": 48`. Keep `PerClientMaxInFlight` within the new cap too.
+
 A request is admitted while a slot is free. Once all `MaxInFlight` slots are taken, requests wait in a first-in,
 first-out queue of up to `MaxQueue` requests, each for at most `MaxQueueWait`; a request that finds the queue full is rejected
 with `queue_full`, and one that waits too long with `queue_wait_timeout`. From `SlowdownThreshold` in-flight requests on,
 each new request is first delayed by up to `MaxSlowdownDelay`, growing linearly to the full delay when `MaxInFlight` slots are
-taken, so a queued request can wait up to `MaxSlowdownDelay` plus `MaxQueueWait` (275 ms with the defaults).
+taken, so admission can consume up to `MaxSlowdownDelay` plus `MaxQueueWait` (275 ms with the defaults). This bounds
+the slowdown and queue wait, not total RPC latency: execution, replication, and storage work happen after admission.
+A shorter caller deadline or cancellation can end the wait sooner.
 `PerClientMaxInFlight` counts a caller's admitted and queued requests together; a request over that limit is rejected,
 never queued. Forwarded owner calls are never queued on the owner (see above). A burst is meaningless without a rate, so setting a burst alone is rejected.
 
 ### Journal metrics exporter
 
-When persistence is enabled, the journal segment count and size gauges are refreshed from disk every 5 seconds. The interval
+When persistence and metrics collection are enabled, the journal segment count and size gauges are refreshed from disk
+every 5 seconds. The interval
 is fixed and not loaded from `Squirix.settings.json`.
 
 <!-- markdownlint-disable-next-line MD033 -->
@@ -561,12 +614,16 @@ is fixed and not loaded from `Squirix.settings.json`.
 
 ### Prometheus metrics (`PrometheusMetrics`)
 
-The optional `PrometheusMetrics` section configures the built-in Prometheus-compatible HTTP scrape endpoint mapped by
-`MapSquirixServerAsync()`.
+Squirix server metrics collection is disabled by default. Enable it at startup with `squirix-server run --metrics`,
+or set `SquirixServerOptions.MetricsEnabled` in the embedded hosting configuration callback.
+
+Prometheus HTTP export is a separate opt-in. Set `Squirix:PrometheusMetrics:enabled` to `true` in the settings file
+or set `SquirixServerOptions.PrometheusMetricsEnabled` in the callback. The server exposes the scrape endpoint
+when both collection and export are enabled. Use `PrometheusMetricsPath` in the callback to customize the path.
 
 | Field     | Type   | Default in node host | Validation                                              |
 | --------- | ------ | -------------------- | ------------------------------------------------------- |
-| `Enabled` | bool   | `true`               | Any boolean                                             |
+| `Enabled` | bool   | `false`              | Any boolean                                             |
 | `Path`    | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true` |
 
 Example fragment:
@@ -589,8 +646,8 @@ the same JWT bearer token used for cache routes (see
 **Loopback trust assumption:** anonymous loopback scrapes assume the host is **single-tenant** and that any local
 process reaching `127.0.0.1` / `::1` is trusted. On **shared or multi-tenant** hosts, another tenant's process can
 scrape `/metrics` without JWT and read operational data. Mitigations: bind the primary listener to loopback only when
-appropriate, disable the HTTP scrape (`PrometheusMetrics.enabled: false`) and export through OpenTelemetry /
-`MeterListener` instead, or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
+appropriate, leave `PrometheusMetrics.enabled` set to `false` and export through OpenTelemetry or `MeterListener`,
+or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
 scrapes — the tradeoff is intentional for same-host Prometheus ergonomics.
 
 Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`
@@ -616,123 +673,64 @@ See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and securit
 
 ## In-process test hosts
 
-Production and standalone `squirix-server` processes configure JWT through environment variables (see below).
-In-process test hosts also accept an optional **per-node security override**
-so parallel tests do not share process-wide environment state.
-
-Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit.Hosting` when starting a node in tests. When provided, the override
-replaces environment-variable lookup for that startup only; leave the `Security` property of `IntegrationStartOptions` unset on `NodeIntegrationTestBase.StartClusterAsync` to keep
-env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
-
-```csharp
-// E2E / integration auth (JWT)
-var credentials = TestJwtHelper.CreateRandomCredentials();
-await StartNodeAsync(url, peers, security: TestNodeSecurityOptions.FromJwtCredentials(credentials));
-
-// Smoke default: unauthenticated without touching process env
-await StartNodeAsync(url, peers);
-```
-
-Symmetric JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs use
-`JwtAuthority` with a required `JwtAudience`, optional `JwtIssuer`, and `JwtAllowHttpMetadata` (set `true` for `http://`
-mock authorities in tests). Startup fails when `SQUIRIX_JWT_AUTHORITY` or `SQUIRIX_JWT_SIGNING_KEY` is set without
-`SQUIRIX_JWT_AUDIENCE`, including on loopback listeners, and when the signing key is not base64 of at least 32 bytes.
-
-```csharp
-// OIDC authority JWT (integration / smoke)
-await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-await StartNodeAsync(url, peers, security: authority.ToSecurityOptions("squirix-test"));
-var token = authority.CreateBearerToken("squirix-test");
-```
-
-`MockOidcAuthority` lives in `Squirix.Server.TestKit.Security` and serves discovery metadata plus JWKS on loopback
-without external network access. E2E tests run with TUnit parallelization enabled; auth scenarios must use explicit
-`TestNodeSecurityOptions` overrides rather than process environment variables.
+For repository tests, see [Test host authentication](testing/in-process-authentication.md).
 
 ## Environment variables
 
 Deployment, Docker, and standalone hosts load security settings from the process environment. These variables map to
-the same auth pipeline used by in-process overrides above. Docker images also set
-`ASPNETCORE_Kestrel__Certificates__Default__Path` for the
-bundled development PFX; see [containerization.md](containerization.md#https-in-containers).
+the same auth pipeline used by in-process overrides. Docker images set
+`SQUIRIX_TLS_CERTIFICATE_PATH` for the bundled development PFX; see [containerization.md](containerization.md#https-in-containers).
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SQUIRIX_TLS_CERTIFICATE_PATH`                       | PFX certificate for the client and management TLS listeners.                                                                                                                                                       |
+| `SQUIRIX_TLS_CERTIFICATE_PASSWORD`                   | Optional PFX password.                                                                                                                                                                                             |
+| `SQUIRIX_MANAGEMENT_URI`                             | HTTPS management origin. Defaults to loopback with a certificate-matching host where available. See [listener defaults](server-mode.md).                                                                           |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                                          |
 | `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value. Required whenever JWT authentication is enabled.                                                                                                                                    |
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key: base64 of at least 32 bytes. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                           |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for internode gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Uri` port.                                     |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Certificate CN must equal `Cluster.NodeId`. Mutually exclusive with PEM cert/key paths.                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD`             | Optional password for `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`.                                                                                                                                                        |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PATH`                     | PEM-encoded node certificate path. Certificate CN must equal `Cluster.NodeId`. Requires `SQUIRIX_CLUSTER_MTLS_KEY_PATH`.                                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_KEY_PATH`                      | PEM-encoded node private key path.                                                                                                                                                                                 |
-| `SQUIRIX_CLUSTER_MTLS_CA_PATH`                       | PEM-encoded cluster CA / trust root. Required when remote cluster peers are configured.                                                                                                                            |
 | `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
-| `SQUIRIX_IDEMPOTENCY_MAX_IN_FLIGHT_RECORDS`          | Caps in-memory mutation idempotency replay records (default `1048576`; the byte budget below is normally the limit that applies).                                                                                  |
-| `SQUIRIX_IDEMPOTENCY_MAX_BYTES`                      | Byte budget of the in-memory replay records, each charged 512 bytes plus its response (default 5% of the process memory, at least 32 MiB and at most 256 MiB; must be at least 512).                               |
-| `SQUIRIX_IDEMPOTENCY_RETENTION_MINUTES`              | How long successful mutation outcomes remain replayable (default `15`).                                                                                                                                            |
-| `SQUIRIX_IDEMPOTENCY_SWEEP_INTERVAL_SECONDS`         | Background sweep interval for expired idempotency records (default `60`, at most `4294967`, about 49.7 days).                                                                                                      |
 | `SQUIRIX_TEST_ROOT`                                  | Test-only root for generated node data directories.                                                                                                                                                                |
 
-### Idempotency store capacity
+For the `SQUIRIX_CLUSTER_MTLS_*` variables, including certificate paths and the internal port, see
+[Internode mTLS configuration](security/internode-mtls.md#configuration).
 
-Only a node without replica groups (RF=1) keeps the node-wide replay store these variables size. A replicated host, where every write
-commits through the replica group of its key, leaves deduplication to that group's own idempotency state and never touches the node
-store; its capacity is described in [replication-consensus.md](architecture/replication-consensus.md#replicated-mutation-effects).
-
-On an RF=1 node an outcome stays replayable for at least 30 seconds, so the store admits about
-`min(MaxInFlightRecords, MaxBytes / (512 + response bytes)) / 30` new mutations per second once it is full, and a new mutation is
-refused with the retryable `TOO_MANY_REQUESTS` while every outcome is younger than 30 seconds. A response is charged when it is
-recorded, because its mutation already ran: a large response is recorded even over the budget, and new mutations are then refused until
-older outcomes age past 30 seconds. Reservations of mutations in flight are never evicted. The count and the bytes in use are reported
-as `squirix_idempotency_records` and `squirix_idempotency_bytes`; `squirix_idempotency_evictions_total` and
-`squirix_idempotency_rejections_total` count what made room and what was refused.
-
-| Process memory | Default budget | Small mutations per second (about 514 bytes each) |
-| -------------- | -------------- | ------------------------------------------------- |
-| up to 640 MiB  | 32 MiB         | about 2,180                                       |
-| 2 GiB          | about 102 MiB  | about 7,000                                       |
-| 5 GiB or more  | 256 MiB        | about 17,400                                      |
-
-The budget is an estimate of the bytes the retained records hold; the memory the process really uses for them can be higher.
-
-A node that moves from RF=1 to a replicated topology no longer consults the replay store on its write path, so a retry of an RF=1 write
-that arrives after the move is not recognised: switch after the retention (15 minutes by default) has passed without writes, or with an
-empty data directory.
+Moving existing data to an activated replicated topology requires an empty data directory. See
+[activated topology stamps](#activated-topology-stamp-topologystamp) and the
+[operational runbook](operational-runbook.md#activated-topology-stamp).
 
 ## Security notes
 
 ### Loopback trust model
 
-When the primary listen URL host is loopback (`localhost`, `127.0.0.1`, or another `IPAddress.IsLoopback` address),
-Squirix allows **unauthenticated** access to gRPC cache routes unless you configure `SQUIRIX_JWT_*`. `/metrics` scrapes
-from loopback clients stay anonymous even when JWT is enabled; remote clients still need a bearer token (see
-[diagnostics.md](diagnostics.md#metrics-route)).
+The **listen address** determines whether the node can start without external authentication. A loopback bind
+(`localhost` or an IP loopback address) permits startup without JWT. With JWT configured, binary cache calls require
+a valid token even on loopback. A non-loopback bind requires JWT configuration at startup.
 
-This trusts **every local process on the machine**, not just your application. It is appropriate for local development,
-benchmarks, and in-process tests. It is **not** a substitute for JWT/OIDC on shared hosts, containers published to the
-host network, or any interface reachable by other machines.
+The **client connection address** determines access to `/metrics` and `/health/ready/details`. Loopback clients
+can access both anonymously even when JWT is configured. Remote requests without an authenticated identity
+receive `401`. Basic health probes remain anonymous. See [Diagnostics](diagnostics.md#health-routes).
 
-Implementation: `SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri` skips the auth requirement only
-for loopback bind hosts. Non-loopback URLs (`0.0.0.0`, Docker DNS names, public interfaces) **require** JWT settings at
-startup; the process refuses to start without them.
+A loopback bind trusts every local process with access to that listener when cache authentication is off.
+Use it only for trusted local development or tests.
 
 Listen binding follows the host form. An IP literal such as `127.0.0.1` or `[::1]` binds exactly that address, and a bind
-failure fails node start. The name `localhost` binds both the IPv4 and IPv6 loopback interfaces through Kestrel, which
+failure fails node start. The name `localhost` requests loopback binding. This
 tolerates a host without an IPv6 loopback interface; use an IP literal when the node must serve on one specific family.
 
 ### External authentication
 
-- Non-loopback listen URLs **require** JWT settings at startup as described above. When auth is configured, loopback
-  gRPC and remote clients must present valid JWT bearer tokens for cache routes (missing or invalid credentials are
-  rejected).
+JWT authentication is enabled by `SQUIRIX_JWT_AUTHORITY` or a valid `SQUIRIX_JWT_SIGNING_KEY`, not by audience alone.
+Setting only `SQUIRIX_JWT_AUDIENCE` does not protect cache routes on a loopback listener. Symmetric mode also requires
+an issuer and audience; authority mode requires an audience. Token lifetime validation allows two minutes of clock skew.
+
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
-  internode mTLS is required at startup. Internode gRPC is served on the dedicated internal HTTPS listener
+  internode mTLS is required at startup. Peer binary traffic uses the dedicated internal TLS listener
   (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Each node certificate CN must match
   its `Cluster.NodeId`; peer certificates are accepted only when they chain to the cluster CA and their CN matches the
   expected peer `NodeId`. Outbound `ClientPool` calls attach the local node certificate and apply the same trust and
@@ -746,7 +744,7 @@ tolerates a host without an IPv6 loopback interface; use an IP literal when the 
   [security/jwt-signing-keys.md](security/jwt-signing-keys.md). Internode forwarding does not use JWT when mTLS is
   enforced.
 
-## Sample `appsettings.json`
+## Sample `Squirix.settings.json`
 
 ```json
 {
@@ -770,7 +768,7 @@ tolerates a host without an IPv6 loopback interface; use an IP literal when the 
 
 Typical examples from options validators (host composition / `validate-config`). Backpressure messages are also
 returned by `SquirixServerOptions.TryValidate` and settings loading, as are the `Journal` messages. Persistence messages apply when that option object
-is constructed or overridden in a custom host — they are **not** produced by merging a JSON section that v0.1 public
+is constructed or overridden in a custom host — they are **not** produced by merging a JSON section that public
 hosting ignores:
 
 - `Backpressure SlowdownThreshold must be in the range [1, MaxInFlight].`
@@ -788,7 +786,7 @@ hosting ignores:
   Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.`
 - `QuorumReadsEnabled requires AutomaticFailoverEnabled: quorum reads are served by elected leaders only. Set both
   Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.`
-- `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`
+- `Persistence JournalMaxSegmentMb must be at least 514: a journal segment must hold the largest journal frame.`
 - `MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.`
 - `MemoryPressure MaxEstimatedCacheBytes must be positive when set.`
 - `MemoryPressure MaxEstimatedCacheBytes ({configured}) exceeds the 80% RAM cap ({cap}).`

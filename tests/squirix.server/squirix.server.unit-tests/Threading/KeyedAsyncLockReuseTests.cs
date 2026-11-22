@@ -67,7 +67,7 @@ public sealed class KeyedAsyncLockReuseTests : ServerUnitTestBase
         var canceled = locks.LockAsync(1, cancel.Token);
         var survivor = locks.LockAsync(1, cancellationToken);
         await cancel.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<int>.Lease>(canceled);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<int>.Lease>(canceled, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var independent = await locks.LockAsync(2, cancellationToken);
         _ = await Assert.That(ReferenceEquals(holder.Entry, independent.Entry)).IsFalse();
         independent.Dispose();
@@ -90,7 +90,7 @@ public sealed class KeyedAsyncLockReuseTests : ServerUnitTestBase
         old.Dispose();
         using var cancel = new CancellationTokenSource();
         await cancel.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<int>.Lease>(locks.LockAsync(2, cancel.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<int>.Lease>(locks.LockAsync(2, cancel.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(locks.Count).IsEqualTo(0);
         using var current = await locks.LockAsync(3, cancellationToken);
         _ = await Assert.That(ReferenceEquals(old.Entry, current.Entry)).IsTrue();

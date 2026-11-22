@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 
@@ -14,7 +13,7 @@ namespace Squirix.Server.Node.Services;
 /// journal, or readiness state beyond reporting.
 /// </remarks>
 [Immutable]
-internal sealed class ReplicaReadinessHealthCheck : IHealthCheck
+internal sealed class ReplicaReadinessHealthCheck : IReadinessCheck
 {
     private readonly ReplicationMetrics _metrics;
     private readonly IReplicaStatusSource? _source;
@@ -30,15 +29,14 @@ internal sealed class ReplicaReadinessHealthCheck : IHealthCheck
     }
 
     /// <inheritdoc />
-    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    public async Task<ReadinessResult> CheckHealthAsync(CancellationToken cancellationToken)
     {
-        _ = context;
         if (_source == null)
-            return HealthCheckResult.Healthy("replication is not configured.");
+            return ReadinessResult.Healthy("replication is not configured.");
 
         var snapshots = await _source.GetSnapshotsAsync(cancellationToken).ConfigureAwait(false);
         if (snapshots.Count == 0)
-            return HealthCheckResult.Healthy("no replica groups are served.");
+            return ReadinessResult.Healthy("no replica groups are served.");
 
         var failure = default(ReplicaStatusSnapshot?);
         var failureVerdict = ReplicaReadinessVerdict.Ready;
@@ -53,6 +51,6 @@ internal sealed class ReplicaReadinessHealthCheck : IHealthCheck
             failureVerdict = verdict;
         }
 
-        return failure == null ? HealthCheckResult.Healthy("replication is ready.") : HealthCheckResult.Unhealthy(ReplicaReadiness.Describe(failureVerdict, failure.Value.GroupId));
+        return failure == null ? ReadinessResult.Healthy("replication is ready.") : ReadinessResult.Unhealthy(ReplicaReadiness.Describe(failureVerdict, failure.Value.GroupId));
     }
 }

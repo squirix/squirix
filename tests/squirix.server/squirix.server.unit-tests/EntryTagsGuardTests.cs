@@ -39,7 +39,7 @@ public sealed class EntryTagsGuardTests : ServerUnitTestBase
     public async Task NullOrEmptyTagsDoNotThrow()
     {
         _ = await Assert.That(static () => EntryTagsGuard.EnsureWithinLimits(null)).ThrowsNothing();
-        _ = await Assert.That(static () => EntryTagsGuard.EnsureWithinLimits(FrozenDictionary<string, string>.Empty)).ThrowsNothing();
+        _ = await Assert.That(static () => EntryTagsGuard.EnsureWithinLimits(CreateTags(0))).ThrowsNothing();
     }
 
     /// <summary>Tags within limits pass validation.</summary>

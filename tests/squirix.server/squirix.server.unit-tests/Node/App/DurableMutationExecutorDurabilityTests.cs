@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
@@ -10,6 +9,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -95,7 +95,10 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
                         (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
                         static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                         static (s, ct) => s.Apply.ApplyAsync(ct)),
-                    cancellationToken));
+                    cancellationToken),
+                TimeSpan.FromSeconds(30),
+                TimeProvider.System,
+                cancellationToken);
 
             _ = await Assert.That(error.Message).IsEqualTo("memory apply failed");
             _ = await Assert.That(applyState.Calls).IsEqualTo(1);

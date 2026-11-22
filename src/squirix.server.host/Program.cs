@@ -3,8 +3,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Host;
@@ -24,9 +22,9 @@ internal static class Program
         private const string DoctorReplicaMismatch =
             "Durable replica state in the data directory does not match the configured topology; see the MISMATCH, UNREADABLE, or MISSING lines above.";
 
-        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
+        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
-                                        "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" + "  version\n" + "  help\n";
+                                        "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
 
         internal static async Task<int> RunAsync(string[] args)
         {
@@ -44,24 +42,9 @@ internal static class Program
                     _ => throw new InvalidOperationException($"Unknown command '{command.Name}'. Run 'squirix-server help'."),
                 };
             }
-            catch (InvalidOperationException ex)
+            catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or IOException or UnauthorizedAccessException or ArgumentException)
             {
-                await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
-                return 1;
-            }
-            catch (IOException ex)
-            {
-                await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
-                return 1;
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
-                return 1;
-            }
-            catch (ArgumentException ex)
-            {
-                await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Error, $"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
                 return 1;
             }
         }
@@ -69,19 +52,19 @@ internal static class Program
         private static async Task<int> DoctorAsync(SquirixServerCommand command)
         {
             var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync("[Squirix.Server] Doctor").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Runtime: {Environment.Version}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  OS: {Environment.OSVersion}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Cluster ID: {options.ClusterId}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  URL: {options.Uri}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
+            await WriteConsoleLineAsync(Console.Out, "[Squirix.Server] Doctor").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Runtime: {Environment.Version}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  OS: {Environment.OSVersion}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Cluster ID: {options.ClusterId}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Node ID: {options.NodeId}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  URL: {options.Uri}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
                          .ConfigureAwait(false);
 
             // Reported with the settings it describes, before the data directory checks: a replica mismatch error must not
             // follow a "valid" line that only means the settings loaded.
-            await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
+            await WriteConsoleLineAsync(Console.Out, "  Configuration: valid").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
             var dataDirectory = await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
 
@@ -107,7 +90,7 @@ internal static class Program
 
             File.Copy(Path.Join(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
             _ = await LoadSettingsAsync(path, CancellationToken.None).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {path}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"[Squirix.Server] Created settings: {path}").ConfigureAwait(false);
             return 0;
         }
 
@@ -115,30 +98,35 @@ internal static class Program
         {
             var settingsPath = ResolveSettingsPath(command);
             var options = settingsPath == null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
-            Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist, command.EnableReplication);
+            command.ApplyOverrides(options);
             return options;
         }
 
         private static Task<SquirixServerOptions> LoadSettingsAsync(string path, CancellationToken cancellationToken = default) =>
             Configurator.LoadAsync(path, cancellationToken);
 
+        private static Task WriteConsoleLineAsync(TextWriter writer, string? line = null) => writer.WriteLineAsync(line.AsMemory(), CancellationToken.None);
+
         private static string? ResolveSettingsPath(SquirixServerCommand command) => Configurator.ResolveSettingsPath(command.SettingsPath);
 
         private static async Task<int> RunServerAsync(SquirixServerCommand command)
         {
-            var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
-            var builder = WebApplication.CreateBuilder();
-            _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: CancellationToken.None)
-                             .ConfigureAwait(false);
-            var app = builder.Build();
-            await using (app.ConfigureAwait(false))
-            {
-                _ = await app.MapSquirixServerAsync(CancellationToken.None).ConfigureAwait(false);
-                await app.StartAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
-                await WriteRunServerStatusAsync(command, options, CancellationToken.None).ConfigureAwait(false);
-                await app.WaitForShutdownAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
-                return 0;
-            }
+            var options = await Configurator.CreateHostingOptionsAsync(
+                options =>
+                {
+                    if (command.EnableMetrics)
+                        options.MetricsEnabled = true;
+
+                    command.ApplyOverrides(options);
+                },
+                command.SettingsPath,
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
+
+            var server = await SquirixServer.StartAsync(options, CancellationToken.None).ConfigureAwait(false);
+            await using var lifetime = server.ConfigureAwait(false);
+            await WriteRunServerStatusAsync(command, options, server.ManagementUri, CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, server.ApplicationStopping).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return 0;
         }
 
         private static async Task<int> ValidateConfigAsync(SquirixServerCommand command)
@@ -151,7 +139,7 @@ internal static class Program
                 throw new InvalidOperationException(error);
 
             var scope = command.Strict ? "full settings" : "cluster settings";
-            await Console.Out.WriteLineAsync($"[Squirix.Server] {scope} valid: {Path.GetFullPath(command.SettingsPath)}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"[Squirix.Server] {scope} valid: {Path.GetFullPath(command.SettingsPath)}").ConfigureAwait(false);
             return 0;
         }
 
@@ -172,7 +160,7 @@ internal static class Program
         {
             if (!options.PersistenceEnabled)
             {
-                await Console.Out.WriteLineAsync("  Persistence: disabled").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, "  Persistence: disabled").ConfigureAwait(false);
                 return null;
             }
 
@@ -183,12 +171,12 @@ internal static class Program
             }
             catch (InvalidOperationException ex)
             {
-                await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: unavailable; {ex.Message})").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, $"  Persistence: enabled (data dir: unavailable; {ex.Message})").ConfigureAwait(false);
                 return null;
             }
 
             var source = string.IsNullOrWhiteSpace(options.DataDirectory) ? ", default" : string.Empty;
-            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory}{source})").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Persistence: enabled (data dir: {dataDirectory}{source})").ConfigureAwait(false);
             try
             {
                 _ = OperatingSystem.IsWindows()
@@ -197,15 +185,15 @@ internal static class Program
                 var probe = Configurator.ResolveValidatedFilePath(Path.Join(dataDirectory, ".squirix-doctor-probe"));
                 await File.WriteAllTextAsync(probe, string.Empty, cancellationToken).ConfigureAwait(false);
                 File.Delete(probe);
-                await Console.Out.WriteLineAsync("  Data directory access: writable").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, "  Data directory access: writable").ConfigureAwait(false);
             }
             catch (IOException ex)
             {
-                await Console.Out.WriteLineAsync($"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, $"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
             }
             catch (UnauthorizedAccessException ex)
             {
-                await Console.Out.WriteLineAsync($"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, $"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
             }
 
             return dataDirectory;
@@ -220,31 +208,32 @@ internal static class Program
         {
             if (dataDirectory == null)
             {
-                await Console.Out.WriteLineAsync("  Replication: not activated (persistence disabled)").ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, "  Replication: not activated (persistence disabled)").ConfigureAwait(false);
                 return false;
             }
 
             var report = await ReplicaDoctor.BuildReportAsync(options, dataDirectory, cancellationToken).ConfigureAwait(false);
             for (var i = 0; i < report.Lines.Count; i++)
-                await Console.Out.WriteLineAsync("  " + report.Lines[i]).ConfigureAwait(false);
+                await WriteConsoleLineAsync(Console.Out, "  " + report.Lines[i]).ConfigureAwait(false);
 
             return report.HasMismatch;
         }
 
-        private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)
+        private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, Uri management, CancellationToken cancellationToken)
         {
-            await Console.Out.WriteLineAsync("[Squirix.Server] Server is ready.").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  URL: {options.Uri}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Health endpoint: {new Uri(options.Uri, "/health")}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Metrics endpoint: {new Uri(options.Uri, "/metrics")}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, "[Squirix.Server] Server is ready.").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  URL: {options.Uri}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Health endpoint: {new Uri(management, "/health")}").ConfigureAwait(false);
+            if (options.MetricsEnabled && options.PrometheusMetricsEnabled)
+                await WriteConsoleLineAsync(Console.Out, $"  Metrics endpoint: {new Uri(management, options.PrometheusMetricsPath)}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Node ID: {options.NodeId}").ConfigureAwait(false);
             _ = await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync().ConfigureAwait(false);
-            await Console.Out.WriteLineAsync("Client:").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"await using var client = await SquirixClient.ConnectAsync(new Uri(\"{options.Uri}\"));").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync().ConfigureAwait(false);
-            await Console.Out.WriteLineAsync("Waiting for shutdown (Ctrl+C)...").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out).ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, "Client:").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, $"await using var client = await SquirixClient.ConnectAsync(new Uri(\"{options.Uri}\"));").ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out).ConfigureAwait(false);
+            await WriteConsoleLineAsync(Console.Out, "Waiting for shutdown (Ctrl+C)...").ConfigureAwait(false);
         }
 
         /// <summary>Parsed CLI command and option flags for the standalone server host.</summary>
@@ -254,14 +243,25 @@ internal static class Program
         /// <param name="DataDirectory">Optional data directory override from <c language="csharp">--data-dir</c>.</param>
         /// <param name="Persist">Whether persistence was requested via <c language="csharp">--persist</c>.</param>
         /// <param name="EnableReplication">Whether replication was requested via <c language="csharp">--enable-replication</c>.</param>
+        /// <param name="EnableMetrics">Whether server metrics collection was requested via <c language="csharp">--metrics</c>.</param>
         /// <param name="SettingsPath">Optional settings file path from <c language="csharp">--settings</c>.</param>
         [Immutable]
-        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, bool EnableReplication, string? SettingsPath)
+        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, bool EnableReplication, bool EnableMetrics, string? SettingsPath)
         {
+            private string? EvictionMode { get; init; }
+
+            private int? MaxKeys { get; init; }
+
             internal static SquirixServerCommand Parse(string[] args)
             {
                 var name = ResolveName(args);
                 return ApplyFlags(args, ResolveFlagStart(args, name), name);
+            }
+
+            internal void ApplyOverrides(SquirixServerOptions options)
+            {
+                Configurator.ApplyCacheEvictionOverrides(options, EvictionMode, MaxKeys);
+                Configurator.ApplyCommandLineOverrides(options, Uri, DataDirectory, Persist, EnableReplication);
             }
 
             private static SquirixServerCommand ApplyFlags(string[] args, int start, string name)
@@ -273,10 +273,17 @@ internal static class Program
                         return HelpCommand();
                 }
 
-                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.SettingsPath);
+                var command = new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnableMetrics, state.SettingsPath)
+                {
+                    EvictionMode = state.EvictionMode,
+                    MaxKeys = state.MaxKeys,
+                };
+                return (state.EvictionMode != null || state.MaxKeys != null) && name is not ("run" or "doctor")
+                    ? throw new InvalidOperationException("Cache eviction flags apply only to run and doctor.")
+                    : command;
             }
 
-            private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, false, null);
+            private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, false, false, null);
 
             private static bool IsHelpFlag(string flag) => string.Equals(flag, "--help", StringComparison.Ordinal) || string.Equals(flag, "-h", StringComparison.Ordinal);
 
@@ -296,7 +303,7 @@ internal static class Program
 
             private static string ResolveName(string[] args) => args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
-            /// <summary>Applies no-value switches: <c language="csharp">--strict</c>, <c language="csharp">--persist</c>, <c language="csharp">--enable-replication</c>.</summary>
+            /// <summary>Applies no-value switches: <c language="csharp">--strict</c>, <c language="csharp">--persist</c>, <c language="csharp">--enable-replication</c>, and <c language="csharp">--metrics</c>.</summary>
             /// <param name="flag">The raw command-line argument.</param>
             /// <param name="state">The accumulated flag state.</param>
             /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
@@ -312,6 +319,9 @@ internal static class Program
                         return true;
                     case "--enable-replication":
                         state.SetEnableReplication();
+                        return true;
+                    case "--metrics":
+                        state.SetEnableMetrics();
                         return true;
                     default:
                         return false;
@@ -336,10 +346,20 @@ internal static class Program
             /// <param name="state">The accumulated flag state.</param>
             /// <param name="index">The current argument index, advanced past the consumed value.</param>
             /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
+            /// <exception cref="InvalidOperationException">A value is missing or the key limit is invalid.</exception>
             private static bool TryApplyValueFlag(string[] args, string flag, FlagState state, ref int index)
             {
                 switch (flag)
                 {
+                    case "--cache-eviction":
+                        state.EvictionMode = ReadFlagValue(args, ref index);
+                        return true;
+                    case "--max-keys":
+                        var value = ReadFlagValue(args, ref index);
+                        state.MaxKeys = int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count > 0
+                            ? count
+                            : throw new InvalidOperationException("--max-keys requires a positive 32-bit integer.");
+                        return true;
                     case "--urls":
                         state.SetUri(new Uri(ReadFlagValue(args, ref index), UriKind.Absolute));
                         return true;
@@ -358,7 +378,13 @@ internal static class Program
             {
                 internal string? DataDirectory { get; private set; }
 
+                internal bool EnableMetrics { get; private set; }
+
                 internal bool EnableReplication { get; private set; }
+
+                internal string? EvictionMode { get; set; }
+
+                internal int? MaxKeys { get; set; }
 
                 internal bool Persist { get; private set; }
 
@@ -369,6 +395,8 @@ internal static class Program
                 internal Uri? Uri { get; private set; }
 
                 internal void SetDataDirectory(string value) => DataDirectory = value;
+
+                internal void SetEnableMetrics() => EnableMetrics = true;
 
                 internal void SetEnableReplication() => EnableReplication = true;
 

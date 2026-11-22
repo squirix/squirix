@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Core;
+using Squirix.Server.Node.Observability.Metrics;
 
 namespace Squirix.Server;
 
-/// <summary>Configures a Squirix node hosted by an ASP.NET Core application.</summary>
+/// <summary>Configures a Squirix node started by <see cref="SquirixServer" />.</summary>
 public sealed class SquirixServerOptions
 {
     /// <summary>
@@ -66,6 +69,18 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.</summary>
     public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = Array.Empty<SquirixServerPeerOptions>();
 
+    /// <summary>Gets or sets a value indicating whether this host collects Squirix metrics. Defaults to disabled.</summary>
+    [JsonIgnore]
+    public bool MetricsEnabled { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the built-in Prometheus endpoint is enabled. Defaults to <see langword="false" />.</summary>
+    [JsonIgnore]
+    public bool PrometheusMetricsEnabled { get; set; }
+
+    /// <summary>Gets or sets the built-in Prometheus endpoint path. Defaults to <c language="csharp">/metrics</c>.</summary>
+    [JsonIgnore]
+    public string PrometheusMetricsPath { get; set; } = PrometheusMetricsEndpointOptions.DefaultPath;
+
     /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }
 
@@ -99,7 +114,7 @@ public sealed class SquirixServerOptions
     /// </summary>
     public bool ReplicationEnabled { get; set; }
 
-    /// <summary>Gets or sets the primary HTTPS URI used for gRPC and node traffic.</summary>
+    /// <summary>Gets or sets the TLS origin used by binary cache clients.</summary>
     public Uri Uri { get; set; } = new("https://localhost:5001");
 
     /// <summary>Gets or sets the number of consistent-hash virtual nodes.</summary>
@@ -107,6 +122,8 @@ public sealed class SquirixServerOptions
 
     /// <summary>Gets or sets a value indicating whether startup waits for journal recovery before serving traffic.</summary>
     public bool WaitForRecovery { get; set; } = true;
+
+    internal EvictionOptions? Eviction { get; set; }
 
     /// <summary>Validates the current configuration without throwing.</summary>
     /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>
@@ -215,21 +232,28 @@ public sealed class SquirixServerOptions
             return ex.Message;
         }
 
-        if (options.Journal == null)
+        return ValidateJournal(options.Journal, options.PersistenceEnabled) ??
+               ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout) ??
+               PrometheusEndpointOptionsValidator.ValidatePath(options.PrometheusMetricsEnabled, options.PrometheusMetricsPath);
+    }
+
+    private static string? ValidateJournal(SquirixServerJournalOptions? journal, bool persistenceEnabled)
+    {
+        if (journal == null)
             return "Journal cannot be null.";
 
         try
         {
-            options.Journal.ToPersistenceOptions().Validate();
+            journal.ToPersistenceOptions().Validate();
         }
         catch (InvalidOperationException ex)
         {
             return ex.Message;
         }
 
-        return options.Journal.GroupCommitMaxWait > TimeSpan.Zero && !options.PersistenceEnabled
+        return journal.GroupCommitMaxWait > TimeSpan.Zero && !persistenceEnabled
             ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
-            : ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout);
+            : null;
     }
 
     private static void Validate(SquirixServerOptions options)

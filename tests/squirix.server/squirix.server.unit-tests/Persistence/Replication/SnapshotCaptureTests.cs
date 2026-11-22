@@ -1,14 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -36,7 +36,7 @@ public sealed class SnapshotCaptureTests : ServerUnitTestBase
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 3UL, 1UL, "c"), cancellationToken);
         _ = log.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = log.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
+        _ = log.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
         _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);

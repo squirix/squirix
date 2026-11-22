@@ -1,10 +1,10 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 
 namespace Squirix.E2ETests.Fixtures;
 
@@ -20,12 +20,6 @@ internal sealed class MultiNodeStartOptions
 
     /// <summary>Initializes the internode mTLS profile for node C.</summary>
     internal TestNodeProfile NodeCProfile { private get; init; } = TestNodeProfile.Normal;
-
-    /// <summary>Initializes the internode mTLS profile for node D.</summary>
-    internal TestNodeProfile NodeDProfile { private get; init; } = TestNodeProfile.Normal;
-
-    /// <summary>Initializes the internode mTLS profile for node E.</summary>
-    internal TestNodeProfile NodeEProfile { private get; init; } = TestNodeProfile.Normal;
 
     /// <summary>Gets the election timing applied to every node; null keeps the product defaults.</summary>
     internal TestElectionTiming? ElectionTiming { get; init; }
@@ -57,7 +51,7 @@ internal sealed class MultiNodeStartOptions
     internal TestNodeSecurityOptions? Security { get; init; }
 
     /// <summary>Gets an optional per-node hook that registers additional services, receiving the node identifier.</summary>
-    internal Action<string, IServiceCollection>? ServicesConfigure { get; init; }
+    internal Action<string, TestServiceCollection>? ServicesConfigure { get; init; }
 
     /// <summary>Gets the shared node time source applied to every node; null keeps the real system clock.</summary>
     internal TimeProvider? TimeProvider { get; init; }
@@ -90,8 +84,7 @@ internal sealed class MultiNodeStartOptions
         "nodeA" => NodeAProfile,
         "nodeB" => NodeBProfile,
         "nodeC" => NodeCProfile,
-        "nodeD" => NodeDProfile,
-        "nodeE" => NodeEProfile,
+        "nodeD" or "nodeE" => TestNodeProfile.Normal,
         _ => throw new ArgumentOutOfRangeException(nameof(nodeId), nodeId, "Unsupported E2E node identifier."),
     };
 }

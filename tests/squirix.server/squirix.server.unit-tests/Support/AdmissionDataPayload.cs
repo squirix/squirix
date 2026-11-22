@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -6,5 +7,6 @@ namespace Squirix.Server.UnitTests.Support;
 [Immutable]
 internal sealed class AdmissionDataPayload
 {
-    public string Data { get; init; } = string.Empty;
+    [JsonInclude]
+    internal string Data { get; init; } = string.Empty;
 }

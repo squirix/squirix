@@ -106,6 +106,40 @@ public sealed class JournalFrameWindowReaderTests : ServerUnitTestBase
             _ = await Assert.That(await CompareAllAsync(bytes, bytes.Length)).IsEqualTo(string.Empty);
     }
 
+    /// <summary>Reading frames already buffered moves no bytes, including backward and repeated reads.</summary>
+    [Test]
+    public async Task BufferedFramesDoNotMoveWindow()
+    {
+        var bytes = BuildFrames(Repeat(17, 40));
+        var path = await WriteTempAsync(bytes);
+        try
+        {
+            using var handle = OpenRead(path);
+            using var reader = new JournalFrameWindowReader(handle, bytes.Length, bytes.Length);
+            var frameSize = JournalFrameEnvelope.TotalLength(17);
+            for (var i = 0; i < 40; i++)
+            {
+                var result = reader.ReadNext(i * frameSize, out var buffer, out var length);
+                _ = await Assert.That(result.Status).IsEqualTo(JournalFrameReadStatus.Success);
+                _ = await Assert.That(Convert.ToHexString(buffer!.AsSpan(0, length)))
+                    .IsEqualTo(Convert.ToHexString(bytes.AsSpan((i * frameSize) + JournalFrameEnvelope.HeaderSize, 17)));
+            }
+
+            _ = await Assert.That(reader.CompactedBytes).IsEqualTo(0L);
+            foreach (var i in new[] { 3, 3, 20, 1, 39 })
+            {
+                var result = reader.ReadNext(i * frameSize, out var buffer, out var length);
+                _ = await Assert.That(result.NextFrameOffset).IsEqualTo(long.CreateChecked((i + 1) * frameSize));
+                _ = await Assert.That(Convert.ToHexString(buffer!.AsSpan(0, length)))
+                    .IsEqualTo(Convert.ToHexString(bytes.AsSpan((i * frameSize) + JournalFrameEnvelope.HeaderSize, 17)));
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static byte[] BuildFrames(params int[] payloadLengths)
     {
         var total = 0;

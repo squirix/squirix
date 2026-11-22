@@ -2,15 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 
@@ -41,8 +41,9 @@ internal static class WipedCluster
     /// <param name="failover">Whether automatic failover elects the leaders of the groups.</param>
     /// <param name="persistence">The persistence options of the node, with its data directory; a directory of the cluster when not set.</param>
     /// <param name="clean">Whether the data directory starts empty; a node started again keeps it.</param>
+    /// <param name="services">Optional service overrides for fault injection.</param>
     /// <returns>The options.</returns>
-    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null, bool clean = true) => new()
+    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null, bool clean = true, Action<TestServiceCollection>? services = null) => new()
     {
         PersistenceOptions = persistence,
         ReplicaCount = 3,
@@ -52,6 +53,7 @@ internal static class WipedCluster
         AutomaticFailoverEnabled = failover,
         QuorumReadsEnabled = failover,
         ElectionTiming = Timing,
+        ServicesConfigure = services,
     };
 
     /// <summary>Gets the log of a group on a node.</summary>
@@ -80,14 +82,13 @@ internal static class WipedCluster
             {
                 foreach (var nodeId in state.NodeIds)
                 {
-                    if ((await state.Cluster[nodeId].ReplicaGroupsAsync(token)).Status != HealthStatus.Healthy)
+                    if ((await state.Cluster[nodeId].ReplicaGroupsAsync(token)).Status != ReadinessStatus.Healthy)
                         return false;
                 }
 
                 return true;
             },
             Bound,
-            TimeProvider.System,
             cancellationToken);
 
     /// <summary>Checks that a node reports not ready, with the verdict of a copy that is not seeded.</summary>
@@ -98,7 +99,7 @@ internal static class WipedCluster
     {
         var (status, description) = await host.ReplicaGroupsAsync(cancellationToken);
 
-        _ = await Assert.That(status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(description).Contains(UnseededText, StringComparison.Ordinal);
     }
 
@@ -128,10 +129,9 @@ internal static class WipedCluster
         var cache = host.GetCache<object?>(CacheName);
         var key = host.FindKeyOwnedBy(CacheName, ownerId);
 
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(
-            cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "refused", Version = 1 }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "refused", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 
     /// <summary>Checks that a node holds its copy of a group as an unseeded one at term zero, which has voted for nobody.</summary>
@@ -161,7 +161,6 @@ internal static class WipedCluster
             await log.WaitUntilValueAsync(
                 static async (copy, token) => (await copy.GetStatusAsync(token)).MemberState == GroupMemberState.Complete,
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)

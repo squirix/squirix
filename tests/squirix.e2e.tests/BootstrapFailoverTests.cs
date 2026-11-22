@@ -10,7 +10,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for bootstrap endpoint transport failover with multiple live nodes.</summary>
 [Immutable]
-public sealed class BootstrapFailoverTests : EndToEndTestBase
+public sealed class BootstrapFailoverTests
 {
     /// <summary>Verifies an existing client session fails over to a second live bootstrap URL when the active peer stops.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

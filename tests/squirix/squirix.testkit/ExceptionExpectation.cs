@@ -1,11 +1,12 @@
 using System;
 using Squirix.Attributes;
+using Squirix.Testing;
 using TUnit.Assertions.Exceptions;
 
 namespace Squirix.TestKit;
 
 /// <summary>Closure-free assertion for a synchronous exception.</summary>
-/// <typeparam name="TException">Expected exception type.</typeparam>
+/// <typeparam name="TException">Expected exception type; <see cref="Exception" /> itself is not permitted.</typeparam>
 [Immutable]
 public readonly record struct ExceptionExpectation<TException>
     where TException : Exception
@@ -16,10 +17,11 @@ public readonly record struct ExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when <see cref="Exception" /> is requested, or the operation completes successfully.</exception>
     public TException Throws<TState>(TState state, Action<TState> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
+        ExceptionTypeGuard.Validate<TException>();
         try
         {
             operation(state);
@@ -38,10 +40,11 @@ public readonly record struct ExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when <see cref="Exception" /> is requested, or the operation completes successfully.</exception>
     public TException ThrowsAny<TState>(TState state, Action<TState> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
+        ExceptionTypeGuard.Validate<TException>();
         try
         {
             operation(state);

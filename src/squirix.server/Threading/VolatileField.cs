@@ -4,12 +4,7 @@ using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
-/// <summary>
-/// Holds a single reference value with acquire/release semantics on every read and write.
-/// The volatile barriers live in the <see cref="Read" /> and <see cref="Write" /> methods so that
-/// callers (including property getters) can read or replace the value without embedding
-/// <see cref="Volatile" /> barriers directly in their own method bodies.
-/// </summary>
+/// <summary>Holds a reference that can be read with acquire semantics and assigned atomically while it is null.</summary>
 /// <remarks>
 /// This is a volatile value holder, a synchronization primitive in the spirit of Java's
 /// <c language="csharp">AtomicReference&lt;T&gt;</c> or a .NET atomic field wrapper. Centralizing the acquire/release
@@ -31,6 +26,4 @@ internal sealed class VolatileField<T>
         ArgumentNullException.ThrowIfNull(value);
         return Interlocked.CompareExchange(ref _value, value, null) == null;
     }
-
-    internal void Write(T? value) => Volatile.Write(ref _value, value);
 }

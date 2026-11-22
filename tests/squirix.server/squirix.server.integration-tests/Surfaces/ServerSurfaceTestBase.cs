@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Net.Client;
 using JetBrains.Annotations;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -17,11 +16,16 @@ namespace Squirix.Server.IntegrationTests.Surfaces;
 /// </summary>
 public abstract class ServerSurfaceTestBase : IDisposable
 {
-    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
+    private SocketsHttpHandler? _socketsHttpHandler;
     private HttpClient? _httpClient;
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 endpoint integration testing.</summary>
-    protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
+    protected HttpClient HttpClient => _httpClient ??= new HttpClient(_socketsHttpHandler ??= LoopbackHttp.CreateHandler(), false)
+    {
+        DefaultRequestVersion = HttpVersion.Version11,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact,
+        Timeout = TimeSpan.FromSeconds(30),
+    };
 
     /// <summary>
     /// Disposes resources allocated by the test base: <see cref="SocketsHttpHandler" />
@@ -68,16 +72,12 @@ public abstract class ServerSurfaceTestBase : IDisposable
         Func<string, BlackBoxStartOptions>? factory = null,
         CancellationToken cancellationToken = default) => StartClusterAsync([node], factory, cancellationToken);
 
-    /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
+    /// <summary>Creates a public binary TLS channel against a test node URL.</summary>
     /// <param name="uri">The node listen URL.</param>
+    /// <param name="bearerToken">Optional JWT used to authenticate the physical connection.</param>
+    /// <param name="acknowledgement">Optional observer of the server acknowledgement status.</param>
     /// <returns>A disposable gRPC channel.</returns>
-    protected static GrpcChannel CreateGrpcChannel(Uri uri) => GrpcChannel.ForAddress(
-        uri,
-        new GrpcChannelOptions
-        {
-            HttpHandler = LoopbackHttp.CreateHandler(),
-            DisposeHttpClient = true,
-        });
+    protected static PublicBinaryChannel CreateBinaryChannel(Uri uri, string? bearerToken = null, Action<byte>? acknowledgement = null) => new(uri, bearerToken, acknowledgement);
 
     /// <summary>Disposes managed resources owned by the test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
@@ -87,8 +87,8 @@ public abstract class ServerSurfaceTestBase : IDisposable
         if (!disposing)
             return;
 
-        _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
+        _socketsHttpHandler?.Dispose();
     }
 
     /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="BlackBoxCluster" /> releases it for the real bind.</summary>
@@ -109,11 +109,4 @@ public abstract class ServerSurfaceTestBase : IDisposable
         topology.CopyTo(copy);
         return BlackBoxCluster.StartAsync(copy, factory, cancellationToken);
     }
-
-    private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
-    {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
-        Timeout = TimeSpan.FromSeconds(30),
-    };
 }

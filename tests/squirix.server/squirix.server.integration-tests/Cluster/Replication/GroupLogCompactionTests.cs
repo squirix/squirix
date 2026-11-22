@@ -6,7 +6,6 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -60,20 +59,18 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await AwaitCompactedAsync(log, Threshold * 2, cancellationToken);
         var status = await log.GetStatusAsync(cancellationToken);
 
-        // The maintenance service keeps compacting until few entries remain, so the log, its file, and the readiness report are read
-        // together as one state: the reads count only when the log did not move in between.
-        var (retention, fileBytes, reported) = await ReadStableStateAsync(owner, log, cancellationToken);
+        // Maintenance may still compact the log, so read the readiness report between matching retention samples.
+        var (retention, reported) = await ReadStableStateAsync(owner, log, cancellationToken);
 
         var logs = await DescribeLogsAsync(cluster, cancellationToken);
         _ = await Assert.That(GroupSnapshotFile.Exists(owner.DataDir, OwnerId)).IsTrue().Because($"Compaction must publish the group snapshot; {logs}.");
         _ = await Assert.That(retention.RetainedEntries <= Threshold * 2).IsTrue().Because("The group log must keep at most twice the threshold.");
-        _ = await Assert.That(fileBytes).IsEqualTo(retention.LogBytes);
         _ = await Assert.That(status.LastLogIndex >= 200).IsTrue().Because("Every overwrite must stay counted in the log index.");
 
         _ = await Assert.That(reported.GetProperty("snapshotIndex").GetUInt64()).IsEqualTo(retention.SnapshotIndex);
         _ = await Assert.That(reported.GetProperty("retainedEntries").GetInt32()).IsEqualTo(retention.RetainedEntries);
         _ = await Assert.That(reported.GetProperty("logBytes").GetInt64()).IsEqualTo(retention.LogBytes);
-        var metrics = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/metrics"), cancellationToken);
+        var metrics = await HttpClient.GetStringAsync(new Uri(owner.ManagementUri, "/metrics"), cancellationToken);
         _ = await Assert.That(metrics).Contains("squirix_replication_log_compactions_total{", StringComparison.Ordinal);
     }
 
@@ -165,7 +162,17 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true, ManualMaintenanceInterval), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[OwnerId], cancellationToken);
         var operations = await OverwriteAsync(cluster[OwnerId], Followers(cluster), overwrites, cancellationToken);
-        await CompactAsync(cluster[OwnerId], cancellationToken);
+        var owner = cluster[OwnerId];
+        await CompactAsync(owner, cancellationToken);
+        var ownerLog = OwnerLog(owner);
+        var compacted = await ownerLog.GetStatusAsync(cancellationToken);
+        var compactedRetention = await ownerLog.GetRetentionAsync(cancellationToken);
+        var fileBytes = new FileInfo(GroupLogFile.ActivePath(owner.DataDir, OwnerId)).Length;
+        _ = await Assert.That(fileBytes).IsEqualTo(compactedRetention.LogBytes);
+
+        var ownerKey = owner.FindKeyOwnedBy(CacheName, OwnerId);
+        await owner.GetCache<object?>(CacheName).SetEntryAsync(operations[1], CacheName, ownerKey, Entry(2), cancellationToken);
+        _ = await Assert.That((await ownerLog.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(compacted.LastLogIndex);
 
         await cluster.StopNodeAsync(OwnerId);
         var restarted = await cluster.StartNodeAsync(OwnerId, Options(scope, false, ManualMaintenanceInterval), cancellationToken);
@@ -253,8 +260,17 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await fabric.IsolateAsync("node-c");
         _ = await OverwriteAsync(owner, [], Threshold * 3, cancellationToken);
 
+        var log = OwnerLog(owner);
+        var refused = await CompactOnceAsync(owner, cancellationToken);
+        _ = await Assert.That(refused is ReplicaLogCompactionOutcome.FollowerBehind or ReplicaLogCompactionOutcome.FollowerNotReady).IsTrue();
+        _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(0UL);
+        var before = (await log.GetStatusAsync(cancellationToken)).CommitIndex;
+        _ = await OverwriteAsync(owner, [], Threshold, cancellationToken);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(before + Threshold);
+
         fabric.HealAll();
-        await CompactAsync(owner, cancellationToken);
+        var writing = OverwriteAsync(owner, [], Threshold * 12, cancellationToken);
+        await Task.WhenAll(writing, CompactAsync(owner, cancellationToken));
 
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-c", cluster["node-c"])], cancellationToken);
         _ = await Assert.That((await OwnerLog(owner).GetRetentionAsync(cancellationToken)).SnapshotIndex > 0).IsTrue();
@@ -286,6 +302,8 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         ExtraScope = scope,
         PartitionFabric = fabric,
         PersistenceOptions = new PersistenceOptions { JournalMaxSegmentMb = 64, ReplicaLogCompactionEntries = Threshold },
+        MetricsEnabled = true,
+        PrometheusMetricsEnabled = true,
         ServicesConfigure = services => SetMaintenanceInterval(services, maintenanceInterval),
     };
 
@@ -298,7 +316,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <summary>Replaces the group log maintenance schedule.</summary>
     /// <param name="services">The node service collection.</param>
     /// <param name="interval">The delay between two maintenance passes.</param>
-    private static void SetMaintenanceInterval(IServiceCollection services, TimeSpan interval)
+    private static void SetMaintenanceInterval(TestServiceCollection services, TimeSpan interval)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {
@@ -348,7 +366,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                     return retention.SnapshotIndex > 0 && retention.RetainedEntries <= retained;
                 },
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -415,7 +432,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                     return outcome == ReplicaLogCompactionOutcome.Compacted;
                 },
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -438,7 +454,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
             await committer.WaitUntilValueAsync(
                 static async (replicaCommitter, token) => await replicaCommitter.VerifyReplicasAsync(token) == ReplicaVerification.AllReady,
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -451,9 +466,9 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <param name="owner">The group owner.</param>
     /// <param name="log">The owner's group log.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The retention, the log file size, and the reported group, read while the retention did not change.</returns>
+    /// <returns>The retention and the reported group, read while the retention did not change.</returns>
     /// <exception cref="TimeoutException">The log kept changing for the whole bound.</exception>
-    private async Task<(FollowerLogRetention Retention, long FileBytes, JsonElement Reported)> ReadStableStateAsync(
+    private async Task<(FollowerLogRetention Retention, JsonElement Reported)> ReadStableStateAsync(
         ITestNodeHost owner,
         IFollowerLog log,
         CancellationToken cancellationToken)
@@ -463,10 +478,9 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         {
             var before = await log.GetRetentionAsync(cancellationToken);
             var reported = await ReadyDetailsGroupAsync(owner, cancellationToken);
-            var fileBytes = new FileInfo(GroupLogFile.ActivePath(owner.DataDir, OwnerId)).Length;
             var after = await log.GetRetentionAsync(cancellationToken);
             if (before == after)
-                return (after, fileBytes, reported);
+                return (after, reported);
 
             if (Stopwatch.GetElapsedTime(started) >= Bound)
                 throw new TimeoutException($"The owner group log kept changing; last retention {after}.");
@@ -482,7 +496,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     /// <exception cref="InvalidOperationException">The details report no entry for the owned group.</exception>
     private async Task<JsonElement> ReadyDetailsGroupAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        var text = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/health/ready/details"), cancellationToken);
+        var text = await HttpClient.GetStringAsync(new Uri(owner.ManagementUri, "/health/ready/details"), cancellationToken);
         using var document = JsonDocument.Parse(text);
         foreach (var group in document.RootElement.GetProperty("replicaGroups").EnumerateArray())
         {

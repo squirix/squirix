@@ -32,6 +32,7 @@ internal static class ReplicaGroupStateReplies
             // A log that is not ready refuses every ballot; an incomplete copy votes but never stands for election.
             if (state.RecordFollowerContact(replicaIndex, reply.CurrentTerm) && voter)
                 state.ElectableContacts.Record(replicaIndex, ready);
+            return;
 
             // Only an accepted append or a log mismatch comes from a log that can stand for election.
             static bool IsReadyLog(in FollowerLogAppendResult reply)

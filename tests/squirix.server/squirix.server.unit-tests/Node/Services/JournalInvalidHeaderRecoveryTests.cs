@@ -3,10 +3,8 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -16,6 +14,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
@@ -92,16 +91,15 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                 scenario.Ledger,
                 scenario.Cache,
                 gate,
-                new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
                 StoreFactory.CreateReader(),
                 TimeProvider.System));
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("invalid or missing journal file header", StringComparison.Ordinal);
 
         using var gateWait = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(gate.WaitAsync(gateWait.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(gate.WaitAsync(gateWait.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <inheritdoc />

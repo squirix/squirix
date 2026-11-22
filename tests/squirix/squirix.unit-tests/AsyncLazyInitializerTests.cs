@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal.Threading;
@@ -14,14 +15,15 @@ namespace Squirix.UnitTests;
 public sealed class AsyncLazyInitializerTests
 {
     /// <summary>Canceled work leaves the shared task canceled rather than faulted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancellationCancelsSharedTask()
+    public async Task CancellationCancelsSharedTask(CancellationToken cancellationToken)
     {
         var owner = new Owner(static _ => throw new OperationCanceledException());
 
         var task = owner.StartAsync();
 
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(AwaitAsync(task));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(AwaitAsync(task), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(task.IsCanceled).IsTrue();
     }
 
@@ -42,8 +44,9 @@ public sealed class AsyncLazyInitializerTests
     }
 
     /// <summary>A failure of the single run reaches every caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailureReachesEveryCaller()
+    public async Task FailureReachesEveryCaller(CancellationToken cancellationToken)
     {
         var owner = new Owner(static async o =>
         {
@@ -55,8 +58,8 @@ public sealed class AsyncLazyInitializerTests
         var second = owner.StartAsync();
         owner.Gate.SetResult();
 
-        var firstFailure = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(first));
-        var secondFailure = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(second));
+        var firstFailure = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var secondFailure = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(second), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(secondFailure).IsSameReferenceAs(firstFailure);
     }
 
@@ -78,12 +81,13 @@ public sealed class AsyncLazyInitializerTests
     }
 
     /// <summary>Work that throws before returning a task faults the shared task instead of leaving it pending.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SynchronousThrowFaultsSharedTask()
+    public async Task SynchronousThrowFaultsSharedTask(CancellationToken cancellationToken)
     {
         var owner = new Owner(static _ => throw new InvalidOperationException("Work failed."));
 
-        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(owner.StartAsync()));
+        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(owner.StartAsync()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static async ValueTask<bool> AwaitAsync(Task task)

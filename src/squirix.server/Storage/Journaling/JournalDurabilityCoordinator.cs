@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -12,12 +12,12 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class JournalDurabilityCoordinator
 {
-    private readonly ILogger _logger;
+    private readonly IServerLogger _logger;
     private readonly IJournalCoordinatorState _owner;
     private readonly JournalProducerGate _producerGate;
     private readonly IJournalCoordinatorSnapshotState _snapshot;
 
-    internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger, JournalProducerGate producerGate)
+    internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, IServerLogger logger, JournalProducerGate producerGate)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(producerGate);
@@ -156,6 +156,7 @@ internal sealed class JournalDurabilityCoordinator
 
         _ = FailPendingDurabilityAcks(effective);
         _ = _owner.GroupCommit?.CancelPendingCore(effective);
+        _owner.Ring.NotifyWorkAvailable();
     }
 
     /// <summary>Faults every tracked durability checkpoint, pending or in flight, and closes the registry.</summary>
@@ -175,7 +176,6 @@ internal sealed class JournalDurabilityCoordinator
     {
         _owner.EventLoop.MarkRollAborted();
         FailJournalPipeline(ex);
-        _owner.Ring.NotifyWorkAvailable();
     }
 
     internal void OnManifestRollSucceeded()

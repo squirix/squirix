@@ -29,7 +29,7 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         using var cancellation = new CancellationTokenSource();
         var waiting = gate.EnterAsync(7, cancellation.Token);
         await cancellation.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReplicaMutationLease>(waiting);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReplicaMutationLease>(waiting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         // The canceled entry returned its capacity slot without freeing another one: an entry on the other stripe still waits for the first lease.
         var otherStripe = gate.EnterAsync(8, cancellationToken);
@@ -64,9 +64,9 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         gate.Dispose();
         stripeGate.Dispose();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onCapacity);
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onStripe);
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(gate.EnterAsync(0, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onCapacity, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onStripe, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(gate.EnterAsync(0, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         first.Dispose();
         second.Dispose();
@@ -119,10 +119,10 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
     public async Task ExhaustedLogIndexRefusesReservation(CancellationToken cancellationToken)
     {
         using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         // The refused reservation must release the gate: a second attempt fails instead of hanging.
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A reserved range of indexes advances the sequencer by its whole count once appended, and the next reservation starts right after it.</summary>
@@ -160,7 +160,7 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
     public async Task RangePastLastIndexRefusesReservation(CancellationToken cancellationToken)
     {
         using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 4);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(4, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(4, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         using var fits = await sequencer.ReserveAsync(3, cancellationToken);
         _ = await Assert.That(fits.Index).IsEqualTo(ulong.MaxValue - 3);

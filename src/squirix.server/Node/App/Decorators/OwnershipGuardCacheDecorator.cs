@@ -37,6 +37,7 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
     private readonly IGroupLeaderTable _leaders;
     private readonly INodeLocator _locator;
     private readonly string _self;
+    private readonly IRoutedKeyContext? _routing;
 
     /// <summary>Initializes a new instance of the <see cref="OwnershipGuardCacheDecorator{T}" /> class.</summary>
     /// <param name="self">This node.</param>
@@ -44,7 +45,8 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
     /// <param name="leaders">The leader table of the groups.</param>
     /// <param name="leaderHints">Whether elections lead the groups, so a stale-owner refusal names the elected leader in the hint trailers.</param>
     /// <param name="inner">The next cache in the pipeline.</param>
-    internal OwnershipGuardCacheDecorator(string self, INodeLocator locator, IGroupLeaderTable leaders, bool leaderHints, ILogicalNamespacedCache<T> inner)
+    /// <param name="routing">The group already found for a matching inbound request.</param>
+    internal OwnershipGuardCacheDecorator(string self, INodeLocator locator, IGroupLeaderTable leaders, bool leaderHints, ILogicalNamespacedCache<T> inner, IRoutedKeyContext? routing = null)
     {
         ArgumentNullException.ThrowIfNull(self);
         ArgumentNullException.ThrowIfNull(locator);
@@ -55,6 +57,7 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         _leaders = leaders;
         _leaderHints = leaderHints;
         _inner = inner;
+        _routing = routing;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -63,13 +66,19 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         return _inner.GetEntryAsync(cacheName, key, cancellationToken);
     }
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
+    }
+
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
         return _inner.GetValueAsync(cacheName, key, cancellationToken);
     }
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
         return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
@@ -113,7 +122,7 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
 
     private void EnsureLocalOwner(string cacheName, string key)
     {
-        var owner = _locator.GetOwner(cacheName, key);
+        var owner = _routing?.FindGroup(cacheName, key) ?? _locator.GetOwner(cacheName, key);
         var view = _leaders.Read(owner);
         if (!view.Served)
             throw StaleOwnerFailure.Create(owner, _self);

@@ -1,18 +1,17 @@
 using System;
-using System.Net.Http;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.TestKit.Mtls;
 
-/// <summary>Cluster mTLS startup overrides and outbound handler wiring for a test node.</summary>
+/// <summary>Cluster mTLS startup overrides and outbound socket wiring for a test node.</summary>
 /// <param name="Options">Internode mTLS options for host startup overrides.</param>
 /// <param name="Certificate">Loaded certificate material backing the options.</param>
-/// <param name="PeerHandlerFactory">Per-peer outbound handler factory, or <see langword="null" /> for default wiring.</param>
+/// <param name="PeerOptionsFactory">Per-peer outbound socket options factory, or <see langword="null" /> for default wiring.</param>
 [Immutable]
-internal readonly record struct NodeMtlsStartup(MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory)
+internal readonly record struct NodeMtlsStartup(MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, PeerSocketOptions>? PeerOptionsFactory)
 {
-    /// <summary>Gets the handlers the factory creates its handlers in, or <see langword="null" /> when the startup has no factory; the node's host releases them.</summary>
-    internal PeerHandlers? Owner { get; init; }
+    /// <summary>Gets the lifetime of the socket options and their material hold.</summary>
+    internal PeerOptionsLifetime? Owner { get; init; }
 }

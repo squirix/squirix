@@ -82,9 +82,8 @@ public class PhysicalCacheContentionBenchmarks
     public Task<int> BoundedLruAsync() => RunWorkersAsync(WorkerMode.BoundedLru);
 
     /// <summary>Creates the caches and the baseline, and stores every key.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
     [GlobalSetup]
-    public async Task SetupAsync()
+    public void Setup()
     {
         _keys = new CacheKey[KeyCount];
         for (var i = 0; i < _keys.Length; i++)
@@ -99,8 +98,8 @@ public class PhysicalCacheContentionBenchmarks
         _baseline = new ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>>();
         foreach (var key in _keys)
         {
-            await cache.SetAsync(key, Template, CancellationToken.None).ConfigureAwait(false);
-            await bounded.SetAsync(key, Template, CancellationToken.None).ConfigureAwait(false);
+            cache.Set(key, Template, CancellationToken.None);
+            bounded.Set(key, Template, CancellationToken.None);
             _baseline[key] = Template;
         }
     }
@@ -132,7 +131,7 @@ public class PhysicalCacheContentionBenchmarks
         return done;
     }
 
-    private async Task<int> CacheWorkerAsync(PhysicalCache<object?> cache, int worker)
+    private int CacheWorker(PhysicalCache<object?> cache, int worker)
     {
         var offset = worker * WorkerStride;
         var done = 0;
@@ -141,10 +140,10 @@ public class PhysicalCacheContentionBenchmarks
             var key = _keys[(offset + (i * KeyStride)) % _keys.Length];
             if (Mixed && i % WriteEvery == 0)
             {
-                await cache.SetAsync(key, new NodeCacheEntry<object?>("v", 1, null, EntryTtl), CancellationToken.None).ConfigureAwait(false);
+                cache.Set(key, new NodeCacheEntry<object?>("v", 1, null, EntryTtl), CancellationToken.None);
                 done++;
             }
-            else if (await cache.GetEntryAsync(key, CancellationToken.None).ConfigureAwait(false) != null)
+            else if (cache.GetEntry(key, CancellationToken.None) != null)
             {
                 done++;
             }
@@ -153,11 +152,11 @@ public class PhysicalCacheContentionBenchmarks
         return done;
     }
 
-    private Task<int> RunWorkerAsync(WorkerMode mode, int worker) => mode switch
+    private int RunWorker(WorkerMode mode, int worker) => mode switch
     {
-        WorkerMode.Baseline => Task.FromResult(BaselineWorker(worker)),
-        WorkerMode.Unbounded => CacheWorkerAsync(ThrowHelper.Required(_cache, "Benchmark cache was not initialized."), worker),
-        WorkerMode.BoundedLru => CacheWorkerAsync(ThrowHelper.Required(_bounded, "Benchmark cache was not initialized."), worker),
+        WorkerMode.Baseline => BaselineWorker(worker),
+        WorkerMode.Unbounded => CacheWorker(ThrowHelper.Required(_cache, "Benchmark cache was not initialized."), worker),
+        WorkerMode.BoundedLru => CacheWorker(ThrowHelper.Required(_bounded, "Benchmark cache was not initialized."), worker),
         _ => throw new InvalidOperationException("Unsupported worker mode."),
     };
 
@@ -171,7 +170,7 @@ public class PhysicalCacheContentionBenchmarks
         for (var w = 0; w < workers; w++)
         {
             var run = new WorkerRun(this, mode, w, ready, start);
-            tasks[w] = Task.Factory.StartNew(static state => Unsafe.As<WorkerRun>(state)!.ExecuteAsync(), run, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+            tasks[w] = Task.Factory.StartNew(static state => Unsafe.As<WorkerRun>(state)!.Execute(), run, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
         ready.Wait(CancellationToken.None);
@@ -199,11 +198,11 @@ public class PhysicalCacheContentionBenchmarks
             _start = start;
         }
 
-        internal Task<int> ExecuteAsync()
+        internal int Execute()
         {
             _ = _ready.Signal();
             _start.Wait(CancellationToken.None);
-            return _owner.RunWorkerAsync(_mode, _worker);
+            return _owner.RunWorker(_mode, _worker);
         }
     }
 }

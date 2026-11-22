@@ -1,9 +1,5 @@
 using System;
-using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
-using Grpc.AspNetCore.Server;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -17,13 +13,13 @@ namespace Squirix.Server.TestKit.Hosting;
 [Immutable]
 internal sealed class NodeHostStartOptions
 {
+    internal long? EvictionBudgetBytes { get; init; }
+
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
     internal MtlsCertificate? Certificate { get; init; }
 
-    internal Action<GrpcServiceOptions>? ConfigureGrpc { get; init; }
-
-    internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
+    internal bool ConsoleLogging { get; init; } = true;
 
     /// <summary>Gets the election timing registered for the node before <see cref="ServicesConfigure" /> runs; the product defaults when not set.</summary>
     internal TestElectionTiming? ElectionTiming { get; init; }
@@ -35,18 +31,22 @@ internal sealed class NodeHostStartOptions
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
-    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
+    internal Func<string, PeerSocketOptions>? PeerOptionsFactory { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
+
+    internal Uri? ManagementUri { get; init; }
+
+    internal bool MetricsEnabled { get; init; }
+
+    internal bool PrometheusMetricsEnabled { get; init; }
 
     internal SecurityOptions? SecurityOptions { get; init; }
 
     /// <summary>Gets the server certificate of the node's HTTPS endpoints, used instead of the development certificate; the caller owns and disposes it.</summary>
     internal X509Certificate2? ServerCertificate { get; init; }
 
-    internal Action<IServiceCollection>? ServicesConfigure { get; init; }
-
-    internal ExtensionOptions? Extensions { get; init; }
+    internal Action<TestServiceCollection>? ServicesConfigure { get; init; }
 
     /// <summary>Gets the node time source; when set it is registered in DI so cache expiration and other clock consumers read it.</summary>
     internal TimeProvider? TimeProvider { get; init; }

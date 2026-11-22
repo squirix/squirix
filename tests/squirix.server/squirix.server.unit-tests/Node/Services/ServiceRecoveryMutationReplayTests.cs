@@ -1,23 +1,18 @@
 using System;
-using System.Collections.Generic;
-using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -28,8 +23,6 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTestBase
 {
-    private readonly Meter _testMeter = new("test");
-
     /// <summary>Replay must skip Put entries whose absolute expiration has already passed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -42,28 +35,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("gone"), cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Idempotency replay with UnixMs == 0 must fall back to the recovery wall clock for CreatedUtc.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task IdempotencyZeroUnixMsUsesWallClock(CancellationToken cancellationToken)
-    {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-zero");
-        var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
-        var id = BinaryJournalTestSegmentWriter.BuildIdempotencyRecord("op-zero", "fp-zero", bytes, 0L, 1UL);
-        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, id);
-        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
-
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
-        await RunRecoveryAsync(scenario, store, cancellationToken);
-
-        IIdempotencySnapshotExporter exporter = store;
-        var snapshot = new List<PersistedIdempotencyRecord>();
-        exporter.ExportSnapshot(snapshot, DateTime.UtcNow);
-        var exported = await Assert.That(snapshot).HasSingleItem();
-        _ = await Assert.That(exported.OperationId).IsEqualTo("op-zero");
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("gone"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>A put whose deadline passed, followed by a put of a live entry for the same key, replays as the live entry.</summary>
@@ -80,7 +52,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        var entry = await scenario.Cache.GetEntryAsync(CacheKey.Default("a"), cancellationToken);
+        var entry = scenario.Cache.GetEntry(CacheKey.Default("a"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.Value).IsEqualTo("new");
         _ = await Assert.That(entry.ExpiresUtc!.Value.Ticks / TimeSpan.TicksPerMillisecond).IsEqualTo(deadline.Ticks / TimeSpan.TicksPerMillisecond);
@@ -99,7 +71,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("a"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("a"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Replay must apply Put and Remove in order, leaving only the keys the last frame of which is a live put.</summary>
@@ -118,10 +90,32 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("a"), cancellationToken)).Found).IsFalse();
-        var b = await scenario.Cache.GetValueAsync(CacheKey.Default("b"), cancellationToken);
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("a"), cancellationToken).Found).IsFalse();
+        var b = scenario.Cache.GetValue(CacheKey.Default("b"), cancellationToken);
         _ = await Assert.That(b.Found).IsTrue();
         _ = await Assert.That(b.Value).IsEqualTo("vb");
+    }
+
+    /// <summary>Restores older mutation frames while skipping their recorded outcomes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LegacyOutcomeFramesPreserveCacheData(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-legacy-outcome");
+        const string operationId = "0123456789abcdef0123456789abcdef";
+        var put = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "legacy", "initial");
+        put.MutationOperationId = operationId;
+        put.MutationFingerprint = "fingerprint";
+        var outcome = BinaryJournalTestSegmentWriter.BuildIdempotencyRecord(operationId, "fingerprint", [], 0, 2UL);
+        var update = BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "legacy", "current");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [put, outcome, update]);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 4 }, cancellationToken);
+
+        await RunRecoveryAsync(scenario, cancellationToken);
+
+        var value = scenario.Cache.GetValue(CacheKey.Default("legacy"), cancellationToken);
+        _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(value.Value).IsEqualTo("current");
     }
 
     /// <summary>A frame carrying an unassigned opcode fails recovery instead of being skipped.</summary>
@@ -138,7 +132,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, Convert.ToByte(opcodeWire), "a");
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An unassigned frame followed by a valid frame fails recovery instead of being skipped.</summary>
@@ -151,7 +145,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 8, "a", [valid]);
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An unassigned frame in a segment that is not the last one fails recovery.</summary>
@@ -164,7 +158,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 2, BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb"));
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 2, NextSequence = 3 }, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A segment written with an earlier file format version fails recovery loudly and is left untouched.</summary>
@@ -174,6 +168,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     [Arguments(1)]
     [Arguments(2)]
     [Arguments(3)]
+    [Arguments(4)]
     public async Task OldFormatVersionFailsRecovery(int version, CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-old-version");
@@ -183,7 +178,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var lengthBefore = new FileInfo(path).Length;
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).Contains($"version {version}", StringComparison.Ordinal);
         _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(lengthBefore);
@@ -210,29 +205,14 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         await scenario.Ledger.WriteAsync(manifest, cancellationToken);
     }
 
-    /// <inheritdoc />
-    protected override void DisposeManaged() => _testMeter.Dispose();
-
-    private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, RpcMutationIdempotencyStore store)
+    private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario)
     {
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         var reader = StoreFactory.CreateReader();
-        var recoveryDependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, new AsyncManualResetEvent(true), store, reader, TimeProvider.System);
+        var recoveryDependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, new AsyncManualResetEvent(true), reader, TimeProvider.System);
         return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies);
     }
 
-    /// <summary>Runs recovery for the given builder and idempotency store.</summary>
-    /// <param name="builder">The recovery scenario builder.</param>
-    /// <param name="store">The idempotency store.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private static Task RunRecoveryAsync(RecoveryScenarioBuilder builder, RpcMutationIdempotencyStore store, CancellationToken cancellationToken) =>
-        CreateRecovery(builder, store).StartAsync(cancellationToken);
-
-    /// <summary>Runs recovery for the given builder with a fresh idempotency store.</summary>
-    /// <param name="builder">The recovery scenario builder.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private Task RunRecoveryAsync(RecoveryScenarioBuilder builder, CancellationToken cancellationToken) => RunRecoveryAsync(
-        builder,
-        new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
-        cancellationToken);
+    private static Task RunRecoveryAsync(RecoveryScenarioBuilder builder, CancellationToken cancellationToken) =>
+        CreateRecovery(builder).StartAsync(cancellationToken);
 }

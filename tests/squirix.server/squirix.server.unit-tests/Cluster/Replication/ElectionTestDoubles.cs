@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -126,6 +126,14 @@ internal static class ElectionTestDoubles
             }
         }
 
+        internal List<string> TransferTargets { get; } = [];
+
+        public Task SendTransferAsync(string target, ReplicaRpcHeader header, CancellationToken cancellationToken)
+        {
+            TransferTargets.Add(target);
+            return Task.CompletedTask;
+        }
+
         /// <inheritdoc />
         public Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken) =>
             AnswerAsync(new VoteCall(nodeId, true, header.Term, lastLogIndex, lastLogTerm));
@@ -141,7 +149,7 @@ internal static class ElectionTestDoubles
 
             return _answer(call) is { } reply
                 ? Task.FromResult(reply)
-                : Task.FromException<FollowerLogVoteResult>(new RpcException(new Status(StatusCode.Unavailable, "voter unreachable")));
+                : Task.FromException<FollowerLogVoteResult>(new ServerCallException(FrameStatus.Unavailable, "voter unreachable"));
         }
     }
 
@@ -169,6 +177,7 @@ internal static class ElectionTestDoubles
         internal RecordingLeadership(ReplicaGroupState state)
         {
             _state = state;
+            MatchIndexes = new ulong[state.ReplicaCount];
         }
 
         /// <summary>Gets the calls so far, comma-separated: <c language="text">promote:term</c>, <c language="text">retire:authority</c>, <c language="text">heartbeat</c>.</summary>
@@ -195,6 +204,13 @@ internal static class ElectionTestDoubles
 
         /// <summary>Gets or sets the append progress the leadership reports; healthy unless set.</summary>
         internal ReplicaAppendProgress Appends { get; set; }
+
+        internal ulong[] MatchIndexes { get; }
+
+        public Task<bool> FenceTransferAsync(string groupId, ulong term, CancellationToken cancellationToken) =>
+            RetireAsync(groupId, cancellationToken).WaitAsync(cancellationToken);
+
+        public ulong? MatchIndex(string groupId, int slot) => MatchIndexes[slot];
 
         /// <inheritdoc />
         public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken)

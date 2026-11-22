@@ -4,8 +4,8 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -57,13 +57,13 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             cancellationToken);
 
         await logger.WaitUntilAsync(
-            static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase)),
+            static log => log.Entries.Exists(static entry => entry.Level is ServerLogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase)),
             cancellationToken);
 
         _ = await Assert.That(File.Exists(currentJournalPath)).IsTrue();
         _ = await Assert.That(File.Exists(staleJournalSegment)).IsTrue();
         _ = await Assert.That(logger.Entries)
-                        .Contains(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
+                        .Contains(static entry => entry.Level is ServerLogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
         _ = await Assert.That(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",
@@ -136,12 +136,12 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             cancellationToken);
 
         await logger.WaitUntilAsync(
-            static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase)),
+            static log => log.Entries.Exists(static entry => entry.Level is ServerLogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase)),
             cancellationToken);
 
         _ = await Assert.That(File.Exists(currentSnapshot)).IsTrue();
         _ = await Assert.That(File.Exists(staleSnapshot)).IsTrue();
-        _ = await Assert.That(logger.Entries).Contains(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
+        _ = await Assert.That(logger.Entries).Contains(static entry => entry.Level is ServerLogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
         _ = await Assert.That(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",
@@ -164,15 +164,15 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
     }
 
     [Immutable]
-    private sealed class CollectingLogger : ILogger<Ledger>
+    private sealed class CollectingLogger : IServerLogger<Ledger>
     {
-        internal List<(LogLevel Level, string Message)> Entries { get; } = [];
+        internal List<(ServerLogLevel Level, string Message)> Entries { get; } = [];
 
-        IDisposable? ILogger.BeginScope<TState>(TState state) => null;
+        IDisposable? IServerLogger.BeginScope<TState>(TState state) => null;
 
-        bool ILogger.IsEnabled(LogLevel logLevel) => true;
+        bool IServerLogger.IsEnabled(ServerLogLevel logLevel) => true;
 
-        void ILogger.Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        void IServerLogger.Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             Entries.Add((logLevel, formatter(state, exception)));
     }
 

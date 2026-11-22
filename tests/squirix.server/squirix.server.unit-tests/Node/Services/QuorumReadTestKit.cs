@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -13,6 +11,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
@@ -36,8 +35,8 @@ internal static class QuorumReadTestKit
     internal static MemoryAdmissionCacheDecorator<object?> CreateAdmission(ReplicatedCache replicated, Meter meter)
     {
         var estimator = new CacheEntrySizeEstimator<object?>();
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator)), "n1", meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator)), "n1", meter);
         return CachePipelineRegistration.CreateAdmissionDecorator(replicated, gate, estimator, static (_, _, _) => false);
     }
 

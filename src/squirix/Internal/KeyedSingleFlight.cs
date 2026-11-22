@@ -191,7 +191,7 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
         await untyped.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
         // Removal precedes completion so a continuation that calls RunAsync again starts a new flight.
-        flight.End();
+        flight.Dispose();
         Remove(key, flight);
         if (work.IsCanceled)
             flight.SetCanceled();
@@ -207,8 +207,7 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
     private void Remove(string key, Flight flight) => _ = _flights.TryRemove(new KeyValuePair<string, Flight>(key, flight));
 
     /// <summary>The shared state of one flight: its phase, its waiting callers, its shared token and its result.</summary>
-    [SuppressMessage("Design", "CA1001", Justification = "The flight disposes its token source itself, in End or after the cancel of its last caller.")]
-    private sealed class Flight
+    private sealed class Flight : IDisposable
     {
         private readonly Lock _gate = new();
 
@@ -223,7 +222,7 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
         /// <summary>Whether the last caller is canceling the shared token; guarded by <see cref="_gate" />.</summary>
         private bool _canceling;
 
-        /// <summary>Whether the work finished and <see cref="End" /> ran; guarded by <see cref="_gate" />.</summary>
+        /// <summary>Whether the work finished and <see cref="Dispose" /> ran; guarded by <see cref="_gate" />.</summary>
         private bool _ended;
 
         /// <summary>The phase of the flight; guarded by <see cref="_gate" />.</summary>
@@ -239,7 +238,7 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
             if (!canBeCanceled)
                 return;
 
-#pragma warning disable ZA1102 // Disposed by End, or by the last caller to leave when End runs during its cancel.
+#pragma warning disable ZA1102 // Disposed by Dispose, or by the last caller to leave when disposal runs during its cancel.
             _cancellation = new CancellationTokenSource();
 #pragma warning restore ZA1102
             Token = _cancellation.Token;
@@ -251,6 +250,25 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
         /// <summary>Gets the task every waiting caller observes.</summary>
         [SuppressMessage("Usage", "VSTHRD003", Justification = "The flight creates this task and completes it only from its own work.")]
         internal Task<TResult> Completion => _completion.Task;
+
+        /// <summary>Closes the flight before it is removed and completed, and disposes the token source unless a cancel is running.</summary>
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                if (_ended)
+                    return;
+
+                _phase = Phase.Ended;
+                _ended = true;
+
+                // A cancel running now disposes the source once its callbacks return.
+                if (_canceling)
+                    return;
+            }
+
+            _cancellation?.Dispose();
+        }
 
         /// <summary>Joins the flight while it is producing, or hands out the produced value once its request was sent.</summary>
         /// <param name="produced">The produced value when the outcome is <see cref="JoinOutcome.Sent" />.</param>
@@ -317,7 +335,7 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
                 bool dispose;
                 lock (_gate)
                 {
-                    // The work ended during the cancel, and End left the dispose to this caller.
+                    // The work ended during the cancel, and Dispose left the dispose to this caller.
                     _canceling = false;
                     dispose = _ended;
                 }
@@ -325,22 +343,6 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
                 if (dispose)
                     _cancellation.Dispose();
             }
-        }
-
-        /// <summary>Closes the flight before it is removed and completed, and disposes the token source unless a cancel is running.</summary>
-        internal void End()
-        {
-            lock (_gate)
-            {
-                _phase = Phase.Ended;
-                _ended = true;
-
-                // A cancel running now disposes the source once its callbacks return.
-                if (_canceling)
-                    return;
-            }
-
-            _cancellation?.Dispose();
         }
 
         /// <summary>Completes the flight as canceled by its shared token.</summary>

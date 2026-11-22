@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -99,6 +99,28 @@ public sealed class GroupOutcomeByteRestoreTests : ServerUnitTestBase
         _ = await Assert.That(Lookup(state, Id(1)) == GroupIdempotencyLookup.Found).IsEqualTo(snapshotKept);
         _ = await Assert.That(Lookup(state, Id(4))).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(state.OutcomeBytes).IsEqualTo(OutcomeSize * (snapshotKept ? OutcomesInBound + 1 : OutcomesInBound));
+    }
+
+    /// <summary>At a shared index, eviction stops at the same young outcome as the previous sorted queue.</summary>
+    [Test]
+    public async Task TiedIndexKeepsOldEvictionOrder()
+    {
+        var clock = new FakeTimeProvider(Epoch);
+        var state = Bounded(clock);
+        var first = Outcome(clock, Id(1), 1UL, PayloadBytes);
+        var third = Outcome(clock, Id(3), 1UL, PayloadBytes);
+        clock.Advance(Floor);
+        var second = Outcome(clock, Id(2), 1UL, PayloadBytes);
+        state.RestoreFromSnapshot([first, second, third], clock.GetUtcNow().UtcDateTime, []);
+        state.BeginOutcomeRebuild();
+
+        var result = state.RestoreOutcome(Outcome(clock, Id(4), 4UL, PayloadBytes * 2), TimeSpan.Zero);
+
+        _ = await Assert.That(result).IsEqualTo(GroupOutcomeRestoreResult.Restored);
+        _ = await Assert.That(Lookup(state, Id(1))).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(Lookup(state, Id(2))).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(Lookup(state, Id(3))).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(Lookup(state, Id(4))).IsEqualTo(GroupIdempotencyLookup.Found);
     }
 
     /// <summary>A rebuilt outcome older than the minimum retention that the pins leave no room for is refused before any older outcome is evicted.</summary>

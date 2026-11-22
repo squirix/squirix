@@ -4,9 +4,9 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
@@ -24,14 +24,14 @@ namespace Squirix.Server.Node.Services;
 /// with it; a restart applies again what memory lacks. While committed entries are pending and such a fault repeats, or a committed
 /// record stopped the group, the group is reported blocked to the election driver, see <see cref="ReplicaApplyBlock" />.
 /// </remarks>
-internal sealed class ReplicaApplyService : BackgroundService
+internal sealed class ReplicaApplyService : NodeWorkerBase
 {
     /// <summary>The longest wait between two passes of a group when no signal arrives.</summary>
     private static readonly TimeSpan FallbackInterval = TimeSpan.FromSeconds(1);
 
     private readonly ReplicaGroupAppliers _appliers;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly ILogger<ReplicaApplyService> _log;
+    private readonly IServerLogger<ReplicaApplyService> _log;
     private readonly IJournalCoordinatorLifecycle _recovery;
     private readonly ReplicaGroupRegistry _registry;
     private readonly TimeProvider _timeProvider;
@@ -48,7 +48,7 @@ internal sealed class ReplicaApplyService : BackgroundService
         ReplicaGroupAppliers appliers,
         ReplicaGroupCommitters committers,
         IJournalCoordinatorLifecycle recovery,
-        ILogger<ReplicaApplyService> log,
+        IServerLogger<ReplicaApplyService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -131,7 +131,7 @@ internal sealed class ReplicaApplyService : BackgroundService
     {
         if (!_registry.TryGetLog(groupId, out var log))
         {
-            ServerLog.ReplicaFollowerApplyNoLog(_log, groupId);
+            ReplicaFollowerLog.ReplicaFollowerApplyNoLog(_log, groupId);
             return;
         }
 
@@ -157,7 +157,7 @@ internal sealed class ReplicaApplyService : BackgroundService
                     block.Clear();
 
                 if (!skipping)
-                    ServerLog.ReplicaPassSkippedWhileLeading(_log, groupId, "apply");
+                    ReplicaMaintenanceLog.ReplicaPassSkippedWhileLeading(_log, groupId, "apply");
 
                 skipping = true;
             }
@@ -214,7 +214,7 @@ internal sealed class ReplicaApplyService : BackgroundService
             // The record never reached memory, and every later entry depends on it: the group stops here instead of skipping it, and
             // a win of it could never apply its backlog either.
             group.Block.Block();
-            ServerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
+            ReplicaFollowerLog.ReplicaFollowerApplyStopped(_log, groupId, exception);
             return (true, reported);
         }
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
@@ -223,7 +223,7 @@ internal sealed class ReplicaApplyService : BackgroundService
             // every retry; its message may name the commit index, which moves on while the fault stays.
             var fault = (exception.GetType(), group.Applier.AppliedIndex);
             if (reported != fault)
-                ServerLog.ReplicaFollowerApplyRetry(_log, groupId, exception);
+                ReplicaFollowerLog.ReplicaFollowerApplyRetry(_log, groupId, exception);
 
             return (false, fault);
         }
@@ -263,7 +263,7 @@ internal sealed class ReplicaApplyService : BackgroundService
             if (!log.Idempotency.OutcomesRebuilt)
             {
                 var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, _timeProvider, stoppingToken).ConfigureAwait(false);
-                ServerLog.ReplicaOutcomesRestored(_log, groupId, restored);
+                ReplicaCommitLog.ReplicaOutcomesRestored(_log, groupId, restored);
             }
         }
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)

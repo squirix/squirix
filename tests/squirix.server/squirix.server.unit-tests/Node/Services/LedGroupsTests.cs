@@ -2,12 +2,10 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -15,7 +13,9 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -94,7 +94,7 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var heldMeanwhile = stalled.IsCompleted;
         budgetClock.Advance(TimeSpan.FromSeconds(5));
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(stalled.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(stalled, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(heldMeanwhile).IsFalse();
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
@@ -221,7 +221,7 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A full journal must not end the service.");
-        _ = await Assert.That((log.Count(VerificationRefusedEventId), log.Find(VerificationRefusedEventId)?.Level)).IsEqualTo((1, LogLevel.Warning));
+        _ = await Assert.That((log.Count(VerificationRefusedEventId), log.Find(VerificationRefusedEventId)?.Level)).IsEqualTo((1, ServerLogLevel.Warning));
         _ = await Assert.That(reopened.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
     }
 
@@ -244,7 +244,7 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         try
         {
             // The service ends only once the loop of n2, which never fails on its own, has ended too.
-            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!, HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {

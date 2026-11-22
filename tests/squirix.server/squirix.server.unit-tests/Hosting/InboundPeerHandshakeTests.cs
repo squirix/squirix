@@ -1,15 +1,14 @@
 using System;
 using System.IO;
-using System.Net.Http;
+using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Networking;
@@ -20,7 +19,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>Verifies the TLS handshake of the internal mTLS listener against a real Kestrel listener.</summary>
+/// <summary>Verifies the TLS handshake of the internal mTLS listener against a native listener.</summary>
 [Immutable]
 public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
 {
@@ -41,7 +40,7 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         var held = ListenPortPool.ServerUnitTests.HoldPort();
         try
         {
-            await using var application = await StartAsync(bundle, server, held, log, cancellationToken);
+            await using var application = Start(bundle, server, held, log, cancellationToken);
 
             using var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync("127.0.0.1", held.Port, cancellationToken);
@@ -69,7 +68,7 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         var held = ListenPortPool.ServerUnitTests.HoldPort();
         try
         {
-            await using var application = await StartAsync(bundle, server, held, log, cancellationToken);
+            await using var application = Start(bundle, server, held, log, cancellationToken);
 
             using var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync("127.0.0.1", held.Port, cancellationToken);
@@ -86,10 +85,10 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Verifies the listener negotiates HTTP/2 although the handshake options name no application protocols.</summary>
+    /// <summary>Verifies the listener negotiates the versioned peer protocol.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ListenerNegotiatesHttp2(CancellationToken cancellationToken)
+    public async Task ListenerNegotiatesPeerProtocol(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var client = LoadExportable(MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b"));
@@ -97,14 +96,14 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         var held = ListenPortPool.ServerUnitTests.HoldPort();
         try
         {
-            await using var application = await StartAsync(bundle, server, held, new EventRecordingLogger(), cancellationToken);
+            await using var application = Start(bundle, server, held, new EventRecordingLogger(), cancellationToken);
 
             using var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync("127.0.0.1", held.Port, cancellationToken);
             await using var sslStream = new SslStream(tcpClient.GetStream(), false);
             await sslStream.AuthenticateAsClientAsync(CreateClientOptions(client, CreateChains(bundle)), cancellationToken);
 
-            _ = await Assert.That(sslStream.NegotiatedApplicationProtocol).IsEqualTo(SslApplicationProtocol.Http2);
+            _ = await Assert.That(sslStream.NegotiatedApplicationProtocol).IsEqualTo(PeerFrames.Protocol);
         }
         finally
         {
@@ -122,7 +121,7 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         var held = ListenPortPool.ServerUnitTests.HoldPort();
         try
         {
-            await using var application = await StartAsync(bundle, server, held, new EventRecordingLogger(), cancellationToken);
+            await using var application = Start(bundle, server, held, new EventRecordingLogger(), cancellationToken);
 
             using var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync("127.0.0.1", held.Port, cancellationToken);
@@ -150,7 +149,7 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         var held = ListenPortPool.ServerUnitTests.HoldPort();
         try
         {
-            await using var application = await StartAsync(bundle, server, held, log, cancellationToken);
+            await using var application = Start(bundle, server, held, log, cancellationToken);
 
             using var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync("127.0.0.1", held.Port, cancellationToken);
@@ -179,15 +178,14 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         var held = ListenPortPool.ServerUnitTests.HoldPort();
         try
         {
-            await using var application = await StartAsync(bundle, server, held, new EventRecordingLogger(), cancellationToken);
+            await using var application = Start(bundle, server, held, new EventRecordingLogger(), cancellationToken);
 
-            using var handler = new SocketsHttpHandler();
-            handler.SslOptions.ClientCertificates = [client];
-            handler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, _, _) => certificate != null && TrustsServer(serverChains, certificate);
-            using var invoker = new HttpMessageInvoker(handler, false);
-            using var message = new HttpRequestMessage(HttpMethod.Get, new Uri($"https://localhost:{held.Port}/client"));
-            using var response = await invoker.SendAsync(message, cancellationToken);
-            var subject = await response.EnsureSuccessStatusCode().Content.ReadAsStringAsync(cancellationToken);
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(IPAddress.Loopback, held.Port, cancellationToken);
+            await using var stream = new SslStream(tcp.GetStream());
+            await stream.AuthenticateAsClientAsync(CreateClientOptions(client, serverChains), cancellationToken);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            var subject = await reader.ReadToEndAsync(cancellationToken);
 
             _ = await Assert.That(subject).IsEqualTo(client.Subject);
         }
@@ -221,7 +219,7 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
     {
         TargetHost = "localhost",
         ClientCertificates = client == null ? null : [client],
-        ApplicationProtocols = [SslApplicationProtocol.Http2],
+        ApplicationProtocols = [PeerFrames.Protocol],
         EnabledSslProtocols = SslProtocols.None,
         RemoteCertificateValidationCallback = (_, certificate, _, _) => certificate != null && TrustsServer(serverChains, certificate),
     };
@@ -238,25 +236,12 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
             return X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
     }
 
-    private static async Task<WebApplication> StartAsync(MtlsTestCertificateBundle bundle, X509Certificate2 serverCertificate, HeldPort held, EventRecordingLogger log, CancellationToken cancellationToken)
+    private static TestListener Start(MtlsTestCertificateBundle bundle, X509Certificate2 serverCertificate, HeldPort held, EventRecordingLogger log, CancellationToken cancellationToken)
     {
-        var verifier = new PeerHandshakeVerifier(new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge), TimeProvider.System, log);
-        var handshake = InboundPeerHandshake.Create(verifier, serverCertificate, ConfiguredPeers);
-        var builder = WebApplication.CreateBuilder();
-        _ = builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenLocalhost(held.Port, listenOptions => listenOptions.UseHttps(handshake)));
-        var application = builder.Build();
-        _ = application.MapGet("/client", static context => context.Response.WriteAsync(context.Connection.ClientCertificate?.Subject ?? "none", context.RequestAborted));
-        try
-        {
-            ListenPortPool.ServerUnitTests.ReleasePort(held.Port);
-            await application.StartAsync(cancellationToken);
-            return application;
-        }
-        catch
-        {
-            await application.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
+        var verifier = new PeerHandshakeVerifier(CreateChains(bundle), TimeProvider.System, log);
+        var handshake = new InboundPeerHandshake(verifier, serverCertificate, ConfiguredPeers);
+        ListenPortPool.ServerUnitTests.ReleasePort(held.Port);
+        return new TestListener(held.Port, handshake, log, cancellationToken);
     }
 
     private static async Task<bool> AuthenticateAsync(SslStream sslStream, SslClientAuthenticationOptions options, CancellationToken cancellationToken)
@@ -266,12 +251,42 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
             await sslStream.AuthenticateAsClientAsync(options, cancellationToken);
 
             // Under TLS 1.3 the client finishes its handshake before the server checks the client certificate, so a refusal can also
-            // arrive as a closed stream; an accepted connection sends its HTTP/2 settings first.
+            // arrive as a closed stream; an accepted connection sends the authenticated subject.
             return await sslStream.ReadAsync(new byte[1], cancellationToken) > 0;
         }
         catch (Exception error) when (error is AuthenticationException or IOException)
         {
             return false;
+        }
+    }
+
+    private sealed class TestListener : IAsyncDisposable
+    {
+        private readonly CancellationTokenSource _stop;
+        private readonly Task _run;
+        private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+        internal TestListener(int port, InboundPeerHandshake handshake, EventRecordingLogger log, CancellationToken cancellationToken)
+        {
+            _stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _socket.Bind(new IPEndPoint(IPAddress.Loopback, port));
+            _socket.Listen(4);
+            var listener = new NativeTlsListener(_socket, handshake.CreateServerOptions, SendSubjectAsync, log, 4);
+            _run = listener.RunAsync(_stop.Token, _stop.Token);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _stop.CancelAsync();
+            await _run;
+            _socket.Dispose();
+            _stop.Dispose();
+        }
+
+        private static async Task SendSubjectAsync(SslStream stream, IPEndPoint remote, CancellationToken graceful, CancellationToken abort)
+        {
+            var bytes = Encoding.UTF8.GetBytes(stream.RemoteCertificate?.Subject ?? "none");
+            await stream.WriteAsync(bytes, abort);
         }
     }
 }

@@ -139,13 +139,13 @@ internal sealed class AsyncLock : IDisposable
             if (generation == 0 || generation != _holderGeneration)
                 return false;
 
-            while (_head != null)
+            if (_head is { } waiter)
             {
-                var waiter = _head;
+                // Cancellation and disposal detach waiters under this lock before completing them, so queued waiters are pending.
                 Unlink(waiter);
                 var next = IssueGeneration();
-                if (waiter.TrySetResult(new AsyncLockHolder(this, next)))
-                    return true;
+                _ = waiter.TrySetResult(new AsyncLockHolder(this, next));
+                return true;
             }
 
             Volatile.Write(ref _holderGeneration, 0UL);

@@ -1,10 +1,9 @@
 using System;
 using System.Buffers.Binary;
 using System.Text;
-using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -27,7 +26,7 @@ internal static class JsonValueKit
     /// <summary>Builds the wire form of a JSON value.</summary>
     /// <param name="json">The JSON text.</param>
     /// <returns>A cache value of the JSON kind over the UTF-8 bytes of <paramref name="json" />.</returns>
-    internal static CacheValue Wire(string json) => new() { JsonUtf8 = ByteString.CopyFromUtf8(json) };
+    internal static CacheValue Wire(string json) => new() { JsonUtf8 = Encoding.UTF8.GetBytes(json) };
 
     /// <summary>Encodes an entry with the production codec.</summary>
     /// <param name="entry">The entry.</param>

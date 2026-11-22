@@ -1,15 +1,16 @@
 using System;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -27,7 +28,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     private readonly TimeProvider _clock;
     private readonly string _groupId;
     private readonly ILogicalNamespacedCache<object?> _local;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ulong _term;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaMutationFactory" /> class.</summary>
@@ -36,7 +37,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="term">Static leader term for prepared mutations.</param>
     /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
     /// <param name="log">Logger of the records found inconsistent at prepare.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, ILogger log)
+    /// <param name="selectCapacityVictim">Selects a resident in the original owner's scope, when bounded.</param>
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, IServerLogger log, Func<CacheKey, CacheKey?>? selectCapacityVictim = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
@@ -48,7 +50,10 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         _term = term;
         _clock = clock;
         _log = log;
+        SelectCapacityVictim = selectCapacityVictim;
     }
+
+    internal Func<CacheKey, CacheKey?>? SelectCapacityVictim { get; }
 
     /// <inheritdoc />
     public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
@@ -62,6 +67,45 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         var identity = new ReplicaOperationIdentity(_groupId, record.OperationScope, record.OperationId, record.OperationFingerprint);
         var payload = new ReplicaMutationPayload(entry.Payload, record.OutcomePayload, Crc32C.Compute(entry.PayloadSpan));
         return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, payload);
+    }
+
+    /// <summary>Prepares an adapter access against the authoritative entry inside the group commit gate.</summary>
+    /// <param name="operationId">Client operation identifier.</param>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="refresh">Whether to omit the returned value.</param>
+    /// <param name="index">Reserved group log index.</param>
+    /// <param name="cancellationToken">The group commit budget token.</param>
+    /// <returns>The mutation with a compact outcome, and the separately owned transient read payload.</returns>
+    internal async ValueTask<(PreparedReplicaMutation Mutation, ReadOnlyMemory<byte>? Payload)> PrepareDistributedAccessAsync(
+        string operationId,
+        string cacheName,
+        string key,
+        bool refresh,
+        ulong index,
+        CancellationToken cancellationToken)
+    {
+        var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideDistributedAccess(current, now, out var payload);
+        var record = new ReplicaLogRecord(
+            index,
+            _term,
+            operationId,
+            cacheName,
+            ReplicaOperationFingerprints.DistributedAccess(operationId, cacheName, key, refresh),
+            nameof(GroupRecordKind.UserMutation),
+            cacheName,
+            ReadOnlyMemory<byte>.Empty,
+            refresh ? ReplicaMutationKinds.DistributedRefresh : ReplicaMutationKinds.DistributedGet,
+            ReadOnlyMemory<byte>.Empty,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
+            now.Ticks,
+            0);
+        var mutation = Build(cacheName, record, index, key, decision.Entry);
+        EnsureDistributedRecordFits(mutation.CanonicalPayload.Length);
+        return (mutation, refresh ? null : payload);
     }
 
     /// <summary>Prepares the expiration tombstone of a key whose stored entry the leader finds expired at prepare time.</summary>
@@ -82,7 +126,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        if (current == null || ReplicaMutationDecisions.DecideExpire(current, now) is not var (payload, outcome, deadlineTicks))
+        if (current == null || ReplicaMutationDecisions.DecideExpire(current, now) is not var (_, outcome, deadlineTicks))
             return (null, current);
 
         var operationId = ReplicaExpirationOperationId.Create(_groupId, cacheName, key, current.Version, new DateTime(deadlineTicks, DateTimeKind.Utc));
@@ -94,14 +138,14 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOperationFingerprints.Expire(cacheName, key, current.Version, deadlineTicks),
             nameof(GroupRecordKind.Expiration),
             cacheName,
-            Encoding.UTF8.GetBytes(key),
+            ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Expire,
-            payload,
+            ReadOnlyMemory<byte>.Empty,
             outcome,
             deadlineTicks,
             now.Ticks,
             0);
-        return (Build(ReplicaExpirationOperationId.OperationScope, in record, index), null);
+        return (Build(ReplicaExpirationOperationId.OperationScope, record, index, key), null);
     }
 
     /// <summary>Prepares the no-op that commits the term of this factory: it touches no cache and answers no client retry.</summary>
@@ -121,14 +165,14 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.LeaderNoop,
             ReadOnlyMemory<byte>.Empty,
-            ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty),
+            ReplicaOutcomeCodec.NotApplied,
             0,
             _clock.GetUtcNow().UtcDateTime.Ticks,
             0);
-        return Build(ReplicaLeaderOperationId.OperationScope, in record, index);
+        return Build(ReplicaLeaderOperationId.OperationScope, record, index);
     }
 
-    /// <summary>Prepares a replicated remove with the observed previous entry as the outcome.</summary>
+    /// <summary>Prepares a replicated remove with only its boolean result as the outcome.</summary>
     /// <param name="operationId">Client operation identifier.</param>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
@@ -149,14 +193,14 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOperationFingerprints.Remove(operationId, cacheName, key),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
-            Encoding.UTF8.GetBytes(key),
+            ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Remove,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated expiration removal, a client mutation scoped to its cache like every other one.</summary>
@@ -179,14 +223,14 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOperationFingerprints.RemoveExpiration(operationId, cacheName, key),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
-            Encoding.UTF8.GetBytes(key),
+            ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.RemoveExpiration,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated unconditional write.</summary>
@@ -209,14 +253,22 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOperationFingerprints.Set(operationId, cacheName, key, entry),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
-            Encoding.UTF8.GetBytes(key),
+            ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Set,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index);
+        var mutation = Build(cacheName, record, index, key, decision.Entry);
+        if (entry.RawValue is not DistributedCacheWrite { HasSlidingExpiration: true })
+            return mutation;
+
+        // Renewals keep the same entry and compact outcome; only the mutation kind can require more bytes.
+        var extraBytes = ReplicaMutationKinds.DistributedRefresh.Length - ReplicaMutationKinds.Set.Length;
+        long recordBytes = mutation.CanonicalPayload.Length;
+        EnsureDistributedRecordFits(recordBytes + extraBytes);
+        return mutation;
     }
 
     /// <summary>Prepares a replicated conditional expiration refresh.</summary>
@@ -252,14 +304,14 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOperationFingerprints.Touch(operationId, cacheName, key, expiration),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
-            Encoding.UTF8.GetBytes(key),
+            ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Touch,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated conditional add.</summary>
@@ -290,14 +342,14 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOperationFingerprints.AddIfAbsent(operationId, cacheName, key, entry),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
-            Encoding.UTF8.GetBytes(key),
+            ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.TryAdd,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated value replacement.</summary>
@@ -327,43 +379,70 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOperationFingerprints.Update(operationId, cacheName, key, value),
             nameof(GroupRecordKind.UserMutation),
             cacheName,
-            Encoding.UTF8.GetBytes(key),
+            ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Update,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     private static ReplicaLogRecord DecodeRecord(ReadOnlyMemory<byte> payload, ulong logIndex) =>
-        ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
+        ReplicaLogCodec.DecodeBorrowed(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
 
-    /// <summary>Encodes a decided record after checking that its effect agrees with its outcome.</summary>
+    private static void EnsureDistributedRecordFits(long bytes)
+    {
+        // Keep the same wire headroom as state transfer for the peer envelope and framing.
+        if (bytes > ReplicaTransferOptions.MessageBudgetBytes)
+            throw new ServerCallException(FrameStatus.ResourceExhausted, "The distributed renewal record exceeds the replication message budget.");
+    }
+
+    /// <summary>Encodes a decided record and checks that its effect agrees with its outcome.</summary>
     /// <remarks>
-    /// Only the shape is checked: the entry the decision just encoded is not decoded again on every write. The fingerprint, the outcome and the
-    /// canonical payload are arrays every caller has just created and keeps no reference to, so the mutation takes them without a copy.
+    /// Only the shape is checked: the entry the decision just encoded is not decoded again on every write. The mutation retains its fingerprint, immutable outcome and canonical payload without copying them.
     /// </remarks>
     /// <param name="scope">Operation scope.</param>
     /// <param name="record">The decided record.</param>
     /// <param name="index">Reserved group log index.</param>
+    /// <param name="key">The textual key encoded directly, or null for a keyless record.</param>
+    /// <param name="entry">The decided upsert entry, or null for a mutation without an entry.</param>
     /// <returns>The prepared mutation, carrying the outcome of the record.</returns>
     /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
-    private PreparedReplicaMutation Build(string scope, in ReplicaLogRecord record, ulong index)
+    /// <exception cref="ServerCallException">The insertion and its eviction exceed the replication message budget.</exception>
+    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, PreparedJournalEntry? entry = null)
     {
+        if (SelectCapacityVictim != null && key != null && entry != null &&
+            (string.Equals(record.MutationKind, ReplicaMutationKinds.Set, StringComparison.Ordinal) || string.Equals(record.MutationKind, ReplicaMutationKinds.TryAdd, StringComparison.Ordinal)))
+            record = record with { EvictedKey = SelectCapacityVictim(new CacheKey(record.CacheName, key))?.Key };
+
+        byte[] canonical;
+        if (entry == null)
+        {
+            canonical = ReplicaLogCodec.Encode(in record, key);
+        }
+        else
+        {
+            canonical = ReplicaLogCodec.AllocateRecord(in record, key, entry.EncodedLength, out var mutation);
+            JournalEntryPayload.WritePrepared(in entry, mutation.Span);
+            record = record with { MutationPayload = mutation };
+        }
+
         try
         {
             _ = ReplicaCacheApplier.ResolveShape(in record);
         }
         catch (InvalidDataException error)
         {
-            ServerLog.ReplicaInconsistentDecision(_log, _groupId, error);
+            ReplicaCommitLog.ReplicaInconsistentDecision(_log, _groupId, error);
             throw;
         }
 
+        if (record.EvictedKey != null && canonical.Length > ReplicaTransferOptions.MessageBudgetBytes)
+            throw new ServerCallException(FrameStatus.ResourceExhausted, "The eviction record exceeds the replication message budget.");
+
         var outcome = record.OutcomePayload;
-        var canonical = ReplicaLogCodec.Encode(in record);
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);
         var payload = new ReplicaMutationPayload(canonical, outcome, Crc32C.Compute(canonical));
         return PreparedReplicaMutation.TakeOwnership(identity, _term, index, payload);

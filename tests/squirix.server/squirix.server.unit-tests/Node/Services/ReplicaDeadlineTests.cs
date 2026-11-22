@@ -1,15 +1,15 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -160,7 +160,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         ReplicaCacheApplier.ApplyAsync(cache, Decode(mutation), cancellationToken);
 
     private static ReplicaLogRecord Decode(PreparedReplicaMutation mutation) =>
-        ReplicaLogCodec.Decode(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
 
     private static ClientCache<object?> NewCache(TimeProvider clock)
     {

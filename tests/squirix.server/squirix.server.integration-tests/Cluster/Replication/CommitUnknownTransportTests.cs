@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -43,11 +43,11 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
 
             _ = await localAppended.Task.WaitAsync(cancellationToken);
             await cancellation.CancelAsync();
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             var transport = ServerOpContract.CommitOutcomeUnknown();
-            _ = await Assert.That(SquirixErrorMapper.ToGrpcStatusCode(transport.Code)).IsEqualTo(StatusCode.Unavailable);
+            _ = await Assert.That(SquirixErrorMapper.ToFrameStatus(transport.Code)).IsEqualTo(FrameStatus.Unavailable);
             _ = await Assert.That(SquirixErrorMapper.ToPublicCode(transport.Code)).IsEqualTo(ReplicaCommitCoordinator.CommitOutcomeUnknownCode);
         }
         finally

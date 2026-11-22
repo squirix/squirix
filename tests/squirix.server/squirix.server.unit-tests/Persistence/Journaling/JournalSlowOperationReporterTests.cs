@@ -4,17 +4,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -72,7 +72,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             await logger.WaitForWarningAsync(WaitCanceledEventId, EntryTimeout, cancellationToken);
             writer.Release();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -110,7 +110,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(TimeSpan.FromMilliseconds(JournalSlowOperationReporter.WarningThresholdMs - 1));
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -148,7 +148,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -188,7 +188,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiter);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -236,7 +236,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -281,7 +281,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -335,7 +335,10 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
                     state.Clock.Advance(PastThreshold);
                     throw state.Failure;
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
@@ -432,10 +435,10 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
     private sealed class EventLoopSetup : IDisposable
     {
         private readonly CancellationTokenSource _backgroundCancellation = new();
-        private readonly FixedLoggerFactory _loggerFactory;
+        private readonly IServerLoggerFactory _loggerFactory;
         private readonly BoundedJournalRing _ring = new(4);
 
-        internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, ILogger logger)
+        internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, IServerLogger logger)
         {
             _loggerFactory = new FixedLoggerFactory(logger);
             EventLoop = new JournalEventLoop(
@@ -444,7 +447,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
                 writer,
                 options,
                 new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1), new JournalCapacityResyncSignal()),
-                new Logger<JournalEventLoop>(_loggerFactory),
+                _loggerFactory.CreateLogger<JournalEventLoop>(),
                 _backgroundCancellation.Token);
         }
 
@@ -467,11 +470,11 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         internal TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    private sealed class RecordingLogger : ILogger
+    private sealed class RecordingLogger : IServerLogger
     {
         private readonly ConcurrentDictionary<int, TaskCompletionSource> _signals = new();
         private readonly bool _throwOnLog;
-        private readonly ConcurrentQueue<(EventId EventId, Dictionary<string, object?> Values)> _warnings = new();
+        private readonly ConcurrentQueue<(ServerLogEventId EventId, Dictionary<string, object?> Values)> _warnings = new();
 
         internal RecordingLogger(bool throwOnLog = false)
         {
@@ -481,11 +484,11 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (logLevel == LogLevel.Warning)
+            if (logLevel == ServerLogLevel.Warning)
             {
                 _warnings.Enqueue((eventId, CaptureValues(state)));
                 _ = SignalFor(eventId.Id).TrySetResult();
@@ -498,9 +501,9 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         internal int Count(int eventId)
         {
             var count = 0;
-            foreach (var recorded in _warnings)
+            foreach (var (recordedId, _) in _warnings)
             {
-                if (recorded.EventId.Id == eventId)
+                if (recordedId.Id == eventId)
                     count++;
             }
 
@@ -509,10 +512,10 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
 
         internal Dictionary<string, object?> Find(int eventId)
         {
-            foreach (var recorded in _warnings)
+            foreach (var (recordedId, values) in _warnings)
             {
-                if (recorded.EventId.Id == eventId)
-                    return recorded.Values;
+                if (recordedId.Id == eventId)
+                    return values;
             }
 
             throw new InvalidOperationException($"no warning with event id {eventId} was logged.");

@@ -16,8 +16,12 @@ internal static class PressureBootstrap
     internal static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken = default)
     {
         var baseline = new UnresolvedMemoryPressureOptions();
-        var (_, fileMerged) = await MergeFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
-        return ApplyEnvironment(fileMerged);
+        var path = SettingsJson.FindSettingsPath();
+        if (path == null)
+            return ApplyEnvironment(baseline);
+
+        var (_, merged) = await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return ApplyEnvironment(merged);
     }
 
     /// <summary>Merges <c language="csharp">MemoryPressure</c> from a specific settings file path.</summary>
@@ -68,22 +72,5 @@ internal static class PressureBootstrap
             result = result with { CriticalPressureThresholdPercent = critical.Value };
 
         return result;
-    }
-
-    /// <summary>
-    /// Merges the <c language="csharp">MemoryPressure</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
-    /// </summary>
-    /// <param name="baseline">Baseline options when the section is absent.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">MemoryPressure</c> object,
-    /// and <c language="csharp">Merged</c> is the merged result.
-    /// </returns>
-    private static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> MergeFromFileAsync(
-        UnresolvedMemoryPressureOptions baseline,
-        CancellationToken cancellationToken = default)
-    {
-        var path = SettingsJson.FindSettingsPath();
-        return path == null ? (false, baseline) : await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 }

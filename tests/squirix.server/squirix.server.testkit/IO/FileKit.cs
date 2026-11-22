@@ -6,15 +6,6 @@ namespace Squirix.Server.TestKit.IO;
 /// <summary>Lightweight file utilities intended for resilient test and tooling scenarios.</summary>
 public static class FileKit
 {
-    /// <summary>Determines whether a file exists at the provided path after validating the file path shape.</summary>
-    /// <param name="path">Absolute or relative file path to validate and inspect.</param>
-    /// <returns><see langword="true" /> when a regular file exists at the validated path; otherwise <see langword="false" />.</returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="path" /> is empty/whitespace, contains invalid characters or wildcards,
-    /// has empty segments, uses Windows-reserved names, ends with dot/space on Windows, or does not include a file name.
-    /// </exception>
-    public static bool Exists(string? path) => File.Exists(ValidateAndGetFullPath(path));
-
     /// <summary>Writes the specified text to a file after validating the file path and ensuring the parent directory exists.</summary>
     /// <param name="path">Absolute or relative file path to create or overwrite.</param>
     /// <param name="contents">Text content to write.</param>

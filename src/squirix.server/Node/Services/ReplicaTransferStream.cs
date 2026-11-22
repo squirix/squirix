@@ -3,12 +3,13 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -108,30 +109,17 @@ internal sealed class ReplicaTransferStream
             return new Result(ReplicaTransferOutcome.SnapshotTooLarge, string.Empty);
         }
 
-        // The image stays unchanged until the last request returned, which the pass awaits before it gives the buffer back.
-        var rented = ArrayPool<byte>.Shared.Rent(length);
-        try
-        {
-            var image = rented.AsMemory(0, length);
-            GroupSnapshotStore.EncodePublished(image.Span, in snapshot);
-            var crc = BinaryPrimitives.ReadUInt32LittleEndian(image.Span[^sizeof(uint)..]);
-            var baseline = new ReplicaTransferBaseline(
-                snapshot.LastIncludedIndex,
-                snapshot.LastIncludedTerm,
-                length,
-                crc,
-                _header.TopologyFingerprint,
-                _header.ConfigurationGeneration,
-                CeilingChecked);
-            return await RunGuardedAsync(baseline, image, walk, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        return await RunGuardedAsync(snapshot, length, walk, cancellationToken).ConfigureAwait(false);
     }
 
-    private static bool IsTransportFault(Exception exception) => exception is RpcException or IOException or HttpRequestException or TimeoutException or InvalidOperationException;
+    private static bool IsTransportFault(Exception exception) => exception is ServerCallException or IOException or HttpRequestException or TimeoutException or InvalidOperationException;
+
+    private ReplicaTransferBaseline EncodeBaseline(Memory<byte> image, in GroupSnapshot snapshot)
+    {
+        GroupSnapshotStore.EncodePublished(image.Span, in snapshot);
+        var crc = BinaryPrimitives.ReadUInt32LittleEndian(image.Span[^sizeof(uint)..]);
+        return new ReplicaTransferBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm, image.Length, crc, _header.TopologyFingerprint, _header.ConfigurationGeneration, CeilingChecked);
+    }
 
     private Result? Ended(in ReplicaTransferReply reply) => reply.Success ? null : Refused(in reply);
 
@@ -231,11 +219,12 @@ internal sealed class ReplicaTransferStream
         await foreach (var item in walk.EnumerateAsync(_header.GroupId, token).ConfigureAwait(false))
         {
             var payload = ReplicaCacheApplier.EncodeEntry(item.Entry);
-            var size = ReplicaTransferBatch.SizeOf(item.CacheName, item.Key, payload.Length);
+            var keyBytes = Encoding.UTF8.GetByteCount(item.Key);
+            var size = ReplicaTransferBatch.SizeOf(item.CacheName, keyBytes, payload.Length);
             if (!batch.Fits(size) && await FlushAsync(transferId, batch, token).ConfigureAwait(false) is { } ended)
                 return ended;
 
-            var entry = batch.Add(item.CacheName, item.Key, payload, item.Entry.ExpiresUtc?.Ticks ?? 0L, size);
+            var entry = batch.Add(item.CacheName, item.Key, keyBytes, payload, item.Entry.ExpiresUtc?.Ticks ?? 0L, size);
             _checksum.Add(in entry);
         }
 
@@ -265,20 +254,38 @@ internal sealed class ReplicaTransferStream
     }
 
     /// <summary>Runs the steps of the transfer, sending an abort when a message fails in transport or times out.</summary>
-    /// <param name="baseline">The point the transfer is taken at and the snapshot image that follows.</param>
-    /// <param name="image">The published snapshot image.</param>
+    /// <param name="snapshot">The captured snapshot to encode.</param>
+    /// <param name="length">The size of its published image.</param>
     /// <param name="walk">The walk over the stored entries of the node.</param>
     /// <param name="cancellationToken">Cancellation token of the pass.</param>
     /// <returns>How the stream ended.</returns>
-    private async Task<Result> RunGuardedAsync(ReplicaTransferBaseline baseline, ReadOnlyMemory<byte> image, ReplicaGroupEntries walk, CancellationToken cancellationToken)
+    private async Task<Result> RunGuardedAsync(GroupSnapshot snapshot, int length, ReplicaGroupEntries walk, CancellationToken cancellationToken)
     {
-        var transferId = Guid.NewGuid().ToString("N");
+        string? transferId = null;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Draining);
         try
         {
-            return await StreamAsync(transferId, baseline, image, walk, linked.Token).ConfigureAwait(false);
+            Result? ended;
+            var rented = ArrayPool<byte>.Shared.Rent(length);
+            try
+            {
+                var image = rented.AsMemory(0, length);
+                var baseline = EncodeBaseline(image, in snapshot);
+                transferId = Guid.NewGuid().ToString("N");
+                ended = await BeginUploadAsync(transferId, baseline, image, linked.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+
+            return ended ??
+                   await WipeAsync(transferId, linked.Token).ConfigureAwait(false) ??
+                   await EntriesAsync(transferId, walk, linked.Token).ConfigureAwait(false) ??
+                   await FinishAsync(transferId, linked.Token).ConfigureAwait(false) ??
+                   new Result(ReplicaTransferOutcome.Transferred, string.Empty);
         }
-        catch (Exception exception) when (IsTransportFault(exception))
+        catch (Exception exception) when (transferId != null && IsTransportFault(exception))
         {
             // A call canceled by the pass surfaces as a transport fault too; the cancellation wins and no abort is sent.
             cancellationToken.ThrowIfCancellationRequested();
@@ -287,7 +294,7 @@ internal sealed class ReplicaTransferStream
             await AbortAsync(transferId).ConfigureAwait(false);
             return new Result(Draining.IsCancellationRequested ? ReplicaTransferOutcome.Aborted : ReplicaTransferOutcome.Unreachable, string.Empty);
         }
-        catch (OperationCanceledException) when (Draining.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (transferId != null && Draining.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             await AbortAsync(transferId).ConfigureAwait(false);
             return new Result(ReplicaTransferOutcome.Aborted, string.Empty);
@@ -297,15 +304,10 @@ internal sealed class ReplicaTransferStream
     private Task<ReplicaTransferReply> SendAsync(ReplicaTransferMessage message, CancellationToken token) =>
         CallPatientlyAsync(message.TransferId, call => _gateway.SendAsync(_nodeId, _header, message, call), token);
 
-    private async Task<Result> StreamAsync(string transferId, ReplicaTransferBaseline baseline, ReadOnlyMemory<byte> image, ReplicaGroupEntries walk, CancellationToken token)
+    private async Task<Result?> BeginUploadAsync(string transferId, ReplicaTransferBaseline baseline, ReadOnlyMemory<byte> image, CancellationToken token)
     {
         var begin = await CallPatientlyAsync(transferId, call => _gateway.BeginAsync(_nodeId, _header, transferId, baseline, call), token).ConfigureAwait(false);
-        return Ended(in begin) ??
-               await UploadAsync(transferId, image, token).ConfigureAwait(false) ??
-               await WipeAsync(transferId, token).ConfigureAwait(false) ??
-               await EntriesAsync(transferId, walk, token).ConfigureAwait(false) ??
-               await FinishAsync(transferId, token).ConfigureAwait(false) ??
-               new Result(ReplicaTransferOutcome.Transferred, string.Empty);
+        return Ended(in begin) ?? await UploadAsync(transferId, image, token).ConfigureAwait(false);
     }
 
     private async Task<Result?> UploadAsync(string transferId, ReadOnlyMemory<byte> image, CancellationToken token)

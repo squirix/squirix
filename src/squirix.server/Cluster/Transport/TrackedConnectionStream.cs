@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using System.Net.Http;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,17 +31,8 @@ internal sealed class TrackedConnectionStream : NetworkStream
         _tracked = 1;
     }
 
-    /// <summary>Connects to the peer as the runtime default does (TCP, no delay, dual-stack DNS endpoint) and tracks the connection in <paramref name="connections" />.</summary>
-    /// <param name="connections">The pool's connections.</param>
-    /// <param name="context">The connection request.</param>
-    /// <param name="cancellationToken">Cancels the connect attempt.</param>
-    /// <returns>The tracked connection stream, which owns the socket.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="connections" /> or <paramref name="context" /> is null.</exception>
-    /// <exception cref="ObjectDisposedException">The pool started to dispose and admits no new connection.</exception>
-    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, EndPoint endpoint, CancellationToken cancellationToken, IPAddress[]? addresses = null)
     {
-        ArgumentNullException.ThrowIfNull(connections);
-        ArgumentNullException.ThrowIfNull(context);
         if (!connections.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and admits no new connection.");
 
@@ -51,7 +42,10 @@ internal sealed class TrackedConnectionStream : NetworkStream
         {
             socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             connections.Register(socket);
-            await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
+            if (endpoint is DnsEndPoint dns && addresses != null)
+                await socket.ConnectAsync(addresses, dns.Port, cancellationToken).ConfigureAwait(false);
+            else
+                await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
             var stream = new TrackedConnectionStream(socket, connections);
             created = true;
             return stream;

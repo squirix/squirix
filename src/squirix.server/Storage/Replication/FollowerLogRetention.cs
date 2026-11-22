@@ -10,4 +10,8 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="SnapshotIndex">The last log index the published snapshot covers, or zero when none is published.</param>
 [Immutable]
 [StructLayout(LayoutKind.Auto)]
-internal readonly record struct FollowerLogRetention(long LogBytes, int RetainedEntries, int RetainedPayloads, ulong SnapshotIndex);
+internal readonly record struct FollowerLogRetention(long LogBytes, int RetainedEntries, int RetainedPayloads, ulong SnapshotIndex)
+{
+    /// <summary>Gets the bytes eligible to trigger ordinary compaction, excluding the prefix kept for recovery.</summary>
+    internal long CompactionBytes { get; init; } = LogBytes;
+}

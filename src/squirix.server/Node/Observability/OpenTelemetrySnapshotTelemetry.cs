@@ -11,14 +11,15 @@ namespace Squirix.Server.Node.Observability;
 [Immutable]
 internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
 {
-    private readonly ServerHistogram2Labels _durationSeconds;
+    private readonly ServerHistogram2Labels? _durationSeconds;
 
-    private readonly Meter _meter;
+    private readonly Meter? _meter;
 
-    internal OpenTelemetrySnapshotTelemetry(Meter meter)
+    internal OpenTelemetrySnapshotTelemetry(Meter? meter)
     {
         _meter = meter;
-        _durationSeconds = new ServerHistogram2Labels(meter.CreateHistogram<double>("squirix_snapshot_duration_seconds"), "node", "result");
+        if (meter != null)
+            _durationSeconds = new ServerHistogram2Labels(meter.CreateHistogram<double>("squirix_snapshot_duration_seconds"), "node", "result");
     }
 
     /// <inheritdoc />
@@ -29,13 +30,13 @@ internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
     }
 
     /// <inheritdoc />
-    public void RecordDuration(string nodeId, string result, TimeSpan elapsed) => _durationSeconds.WithLabels(nodeId, result).Observe(elapsed.TotalSeconds);
+    public void RecordDuration(string nodeId, string result, TimeSpan elapsed) => _durationSeconds?.Record(nodeId, result, elapsed.TotalSeconds);
 
     /// <summary>Exposes how many snapshot attempts in a row have failed on this node as <c language="csharp">squirix_snapshot_consecutive_failures{node="..."}</c>.</summary>
     /// <param name="nodeId">Node identifier label.</param>
     /// <param name="consecutiveFailures">Reads the current count at each scrape.</param>
     internal void ObserveConsecutiveFailures(string nodeId, Func<int> consecutiveFailures) =>
-        _ = _meter.CreateObservableGauge(
+        _ = _meter?.CreateObservableGauge(
             "squirix_snapshot_consecutive_failures",
             () => new Measurement<int>(consecutiveFailures(), new KeyValuePair<string, object?>("node", nodeId)),
             "{failure}",

@@ -11,30 +11,28 @@ internal static class MemoryAdmissionJournalExtensions
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="key">The cache key.</param>
     /// <param name="existing">The existing entry, if any.</param>
-    /// <param name="existingPayloadIsCounter">Whether the existing payload is stored as a counter.</param>
     /// <param name="proposed">The proposed entry.</param>
-    /// <param name="proposedPayloadIsCounter">Whether the proposed payload is a counter.</param>
     /// <param name="estimator">The entry size estimator.</param>
     /// <param name="magnitudeUnknown">Set when growth cannot be bounded conservatively.</param>
+    /// <param name="measuredProposedBytes">An exact estimate for the proposed entry from the same estimator, when available.</param>
     /// <returns>Estimated non-negative net growth in bytes.</returns>
     internal static long ComputeNetGrowthForReplace<T>(
         CacheKey key,
         NodeCacheEntry<T>? existing,
-        bool existingPayloadIsCounter,
         NodeCacheEntry<T> proposed,
-        bool proposedPayloadIsCounter,
         ICacheEntrySizeEstimator<T> estimator,
-        out bool magnitudeUnknown)
+        out bool magnitudeUnknown,
+        long? measuredProposedBytes = null)
     {
         ArgumentNullException.ThrowIfNull(proposed);
-        magnitudeUnknown = estimator.HasUnknownPayloadMagnitude(proposed, proposedPayloadIsCounter) ||
-                           (existing != null && estimator.HasUnknownPayloadMagnitude(existing, existingPayloadIsCounter));
+        magnitudeUnknown = estimator.HasUnknownPayloadMagnitude(proposed, false) ||
+                           (existing != null && estimator.HasUnknownPayloadMagnitude(existing, false));
 
-        var nextBytes = estimator.EstimateBytes(key, proposed, proposedPayloadIsCounter);
+        var nextBytes = measuredProposedBytes ?? estimator.EstimateBytes(key, proposed, false);
         if (existing == null)
             return nextBytes;
 
-        var prevBytes = estimator.EstimateBytes(key, existing, existingPayloadIsCounter);
+        var prevBytes = estimator.EstimateBytes(key, existing, false);
         var delta = nextBytes - prevBytes;
         return delta > 0 ? delta : 0;
     }

@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -120,7 +120,7 @@ internal static class LedGroupsTestKit
         IReplicaRpcGateway gateway,
         (ILogicalNamespacedCache<object?> Cache, ReplicaGroupApplier Applier) local,
         TimeProvider budgetClock,
-        ILogger<ReplicaGroupCommitter> log) =>
+        IServerLogger<ReplicaGroupCommitter> log) =>
         new(registry, new RotatingLocator(), gateway, local.Cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), log)
         {
             Clock = TimeProvider.System,
@@ -146,7 +146,7 @@ internal static class LedGroupsTestKit
         var keys = new List<string>(read.Entries.Count);
         foreach (var entry in read.Entries)
         {
-            var record = ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
+            var record = ReplicaLogCodec.DecodeBorrowed(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
             keys.Add(Encoding.UTF8.GetString(record.KeyPayload.Span));
         }
 

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.IO;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Rocks;
@@ -11,7 +10,6 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -39,17 +37,15 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var snapshots = CreateCoordinator(journal);
-        var completed = CountCompletions(snapshots);
 
         await StallNextFlushAsync(journal, cancellationToken);
         var snapshot = snapshots.SnapshotAsync(journal.Journal, cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException("simulated fsync failure"));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(snapshot);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(snapshot, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot).IsNull();
-        _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(0);
         _ = await Assert.That(snapshots.IsInFlight).IsFalse();
     }
 
@@ -60,7 +56,6 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var snapshots = CreateCoordinator(journal);
-        var completed = CountCompletions(snapshots);
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         await StallNextFlushAsync(journal, cancellationToken);
@@ -69,10 +64,9 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         await caller.CancelAsync();
         journal.Writer.Flush.Release();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(snapshot);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(snapshot, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot).IsNull();
-        _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(0);
     }
 
     /// <summary>A snapshot publishes while the node reports critical memory pressure.</summary>
@@ -82,18 +76,16 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
-        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<object?>("v"), cancellationToken);
         var pressure = new CriticalMemoryPressureReader(new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1 }), new MemoryUsageAccounting(cache));
         var snapshots = CreateCoordinator(journal, cache);
-        var completed = CountCompletions(snapshots);
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
 
-        _ = await snapshots.SnapshotAsync(journal.Journal, cancellationToken);
+        _ = await Assert.That(await snapshots.SnapshotAsync(journal.Journal, cancellationToken)).IsTrue();
 
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(pressure.IsCritical()).IsTrue();
         _ = await Assert.That(manifest.LastSnapshot).IsNotNull();
-        _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(1);
     }
 
     /// <summary>Once a snapshot has published, the capture buffers hold no entry or idempotency record references.</summary>
@@ -116,7 +108,6 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             capture.Instance(),
             StoreFactory.CreateWriter(journal.Journal.Options),
             journal.Ledger,
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
             NoOpSnapshotTelemetry.Instance);
         var snapshots = new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
@@ -137,7 +128,6 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var snapshots = CreateCoordinator(journal);
-        var completed = CountCompletions(snapshots);
 
         await StallNextFlushAsync(journal, cancellationToken);
         var snapshot = snapshots.SnapshotAsync(journal.Journal, cancellationToken).AsTask();
@@ -150,11 +140,10 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         };
         await journal.Ledger.WriteAsync(moved, cancellationToken);
         journal.Writer.Flush.Release();
-        _ = await snapshot;
+        _ = await Assert.That(await snapshot).IsFalse();
 
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot?.Index).IsEqualTo(7);
-        _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(0);
     }
 
     /// <inheritdoc />
@@ -164,13 +153,6 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         _testMeter.Dispose();
     }
 
-    private static StrongBox<int> CountCompletions(Coordinator snapshots)
-    {
-        var completed = new StrongBox<int>(0);
-        snapshots.SnapshotCompleted += (_, _) => Interlocked.Increment(ref completed.Value);
-        return completed;
-    }
-
     private static async Task StallNextFlushAsync(StallableJournal journal, CancellationToken cancellationToken)
     {
         // An unflushed frame makes the cut's checkpoint issue a real fsync, which is what the stall blocks.
@@ -178,7 +160,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
     }
 
-    private Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<object?>? existingCache = null)
+    private static Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<object?>? existingCache = null)
     {
         var persistence = journal.Journal.Options;
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
@@ -187,7 +169,6 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             new LocalCacheSnapshotCapture<object?>(cache),
             StoreFactory.CreateWriter(persistence),
             journal.Ledger,
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
             NoOpSnapshotTelemetry.Instance);
         return new Coordinator(opt, journal.Journal, deps, TimeProvider.System);

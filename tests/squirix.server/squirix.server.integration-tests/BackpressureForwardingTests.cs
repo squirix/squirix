@@ -1,14 +1,15 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -42,11 +43,13 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-backpressure");
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        using var channelA = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-a"));
+        using var channelB = CreateBinaryChannel(cluster["node-a"].Uri, TestJwtHelper.CreateBearerToken(credentials, "tenant-b"));
+        var clientA = new CacheWireClient(channelA);
+        var clientB = new CacheWireClient(channelB);
 
-        var admittedA = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, subject: "tenant-a"), key, cancellationToken);
-        var admittedB = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, subject: "tenant-b"), key, cancellationToken);
+        var admittedA = await CountAdmittedAsync(clientA, key, cancellationToken);
+        var admittedB = await CountAdmittedAsync(clientB, key, cancellationToken);
 
         _ = await Assert.That(admittedA).IsEqualTo(Burst);
         _ = await Assert.That(admittedB).IsEqualTo(Burst);
@@ -74,20 +77,19 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-saturated");
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        using var channel = CreateBinaryChannel(cluster["node-a"].Uri);
+        var client = new CacheWireClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
         var ownerGate = cluster["node-b"].GetRequiredService<IBackpressureGate>();
 
         var (held, heldLease) = await ownerGate.AcquireAsync("grpc", "get", "grpc:holder", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetValueAsync(request, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         heldLease.Dispose();
-        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(held.IsAccepted).IsTrue();
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(refused.Status.Detail).Contains("forwarded_no_slot");
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(refused.Message).Contains("forwarded_no_slot");
     }
 
     /// <summary>
@@ -112,8 +114,8 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "forwarded-busy-peer");
-        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        using var channel = CreateBinaryChannel(cluster["node-a"].Uri);
+        var client = new CacheWireClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = key };
         var policy = cluster["node-a"].GetRequiredService<IServerClientPool>().PolicyFor("node-b");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -129,14 +131,13 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
             },
             cancellationToken).AsTask();
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetValueAsync(request, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         release.SetResult();
         _ = await holder;
         await ServedAsync(client, request, cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(refused.Status.Detail).Contains("peer_busy");
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(refused.Message).Contains("peer_busy");
     }
 
     /// <summary>Sends a read through the entry node until its forward does not time out.</summary>
@@ -148,7 +149,7 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
     /// The read is the first forward to the owner, so it opens the connection; on a loaded host that TLS handshake can outlast the per-attempt
     /// timeout of the forward, which ends the read as a timeout. A read is safe to send again.
     /// </remarks>
-    private static async Task ServedAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
+    private static async Task ServedAsync(CacheWireClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
         for (var sends = 1; sends < MaxSends; sends++)
         {
@@ -164,34 +165,33 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
     /// <param name="request">The read.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns><see langword="true" /> when the read was served; <see langword="false" /> when its forward timed out.</returns>
-    private static async Task<bool> TryReadAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
+    private static async Task<bool> TryReadAsync(CacheWireClient client, GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
         try
         {
             await ReadAsync(client, request, cancellationToken);
             return true;
         }
-        catch (RpcException exception) when (exception.StatusCode == StatusCode.DeadlineExceeded)
+        catch (ServerCallException exception) when (exception.StatusCode == FrameStatus.DeadlineExceeded)
         {
             return false;
         }
     }
 
-    private static async Task ReadAsync(SquirixCacheService.SquirixCacheServiceClient client, GetValueAsyncRequest request, CancellationToken cancellationToken) =>
-        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+    private static async Task ReadAsync(CacheWireClient client, GetValueAsyncRequest request, CancellationToken cancellationToken) =>
+        _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-    private static async Task<int> CountAdmittedAsync(SquirixCacheService.SquirixCacheServiceClient client, string token, string key, CancellationToken cancellationToken)
+    private static async Task<int> CountAdmittedAsync(CacheWireClient client, string key, CancellationToken cancellationToken)
     {
-        var headers = new Metadata { { "authorization", $"Bearer {token}" } };
         var admitted = 0;
         while (admitted < MaxCalls)
         {
             try
             {
-                _ = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(headers, cancellationToken: cancellationToken));
+                _ = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
                 admitted++;
             }
-            catch (RpcException ex) when (ex.StatusCode == StatusCode.ResourceExhausted)
+            catch (ServerCallException ex) when (ex.StatusCode == FrameStatus.ResourceExhausted)
             {
                 break;
             }

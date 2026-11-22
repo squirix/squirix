@@ -15,7 +15,7 @@ namespace Squirix.E2ETests.Cluster;
 
 /// <summary>REQ-COMPAT-001: RF=1 preserves preview.7 behavior; RF&gt;1 activates with persistence and mTLS.</summary>
 [Immutable]
-public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
+public sealed class ReplicaCountCompatibilityE2ETests
 {
     /// <summary>Standalone RF=1 does not open an internode mTLS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -37,7 +37,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
         var cacheA = await clientA.GetCacheAsync<object?>("orders", cancellationToken);
         var cacheB = await clientB.GetCacheAsync<object?>("orders", cancellationToken);
 
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "rf1-compat");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "rf1-compat");
         await cacheB.SetAsync(key, "v1", cancellationToken: cancellationToken);
         var read = await cacheA.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();

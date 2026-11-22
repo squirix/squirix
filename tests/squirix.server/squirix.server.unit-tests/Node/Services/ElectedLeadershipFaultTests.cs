@@ -2,18 +2,18 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -62,13 +62,13 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         // and is covered by FailedNoopAppendLatchesLog.
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(committer.PromoteAsync(2UL, canceled.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(committer.PromoteAsync(2UL, canceled.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((committer.Tenure?.Term, committer.Tenure?.NoopIndex)).IsEqualTo((2UL, 0UL));
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(OlderTermTailEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(OlderTermTailEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
 
         _ = await log.AppendAsync(new FollowerLogAppendRequest("n1", 2UL, 1UL, 1UL, 0UL, OlderEntry(2UL, clock)), cancellationToken);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
@@ -123,7 +123,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         var gateway = new HoldingGateway { FailProbes = true };
         await using var committer = Elected(registry, gateway);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committer.PromoteAsync(2UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committer.PromoteAsync(2UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var noopIndex = committer.Tenure?.NoopIndex ?? 0UL;
         gateway.FailProbes = false;
         _ = await committer.PromoteAsync(2UL, cancellationToken);
@@ -198,7 +198,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
 
         _ = await Assert.That((first, second, third)).IsEqualTo((false, false, true));
         _ = await Assert.That(events.Count(StorageRetryEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(StorageRetryEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(StorageRetryEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(2UL);
     }
 
@@ -325,7 +325,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
             Owners(),
             TimeProvider.System);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committers.PromoteAsync("n2", 2UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committers.PromoteAsync("n2", 2UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var led = committers.Leads("n2");
         var queued = committers.Promotions!.TryRead(out var promotion);
         gateway.FailProbes = false;
@@ -382,9 +382,9 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await committer.PromoteAsync(3UL, cancellationToken);
         var appended = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(appended);
     }
 

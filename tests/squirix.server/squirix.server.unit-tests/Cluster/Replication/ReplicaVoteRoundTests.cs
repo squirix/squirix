@@ -3,13 +3,13 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -174,8 +174,9 @@ public sealed class ReplicaVoteRoundTests
 
     /// <summary>Cancellation of the caller ends the round by throwing.</summary>
     /// <returns>An asynchronous operation.</returns>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerCancellationPropagates()
+    public async Task CallerCancellationPropagates(CancellationToken cancellationToken)
     {
         var voters = new ScriptedVoters();
         _ = voters.Hang("n2");
@@ -186,13 +187,14 @@ public sealed class ReplicaVoteRoundTests
         var round = scope.RunAsync(false, CandidateTerm, source.Token);
         await source.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(round);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(round, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Cancellation of the caller throws although the gateway reports it as a transport cancellation.</summary>
     /// <returns>An asynchronous operation.</returns>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerCancelThrowsOnTransportCancel()
+    public async Task CallerCancelThrowsOnTransportCancel(CancellationToken cancellationToken)
     {
         var voters = new ScriptedVoters();
         _ = voters.Hang("n2", true);
@@ -203,13 +205,14 @@ public sealed class ReplicaVoteRoundTests
         var round = scope.RunAsync(false, CandidateTerm, source.Token);
         await source.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(round);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(round, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An unexpected fault of a call cancels the others and is rethrown.</summary>
     /// <returns>An asynchronous operation.</returns>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FaultedCallCancelsOthersAndRethrows()
+    public async Task FaultedCallCancelsOthersAndRethrows(CancellationToken cancellationToken)
     {
         var voters = new ScriptedVoters();
         voters.Throw("n2");
@@ -218,7 +221,7 @@ public sealed class ReplicaVoteRoundTests
 
         var round = scope.RunAsync(false, CandidateTerm, CancellationToken.None);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(round);
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(round, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(voters.WasCanceled("n3")).IsTrue();
     }
 
@@ -346,7 +349,7 @@ public sealed class ReplicaVoteRoundTests
         {
             Volatile.Write(ref _canceled[slot], true);
             _ = _transportCancel[slot]
-                ? source.TrySetException(new RpcException(new Status(StatusCode.Cancelled, "Call canceled.")))
+                ? source.TrySetException(new ServerCallException(FrameStatus.Cancelled, "Call canceled."))
                 : source.TrySetCanceled(cancellationToken);
         }
     }

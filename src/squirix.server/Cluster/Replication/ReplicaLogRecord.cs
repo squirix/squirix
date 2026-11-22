@@ -47,4 +47,8 @@ internal readonly record struct ReplicaLogRecord(
     ReadOnlyMemory<byte> OutcomePayload,
     long ExpiresUtcTicks,
     long DecidedUtcTicks,
-    long ResolvedUtcTicks);
+    long ResolvedUtcTicks)
+{
+    /// <summary>Gets the key in this cache evicted by this write, selected once by its group leader.</summary>
+    internal string? EvictedKey { get; init; }
+}

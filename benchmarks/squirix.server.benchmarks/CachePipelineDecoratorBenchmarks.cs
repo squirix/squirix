@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 using BenchmarkDotNet.Attributes;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -77,8 +76,8 @@ public class CachePipelineDecoratorBenchmarks
         _gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(_meter), TimeProvider.System);
         var estimator = new CacheEntrySizeEstimator<object?>();
         var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var pressureGate = new PressureGate(new StateEvaluator(options.Value), accounting, NodeId, _meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var pressureGate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
         _pipeline = CreatePipeline(new SuspendingCache(), pressureGate, estimator, _gate, _metricsMeter);
         _hitPipeline = CreatePipeline(new SuspendingCache(true), pressureGate, estimator, _gate, _metricsMeter);
     }
@@ -163,7 +162,7 @@ public class CachePipelineDecoratorBenchmarks
 
         internal SuspendingCache(bool hasEntry = false)
         {
-            _entry = hasEntry ? new NodeCacheEntry<object?>("existing", 1) : null;
+            _entry = hasEntry ? new NodeCacheEntry<object?>("existing") : null;
         }
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -172,7 +171,7 @@ public class CachePipelineDecoratorBenchmarks
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(new NodeCacheValueResult<object?>(_entry != null, _entry?.Value));
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 

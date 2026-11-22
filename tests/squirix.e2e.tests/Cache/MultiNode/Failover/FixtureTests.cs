@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -14,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>The failover fixtures refuse a fake election clock before any node starts, and the bounded retry records every attempt.</summary>
-public sealed class FixtureTests : EndToEndTestBase
+public sealed class FixtureTests
 {
     /// <summary>A failover cluster on a fake clock, shared or per node, fails to start before any node runs.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -30,8 +29,8 @@ public sealed class FixtureTests : EndToEndTestBase
             NodeClock = nodeId => string.Equals(nodeId, "nodeC", StringComparison.Ordinal) ? clock : null,
         };
 
-        var sharedFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: shared, cancellationToken: cancellationToken));
-        var perNodeFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: perNode, cancellationToken: cancellationToken));
+        var sharedFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: shared, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var perNodeFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: perNode, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sharedFailure.Message).StartsWith("Node nodeA runs automatic failover on a fake clock", StringComparison.Ordinal);
         _ = await Assert.That(perNodeFailure.Message).StartsWith("Node nodeC runs automatic failover on a fake clock", StringComparison.Ordinal);
@@ -73,18 +72,18 @@ public sealed class FixtureTests : EndToEndTestBase
     [Test]
     public async Task RetriesUnavailableUntilSuccess(CancellationToken cancellationToken)
     {
-        var calls = new Queue<StatusCode>([StatusCode.Unavailable, StatusCode.DeadlineExceeded]);
+        var calls = new Queue<WireStatus>([WireStatus.Unavailable, WireStatus.DeadlineExceeded]);
         var attempts = new List<EventualAttempt>();
 
         var result = await Eventually.SucceedsAsync(
             calls,
-            static (pending, _) => pending.TryDequeue(out var status) ? Task.FromException<int>(new RpcException(new Status(status, "fault"))) : Task.FromResult(7),
+            static (pending, _) => pending.TryDequeue(out var status) ? Task.FromException<int>(new WireCallException(status, "fault")) : Task.FromResult(7),
             TimeSpan.FromSeconds(30),
             attempts,
             cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(7);
-        _ = await Assert.That(string.Join(", ", attempts.ConvertAll(static a => a.Outcome))).IsEqualTo("RpcException Unavailable, RpcException DeadlineExceeded, ok");
+        _ = await Assert.That(string.Join(", ", attempts.ConvertAll(static a => a.Outcome))).IsEqualTo("WireCallException Unavailable, WireCallException DeadlineExceeded, ok");
     }
 
     /// <summary>Any other failure ends the retry at once and is rethrown after it is recorded.</summary>
@@ -94,17 +93,20 @@ public sealed class FixtureTests : EndToEndTestBase
     {
         var attempts = new List<EventualAttempt>();
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var failure = await NodeAsyncAssert.ThrowsAsync<WireCallException>(
             Eventually.SucceedsAsync(
                 0,
-                static (_, _) => Task.FromException(new RpcException(new Status(StatusCode.FailedPrecondition, "wrong"))),
+                static (_, _) => Task.FromException(new WireCallException(WireStatus.FailedPrecondition, "wrong")),
                 TimeSpan.FromSeconds(30),
                 attempts,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(WireStatus.FailedPrecondition);
         _ = await Assert.That(attempts).HasSingleItem();
-        _ = await Assert.That(attempts[0].Outcome).IsEqualTo("RpcException FailedPrecondition");
+        _ = await Assert.That(attempts[0].Outcome).IsEqualTo("WireCallException FailedPrecondition");
     }
 
     /// <summary>A call that stays unavailable ends with a timeout that lists every attempt once the bound is spent.</summary>
@@ -117,10 +119,13 @@ public sealed class FixtureTests : EndToEndTestBase
         var failure = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(
             Eventually.SucceedsAsync(
                 0,
-                static (_, _) => Task.FromException(new RpcException(new Status(StatusCode.Unavailable, "down"))),
+                static (_, _) => Task.FromException(new WireCallException(WireStatus.Unavailable, "down")),
                 TimeSpan.FromSeconds(2),
                 attempts,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(attempts.Count).IsGreaterThanOrEqualTo(1);
         for (var i = 1; i <= attempts.Count; i++)

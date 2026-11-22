@@ -10,7 +10,7 @@ application -> Squirix client SDK -> squirix server node(s)
 
 - **.NET backend engineers** exploring a typed, client/server cache SDK for .NET 10
 - **Distributed systems engineers** evaluating ownership routing, journal-backed durability, and operational surfaces
-- **OSS contributors** interested in cache engines, gRPC services, and durability tooling
+- **OSS contributors** interested in cache engines, binary protocols, and durability tooling
 - Teams comparing early-stage alternatives — without claims of parity with mature products such as Redis, NCache, or
   Hazelcast
 
@@ -34,41 +34,53 @@ All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profi
 | NuGet package | Role |
 | --- | --- |
 | [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, cache host (library) |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool |
+| `squirix.extensions.caching` | Microsoft `IDistributedCache` provider and HybridCache L2 |
 
-Install (pin the version from the [root README](../README.md) / nuget.org):
+Choose packages by process role. For Microsoft caching APIs, follow the [adapter guide](distributed-cache.md).
+For the native typed cache API, install the client SDK:
 
 ```bash
-dotnet add package squirix --version <version>
-dotnet add package squirix.server --version <version>
-dotnet tool install --global squirix.server.tool --version <version>
+dotnet add package squirix --version 0.2.0-preview.1
 ```
 
-During early preview evaluation you may reference `Squirix.Server.csproj` from a clone instead of the NuGet package.
+Run the server separately with the global tool:
+
+```bash
+dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
+```
+
+Applications that embed a node use the server library:
+
+```bash
+dotnet add package squirix.server --version 0.2.0-preview.1
+```
+
+Run package commands in the corresponding existing project directory. Use matching client and server versions.
+See [Getting started](getting-started.md) for both setup paths.
 
 ## Responsibilities
 
 | Layer | Owns |
 | --- | --- |
 | **`Squirix` (client)** | `SquirixClient`, `ICache<T>`, serializers, bootstrap connectivity and transport failover |
-| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, gRPC hosting, health/metrics |
+| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, binary cache hosting, health/metrics |
 | **`squirix-server` (host)** | Standalone process lifecycle and CLI |
 
-`Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through gRPC
-contracts and shared proto source.
+`Squirix.Server` does not reference the `Squirix` client assembly. Both assemblies compile the shared binary cache codec.
 
 ## Features in 0.1
 
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
-- HTTPS gRPC transport (shared `SquirixCache.proto` contract)
-- Health, readiness, and metrics routes on the same primary TLS listener (HTTP/1.1 and HTTP/2)
+- Binary TLS transport with a shared cache codec
+- Health, readiness and metrics on a dedicated HTTP/1.1 management listener over TLS
 - Opt-in journal-based durability with recovery on startup (`UsePersistence()` / `--persist`)
 - Snapshots and journal retention
 - Prometheus metrics and OpenTelemetry tracing
 - Static consistent-hash single-owner routing with bootstrap client failover
-- Standalone `squirix-server` CLI and optional ASP.NET Core embedding
+- Standalone `squirix-server` CLI and optional .NET embedding
 
 ## Further reading
 

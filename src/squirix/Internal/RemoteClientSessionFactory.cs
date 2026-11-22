@@ -3,13 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Net.Http;
-using System.Runtime.CompilerServices;
+using System.Net.Security;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
@@ -19,11 +17,11 @@ namespace Squirix.Internal;
 
 internal static class RemoteClientSessionFactory
 {
-    internal static async ValueTask<IRemoteClientSession> ConnectAsync(
+    internal static async ValueTask<RemoteClientSession> ConnectAsync(
         IList<Uri> endpoints,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider,
         ISquirixSerializer? serializer,
-        HttpMessageHandler? handler,
+        SslClientAuthenticationOptions? tlsOptions,
         CancellationToken cancellationToken)
     {
         var normalizedEndpoints = NormalizeEndpoints(endpoints);
@@ -45,8 +43,8 @@ internal static class RemoteClientSessionFactory
                 peers,
                 static peer => CallPolicyDefaults.Create(peer, TimeProvider.System),
                 TimeProvider.System,
-                handler,
-                callCredentials: BuildCallCredentials(bearerTokenProvider));
+                tlsOptions,
+                bearerTokenProvider);
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId, CallPolicyDefaults.OperationDeadline, TimeProvider.System);
             var connected = pool;
@@ -62,13 +60,12 @@ internal static class RemoteClientSessionFactory
 
     /// <summary>Creates the serializer used by remote client sessions (metrics-decorated by default).</summary>
     /// <param name="serializer">Optional inner serializer; defaults to System.Text.Json.</param>
-    /// <param name="enableMetrics">When <see langword="true" />, wraps the serializer with metrics recording.</param>
     /// <returns>Configured serializer instance.</returns>
-    internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null, bool enableMetrics = true) =>
-        SerializationProvider.Create(serializer, enableMetrics);
-
-    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? provider) =>
-        provider == null ? null : new BearerTokenCallCredentials(provider).Credentials;
+    internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null)
+    {
+        var effective = serializer ?? new SystemTextJsonSerializer();
+        return effective is MetricsDecoratedSerializer ? effective : new MetricsDecoratedSerializer(effective);
+    }
 
     private static string FormatEndpointNodeId(int index)
     {
@@ -127,7 +124,7 @@ internal static class RemoteClientSessionFactory
     private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, string paramName, ref int count)
     {
         var validated = RequireAbsoluteEndpoint(endpoint, paramName);
-        GrpcTransportEndpoints.RequireHttps(validated);
+        BinaryCacheClient.RequireHttps(validated);
         if (!seen.Add(validated.GetLeftPart(UriPartial.Authority)))
             return false;
 
@@ -135,244 +132,154 @@ internal static class RemoteClientSessionFactory
         return true;
     }
 
-    private static class SerializationProvider
+    /// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
+    [Immutable]
+    private sealed class MetricsDecoratedSerializer : ISquirixSerializer
     {
-        internal static ISquirixSerializer Create(ISquirixSerializer? serializer = null, bool enableMetrics = true)
-        {
-            var effective = serializer ?? new SystemTextJsonSerializer();
-            return enableMetrics ? EnsureMetrics(effective) : effective;
-        }
+        private readonly string _impl;
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ISquirixSerializer EnsureMetrics(ISquirixSerializer inner)
+        private readonly ISquirixSerializer _inner;
+
+        internal MetricsDecoratedSerializer(ISquirixSerializer inner)
         {
             ArgumentNullException.ThrowIfNull(inner);
-            return inner is MetricsDecoratedSerializer ? inner : new MetricsDecoratedSerializer(inner);
+            _inner = inner;
+            _impl = _inner.GetType().Name;
         }
 
-        /// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
-        [Immutable]
-        private sealed class MetricsDecoratedSerializer : ISquirixSerializer
+        public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null)
         {
-            private readonly string _impl;
-
-            private readonly ISquirixSerializer _inner;
-
-            internal MetricsDecoratedSerializer(ISquirixSerializer inner)
+            var start = Stopwatch.GetTimestamp();
+            try
             {
-                ArgumentNullException.ThrowIfNull(inner);
-                _inner = inner;
-                _impl = _inner.GetType().Name;
+                var result = _inner.Deserialize(payload, typeInfo);
+                Record(SerializerMetrics.OpDeserialize, true, start);
+                return result;
             }
-
-            public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null)
+            catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
             {
-                var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    var result = _inner.Deserialize(payload, typeInfo);
-                    Record(SerializerMetrics.OpDeserialize, true, start);
-                    return result;
-                }
-                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
-                {
-                    throw;
-                }
-            }
-
-            public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
-            {
-                var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    var result = _inner.Deserialize(payload, typeInfo);
-                    Record(SerializerMetrics.OpDeserialize, true, start);
-                    return result;
-                }
-                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
-                {
-                    throw;
-                }
-            }
-
-            public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null)
-            {
-                var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    var result = _inner.Deserialize(payload, typeInfo);
-                    Record(SerializerMetrics.OpDeserialize, true, start);
-                    return result;
-                }
-                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
-                {
-                    throw;
-                }
-            }
-
-            public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null)
-            {
-                var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    var result = _inner.Deserialize(payload, typeInfo);
-                    Record(SerializerMetrics.OpDeserialize, true, start);
-                    return result;
-                }
-                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
-                {
-                    throw;
-                }
-            }
-
-            public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
-            {
-                var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    _inner.Serialize(destination, value, typeInfo);
-                    Record(SerializerMetrics.OpSerialize, true, start);
-                }
-                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
-                {
-                    throw;
-                }
-            }
-
-            public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
-            {
-                var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    var result = _inner.SerializeToElement(value, typeInfo);
-                    Record(SerializerMetrics.OpSerialize, true, start);
-                    return result;
-                }
-                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
-                {
-                    throw;
-                }
-            }
-
-            public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
-            {
-                var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    var result = _inner.SerializeToUtf8Bytes(value, typeInfo);
-                    Record(SerializerMetrics.OpSerialize, true, start);
-                    return result;
-                }
-                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
-                {
-                    throw;
-                }
-            }
-
-            private void Record(string op, bool success, long startTimestamp)
-            {
-                var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
-                SerializerMetrics.OpsTotal.WithLabels(op, success ? "ok" : "error", _impl).Inc(1);
-                SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
-            }
-
-            private void RecordFailure(string op, Exception ex, long startTimestamp)
-            {
-                var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
-                SerializerMetrics.OpsTotal.WithLabels(op, "error", _impl).Inc(1);
-                SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
-                var exType = ex.GetType().Name;
-                SerializerMetrics.FailuresTotal.WithLabels(op, exType, _impl).Inc(1);
-            }
-
-            private bool TryRecordSerializerFailure(string op, Exception ex, long startTimestamp)
-            {
-                switch (ex)
-                {
-                    case JsonException:
-                    case NotSupportedException:
-                    case InvalidOperationException:
-                    case IOException:
-                        RecordFailure(op, ex, startTimestamp);
-                        return true;
-                    default:
-                        return false;
-                }
+                throw;
             }
         }
-    }
 
-    private sealed class BearerTokenCallCredentials
-    {
-        private const string AuthorizationHeader = "authorization";
-        private const string BearerSchemePrefix = "Bearer ";
-
-        private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
-        private string? _cachedAuthorizationHeader;
-        private string? _cachedToken;
-
-        internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
+        public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
         {
-            _tokenProvider = tokenProvider;
-            Credentials = CallCredentials.FromInterceptor(InterceptAsync);
+            var start = Stopwatch.GetTimestamp();
+            try
+            {
+                var result = _inner.Deserialize(payload, typeInfo);
+                Record(SerializerMetrics.OpDeserialize, true, start);
+                return result;
+            }
+            catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
+            {
+                throw;
+            }
         }
 
-        internal CallCredentials Credentials { get; }
-
-        private async Task AddAuthorizationHeaderAsync(ValueTask<string> tokenTask, Metadata metadata)
+        public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null)
         {
-            var token = await tokenTask.ConfigureAwait(false);
-            var header = ResolveAuthorizationHeader(token);
-            metadata.Add(AuthorizationHeader, header);
+            var start = Stopwatch.GetTimestamp();
+            try
+            {
+                var result = _inner.Deserialize(payload, typeInfo);
+                Record(SerializerMetrics.OpDeserialize, true, start);
+                return result;
+            }
+            catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
+            {
+                throw;
+            }
         }
 
-        private Task InterceptAsync(AuthInterceptorContext context, Metadata metadata) => AddAuthorizationHeaderAsync(_tokenProvider(context.CancellationToken), metadata);
-
-        private string ResolveAuthorizationHeader(string token)
+        public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null)
         {
-            var cachedToken = _cachedToken;
-            var cachedHeader = _cachedAuthorizationHeader;
-            if (cachedToken != null && cachedHeader != null && string.Equals(cachedToken, token, StringComparison.Ordinal))
-                return cachedHeader;
-
-            var header = string.Create(
-                BearerSchemePrefix.Length + token.Length,
-                (BearerSchemePrefix, token),
-                static (span, state) =>
-                {
-                    state.BearerSchemePrefix.AsSpan().CopyTo(span);
-                    state.token.AsSpan().CopyTo(span[state.BearerSchemePrefix.Length..]);
-                });
-
-            _cachedToken = token;
-            _cachedAuthorizationHeader = header;
-            return header;
+            var start = Stopwatch.GetTimestamp();
+            try
+            {
+                var result = _inner.Deserialize(payload, typeInfo);
+                Record(SerializerMetrics.OpDeserialize, true, start);
+                return result;
+            }
+            catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
+            {
+                throw;
+            }
         }
-    }
 
-    [Immutable]
-    private sealed class RemoteClientSession : IRemoteClientSession
-    {
-        private readonly EndpointFailover _bootstrapFailover;
-        private readonly IClientPool _remoteClients;
-        private readonly ISquirixSerializer _serializer;
-
-        internal RemoteClientSession(IClientPool remoteClients, EndpointFailover bootstrapFailover, ISquirixSerializer serializer)
+        public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
         {
-            ArgumentNullException.ThrowIfNull(remoteClients);
-            ArgumentNullException.ThrowIfNull(bootstrapFailover);
-            ArgumentNullException.ThrowIfNull(serializer);
-            _remoteClients = remoteClients;
-            _bootstrapFailover = bootstrapFailover;
-            _serializer = serializer;
+            var start = Stopwatch.GetTimestamp();
+            try
+            {
+                _inner.Serialize(destination, value, typeInfo);
+                Record(SerializerMetrics.OpSerialize, true, start);
+            }
+            catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
+            {
+                throw;
+            }
         }
 
-        public ValueTask DisposeAsync()
+        public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
         {
-            _remoteClients.BeginDrain();
-            return _remoteClients.DisposeAsync();
+            var start = Stopwatch.GetTimestamp();
+            try
+            {
+                var result = _inner.SerializeToElement(value, typeInfo);
+                Record(SerializerMetrics.OpSerialize, true, start);
+                return result;
+            }
+            catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
+            {
+                throw;
+            }
         }
 
-        public ICache<T> GetCache<T>(string cacheName) => new RemoteCache<T>(cacheName, _bootstrapFailover, _remoteClients, _serializer);
+        public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
+        {
+            var start = Stopwatch.GetTimestamp();
+            try
+            {
+                var result = _inner.SerializeToUtf8Bytes(value, typeInfo);
+                Record(SerializerMetrics.OpSerialize, true, start);
+                return result;
+            }
+            catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
+            {
+                throw;
+            }
+        }
+
+        private void Record(string op, bool success, long startTimestamp)
+        {
+            var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
+            SerializerMetrics.OpsTotal.Add(op, success ? "ok" : "error", _impl);
+            SerializerMetrics.OpDurationSeconds.Record(op, _impl, elapsedSeconds);
+        }
+
+        private void RecordFailure(string op, Exception ex, long startTimestamp)
+        {
+            var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
+            SerializerMetrics.OpsTotal.Add(op, "error", _impl);
+            SerializerMetrics.OpDurationSeconds.Record(op, _impl, elapsedSeconds);
+            var exType = ex.GetType().Name;
+            SerializerMetrics.FailuresTotal.Add(op, exType, _impl);
+        }
+
+        private bool TryRecordSerializerFailure(string op, Exception ex, long startTimestamp)
+        {
+            switch (ex)
+            {
+                case JsonException:
+                case NotSupportedException:
+                case InvalidOperationException:
+                case IOException:
+                    RecordFailure(op, ex, startTimestamp);
+                    return true;
+                default:
+                    return false;
+            }
+        }
     }
 }

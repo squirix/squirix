@@ -1,17 +1,18 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -69,7 +70,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ILogicalNamespacedCache<object?> local,
         (string GroupId, string SelfId) identity,
         in ReplicaTopologyStamp topology,
-        ILogger<ReplicaGroupCommitter> log)
+        IServerLogger<ReplicaGroupCommitter> log)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(locator);
@@ -175,6 +176,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the writes that wait for a commit batch, and the leadership of the batch former.</summary>
     internal ReplicaCommitQueue Combiner { get; } = new();
 
+    /// <summary>Gets the gate serializing write batches with entry catch-up and transfer capture; snapshot streams run outside it.</summary>
+    /// <remarks>Writers and catch-up sessions take this gate before <see cref="Gate" />; admission, retirement and shutdown take only <see cref="Gate" />.</remarks>
+    internal AsyncLock CatchUpGate { get; } = new();
+
     /// <summary>Gets the commit gate: appends, commits, applies, starts, and retirements of the group run one at a time under it.</summary>
     internal AsyncLock Gate { get; } = new();
 
@@ -195,11 +200,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the local cache pipeline used for prepare reads and memory applies.</summary>
     internal ILogicalNamespacedCache<object?> Local { get; }
 
+    internal Func<CacheKey, CacheKey?>? SelectCapacityVictim { get; init; }
+
     /// <summary>Gets the record of the appends to the owned group log; it outlives the pipelines, which are recreated after a failed append.</summary>
     internal ReplicaLocalAppends LocalAppends { get; } = new();
 
     /// <summary>Gets the logger for lifecycle failures.</summary>
-    internal ILogger Log { get; }
+    internal IServerLogger Log { get; }
 
     /// <summary>Gets the memory pressure the members of the group reported in their replies; it outlives the pipelines, which are recreated.</summary>
     internal ReplicaMemberPressure MemberPressure => Volatile.Read(ref _memberPressure) ?? CreateMemberPressure();
@@ -250,6 +257,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
+        CatchUpGate.Dispose();
 
         // One shutdown budget bounds the whole drain: the expiries first, then the gate, so dispose never waits longer than the budget.
         using var budget = new CancellationTokenSource(ShutdownBudget, ShutdownTimeProvider);
@@ -281,7 +289,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
+            ReplicaCommitLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
             Gate.Dispose();
             this.RefuseQueued();
             return;
@@ -333,7 +341,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="write">Whether a write is to be prepared next; <see langword="false" /> for verification.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The running coordinator and mutation factory.</returns>
-    /// <exception cref="Grpc.Core.RpcException">
+    /// <exception cref="ServerCallException">
     /// The write has no verified majority (Unavailable) or no authorized leadership in the led term (stale-term, stale-owner or Unavailable):
     /// nothing was written.
     /// </exception>
@@ -409,9 +417,21 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         var fault = (error.GetType(), progress.Appended);
         if (_reportedAppendFault != fault)
-            ServerLog.ReplicaLocalAppendFailed(Log, error, GroupId);
+            ReplicaCommitLog.ReplicaLocalAppendFailed(Log, error, GroupId);
 
         _reportedAppendFault = fault;
+    }
+
+    /// <summary>Fences the retiring tenure under the commit gate. Normal disposal drains committed entries.</summary>
+    /// <param name="term">The term the election driver retired.</param>
+    /// <returns>Whether this committer held that tenure and closed admission.</returns>
+    internal bool FenceTransfer(ulong term)
+    {
+        if (_retiring || Tenure?.Term != term)
+            return false;
+
+        _retiring = true;
+        return true;
     }
 
     /// <summary>Stops leading the group by election: closes its followers, disposes its coordinator, and releases the applier lease.</summary>
@@ -454,7 +474,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes once the coordinator is started.</returns>
     /// <exception cref="InvalidOperationException">This node does not serve the group, or the log moved past the led term.</exception>
-    /// <exception cref="Grpc.Core.RpcException">The leadership by election is retired: Unavailable, nothing was written.</exception>
+    /// <exception cref="ServerCallException">The leadership by election is retired: Unavailable, nothing was written.</exception>
     /// <exception cref="StaticLeaderTermExceededException">A static leader's log moved past term one; nothing was written.</exception>
     /// <remarks>Runs under the commit gate, and only while the committer is not started.</remarks>
     internal async Task StartAsync(CancellationToken cancellationToken)
@@ -535,7 +555,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             var fault = (error.GetType(), Applier.AppliedIndex);
             if (_reportedApplyFault != fault)
-                ServerLog.ReplicaPendingApplyFailed(Log, error);
+                ReplicaCommitLog.ReplicaPendingApplyFailed(Log, error);
 
             _reportedApplyFault = fault;
             return false;
@@ -566,7 +586,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         MaxBatchKeys = ReplicaGroupCommitterCommits.MaxExpiriesPerCommit,
         ShutdownBudget = ShutdownBudget,
         ShutdownTimeProvider = ShutdownTimeProvider,
-        ShutdownLeakReporter = budget => ServerLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
+        ShutdownLeakReporter = budget => ReplicaMaintenanceLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
     };
 
     /// <summary>Disposes the coordinator of the previous start, if any, once its committed entries are applied.</summary>

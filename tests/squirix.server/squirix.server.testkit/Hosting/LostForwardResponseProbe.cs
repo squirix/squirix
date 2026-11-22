@@ -2,11 +2,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -14,7 +14,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// Simulates a lost response on the hop from an entry node to a key owner: the owner executes the forwarded mutation and records its outcome,
 /// but the entry node never receives the response and every further forward of that key from the entry node fails as unreachable.
 /// </summary>
-/// <remarks>Only <c language="csharp">SetEntry</c>, <c language="csharp">TryAddEntry</c> and <c language="csharp">GetOrAdd</c> forwards of armed keys are affected.</remarks>
+/// <remarks>Only SetEntry, Remove, TryAddEntry, GetOrAdd and distributed access forwards of armed keys are affected.</remarks>
 internal sealed class LostForwardResponseProbe
 {
     private readonly ConcurrentDictionary<string, KeyFault> _faults = new(StringComparer.Ordinal);
@@ -37,10 +37,10 @@ internal sealed class LostForwardResponseProbe
     /// <summary>Wraps the node client pool so forwarded calls pass through the fault.</summary>
     /// <param name="services">The node service collection.</param>
     /// <exception cref="InvalidOperationException">Thrown when the node does not register a factory-built client pool.</exception>
-    internal void Register(IServiceCollection services)
+    internal void Register(TestServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        ServiceDescriptor? original = null;
+        TestServiceRegistration? original = null;
         for (var i = services.Count - 1; i >= 0 && original == null; i--)
         {
             if (services[i].ServiceType == typeof(IServerClientPool))
@@ -50,37 +50,6 @@ internal sealed class LostForwardResponseProbe
         var factory = ThrowHelper.Required(original?.ImplementationFactory, "The node does not register a factory-built client pool.");
         _ = services.Remove(original!);
         _ = services.AddSingleton<IServerClientPool>(sp => new LossyPool(ThrowHelper.Required(factory(sp) as IServerClientPool, "The client pool factory returned another type."), this));
-    }
-
-    private static AsyncUnaryCall<TResponse> Unreachable<TResponse>()
-    {
-        var status = new Status(StatusCode.Unavailable, "Injected: key owner connection is down.");
-        return new AsyncUnaryCall<TResponse>(
-            Task.FromException<TResponse>(new RpcException(status)),
-            Task.FromResult(new Metadata()),
-            () => status,
-            static () => [],
-            static () => { });
-    }
-
-    private static async Task<TResponse> LoseResponseAsync<TResponse>(KeyFault fault, AsyncUnaryCall<TResponse> call)
-    {
-        _ = await call.ResponseAsync.ConfigureAwait(false);
-        fault.MarkOwnerExecuted();
-        await fault.AfterOwnerExecuted().ConfigureAwait(false);
-        throw new RpcException(new Status(StatusCode.Unavailable, "Injected: the owner response was lost."));
-    }
-
-    private AsyncUnaryCall<TResponse> Forward<TResponse>(string key, Func<AsyncUnaryCall<TResponse>> send)
-    {
-        if (!_faults.TryGetValue(key, out var fault))
-            return send();
-
-        if (fault.NextAttempt() > 1)
-            return Unreachable<TResponse>();
-
-        var call = send();
-        return new AsyncUnaryCall<TResponse>(LoseResponseAsync(fault, call), call.ResponseHeadersAsync, call.GetStatus, call.GetTrailers, call.Dispose);
     }
 
     private sealed class KeyFault
@@ -104,40 +73,41 @@ internal sealed class LostForwardResponseProbe
         internal int NextAttempt() => Interlocked.Increment(ref _attempts);
     }
 
-    private sealed class LossyClient : SquirixCacheService.SquirixCacheServiceClient
+    private sealed class LossyClient : IPeerClient
     {
-        private readonly SquirixCacheService.SquirixCacheServiceClient _inner;
+        private readonly IPeerClient _inner;
         private readonly LostForwardResponseProbe _probe;
 
-        internal LossyClient(SquirixCacheService.SquirixCacheServiceClient inner, LostForwardResponseProbe probe)
+        internal LossyClient(IPeerClient inner, LostForwardResponseProbe probe)
         {
             _inner = inner;
             _probe = probe;
         }
 
-        public override AsyncUnaryCall<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CallOptions options) => _inner.GetEntryAsync(request, options);
+        public async Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage
+        {
+            var key = request switch
+            {
+                RemoveAsyncRequest r => r.Key,
+                GetDistributedAsyncRequest r => r.Key,
+                GetOrAddAsyncRequest r => r.Key,
+                RefreshDistributedAsyncRequest r => r.Key,
+                SetEntryAsyncRequest r => r.Key,
+                TryAddEntryAsyncRequest r => r.Key,
+                _ => null,
+            };
+            if (key == null || !_probe._faults.TryGetValue(key, out var fault))
+                return await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
 
-        public override AsyncUnaryCall<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, CallOptions options) => _inner.GetExpirationAsync(request, options);
+            if (fault.NextAttempt() > 1)
+                throw new ServerCallException(FrameStatus.Unavailable, "Injected: key owner connection is down.");
 
-        public override AsyncUnaryCall<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.GetOrAddAsync(request, options));
-
-        public override AsyncUnaryCall<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CallOptions options) => _inner.GetValueAsync(request, options);
-
-        public override AsyncUnaryCall<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CallOptions options) => _inner.RemoveAsync(request, options);
-
-        public override AsyncUnaryCall<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, CallOptions options) =>
-            _inner.RemoveExpirationAsync(request, options);
-
-        public override AsyncUnaryCall<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.SetEntryAsync(request, options));
-
-        public override AsyncUnaryCall<TryAddAsyncResponse> TryAddEntryAsync(TryAddEntryAsyncRequest request, CallOptions options) =>
-            _probe.Forward(request.Key, () => _inner.TryAddEntryAsync(request, options));
-
-        public override AsyncUnaryCall<TouchAsyncResponse> TouchAsync(TouchAsyncRequest request, CallOptions options) => _inner.TouchAsync(request, options);
-
-        public override AsyncUnaryCall<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, CallOptions options) => _inner.UpdateAsync(request, options);
+            _ = await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
+            fault.MarkOwnerExecuted();
+            await fault.AfterOwnerExecuted().ConfigureAwait(false);
+            throw new ServerCallException(FrameStatus.Unavailable, "Injected: the owner response was lost.");
+        }
     }
 
     private sealed class LossyPool : IServerClientPool
@@ -153,7 +123,7 @@ internal sealed class LostForwardResponseProbe
 
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
-        public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => new LossyClient(_inner.ForNode(nodeId), _probe);
+        public IPeerClient ForNode(string nodeId) => new LossyClient(_inner.ForNode(nodeId), _probe);
 
         public ServerChannelLease LeaseChannel(string nodeId, CancellationToken cancellationToken) => _inner.LeaseChannel(nodeId, cancellationToken);
 

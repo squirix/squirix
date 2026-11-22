@@ -1,8 +1,8 @@
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Errors;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 
@@ -39,26 +39,19 @@ internal static class ErrorContractTestKit
     /// <param name="expectedCode">Expected stable squirix error code.</param>
     /// <param name="expectedPublicCode">Expected public error token.</param>
     /// <param name="expectedDetail">Expected bounded detail text.</param>
-    /// <param name="createDirectRpc">Factory for the direct exception RPC projection.</param>
     internal static async Task AssertResourceExhaustedGrpcMappingAsync(
         SquirixException contract,
         SquirixErrorCode expectedCode,
         string expectedPublicCode,
-        string expectedDetail,
-        Func<RpcException> createDirectRpc)
+        string expectedDetail)
     {
         ArgumentNullException.ThrowIfNull(contract);
-        ArgumentNullException.ThrowIfNull(createDirectRpc);
 
         _ = await Assert.That(contract.Code).IsEqualTo(expectedCode);
         _ = await Assert.That(SquirixErrorMapper.ToPublicCode(contract.Code)).IsEqualTo(expectedPublicCode);
 
-        var rpc = contract.ToRpcException();
-        _ = await Assert.That(rpc.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(rpc.Status.Detail).IsEqualTo(expectedDetail);
-
-        var direct = createDirectRpc();
-        _ = await Assert.That(direct.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
-        _ = await Assert.That(direct.Status.Detail).IsEqualTo(expectedDetail);
+        var rpc = contract.ToServerCallException();
+        _ = await Assert.That(rpc.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(rpc.Message).IsEqualTo(expectedDetail);
     }
 }

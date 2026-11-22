@@ -92,7 +92,7 @@ public sealed class ReplicaQuorumProgressTests
 
         await cancellation.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static ReplicaDurableAcknowledgement CreateAcknowledgement(PreparedReplicaMutation mutation) => new(

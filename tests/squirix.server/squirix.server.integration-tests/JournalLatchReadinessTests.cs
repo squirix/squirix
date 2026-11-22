@@ -3,16 +3,15 @@ using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -32,13 +31,13 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node_latch_ephemeral", new IntegrationStartOptions(), cancellationToken);
         var node = cluster["node_latch_ephemeral"];
 
-        var registrations = node.GetRequiredService<IOptions<HealthCheckServiceOptions>>().Value.Registrations;
+        var registrations = node.GetServices<ReadinessCheck>();
         var hasJournalCheck = false;
         foreach (var registration in registrations)
             hasJournalCheck |= string.Equals(registration.Name, JournalMaintenanceCheck, StringComparison.Ordinal);
 
         _ = await Assert.That(hasJournalCheck).IsFalse();
-        _ = await Assert.That(await GetReadyStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
+        _ = await Assert.That(await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
     }
 
     /// <summary>A persistent node turns <c language="csharp">/health/ready</c> unhealthy once its journal pipeline latches a failure.</summary>
@@ -48,21 +47,21 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync("node_latch_journal", new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
         var node = cluster["node_latch_journal"];
-        var readyBefore = await GetReadyStatusCodeAsync(node.Uri, cancellationToken);
+        var readyBefore = await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken);
 
         node.GetRequiredService<IJournalCoordinator>().FailJournalPipeline(new IOException("simulated fsync failure"));
 
         _ = await Assert.That(readyBefore).IsEqualTo(HttpStatusCode.OK);
-        _ = await Assert.That(await GetReadyStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+        _ = await Assert.That(await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
 
         // The node cannot make what it accepted durable, and the stop says so instead of looking clean.
-        var stopError = await NodeAsyncAssert.ThrowsAsync<IOException>(cluster.StopNodeAsync("node_latch_journal"));
+        var stopError = await NodeAsyncAssert.ThrowsAsync<IOException>(cluster.StopNodeAsync("node_latch_journal"), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(stopError.Message).IsEqualTo("simulated fsync failure");
     }
 
     /// <summary>
     /// A persistent node reports <c language="csharp">/health/ready</c> degraded while a journal segment I/O call is in progress past the
-    /// threshold and ready again once it returns. The host keeps the default ASP.NET Core status mapping, so degraded answers HTTP 200
+    /// threshold and ready again once it returns. Degraded readiness answers HTTP 200
     /// like healthy and only the body (<c language="text">Degraded</c>) tells them apart.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -78,7 +77,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
             throw new InvalidOperationException("the host journal does not expose its stall probe.");
 
-        var before = await GetReadyAsync(node.Uri, cancellationToken);
+        var before = await GetReadyAsync(node.ManagementUri, cancellationToken);
 
         // The node is idle, so its journal thread performs no segment I/O and the test is the only writer of the probe.
         journal.StallProbe.IoStarted(nameof(IJournalSegmentWriter.FlushToDisk));
@@ -86,18 +85,18 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         try
         {
             clock.Advance(persistence.JournalStallDegradedThreshold);
-            stalled = await GetReadyAsync(node.Uri, cancellationToken);
+            stalled = await GetReadyAsync(node.ManagementUri, cancellationToken);
         }
         finally
         {
             journal.StallProbe.IoFinished();
         }
 
-        var after = await GetReadyAsync(node.Uri, cancellationToken);
+        var after = await GetReadyAsync(node.ManagementUri, cancellationToken);
 
-        _ = await Assert.That(before).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
-        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Degraded)));
-        _ = await Assert.That(after).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
+        _ = await Assert.That(before).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Healthy)));
+        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Degraded)));
+        _ = await Assert.That(after).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Healthy)));
     }
 
     private async Task<(HttpStatusCode Status, string Body)> GetReadyAsync(Uri uri, CancellationToken cancellationToken)

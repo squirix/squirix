@@ -7,11 +7,11 @@
         <RootNamespace>Squirix</RootNamespace>
         <PackageId>squirix</PackageId>
         <Authors>Squirix Team</Authors>
-        <Description>Experimental distributed cache client SDK for .NET 10. Typed ICache&lt;T&gt; API, gRPC connectivity, custom serialization, and bootstrap failover to Squirix.Server nodes. Early preview — not production-ready.</Description>
+        <Description>Experimental distributed cache client SDK for .NET 10. Typed ICache&lt;T&gt; API, binary TLS connectivity, custom serialization, and bootstrap failover to Squirix.Server nodes. Early preview — not production-ready.</Description>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
         <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
-        <PackageTags>dotnet;cache;distributed-cache;csharp;grpc;key-value-store;client</PackageTags>
-        <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
+        <PackageTags>dotnet;cache;distributed-cache;csharp;tls;key-value-store;client</PackageTags>
+        <PackageReleaseNotes>Squirix 0.2.0-preview.1 uses the native server and updates the client packages. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.2.0-preview.1.md</PackageReleaseNotes>
         <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
@@ -19,27 +19,38 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>icon.png</PackageIcon>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework Condition="'$(SquirixPackAllFrameworks)' != 'true'">$(SquirixTargetFramework)</TargetFramework>
+        <TargetFrameworks Condition="'$(SquirixPackAllFrameworks)' == 'true'">net10.0;net11.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>
-        <Protobuf Include="..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto" GrpcServices="Client" ProtoRoot="..\shared\Squirix\Transport\Grpc\Protos" Access="Internal"/>
-    </ItemGroup>
-
-    <ItemGroup>
-        <PackageReference Include="Google.Protobuf"/>
-        <PackageReference Include="Grpc.Net.Client"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
-        <PackageReference Include="Grpc.Tools" PrivateAssets="All"/>
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcAttemptTimeout.cs" Link="Internal\Cluster\Transport\Grpc\RpcAttemptTimeout.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Grpc\RpcOperationIdentity.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\TimedCancellation.cs" Link="Internal\Cluster\Transport\Grpc\TimedCancellation.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\CacheValueWire.cs" Link="Internal\Cluster\Transport\Grpc\CacheValueWire.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireDuration.cs" Link="Internal\Cluster\Transport\Grpc\WireDuration.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireTimestamp.cs" Link="Internal\Cluster\Transport\Grpc\WireTimestamp.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheMessages.g.cs" Link="Transport\Wire\CacheMessages.g.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheWritePayload.cs" Link="Transport\Wire\CacheWritePayload.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\GetDistributedAsyncResponse.cs" Link="Transport\Wire\GetDistributedAsyncResponse.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\GetValueAsyncResponse.cs" Link="Transport\Wire\GetValueAsyncResponse.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\BinaryTracedRequest.cs" Link="Transport\Wire\BinaryTracedRequest.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireMessage.cs" Link="Transport\Wire\Codec\WireMessage.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireTraceParent.cs" Link="Transport\Wire\Codec\WireTraceParent.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireDecoder.cs" Link="Transport\Wire\Codec\WireDecoder.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\IWireParser.cs" Link="Transport\Wire\Codec\IWireParser.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireParser.cs" Link="Transport\Wire\Codec\WireParser.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireReader.cs" Link="Transport\Wire\Codec\WireReader.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireWriter.cs" Link="Transport\Wire\Codec\WireWriter.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireSegments.cs" Link="Transport\Wire\Codec\WireSegments.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\FrameStatus.cs" Link="Transport\Binary\FrameStatus.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ConnectionAuthenticationProtocol.cs" Link="Internal\Cluster\Transport\Wire\ConnectionAuthenticationProtocol.cs"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcAttemptTimeout.cs" Link="Internal\Cluster\Transport\Wire\RpcAttemptTimeout.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Wire\RpcOperationIdentity.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\TimedCancellation.cs" Link="Internal\Cluster\Transport\Wire\TimedCancellation.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheValueWire.cs" Link="Internal\Cluster\Transport\Wire\CacheValueWire.cs"/>
         <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>

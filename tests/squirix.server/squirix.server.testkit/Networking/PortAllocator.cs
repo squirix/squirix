@@ -166,11 +166,10 @@ public sealed class PortAllocator : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        foreach (var (port, listener) in _heldPorts)
+        foreach (var (_, listener) in _heldPorts)
         {
             listener.Stop();
             listener.Dispose();
-            _ = Reserved.TryRemove(port, out _);
         }
 
         _heldPorts.Clear();
@@ -206,13 +205,14 @@ public sealed class PortAllocator : IDisposable
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
+        int[]? ports = null;
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             var candidate = NextCandidate();
             if (!FitsInRange(candidate, count))
                 continue;
 
-            var ports = new int[count];
+            ports ??= new int[count];
             if (TryReserve(ResolveWithinRange(candidate), ports))
                 return ports;
         }
@@ -391,7 +391,6 @@ public sealed class PortAllocator : IDisposable
     private bool TryReserve(int start, int[] ports)
     {
         var reservedCount = 0;
-        var listeners = new TcpListener[ports.Length];
         try
         {
             for (var i = 0; i < ports.Length; i++)
@@ -402,10 +401,10 @@ public sealed class PortAllocator : IDisposable
 
                 try
                 {
-                    listeners[i] = BindPort(port);
+                    var listener = BindPort(port);
                     ports[i] = port;
                     reservedCount++;
-                    _heldPorts[port] = listeners[i];
+                    _heldPorts[port] = listener;
                     _ = _allocatedPorts.TryAdd(port, 0);
                 }
                 catch (SocketException)

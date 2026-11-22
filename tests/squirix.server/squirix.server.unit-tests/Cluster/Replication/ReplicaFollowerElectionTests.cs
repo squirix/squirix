@@ -1,16 +1,16 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -265,7 +265,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
 
         var vote = follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), caller.Token);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
         _ = await Assert.That((status?.CurrentTerm, status?.VotedFor)).IsEqualTo((0UL, string.Empty));
     }

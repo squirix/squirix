@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -13,6 +11,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -50,11 +49,11 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var follower = ReadyFollowerSnapshot("group-b") with { MemberState = GroupMemberState.Incomplete };
         using var scope = new CheckScope(new FixedSource([follower, owner]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
         _ = await Assert.That(ReplicaReadiness.Evaluate(in owner)).IsEqualTo(ReplicaReadinessVerdict.Unseeded);
         _ = await Assert.That(ReplicaReadiness.Evaluate(in follower)).IsEqualTo(ReplicaReadinessVerdict.Incomplete);
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).IsEqualTo(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Incomplete, "group-b"));
     }
 
@@ -84,9 +83,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     {
         using var scope = new CheckScope(new FixedSource([]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>Verifies a follower without authority stays ready when its log agrees.</summary>
@@ -97,9 +96,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var follower = ReadyFollowerSnapshot("group-b") with { HasMajorityContact = false };
         using var scope = new CheckScope(new FixedSource([follower]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>Verifies a leader without majority contact reports not ready.</summary>
@@ -111,9 +110,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var second = ReadyLeaderSnapshot("group-b") with { HasMajorityContact = false };
         using var scope = new CheckScope(new FixedSource([first, second]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("minority", StringComparison.Ordinal);
     }
 
@@ -125,9 +124,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var mismatched = ReadyLeaderSnapshot("group-a") with { FingerprintMatch = false };
         using var scope = new CheckScope(new FixedSource([mismatched]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("mismatch", StringComparison.Ordinal);
     }
 
@@ -139,9 +138,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var mismatched = ReadyLeaderSnapshot("group-a") with { GenerationMatch = false };
         using var scope = new CheckScope(new FixedSource([mismatched]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("mismatch", StringComparison.Ordinal);
     }
 
@@ -152,9 +151,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     {
         using var scope = new CheckScope(null);
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>Verifies a majority of participants that are not ready costs the group its majority and its readiness.</summary>
@@ -171,9 +170,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         eligibility.Forget(2);
         using var scope = new CheckScope(new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a"));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("minority", StringComparison.Ordinal);
     }
 
@@ -193,13 +192,13 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         using var scope = new CheckScope(source);
 
         var snapshots = await source.GetSnapshotsAsync(cancellationToken);
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
         var retention = await log.GetRetentionAsync(cancellationToken);
         _ = await Assert.That(snapshots).HasSingleItem();
         _ = await Assert.That((snapshots[0].LogBytes, snapshots[0].RetainedEntries, snapshots[0].SnapshotIndex)).IsEqualTo((retention.LogBytes, 1, 0UL));
         _ = await Assert.That(snapshots[0].LogBytes > 0).IsTrue();
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>
@@ -244,9 +243,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     {
         using var scope = new CheckScope(new FixedSource([ReadyLeaderSnapshot("group-a"), ReadyFollowerSnapshot("group-b")]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>Verifies a group observing a higher term reports not ready.</summary>
@@ -257,9 +256,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var stale = ReadyLeaderSnapshot("group-a") with { ObservedTerm = 5 };
         using var scope = new CheckScope(new FixedSource([stale]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("stale", StringComparison.Ordinal);
     }
 
@@ -284,9 +283,9 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var unready = ReadyLeaderSnapshot("group-a") with { LogReady = false };
         using var scope = new CheckScope(new FixedSource([unready]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("not ready", StringComparison.Ordinal);
     }
 

@@ -24,7 +24,7 @@ public sealed class ReplicaEligibilityTests
 
         _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in invalid)).IsFalse();
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
-        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(0).Progress).IsEqualTo(default);
         _ = await Assert.That(eligibility.CanVote(0)).IsFalse();
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
     }
@@ -40,7 +40,7 @@ public sealed class ReplicaEligibilityTests
 
         _ = await Assert.That(eligibility.TryMarkReady(0, in invalid)).IsFalse();
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
-        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(0).Progress).IsEqualTo(default);
         _ = await Assert.That(eligibility.CanVote(0)).IsFalse();
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
     }
@@ -56,7 +56,7 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.TryDemote(0, 5)).IsTrue();
 
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
-        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(0).Progress).IsEqualTo(default);
         _ = await Assert.That(eligibility.TryDemote(0, 6)).IsFalse();
     }
 
@@ -86,7 +86,7 @@ public sealed class ReplicaEligibilityTests
         eligibility.Forget(0);
 
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
-        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(0).Progress).IsEqualTo(default);
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
 
         var low = Progress(3, 2, 2, 1, 7);
@@ -105,7 +105,7 @@ public sealed class ReplicaEligibilityTests
         eligibility.Forget(0);
 
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
-        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(0).Progress).IsEqualTo(default);
     }
 
     /// <summary>Every participant begins recovering with no retained progress.</summary>
@@ -118,7 +118,7 @@ public sealed class ReplicaEligibilityTests
         {
             _ = await Assert.That(eligibility.StateFor(i)).IsEqualTo(ReplicaParticipantState.Recovering);
             _ = await Assert.That(eligibility.CanCountInWriteQuorum(i)).IsFalse();
-            _ = await Assert.That(eligibility.ProgressFor(i)).IsEqualTo(default);
+            _ = await Assert.That(eligibility.ReadSlot(i).Progress).IsEqualTo(default);
         }
     }
 

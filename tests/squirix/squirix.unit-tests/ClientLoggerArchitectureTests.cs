@@ -13,11 +13,14 @@ public sealed class ClientLoggerArchitectureTests
 {
     private static readonly string AssemblyPath = PathKit.Combine(AppContext.BaseDirectory, "Squirix.dll");
 
+    private static readonly Lazy<LoggerScanResult> Findings =
+        new(static () => LoggerArchitectureScanner.Scan(AssemblyPath));
+
     /// <summary>Ensures no static field, property or method holds or returns a logger.</summary>
     [Test]
     public async Task StaticMembersShouldNotHoldLoggers()
     {
-        var violations = LoggerArchitectureScanner.FindStaticLoggerMembers(AssemblyPath);
+        var violations = Findings.Value.StaticMembers;
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
@@ -26,7 +29,7 @@ public sealed class ClientLoggerArchitectureTests
     [Test]
     public async Task StaticClassesShouldNotTakeLoggers()
     {
-        var violations = LoggerArchitectureScanner.FindStaticClassLoggerParameters(AssemblyPath);
+        var violations = Findings.Value.StaticClassParameters;
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
@@ -35,7 +38,7 @@ public sealed class ClientLoggerArchitectureTests
     [Test]
     public async Task LoggersShouldBeRequired()
     {
-        var violations = LoggerArchitectureScanner.FindOptionalLoggers(AssemblyPath);
+        var violations = Findings.Value.OptionalLoggers;
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }

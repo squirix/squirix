@@ -1,4 +1,4 @@
-using Grpc.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Errors;
 
@@ -6,13 +6,13 @@ namespace Squirix.Server.Errors;
 internal static class RpcMutationContracts
 {
     /// <summary>Stable detail for <c language="csharp">operation_id</c> values that are not 32 lowercase hex characters.</summary>
-    public const string OperationIdInvalidFormatDetail = "operation_id must be 32 lowercase hex characters (UUID without hyphens).";
+    internal const string OperationIdInvalidFormatDetail = "operation_id must be 32 lowercase hex characters (UUID without hyphens).";
 
     /// <summary>Stable detail for missing <c language="csharp">operation_id</c> on mutating RPCs.</summary>
-    public const string OperationIdRequiredDetail = "operation_id is required for mutating cache RPCs.";
+    internal const string OperationIdRequiredDetail = "operation_id is required for mutating cache RPCs.";
 
     /// <summary>Stable detail for <c language="csharp">operation_id</c> values that exceed <see cref="OperationIdLength" />.</summary>
-    public const string OperationIdTooLongDetail = "operation_id exceeds the maximum length of 32 characters.";
+    internal const string OperationIdTooLongDetail = "operation_id exceeds the maximum length of 32 characters.";
 
     /// <summary>Maximum allowed length of <c language="csharp">operation_id</c> on mutating RPCs.</summary>
     internal const int OperationIdLength = 32;
@@ -20,12 +20,12 @@ internal static class RpcMutationContracts
     /// <summary>Requires a non-empty operation identifier and returns the normalized value.</summary>
     /// <param name="operationId">The operation identifier from the transport request.</param>
     /// <returns>The normalized operation identifier.</returns>
-    /// <exception cref="RpcException">When <paramref name="operationId" /> is missing, too long, or invalid.</exception>
+    /// <exception cref="ServerCallException">When <paramref name="operationId" /> is missing, too long, or invalid.</exception>
     internal static string RequireOperationId(string? operationId) => operationId switch
     {
-        _ when string.IsNullOrWhiteSpace(operationId) => throw ServerOpContract.OperationIdRequired().ToRpcException(),
-        _ when operationId.Length > OperationIdLength => throw ServerOpContract.OperationIdTooLong().ToRpcException(),
-        _ when !IsLowercaseHexOperationId(operationId) => throw ServerOpContract.OperationIdInvalidFormat().ToRpcException(),
+        _ when string.IsNullOrWhiteSpace(operationId) => throw ServerOpContract.OperationIdRequired().ToServerCallException(),
+        _ when operationId.Length > OperationIdLength => throw ServerOpContract.OperationIdTooLong().ToServerCallException(),
+        _ when !IsLowercaseHexOperationId(operationId) => throw ServerOpContract.OperationIdInvalidFormat().ToServerCallException(),
         _ => operationId,
     };
 

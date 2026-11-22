@@ -6,7 +6,6 @@ using System.IO;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
 
 namespace Squirix.Testing;
 
@@ -22,8 +21,8 @@ public static class ExportedApiMetadata
         ArgumentException.ThrowIfNullOrEmpty(assemblyPath);
         try
         {
-            var peImage = File.ReadAllBytes(assemblyPath);
-            using var peReader = new PEReader(ImmutableCollectionsMarshal.AsImmutableArray(peImage));
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream, PEStreamOptions.PrefetchMetadata);
             if (!peReader.HasMetadata)
                 throw new InvalidOperationException($"Could not load symbols from '{assemblyPath}'.");
 

@@ -3,20 +3,21 @@ using System.Net;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -89,10 +90,10 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         // The attempt starts synchronously, so its timeout is already armed on the server clock.
         var attemptTimers = clock.RecordedTimers;
         clock.Advance(TimeSpan.FromSeconds(3));
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(execute.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(execute, Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(attemptTimers).IsEqualTo(1);
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
         _ = await Assert.That(attempts.Count).IsEqualTo(1);
         _ = await Assert.That(clock.RecordedTimers).IsEqualTo(1);
     }
@@ -106,17 +107,17 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node_clock_snapshot", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
         var node = cluster["node_clock_snapshot"];
         var snapshot = node.GetRequiredService<Coordinator>();
-        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
+        var ledger = node.GetRequiredService<Ledger>();
+        var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
         await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "clock:k1", BuildEntry("v"), cancellationToken);
 
         // The trigger service may subscribe to journal appends only after this write and then ticks on the unmoving test clock, so
         // request the first snapshot directly; if the service already runs one, this call returns and that snapshot is awaited.
-        _ = await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
-        await published.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        var fresh = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
+        if (!await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken))
+            await SnapshotPublicationWait.WaitAsync(ledger, snapshot, previousIndex, Bound, cancellationToken);
+        var fresh = await GetSnapshotAgeSecondsAsync(node.ManagementUri, cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(90));
-        var aged = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
+        var aged = await GetSnapshotAgeSecondsAsync(node.ManagementUri, cancellationToken);
 
         _ = await Assert.That(aged - fresh).IsEqualTo(90d).Within(0.001);
     }
@@ -139,17 +140,17 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         (HttpStatusCode Status, string Body) stalled;
         try
         {
-            fresh = await GetReadyAsync(node.Uri, cancellationToken);
+            fresh = await GetReadyAsync(node.ManagementUri, cancellationToken);
             clock.Advance(new Storage.PersistenceOptions().JournalStallDegradedThreshold);
-            stalled = await GetReadyAsync(node.Uri, cancellationToken);
+            stalled = await GetReadyAsync(node.ManagementUri, cancellationToken);
         }
         finally
         {
             journal.StallProbe.IoFinished();
         }
 
-        _ = await Assert.That(fresh).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Healthy)));
-        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(HealthStatus.Degraded)));
+        _ = await Assert.That(fresh).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Healthy)));
+        _ = await Assert.That(stalled).IsEqualTo((HttpStatusCode.OK, nameof(ReadinessStatus.Degraded)));
     }
 
     private async Task<double> GetSnapshotAgeSecondsAsync(Uri uri, CancellationToken cancellationToken)

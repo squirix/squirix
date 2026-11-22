@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -13,6 +12,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -119,7 +119,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         _ = await Assert.That(entries.Count).IsEqualTo(Writes);
         foreach (var entry in entries)
         {
-            var decoded = ReplicaLogCodec.Decode(entry.Payload);
+            var decoded = ReplicaLogCodec.DecodeBorrowed(entry.Payload);
             _ = await Assert.That(decoded).IsNotNull().Because($"Committed entry {entry.LogIndex} must decode.");
             var record = decoded.GetValueOrDefault();
             var found = log.Idempotency.Lookup(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, out var outcome);
@@ -142,7 +142,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
 
     /// <summary>Replaces the group log maintenance schedule, so no pass persists an applied index within a test.</summary>
     /// <param name="services">The node service collection.</param>
-    private static void SetManualMaintenance(IServiceCollection services)
+    private static void SetManualMaintenance(TestServiceCollection services)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {
@@ -160,7 +160,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
     /// <param name="host">The node.</param>
     /// <returns>The local cache chain.</returns>
     private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
-        host.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey);
+        host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     /// <summary>Writes distinct keys owned by node-a, one entry each.</summary>
     /// <param name="owner">The group owner.</param>

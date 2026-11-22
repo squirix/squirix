@@ -167,7 +167,7 @@ public sealed class ProtocolSafetyModelTests
                 for (var i = 0; i < current.Nodes.Count; i++)
                     counts.Add(current.Nodes[i], successor.Nodes[i]);
 
-                if (seen.Add(successor.Fingerprint(false)))
+                if (seen.GetAlternateLookup<ReadOnlySpan<char>>().Add(successor.FingerprintChars(false)))
                     queue.Enqueue(successor);
             }
         }

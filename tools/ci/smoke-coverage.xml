@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration>
+    <CodeCoverage>
+        <EnableStaticManagedInstrumentation>True</EnableStaticManagedInstrumentation>
+        <EnableDynamicManagedInstrumentation>False</EnableDynamicManagedInstrumentation>
+        <ModulePaths>
+            <IncludeDirectories>
+                <Directory Recursive="False">src/squirix.server.host/bin/Release/net10.0</Directory>
+            </IncludeDirectories>
+            <Include>
+                <ModulePath>.*[/\\]tests[/\\]squirix\.e2e\.tests[/\\]bin[/\\]Release[/\\]net10\.0[/\\]Squirix(\.Extensions\.Caching|\.Server\.TestKit)?\.dll$</ModulePath>
+                <ModulePath>.*[/\\]src[/\\]squirix\.server\.host[/\\]bin[/\\]Release[/\\]net10\.0[/\\]Squirix\.Server(\.Host)?\.dll$</ModulePath>
+            </Include>
+        </ModulePaths>
+    </CodeCoverage>
+</Configuration>

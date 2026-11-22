@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 
@@ -32,7 +32,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         IJournalSegmentWriter segmentWriter,
         PersistenceOptions opt,
         JournalEventLoopStartup startup,
-        ILogger<JournalEventLoop> logger,
+        IServerLogger<JournalEventLoop> logger,
         CancellationToken bgToken)
     {
         ArgumentNullException.ThrowIfNull(logger);
@@ -118,7 +118,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     private bool IsDurabilityFlushPending { get; set; }
 
-    private ILogger Logger { get; }
+    private IServerLogger Logger { get; }
 
     public void AddJournalTotalBytes(long delta) => Volatile.Write(ref _journalTotalBytes, _journalTotalBytes + delta);
 
@@ -148,7 +148,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             return;
 
         _deadlineWaitFallbackReported = true;
-        ServerLog.JournalHighResolutionTimerUnavailable(Logger);
+        DiagnosticsLog.JournalHighResolutionTimerUnavailable(Logger);
     }
 
     public void SetActiveSegmentPath(string? value) => ActiveSegmentPath = value;
@@ -212,7 +212,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         catch (OperationCanceledException) when (BackgroundToken.IsCancellationRequested)
         {
             // journal I/O thread exits when background cancellation is requested during dispose.
-            ServerLog.JournalThreadExitOnCancel(Logger);
+            DiagnosticsLog.JournalThreadExitOnCancel(Logger);
         }
     }
 
@@ -246,7 +246,10 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
                 _owner.Host.ThrowIfJournalThreadFailed();
                 DrainDueGroupCommitBatches();
                 var rollWaitMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
-                _owner.Ring.WaitForWork(rollWaitMs, _owner.BackgroundToken);
+
+                // The deferred append must land before queued work, including the shutdown marker.
+                // Only a control notification or deadline can make progress while the roll is pending.
+                _owner.Ring.WaitForControl(rollWaitMs);
                 _owner.ReportDeadlineWaitFallbackOnce();
                 DrainDueGroupCommitBatches();
                 return true;

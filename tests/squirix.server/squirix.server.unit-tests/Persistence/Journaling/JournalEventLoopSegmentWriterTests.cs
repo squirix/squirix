@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -257,6 +257,175 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
     }
 
+    /// <summary>Two successive multi-frame batches release every slot and ack once without retaining previous completion entries.</summary>
+    [Test]
+    public async Task BatchCompletionReleasesEveryFrame()
+    {
+        using var setup = CreateSetup(batchCapacityBytes: 4096);
+        var items = new JournalWorkItem[32];
+        for (var round = 0; round < 2; round++)
+        {
+            for (var i = 0; i < items.Length; i++)
+            {
+                var buffer = ArrayPool<byte>.Shared.Rent(64);
+                var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var item = JournalWorkItem.Append(buffer, 64, ack);
+                setup.Registry.Track(item, buffer, 64, ack);
+                _ = Interlocked.Increment(ref setup.Counter.Value);
+                items[i] = item;
+                _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+                _ = await Assert.That(deferred).IsFalse();
+            }
+
+            setup.Writer.FlushWriteBatch();
+            for (var i = 0; i < items.Length; i++)
+                _ = await Assert.That(items[i].Ack?.Task.IsCompletedSuccessfully).IsTrue();
+            _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+            _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+            _ = await Assert.That(setup.Registry.PendingBytes).IsEqualTo(0L);
+            _ = await Assert.That(setup.Batch.IsEmpty).IsTrue();
+        }
+    }
+
+    /// <summary>A drain during a write faults every ack and leaves no frame to replay or resource to return twice.</summary>
+    /// <param name="frameCount">The number of staged frames.</param>
+    [Test]
+    [Arguments(1)]
+    [Arguments(32)]
+    public async Task BatchDrainedDuringWriteIsTruncated(int frameCount)
+    {
+        var segmentWriter = new RecordingSegmentWriter();
+        using var setup = CreateSetup(batchCapacityBytes: 4096, segmentWriter: segmentWriter);
+        var items = new JournalWorkItem[frameCount];
+        for (var i = 0; i < items.Length; i++)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(64);
+            var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var item = JournalWorkItem.Append(buffer, 64, ack);
+            items[i] = item;
+            setup.Registry.Track(item, buffer, 64, ack);
+            _ = Interlocked.Increment(ref setup.Counter.Value);
+            _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+            _ = await Assert.That(deferred).IsFalse();
+        }
+
+        var reason = new InvalidOperationException("pipeline failed");
+        segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, MutableInt32 Counter, InvalidOperationException Reason), Action>(
+            (setup.Registry, setup.Counter, reason),
+            static state => () => _ = state.Registry.FailAll(state.Reason, NullLogger.Instance, state.Counter));
+        setup.Writer.FlushWriteBatch();
+
+        for (var i = 0; i < items.Length; i++)
+            _ = await Assert.That(items[i].Ack?.Task.Exception?.InnerException).IsSameReferenceAs(reason);
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
+        _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(items.Length);
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
+    }
+
+    /// <summary>A queued append cannot keep the journal thread runnable before a deferred roll completes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DeferredRollParksWithQueuedAppend(CancellationToken cancellationToken)
+    {
+        var path = JournalReadPath.BuildSegmentPath(Dir, 1);
+        WriteHeaderOnlySegment(path);
+        const long initialLength = (1024 * 1024) - 16;
+        using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write))
+            RandomAccess.SetLength(handle, initialLength);
+
+        var guard = TimeSpan.FromSeconds(10);
+        var firstCheck = new TaskCompletionSource<Thread>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var completeRoll = new ManualResetEventSlim();
+        var repeated = 0;
+        var host = RocksDoubles.CreateEventLoopHost(checkFailure: ObserveCheck);
+        using var ring = new BoundedJournalRing(4, false);
+        using var writer = JournalSegmentWriterFactory.Create();
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
+        var startup = new JournalEventLoopStartup(1, initialLength, 1, JournalSegmentProbe.Probe(Dir, 1), new JournalCapacityResyncSignal());
+        var loop = new JournalEventLoop(host.Host, ring, writer, options, startup, NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        var deferred = await EnqueueRollTestAppendAsync(ring, host.State.PendingAppends, cancellationToken);
+        var queued = await EnqueueRollTestAppendAsync(ring, host.State.PendingAppends, cancellationToken);
+
+        var worker = Task.Factory.StartNew(loop.Run, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        int checksBeforeCompletion;
+        try
+        {
+            var thread = await firstCheck.Task.WaitAsync(guard, TimeProvider.System, cancellationToken);
+
+            // The worker parks either in the journal wait or in the test's trap for a second iteration.
+            await thread.WaitUntilAsync(static t => (t.ThreadState & ThreadState.WaitSleepJoin) == ThreadState.WaitSleepJoin, guard, TimeProvider.System, cancellationToken);
+            checksBeforeCompletion = Volatile.Read(ref repeated);
+            _ = await Assert.That(loop.CurrentSegmentIndex).IsEqualTo(1);
+            _ = await Assert.That(queued.IsCompleted).IsFalse();
+        }
+        finally
+        {
+            loop.MarkSegmentRollCompletionPending();
+            ring.NotifyWorkAvailable();
+            completeRoll.Set();
+            await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+            await worker.WaitAsync(guard, TimeProvider.System, CancellationToken.None);
+        }
+
+        _ = await Assert.That(loop.CurrentSegmentIndex).IsEqualTo(2);
+        _ = await Assert.That(deferred.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(queued.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(checksBeforeCompletion).IsEqualTo(0).Because("the journal thread must wait for roll completion instead of repeating the deferred iteration");
+        return;
+
+        void ObserveCheck()
+        {
+            if (firstCheck.TrySetResult(Thread.CurrentThread))
+                return;
+
+            Volatile.Write(ref repeated, 1);
+            completeRoll.Wait(cancellationToken);
+        }
+    }
+
+    /// <summary>Faulting waiters before or during a write leaves their staged frames writable and owned by the journal thread.</summary>
+    /// <param name="duringWrite">Whether the waiter failure occurs inside the writer.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FaultedWaitersDoNotDiscardStagedBatch(bool duringWrite)
+    {
+        var segmentWriter = new RecordingSegmentWriter();
+        using var setup = CreateSetup(segmentWriter: segmentWriter);
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = JournalWorkItem.Append(buffer, 64, ack);
+        setup.Registry.Track(item, buffer, 64, ack);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
+        _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+        _ = await Assert.That(deferred).IsFalse();
+        var reason = new InvalidOperationException("waiter failed");
+        if (duringWrite)
+        {
+            segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, Exception Reason), Action>(
+                (setup.Registry, reason),
+                static state => () => state.Registry.FaultWaiters(state.Reason));
+        }
+        else
+        {
+            setup.Registry.FaultWaiters(reason);
+        }
+
+        setup.Writer.FlushWriteBatch();
+
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write");
+        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
+        _ = await Assert.That(setup.Registry.Failure).IsNull();
+        _ = await Assert.That(setup.Registry.WasDrained()).IsFalse();
+        _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(setup.Registry.PendingBytes).IsEqualTo(0L);
+        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+        _ = await Assert.That(setup.Batch.IsEmpty).IsTrue();
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
+    }
+
     /// <summary>A full batch flushes and restages the overflow append instead of dropping it.</summary>
     [Test]
     public async Task FullBatchFlushesAndRestages()
@@ -313,7 +482,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
         _ = await Assert.That(ack.Task.IsCompletedSuccessfully).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>
@@ -476,8 +645,9 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     }
 
     /// <summary>A failed frame write truncates the segment and then flushes the truncation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WriteFailureFlushesTruncatedSegment()
+    public async Task WriteFailureFlushesTruncatedSegment(CancellationToken cancellationToken)
     {
         var writeFailure = new IOException("write failed");
         var segmentWriter = new RecordingSegmentWriter { WriteFailure = writeFailure };
@@ -490,72 +660,11 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         var thrown = NodeExceptionAssert.For<IOException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
 
+        var acknowledgementFailure = await NodeAsyncAssert.ThrowsAsync<IOException>(ack.Task, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
         _ = await Assert.That(thrown).IsSameReferenceAs(writeFailure);
+        _ = await Assert.That(acknowledgementFailure).IsSameReferenceAs(writeFailure);
         _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
-    }
-
-    /// <summary>Two successive multi-frame batches release every slot and ack once without retaining previous completion entries.</summary>
-    [Test]
-    public async Task BatchCompletionReleasesEveryFrame()
-    {
-        using var setup = CreateSetup(batchCapacityBytes: 4096);
-        var items = new JournalWorkItem[32];
-        for (var round = 0; round < 2; round++)
-        {
-            for (var i = 0; i < items.Length; i++)
-            {
-                var buffer = ArrayPool<byte>.Shared.Rent(64);
-                var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var item = JournalWorkItem.Append(buffer, 64, ack);
-                setup.Registry.Track(item, buffer, 64, ack);
-                _ = Interlocked.Increment(ref setup.Counter.Value);
-                items[i] = item;
-                _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
-                _ = await Assert.That(deferred).IsFalse();
-            }
-
-            setup.Writer.FlushWriteBatch();
-            for (var i = 0; i < items.Length; i++)
-                _ = await Assert.That(items[i].Ack?.Task.IsCompletedSuccessfully).IsTrue();
-            _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
-            _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
-            _ = await Assert.That(setup.Registry.PendingBytes).IsEqualTo(0L);
-            _ = await Assert.That(setup.Batch.IsEmpty).IsTrue();
-        }
-    }
-
-    /// <summary>A drain during a multi-frame write faults every ack and leaves no frame to replay or resource to return twice.</summary>
-    [Test]
-    public async Task BatchDrainedDuringWriteIsTruncated()
-    {
-        var segmentWriter = new RecordingSegmentWriter();
-        using var setup = CreateSetup(batchCapacityBytes: 4096, segmentWriter: segmentWriter);
-        var items = new JournalWorkItem[32];
-        for (var i = 0; i < items.Length; i++)
-        {
-            var buffer = ArrayPool<byte>.Shared.Rent(64);
-            var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var item = JournalWorkItem.Append(buffer, 64, ack);
-            items[i] = item;
-            setup.Registry.Track(item, buffer, 64, ack);
-            _ = Interlocked.Increment(ref setup.Counter.Value);
-            _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
-            _ = await Assert.That(deferred).IsFalse();
-        }
-
-        var reason = new InvalidOperationException("pipeline failed");
-        segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, MutableInt32 Counter, InvalidOperationException Reason), Action>(
-            (setup.Registry, setup.Counter, reason),
-            static state => () => _ = state.Registry.FailAll(state.Reason, NullLogger.Instance, state.Counter));
-        setup.Writer.FlushWriteBatch();
-
-        for (var i = 0; i < items.Length; i++)
-            _ = await Assert.That(items[i].Ack?.Task.Exception?.InnerException).IsSameReferenceAs(reason);
-        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
-        _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
-        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
-        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(items.Length);
-        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
     private static async Task AssertNoRollAsync(OversizedFrameRun run)
@@ -584,6 +693,17 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var state = new FakeEventLoopState(host.Host, options, batch, totalBytes, segmentWriter) { GroupCommit = groupCommit };
         var roll = new FakeEventLoopRollState("seg-0001");
         return new WriterSetup(new JournalEventLoopSegmentWriter(state, roll), host.State.PendingAppends, counter, batch, state);
+    }
+
+    private static async ValueTask<Task> EnqueueRollTestAppendAsync(BoundedJournalRing ring, PendingAppendRegistry registry, CancellationToken cancellationToken)
+    {
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var frame = ArrayPool<byte>.Shared.Rent(64);
+        frame.AsSpan(0, 64).Clear();
+        var item = JournalWorkItem.Append(frame, 64, ack);
+        registry.Track(item, frame, 64, ack);
+        await ring.EnqueueAsync(item, cancellationToken);
+        return ack.Task;
     }
 
     private static void WriteHeaderOnlySegment(string segmentPath)
@@ -762,11 +882,9 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
             _segmentWriter = segmentWriter ?? new FakeSegmentWriter();
         }
 
-        public JournalCapacityResyncSignal CapacityResync { get; } = new();
-
-        public JournalDurabilityGroupCommit? GroupCommit { get; init; }
-
         long IJournalEventLoopState.ActiveSegmentWrittenBytes => _activeBytes;
+
+        public JournalCapacityResyncSignal CapacityResync { get; } = new();
 
         JournalDurabilityGroupCommit? IJournalEventLoopState.GroupCommit => GroupCommit;
 
@@ -781,6 +899,8 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         IJournalSegmentWriter IJournalEventLoopState.SegmentWriter => _segmentWriter;
 
         JournalWriteBatchBuffer IJournalEventLoopState.WriteBatch => _writeBatch;
+
+        internal JournalDurabilityGroupCommit? GroupCommit { get; init; }
 
         void IJournalEventLoopState.AddJournalTotalBytes(long delta) => _totalBytes += delta;
 
@@ -843,14 +963,14 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     {
         private readonly List<string> _calls = [];
 
-        public Action? OnWrite { get; set; }
+        long IJournalSegmentWriter.Length => 0;
+
+        internal Action? OnWrite { get; set; }
 
         /// <summary>Gets the recorded calls joined in call order.</summary>
-        public string Trace => string.Join(',', _calls);
+        internal string Trace => string.Join(',', _calls);
 
-        public Exception? WriteFailure { get; init; }
-
-        long IJournalSegmentWriter.Length => 0;
+        internal Exception? WriteFailure { get; init; }
 
         /// <summary>Releases test resources.</summary>
         public void Dispose()

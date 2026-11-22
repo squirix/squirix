@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -14,6 +12,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -41,9 +40,9 @@ public sealed class LocalExpirationSweepTests : ServerUnitTestBase
         var estimator = new CacheEntrySizeEstimator<object?>();
         var physical = new PhysicalCache<object?>(clock, estimator);
         ILocalCacheStats stats = physical;
-        await physical.SetAsync(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "b"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "b"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), cancellationToken);
         var liveBytes = estimator.EstimateBytes(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), false);
         clock.Advance(Ttl);
         using var sweep = new LocalExpirationSweepService(physical.ExpiredKeys, clock, new EventRecordingLogger());
@@ -64,14 +63,13 @@ public sealed class LocalExpirationSweepTests : ServerUnitTestBase
         var estimator = new CacheEntrySizeEstimator<object?>();
         var physical = new PhysicalCache<object?>(clock, estimator);
         var storedBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime + Ttl), false);
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 4 * storedBytes });
-        var gate = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(physical), "n1", meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 4 * storedBytes };
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), "n1", meter);
         var admission = new MemoryAdmissionCacheDecorator<object?>(new ClientCache<object?>(physical, physical), gate, estimator);
         foreach (var key in new[] { "a", "b", "c" })
             await admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(
-            admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new LocalExpirationSweepService(physical.ExpiredKeys, clock, new EventRecordingLogger());
         _ = sweep.SweepOnce();

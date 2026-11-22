@@ -23,8 +23,8 @@ internal sealed class LegacyReader : ISnapshotReader
     public ValueTask<LoadResult<T>> LoadStrictAsync<T>(string path, DateTime? expiredAsOf, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
-        var lengths = new List<int?>(1024);
+        List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries = [];
+        List<int?> lengths = [];
         var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
         using (var enumerator = new RecordEnumerator(path, cancellationToken))
         {
@@ -146,7 +146,7 @@ internal sealed class LegacyReader : ISnapshotReader
             switch (kind)
             {
                 case RecordKind.Entry:
-                    if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength) && entry != null)
+                    if (SnapshotCodec.TryReadEntryBody<object?>(body, out var key, out var entry, out var encodedLength) && entry != null)
                         return new EntryRecord(key, entry, encodedLength);
 
                     throw new InvalidDataException("Binary snapshot entry body could not be read.");

@@ -43,7 +43,7 @@ internal static class FollowerSnapshotScenario
     {
         await AdvanceAppliedAsync(log, index, cancellationToken);
         faults.Arm();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(index, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(index, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Marks the copy incomplete for a state transfer at the index of a snapshot and completes the transfer with that snapshot.</summary>

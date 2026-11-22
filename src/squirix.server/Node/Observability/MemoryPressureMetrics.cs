@@ -83,30 +83,20 @@ internal sealed class MemoryPressureMetrics
 
     private IEnumerable<Measurement<long>> ObserveEntryCount()
     {
-        var snapshot = _catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
-        {
-            var registration = snapshot[i];
+        foreach (var registration in _catalog.SnapshotItems())
             yield return MeasureNode(registration.Accounting.ReadEntryCount(), registration.NodeId);
-        }
     }
 
     private IEnumerable<Measurement<long>> ObserveEstimatedBytes()
     {
-        var snapshot = _catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
-        {
-            var registration = snapshot[i];
+        foreach (var registration in _catalog.SnapshotItems())
             yield return MeasureNode(registration.Accounting.ReadEstimatedBytes(), registration.NodeId);
-        }
     }
 
     private IEnumerable<Measurement<int>> ObservePressureState()
     {
-        var snapshot = _catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
+        foreach (var registration in _catalog.SnapshotItems())
         {
-            var registration = snapshot[i];
             var (value, name) = DescribePressureState(registration.Evaluator.Evaluate(registration.Accounting.ReadEstimatedBytes()));
 
             var tags = new TagList
@@ -122,21 +112,13 @@ internal sealed class MemoryPressureMetrics
     {
         private int _instrumentsCreated;
 
-        private ImmutableArray<MetricRegistration> _items = [];
+        private volatile ImmutableList<MetricRegistration> _items = [];
 
         internal void Add(MetricRegistration registration) => _items = _items.Add(registration);
 
-        internal void Remove(MetricRegistration registration)
-        {
-            var previous = _items;
-            var index = previous.IndexOf(registration);
-            if (index < 0)
-                return;
+        internal void Remove(MetricRegistration registration) => _items = _items.Remove(registration);
 
-            _items = previous.Length == 1 ? [] : previous.RemoveAt(index);
-        }
-
-        internal ImmutableArray<MetricRegistration> SnapshotItems() => _items;
+        internal ImmutableList<MetricRegistration> SnapshotItems() => _items;
 
         internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) == 0;
     }

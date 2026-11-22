@@ -2,14 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -29,7 +28,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([11]);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
         var cache = CreateCache(pool);
         var factoryGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var owner = new CancellationTokenSource();
@@ -37,7 +36,7 @@ public sealed class RemoteCacheGetOrAddTests
         var first = cache.GetOrAddAsync(Key, (_, _) => GatedValueAsync(factoryGate, 1), cancellationToken: owner.Token);
         var second = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("a joiner must not run its factory"), cancellationToken: cancellationToken);
         await owner.CancelAsync();
-        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, CacheValueResult<long>>(new ValueTask<CacheValueResult<long>>(first));
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, CacheValueResult<long>>(new ValueTask<CacheValueResult<long>>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         factoryGate.SetResult();
 
         _ = await Assert.That((await second.WaitAsync(cancellationToken)).Value).IsEqualTo(11L);
@@ -52,7 +51,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([11, 22], true);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
         var cache = CreateCache(pool);
 
         var first = cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(1), cancellationToken: cancellationToken);
@@ -74,7 +73,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([11, 22]);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
         var cache = CreateCache(pool);
 
         var first = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(1), cancellationToken: CancellationToken.None);
@@ -92,7 +91,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var transport = new GetOrAddTransport([], answerAsAdded: true);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
         var cache = CreateCache(pool);
 
         var result = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(7), cancellationToken: CancellationToken.None);
@@ -103,16 +102,17 @@ public sealed class RemoteCacheGetOrAddTests
     }
 
     /// <summary>Ensures a value factory that throws synchronously does not block a later get-or-add on the same key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SyncFactoryFailureDoesNotBlockNext()
+    public async Task SyncFactoryFailureDoesNotBlockNext(CancellationToken cancellationToken)
     {
         var transport = new GetOrAddTransport([5]);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
         var cache = CreateCache(pool);
 
         var failing = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("factory failed"), cancellationToken: CancellationToken.None);
-        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing));
+        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var next = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(9), cancellationToken: CancellationToken.None);
 
         _ = await Assert.That(next.Value).IsEqualTo(5L);
@@ -128,23 +128,13 @@ public sealed class RemoteCacheGetOrAddTests
     private static RemoteCache<long> CreateCache(IClientPool pool) =>
         new("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
 
-    private static IClientPool CreatePool(GetOrAddTransport transport, CallPolicy policy)
-    {
-        var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
-        var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
-        _ = poolExpectations.Setups.BeginDrain();
-        _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-        return poolExpectations.Instance();
-    }
-
     private static async Task<long> GatedValueAsync(TaskCompletionSource gate, long value)
     {
         await gate.Task;
         return value;
     }
 
-    private sealed class GetOrAddTransport : CallInvoker
+    private sealed class GetOrAddTransport
     {
         private readonly Lock _gate = new();
         private readonly bool _answerAsAdded;
@@ -163,25 +153,14 @@ public sealed class RemoteCacheGetOrAddTests
 
         internal TaskCompletionSource Requested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal List<string> SentEntries { get; } = [];
+        internal List<long> SentEntries { get; } = [];
 
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The get-or-add transport supports unary calls only.");
+        internal Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> InvokeAsync =>
+            (_, request, _, _) => HandleAsync(request);
 
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The get-or-add transport supports unary calls only.");
+        internal void ReleaseReplies() => _release.SetResult();
 
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options,
-            TRequest request) => throw new InvalidOperationException("The get-or-add transport supports unary calls only.");
-
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
+        private Task<WireMessage> HandleAsync(WireMessage request)
         {
             if (request is not GetOrAddAsyncRequest getOrAdd)
                 throw new InvalidOperationException("The get-or-add transport supports get-or-add requests only.");
@@ -190,28 +169,17 @@ public sealed class RemoteCacheGetOrAddTests
             lock (_gate)
             {
                 OperationIds.Add(getOrAdd.OperationId);
-                SentEntries.Add(getOrAdd.Entry.Value.ToString());
+                SentEntries.Add(getOrAdd.Entry!.Value!.Int64Value);
                 response = _answerAsAdded
                     ? new GetOrAddAsyncResponse { Added = true, Found = true }
                     : new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };
             }
 
             _ = Requested.TrySetResult();
-            var typed = KitThrowHelper.Required(response as TResponse, "The get-or-add transport supports get-or-add responses only.");
-            return new AsyncUnaryCall<TResponse>(
-                _holdReplies ? ReplyAfterReleaseAsync(typed) : Task.FromResult(typed),
-                Task.FromResult(new Metadata()),
-                static () => new Status(StatusCode.OK, string.Empty),
-                static () => [],
-                static () => { });
+            return _holdReplies ? ReplyAfterReleaseAsync(response) : Task.FromResult<WireMessage>(response);
         }
 
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new InvalidOperationException("The get-or-add transport supports asynchronous calls only.");
-
-        internal void ReleaseReplies() => _release.SetResult();
-
-        private async Task<TResponse> ReplyAfterReleaseAsync<TResponse>(TResponse response)
+        private async Task<WireMessage> ReplyAfterReleaseAsync(WireMessage response)
         {
             await _release.Task.ConfigureAwait(false);
             return response;

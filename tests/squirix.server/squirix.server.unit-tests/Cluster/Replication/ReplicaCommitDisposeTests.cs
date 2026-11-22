@@ -44,7 +44,7 @@ public sealed class ReplicaCommitDisposeTests
 
             await coordinator.DisposeAsync();
             var refused = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), StallTimeout, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException, ReadOnlyMemory<byte>>(refused);
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException, ReadOnlyMemory<byte>>(refused, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(leaks.Count).IsEqualTo(1);
             _ = await Assert.That(leaks.FirstBudget).IsEqualTo(ShutdownBudget);
 
@@ -74,12 +74,12 @@ public sealed class ReplicaCommitDisposeTests
         {
             // The first apply fails after the majority: the commit ends unknown and its entry stays pending, with no commit left running.
             var commit = StartCommitAsync(coordinator, ReplicaMutationTestKit.CreateMutation(), StallTimeout);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
             var apply = coordinator.ApplyCommittedAsync();
             await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(coordinator.ApplyCommittedAsync());
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(coordinator.ApplyCommittedAsync(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(leaks.Count).IsEqualTo(1);
             _ = await Assert.That(leaks.FirstBudget).IsEqualTo(ShutdownBudget);
 
@@ -108,7 +108,7 @@ public sealed class ReplicaCommitDisposeTests
             await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             pipeline.FailApply(new IOException("Injected memory apply failure."));
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
 
             var reported = await faults.Reported.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(reported.GetBaseException()).IsTypeOf<IOException>();
@@ -136,7 +136,7 @@ public sealed class ReplicaCommitDisposeTests
         {
             // The commit gives up before the follower answers; the late answer completes the majority in the background.
             var commit = StartCommitAsync(coordinator, ReplicaMutationTestKit.CreateMutation(), QueuedBudget);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
             pipeline.ReleaseFollower();
             await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -179,7 +179,7 @@ public sealed class ReplicaCommitDisposeTests
             _ = await Assert.That(queued.IsCompleted).IsFalse();
 
             clock.Advance(QueuedBudget);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(queued, StallTimeout, TimeProvider.System, cancellationToken);
 
             pipeline.ReleaseApply();
             _ = await stuck;

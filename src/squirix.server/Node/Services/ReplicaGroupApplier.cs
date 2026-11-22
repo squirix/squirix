@@ -2,10 +2,11 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -34,10 +35,9 @@ internal sealed class ReplicaGroupApplier
 
     private readonly string _nodeId;
     private readonly ILogicalNamespacedCache<object?> _local;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ReplicationMetrics? _metrics;
     private readonly AppliedIndexSignal _advanced = new();
-    private ulong _appliedIndex;
     private long _reseeds;
 
     /// <summary>The message of the inconsistent record last reported; it names the log index and the reason.</summary>
@@ -52,7 +52,7 @@ internal sealed class ReplicaGroupApplier
     /// <param name="groupId">Identifier of the replica group, the group label of the metric and the diagnostics.</param>
     /// <param name="nodeId">Identifier of this node, the node label of the metric.</param>
     /// <param name="metrics">Replication metrics counting the inconsistent records; nothing is counted when not set.</param>
-    internal ReplicaGroupApplier(ILogicalNamespacedCache<object?> local, ILogger log, string groupId = "", string nodeId = "", ReplicationMetrics? metrics = null)
+    internal ReplicaGroupApplier(ILogicalNamespacedCache<object?> local, IServerLogger log, string groupId = "", string nodeId = "", ReplicationMetrics? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(log);
@@ -67,7 +67,7 @@ internal sealed class ReplicaGroupApplier
 
     /// <summary>Gets the highest log index applied to memory: the seeded durable applied index, then the last entry applied.</summary>
     /// <remarks>Every entry at or below it has returned from its apply, so its cache journal frame is appended.</remarks>
-    internal ulong AppliedIndex => Volatile.Read(ref _appliedIndex);
+    internal ulong AppliedIndex => _advanced.Index;
 
     /// <summary>Gets how many times a state transfer reset the applied index, which lets the apply loop tell a stopped group that got a new copy.</summary>
     internal long Reseeds => Volatile.Read(ref _reseeds);
@@ -83,25 +83,18 @@ internal sealed class ReplicaGroupApplier
     /// <summary>Gets the identifier of the replica group whose entries this applier applies.</summary>
     internal string GroupId { get; }
 
+    internal INodeLocator? Owners { get; init; }
+
     /// <summary>Waits until the applied index reaches <paramref name="index" />, woken by the apply that gets it there, without polling.</summary>
     /// <param name="index">The log index that must be applied.</param>
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait.</param>
     /// <returns>A task that completes once the applied index is at least <paramref name="index" />.</returns>
     /// <exception cref="OperationCanceledException">The token was canceled before the index was applied.</exception>
-    /// <remarks>
-    /// Any number of readers may wait at once. A reader registers for the next advance first and re-checks the applied index second, and
-    /// every advance writes the index before it wakes the registered readers, so an advance is never missed.
-    /// </remarks>
+    /// <remarks>Readers share a signal for their target index. Each completion re-checks the applied index because a state install may reset it.</remarks>
     internal async Task WaitAppliedAsync(ulong index, CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var advanced = _advanced.NextAsync();
-            if (AppliedIndex >= index)
-                return;
-
-            await advanced.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
+        while (AppliedIndex < index)
+            await _advanced.WaitAsync(index, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Applies the next committed entry to memory and advances the applied index to it.</summary>
@@ -162,14 +155,14 @@ internal sealed class ReplicaGroupApplier
         ArgumentNullException.ThrowIfNull(log);
         if (!_seeded)
         {
-            Publish(durableAppliedIndex);
+            _advanced.Notify(durableAppliedIndex);
             _seeded = true;
         }
         else if (durableAppliedIndex > AppliedIndex)
         {
             var from = AppliedIndex;
-            Publish(durableAppliedIndex);
-            ServerLog.ReplicaAppliedIndexReseeded(_log, GroupId, from, durableAppliedIndex);
+            _advanced.Notify(durableAppliedIndex);
+            ReplicaMaintenanceLog.ReplicaAppliedIndexReseeded(_log, GroupId, from, durableAppliedIndex);
         }
 
         if (AppliedIndex >= commitIndex)
@@ -195,7 +188,7 @@ internal sealed class ReplicaGroupApplier
     /// <remarks>The caller holds the driver lease, so no apply or catch-up runs; the next catch-up then finds the durable applied index at this one.</remarks>
     internal void ResetTo(ulong index)
     {
-        Publish(index);
+        _advanced.Notify(index);
         _seeded = true;
         _ = Interlocked.Increment(ref _reseeds);
     }
@@ -262,8 +255,10 @@ internal sealed class ReplicaGroupApplier
         GroupIdempotencyRecord outcome = default;
         try
         {
-            record = ReplicaLogCodec.Decode(canonicalPayload) ??
+            record = ReplicaLogCodec.DecodeBorrowed(canonicalPayload) ??
                 ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
+            if (record.EvictedKey is { } victim && Owners != null && !string.Equals(Owners.GetOwner(record.CacheName, victim), GroupId, StringComparison.Ordinal))
+                throw new InvalidDataException($"Replica log entry {logIndex} evicts a key from another group.");
             effect = ReplicaCacheApplier.Resolve(in record, out entry, out encodedLength);
             if (outcomes != null)
                 outcome = BuildOutcome(logIndex, in record);
@@ -274,31 +269,15 @@ internal sealed class ReplicaGroupApplier
             throw;
         }
 
-        // The group log is the durable source of a replicated write: its cache journal frame must not become an RPC write-ahead
-        // intent, or a restart would rebuild a Started record that hides the group outcome the committer replays. The suspension holds
-        // with or without an RPC scope, and it also makes the apply skip the wait for its own flush: the entry is already durable in the
-        // group log, and the flush of the applied index waits for the node journal before it advances the durable index. A leader-term
-        // no-op names no cache: nothing runs for it, and only the applied index moves past it.
+        // The group log already made the record durable. The node journal flush precedes the durable applied index.
         if (effect != ReplicaEffectKind.NoCacheEffect)
         {
-            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
-            {
-                // The entry is committed: the operation took effect even when its effect writes no cache frame.
-                RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
+            using (ReplicaApplyContext.Enter())
                 await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, encodedLength, cancellationToken).ConfigureAwait(false);
-            }
         }
 
         outcomes?.RecordCommittedOutcome(in outcome);
-        Publish(logIndex);
-    }
-
-    /// <summary>Publishes a new applied index, then wakes the readers waiting for an advance.</summary>
-    /// <param name="index">The new applied index.</param>
-    private void Publish(ulong index)
-    {
-        Volatile.Write(ref _appliedIndex, index);
-        _advanced.Notify();
+        _advanced.Notify(logIndex);
     }
 
     private async Task ReapplyCoreAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken)
@@ -335,7 +314,7 @@ internal sealed class ReplicaGroupApplier
         if (string.Equals(Interlocked.Exchange(ref _lastReported, error.Message), error.Message, StringComparison.Ordinal))
             return;
 
-        ServerLog.ReplicaInconsistentRecord(_log, GroupId, error);
+        ReplicaCommitLog.ReplicaInconsistentRecord(_log, GroupId, error);
         _metrics?.ReportInconsistentRecord(_nodeId, GroupId);
     }
 

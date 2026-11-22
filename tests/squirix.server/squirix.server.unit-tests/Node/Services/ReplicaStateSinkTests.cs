@@ -25,26 +25,23 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class ReplicaStateSinkTests : ServerUnitTestBase
 {
-    /// <summary>A wipe step examines no more keys than it is allowed, reports whether more may remain, and leaves the keys of other groups alone.</summary>
+    /// <summary>A busy journal returns before decoding keys; retry still refuses a foreign entry before writing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WipeStepRespectsBound(CancellationToken cancellationToken)
+    public async Task BusyWriteDefersEntryValidation(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-sink-wipe");
+        using var dir = new TempDirectory("squirix-sink-busy-validation");
         await using var harness = await OpenAsync(dir, cancellationToken);
-        await harness.SeedAsync(cancellationToken, "g-1", "g-2", "g-3", "g-4", "g-5", "other-1", "other-2", "other-3");
         _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
+        var entries = new[] { Entry("g-1", "good", 0L), Entry("other-1", "foreign", 0L) };
+        harness.Pressure.AtHighWater = true;
 
-        var first = await harness.Sink.WipeStepAsync(GroupId, 2, cancellationToken);
-        var afterFirst = await GroupKeysAsync(harness, cancellationToken);
-        var second = await harness.Sink.WipeStepAsync(GroupId, 2, cancellationToken);
-        var afterSecond = await GroupKeysAsync(harness, cancellationToken);
-        var third = await harness.Sink.WipeStepAsync(GroupId, 2, cancellationToken);
-        var afterThird = await GroupKeysAsync(harness, cancellationToken);
-
-        _ = await Assert.That((first, second, third)).IsEqualTo((ReplicaWipeStep.More, ReplicaWipeStep.More, ReplicaWipeStep.Done));
-        _ = await Assert.That((afterFirst, afterSecond, afterThird)).IsEqualTo((3, 1, 0));
-        _ = await Assert.That(await OtherKeysAsync(harness, cancellationToken)).IsEqualTo(3);
+        _ = await Assert.That(await harness.Sink.WriteAsync(GroupId, entries, cancellationToken)).IsEqualTo(0);
+        _ = await Assert.That(await GroupKeysAsync(harness, cancellationToken)).IsEqualTo(0);
+        harness.Pressure.AtHighWater = false;
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, entries, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(await GroupKeysAsync(harness, cancellationToken)).IsEqualTo(0);
+        _ = await Assert.That(await OtherKeysAsync(harness, cancellationToken)).IsEqualTo(0);
         harness.Sink.Leave(GroupId);
     }
 
@@ -72,26 +69,6 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         }
 
         _ = await Assert.That((totals.EntryCount, totals.Crc)).IsEqualTo((3UL, Crc32C.Finalize(crc)));
-        harness.Sink.Leave(GroupId);
-    }
-
-    /// <summary>The seal awaits the journal durability barrier before it reports, and entering again starts the count over.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SealAwaitsBarrier(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-sink-barrier");
-        await using var harness = await OpenAsync(dir, cancellationToken);
-        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
-        _ = await harness.Sink.WriteAsync(GroupId, new[] { Entry("k-1", "a", 0L) }, cancellationToken);
-        _ = await Assert.That(harness.BarrierStates.Count).IsEqualTo(0);
-
-        var totals = await harness.Sink.SealAsync(GroupId, cancellationToken);
-
-        _ = await Assert.That((harness.BarrierStates.Count, totals.EntryCount)).IsEqualTo((1, 1UL));
-        harness.Sink.Leave(GroupId);
-        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
-        _ = await Assert.That((await harness.Sink.SealAsync(GroupId, cancellationToken)).EntryCount).IsEqualTo(0UL);
         harness.Sink.Leave(GroupId);
     }
 
@@ -125,32 +102,11 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
         var broken = new ReplicaStateEntry(CacheName, Encoding.UTF8.GetBytes("k"), new byte[] { 255, 255, 255 }, 0L);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, new[] { broken }, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, new[] { broken }, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         harness.Sink.ResetAppliedTo(GroupId, 7UL);
 
         _ = await Assert.That(harness.Appliers.For(GroupId).AppliedIndex).IsEqualTo(7UL);
         _ = await Assert.That(harness.Events.Count(4027)).IsEqualTo(0);
-        harness.Sink.Leave(GroupId);
-    }
-
-    /// <summary>At the high-water mark a wipe step stops with the examined key kept, and the next step removes that key first, so no key of the group is left behind.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task WipeAtHighWaterKeepsTheExaminedKey(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-sink-wipe-busy");
-        await using var harness = await OpenAsync(dir, cancellationToken);
-        await harness.SeedAsync(cancellationToken, "g-1", "g-2", "g-3");
-        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
-        harness.Pressure.AtHighWater = true;
-
-        var busy = await harness.Sink.WipeStepAsync(GroupId, 10, cancellationToken);
-        var kept = await GroupKeysAsync(harness, cancellationToken);
-        harness.Pressure.AtHighWater = false;
-        var done = await harness.Sink.WipeStepAsync(GroupId, 10, cancellationToken);
-
-        _ = await Assert.That((busy, kept, done)).IsEqualTo((ReplicaWipeStep.JournalBusy, 3, ReplicaWipeStep.Done));
-        _ = await Assert.That(await GroupKeysAsync(harness, cancellationToken)).IsEqualTo(0);
         harness.Sink.Leave(GroupId);
     }
 
@@ -162,7 +118,7 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-sink-wipe-refused");
         var refusals = new RefusalScript(0);
         await using var harness = await OpenAsync(dir, cancellationToken, decorateSinkCache: refusals.Wrap);
-        await harness.SeedAsync(cancellationToken, "g-1", "g-2", "g-3");
+        harness.Seed(cancellationToken, "g-1", "g-2", "g-3");
         _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
 
         var busy = await harness.Sink.WipeStepAsync(GroupId, 10, cancellationToken);
@@ -192,7 +148,71 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         var onePass = TotalsOf(entries);
         _ = await Assert.That((first, second)).IsEqualTo((1, 2));
         _ = await Assert.That((totals.EntryCount, totals.Crc)).IsEqualTo((onePass.EntryCount, onePass.Crc));
-        _ = await Assert.That(await ReadAsync(harness, "k-3", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Read(harness, "k-3", cancellationToken)).IsNotNull();
+        harness.Sink.Leave(GroupId);
+    }
+
+    /// <summary>The seal awaits the journal durability barrier before it reports, and entering again starts the count over.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SealAwaitsBarrier(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-sink-barrier");
+        await using var harness = await OpenAsync(dir, cancellationToken);
+        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
+        _ = await harness.Sink.WriteAsync(GroupId, new[] { Entry("k-1", "a", 0L) }, cancellationToken);
+        _ = await Assert.That(harness.BarrierStates.Count).IsEqualTo(0);
+
+        var totals = await harness.Sink.SealAsync(GroupId, cancellationToken);
+
+        _ = await Assert.That((harness.BarrierStates.Count, totals.EntryCount)).IsEqualTo((1, 1UL));
+        harness.Sink.Leave(GroupId);
+        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
+        _ = await Assert.That((await harness.Sink.SealAsync(GroupId, cancellationToken)).EntryCount).IsEqualTo(0UL);
+        harness.Sink.Leave(GroupId);
+    }
+
+    /// <summary>At the high-water mark a wipe step stops with the examined key kept, and the next step removes that key first, so no key of the group is left behind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WipeAtHighWaterKeepsTheExaminedKey(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-sink-wipe-busy");
+        await using var harness = await OpenAsync(dir, cancellationToken);
+        harness.Seed(cancellationToken, "g-1", "g-2", "g-3");
+        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
+        harness.Pressure.AtHighWater = true;
+
+        var busy = await harness.Sink.WipeStepAsync(GroupId, 10, cancellationToken);
+        var kept = await GroupKeysAsync(harness, cancellationToken);
+        harness.Pressure.AtHighWater = false;
+        var done = await harness.Sink.WipeStepAsync(GroupId, 10, cancellationToken);
+
+        _ = await Assert.That((busy, kept, done)).IsEqualTo((ReplicaWipeStep.JournalBusy, 3, ReplicaWipeStep.Done));
+        _ = await Assert.That(await GroupKeysAsync(harness, cancellationToken)).IsEqualTo(0);
+        harness.Sink.Leave(GroupId);
+    }
+
+    /// <summary>A wipe step examines no more keys than it is allowed, reports whether more may remain, and leaves the keys of other groups alone.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WipeStepRespectsBound(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-sink-wipe");
+        await using var harness = await OpenAsync(dir, cancellationToken);
+        harness.Seed(cancellationToken, "g-1", "g-2", "g-3", "g-4", "g-5", "other-1", "other-2", "other-3");
+        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
+
+        var first = await harness.Sink.WipeStepAsync(GroupId, 2, cancellationToken);
+        var afterFirst = await GroupKeysAsync(harness, cancellationToken);
+        var second = await harness.Sink.WipeStepAsync(GroupId, 2, cancellationToken);
+        var afterSecond = await GroupKeysAsync(harness, cancellationToken);
+        var third = await harness.Sink.WipeStepAsync(GroupId, 2, cancellationToken);
+        var afterThird = await GroupKeysAsync(harness, cancellationToken);
+
+        _ = await Assert.That((first, second, third)).IsEqualTo((ReplicaWipeStep.More, ReplicaWipeStep.More, ReplicaWipeStep.Done));
+        _ = await Assert.That((afterFirst, afterSecond, afterThird)).IsEqualTo((3, 1, 0));
+        _ = await Assert.That(await OtherKeysAsync(harness, cancellationToken)).IsEqualTo(3);
         harness.Sink.Leave(GroupId);
     }
 
@@ -211,15 +231,8 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         var totals = await harness.Sink.SealAsync(GroupId, cancellationToken);
 
         _ = await Assert.That((written, totals.EntryCount)).IsEqualTo((0, 0UL));
-        _ = await Assert.That(await ReadAsync(harness, "k-1", cancellationToken)).IsNull();
+        _ = await Assert.That(Read(harness, "k-1", cancellationToken)).IsNull();
         harness.Sink.Leave(GroupId);
-    }
-
-    private static uint AppendTicks(uint crc, long ticks)
-    {
-        Span<byte> bytes = stackalloc byte[sizeof(long)];
-        BinaryPrimitives.WriteInt64LittleEndian(bytes, ticks);
-        return Crc32C.Append(crc, bytes);
     }
 
     private static uint AppendField(uint crc, ReadOnlySpan<byte> bytes)
@@ -227,6 +240,13 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         Span<byte> length = stackalloc byte[sizeof(int)];
         BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
         return Crc32C.Append(Crc32C.Append(crc, length), bytes);
+    }
+
+    private static uint AppendTicks(uint crc, long ticks)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(long)];
+        BinaryPrimitives.WriteInt64LittleEndian(bytes, ticks);
+        return Crc32C.Append(crc, bytes);
     }
 
     private static async Task<int> CountAsync(ReplicaStateHarness harness, bool group, CancellationToken cancellationToken)
@@ -245,8 +265,8 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
 
     private static Task<int> OtherKeysAsync(ReplicaStateHarness harness, CancellationToken cancellationToken) => CountAsync(harness, false, cancellationToken);
 
-    private static Task<NodeCacheEntry<object?>?> ReadAsync(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
-        harness.Cache.GetEntryAsync(new CacheKey(CacheName, key), cancellationToken).AsTask();
+    private static NodeCacheEntry<object?>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
+        harness.Cache.GetEntry(new CacheKey(CacheName, key), cancellationToken);
 
     /// <summary>Refuses the writes at the given positions, counted over all removals and stores, as the journal quota does: the call throws and changes nothing.</summary>
     [ThreadSafe]

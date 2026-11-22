@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -11,7 +10,6 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
@@ -34,9 +32,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
         };
 
-        var result = v.Validate(Options.DefaultName, options);
+        var result = v.Check(options);
 
-        _ = await Assert.That(result.Failed).IsFalse();
+        _ = await Assert.That(result).IsEmpty();
     }
 
     /// <summary>Verifies a burst without rate limit configuration is rejected.</summary>
@@ -49,9 +47,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             NodeRateLimitBurst = 3,
         };
 
-        var result = v.Validate(Options.DefaultName, bad);
+        var result = v.Check(bad);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies backpressure queue wait must remain positive when enabled semantics apply.</summary>
@@ -61,9 +59,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions { MaxQueueWait = TimeSpan.Zero };
 
-        var result = v.Validate(Options.DefaultName, bad);
+        var result = v.Check(bad);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies backpressure validator rejects per-client inflight values above the node cap.</summary>
@@ -77,9 +75,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             PerClientMaxInFlight = 9,
         };
 
-        var result = v.Validate(Options.DefaultName, bad);
+        var result = v.Check(bad);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies a minimal valid cluster configuration passes validation.</summary>
@@ -95,9 +93,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             VirtualNodes = 128,
         };
 
-        var result = v.Validate(Options.DefaultName, cfg);
+        var result = v.Check(cfg);
 
-        _ = await Assert.That(result.Failed).IsFalse();
+        _ = await Assert.That(result).IsEmpty();
     }
 
     /// <summary>Verifies duplicate peer identifiers fail validation.</summary>
@@ -117,9 +115,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             VirtualNodes = 128,
         };
 
-        var result = v.Validate(Options.DefaultName, cfg);
+        var result = v.Check(cfg);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies empty node identifiers fail validation.</summary>
@@ -135,9 +133,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             VirtualNodes = 128,
         };
 
-        var result = v.Validate(Options.DefaultName, cfg);
+        var result = v.Check(cfg);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies peer URLs must be absolute HTTPS endpoints.</summary>
@@ -153,9 +151,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             VirtualNodes = 128,
         };
 
-        var result = v.Validate(Options.DefaultName, cfg);
+        var result = v.Check(cfg);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies persistence validation still enforces required paths that cannot be local scalar setter checks.</summary>
@@ -169,9 +167,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             JournalMaxSegmentMb = 1,
         };
 
-        var result = v.Validate(Options.DefaultName, bad);
+        var result = v.Check(bad);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies memory pressure cross-property validation stays in the validator path.</summary>
@@ -186,9 +184,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             CriticalPressureThresholdPercent = 90,
         };
 
-        var result = v.Validate(Options.DefaultName, bad);
+        var result = v.Check(bad);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies snapshot trigger validator accepts valid local scalar values after setter validation.</summary>
@@ -198,9 +196,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         var v = new TriggerOptionsValidator();
         var options = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"snapshotEveryNOps":0}""")!;
 
-        var result = v.Validate(Options.DefaultName, options);
+        var result = v.Check(options);
 
-        _ = await Assert.That(result.Failed).IsFalse();
+        _ = await Assert.That(result).IsEmpty();
     }
 
     /// <summary>Verifies ReplicaCount must be positive and within peer/policy limits.</summary>
@@ -220,7 +218,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             Uri = peers[0].Uri,
             ReplicaCount = 0,
         };
-        _ = await Assert.That(v.Validate(Options.DefaultName, zero).Failed).IsTrue();
+        _ = await Assert.That(v.Check(zero)).IsNotEmpty();
 
         var maxValid = new TopologyOptions(peers)
         {
@@ -229,7 +227,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             Uri = peers[0].Uri,
             ReplicaCount = peers.Length,
         };
-        _ = await Assert.That(v.Validate(Options.DefaultName, maxValid).Failed).IsFalse();
+        _ = await Assert.That(v.Check(maxValid)).IsEmpty();
 
         var abovePeers = new TopologyOptions(peers)
         {
@@ -238,7 +236,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             Uri = peers[0].Uri,
             ReplicaCount = 3,
         };
-        _ = await Assert.That(v.Validate(Options.DefaultName, abovePeers).Failed).IsTrue();
+        _ = await Assert.That(v.Check(abovePeers)).IsNotEmpty();
 
         // Raw peer entries can exceed the physical ring; RF must use DistinctNodeIds count.
         ServerPeer[] peersWithDuplicate =
@@ -254,9 +252,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             Uri = peersWithDuplicate[0].Uri,
             ReplicaCount = peersWithDuplicate.Length,
         };
-        var aboveDistinctResult = v.Validate(Options.DefaultName, aboveDistinct);
-        _ = await Assert.That(aboveDistinctResult.Failed).IsTrue();
-        _ = await Assert.That(aboveDistinctResult.Failures).Contains("ReplicaCount cannot exceed the number of configured peers.", StringComparer.Ordinal);
+        var aboveDistinctResult = v.Check(aboveDistinct);
+        _ = await Assert.That(aboveDistinctResult).IsNotEmpty();
+        _ = await Assert.That(aboveDistinctResult).Contains("ReplicaCount cannot exceed the number of configured peers.", StringComparer.Ordinal);
     }
 
     /// <summary>Verifies plaintext HTTP peer URLs are rejected.</summary>
@@ -272,9 +270,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             VirtualNodes = 128,
         };
 
-        var result = v.Validate(Options.DefaultName, cfg);
+        var result = v.Check(cfg);
 
-        _ = await Assert.That(result.Failed).IsTrue();
+        _ = await Assert.That(result).IsNotEmpty();
     }
 
     /// <summary>Verifies ConfigurationGeneration must be greater than zero.</summary>
@@ -290,6 +288,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             ConfigurationGeneration = 0,
         };
 
-        _ = await Assert.That(v.Validate(Options.DefaultName, cfg).Failed).IsTrue();
+        _ = await Assert.That(v.Check(cfg)).IsNotEmpty();
     }
 }

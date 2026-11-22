@@ -35,7 +35,7 @@ public sealed class UnseededStartTests : NodeIntegrationTestBase
         await WipedCluster.AssertUnseededAsync(second, cancellationToken);
         await WipedCluster.AssertRefusesWriteAsync(first, Nodes[0], cancellationToken);
         await WipedCluster.AssertRefusesWriteAsync(second, Nodes[1], cancellationToken);
-        using (var response = await HttpClient.GetAsync(new Uri(first.Uri, "/health/ready"), cancellationToken))
+        using (var response = await HttpClient.GetAsync(new Uri(first.ManagementUri, "/health/ready"), cancellationToken))
             _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
 
         _ = await cluster.StartNodeAsync(Nodes[2], options, cancellationToken);
@@ -61,7 +61,7 @@ public sealed class UnseededStartTests : NodeIntegrationTestBase
         await using var cluster = CreateCluster([new ClusterNode(Nodes[0], GetNextHttpUri()), new ClusterNode(Nodes[1], GetNextHttpUri()), new ClusterNode(Nodes[2], GetNextHttpUri())]);
         var options = WipedCluster.Options("unseeded-earlier-build", false, new PersistenceOptions { DataDir = dir });
 
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception, ITestNodeHost>(cluster.StartNodeAsync(Nodes[0], options, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, ITestNodeHost>(cluster.StartNodeAsync(Nodes[0], options, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.ToString()).Contains("Replica group 'node-a' metadata was written by an earlier build and is not supported", StringComparison.Ordinal);
         _ = await Assert.That(cluster.StartedCount).IsEqualTo(0);

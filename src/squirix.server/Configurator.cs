@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server;
@@ -24,6 +25,29 @@ public static class Configurator
         // and must not reference hosting-layer contexts, so the hosting layer seeds the metadata
         // chain here. Runs before any Configurator member; unit tests seed via module initializer.
         ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
+    }
+
+    /// <summary>Applies eviction flags over the settings loaded for this node.</summary>
+    /// <param name="options">Server options to update.</param>
+    /// <param name="mode">Optional disabled, keyCount or memory mode.</param>
+    /// <param name="maxKeys">Optional positive limit for keyCount mode.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The key limit is zero or negative.</exception>
+    /// <exception cref="InvalidOperationException">The mode is unknown or incompatible with the effective limit.</exception>
+    public static void ApplyCacheEvictionOverrides(SquirixServerOptions options, string? mode, int? maxKeys)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (mode == null && maxKeys == null)
+            return;
+        if (maxKeys <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxKeys), "The --max-keys limit must be positive.");
+
+        var previousLimit = options.Eviction?.Capacity;
+        if (mode == null && previousLimit == null)
+            throw new InvalidOperationException("--max-keys requires keyCount mode. Set --cache-eviction keyCount.");
+        mode ??= "keyCount";
+        if (string.Equals(mode, "keyCount", StringComparison.Ordinal))
+            maxKeys ??= previousLimit;
+        options.Eviction = EvictionSettings.Resolve(mode, maxKeys);
     }
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
@@ -68,6 +92,7 @@ public static class Configurator
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(target);
 
+        target.Eviction = source.Eviction;
         target.ClusterId = source.ClusterId;
         target.NodeId = source.NodeId;
         target.Uri = source.Uri;
@@ -79,22 +104,12 @@ public static class Configurator
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
+        target.MetricsEnabled = source.MetricsEnabled;
+        target.PrometheusMetricsEnabled = source.PrometheusMetricsEnabled;
+        target.PrometheusMetricsPath = source.PrometheusMetricsPath;
         target.DataDirectory = source.DataDirectory;
         target.ForwardConnectTimeout = source.ForwardConnectTimeout;
-        ArgumentNullException.ThrowIfNull(source.Backpressure);
-        target.Backpressure = new SquirixServerBackpressureOptions
-        {
-            MaxInFlight = source.Backpressure.MaxInFlight,
-            MaxQueue = source.Backpressure.MaxQueue,
-            MaxQueueWait = source.Backpressure.MaxQueueWait,
-            MaxSlowdownDelay = source.Backpressure.MaxSlowdownDelay,
-            NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
-            NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
-            PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
-            PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
-            PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
-            SlowdownThreshold = source.Backpressure.SlowdownThreshold,
-        };
+        CopyBackpressureOptions(source, target);
         ArgumentNullException.ThrowIfNull(source.Journal);
         target.Journal = new SquirixServerJournalOptions
         {
@@ -124,7 +139,7 @@ public static class Configurator
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path != null ? await LoadAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
+            options = path != null ? await LoadHostingSettingsAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
         }
         else
         {
@@ -254,6 +269,7 @@ public static class Configurator
             var options = ThrowHelper.Required(
                 JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
                 "Cannot deserialize Squirix.Cluster.");
+            options.Eviction = EvictionSettings.Read(root);
             if (options.DataDirectory != null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
 
@@ -303,7 +319,7 @@ public static class Configurator
     internal static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken)
     {
         if (discoveredPath != null)
-            return await LoadAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
+            return await LoadHostingSettingsAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
 
         var port = NextFreePort();
         return new SquirixServerOptions
@@ -320,6 +336,33 @@ public static class Configurator
     {
         options.Validate();
         return SquirixServerOptions.BuildTopology(options);
+    }
+
+    private static void CopyBackpressureOptions(SquirixServerOptions source, SquirixServerOptions target)
+    {
+        ArgumentNullException.ThrowIfNull(source.Backpressure);
+        target.Backpressure = new SquirixServerBackpressureOptions
+        {
+            MaxInFlight = source.Backpressure.MaxInFlight,
+            MaxQueue = source.Backpressure.MaxQueue,
+            MaxQueueWait = source.Backpressure.MaxQueueWait,
+            MaxSlowdownDelay = source.Backpressure.MaxSlowdownDelay,
+            NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
+            NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
+            PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
+            PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
+            PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
+            SlowdownThreshold = source.Backpressure.SlowdownThreshold,
+        };
+    }
+
+    private static async Task<SquirixServerOptions> LoadHostingSettingsAsync(string path, CancellationToken cancellationToken)
+    {
+        var options = await LoadAsync(path, cancellationToken).ConfigureAwait(false);
+        var (_, metrics) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(path, new PrometheusMetricsEndpointOptions(), cancellationToken).ConfigureAwait(false);
+        options.PrometheusMetricsEnabled = metrics.Enabled;
+        options.PrometheusMetricsPath = metrics.Path;
+        return options;
     }
 
     /// <summary>Aligns the local peer URI with the node URI after command-line overrides.</summary>

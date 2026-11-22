@@ -48,9 +48,9 @@ public class JournalRegistryBatchBenchmarks
                     throw new InvalidOperationException("A tracked item was abandoned.");
             }
 
-            if (_registry.AnyAbandoned(_items))
+            if (_registry.WasDrained())
                 throw new InvalidOperationException("A batch was abandoned before writing.");
-            if (_registry.AnyAbandoned(_items))
+            if (_registry.WasDrained())
                 throw new InvalidOperationException("A batch was abandoned after writing.");
             _completed.Clear();
             CompleteTrackedBatch();

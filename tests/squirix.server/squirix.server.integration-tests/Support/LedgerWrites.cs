@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -33,7 +33,7 @@ internal static class LedgerWrites
                         .CommitSetAsync(write.OperationId, write.CacheName, write.Key, new NodeCacheEntry<object?> { Value = write.Value ?? write.OperationId }, token);
                     return true;
                 }
-                catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable or StatusCode.ResourceExhausted)
+                catch (ServerCallException exception) when (exception.StatusCode is FrameStatus.Unavailable or FrameStatus.ResourceExhausted)
                 {
                     return false;
                 }

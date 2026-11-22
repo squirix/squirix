@@ -12,20 +12,9 @@ using TUnit.Assertions.Extensions;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Shared MSBuild project loaders and dependency baselines for server architecture tests.</summary>
+/// <summary>Shared MSBuild project loaders for server architecture tests.</summary>
 internal static class ServerArchitectureFixtures
 {
-    internal static readonly string[] KnownServerFrameworkDependencyBaseline =
-    [
-        "Microsoft.AspNetCore.App",
-    ];
-
-    internal static readonly string[] KnownServerPackageDependencyBaseline =
-    [
-        "Grpc.AspNetCore",
-        "Microsoft.AspNetCore.Authentication.JwtBearer",
-    ];
-
     private const string ServerProjectRelativePath = "src/squirix.server/Squirix.Server.csproj";
 
     private static readonly string[] ServerBootstrapSourceRelativePaths =
@@ -36,35 +25,6 @@ internal static class ServerArchitectureFixtures
     private static readonly Lazy<XPathNavigator> ServerProject = new(LoadServerProject);
 
     private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => ParseMsbuildProject(ServerProject.Value));
-
-    internal static List<string> CollectUnexpectedMatches(List<string>? includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)
-    {
-        var unexpected = new List<string>();
-        if (includes == null)
-            return unexpected;
-
-        for (var index = 0; index < includes.Count; index++)
-        {
-            var include = includes[index];
-            if (!isMatch(include))
-                continue;
-
-            var isBaseline = false;
-            for (var baselineIndex = 0; baselineIndex < baseline.Length; baselineIndex++)
-            {
-                if (!comparer.Equals(include, baseline[baselineIndex]))
-                    continue;
-
-                isBaseline = true;
-                break;
-            }
-
-            if (!isBaseline)
-                unexpected.Add(include);
-        }
-
-        return unexpected;
-    }
 
     internal static MsbuildProjectIndex GetServerProjectIndex() => ServerProjectIndex.Value;
 

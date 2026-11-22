@@ -26,7 +26,7 @@ Reasons for the split:
 
 - Application credentials must not be forwarded hop-by-hop inside the cluster.
 - Internode calls are machine-to-machine; trust is established with node certificates, not end-user JWTs.
-- Operational routes (`/health`, `/metrics`) stay on the primary listener with the existing auth model.
+- Operational routes (`/health`, `/metrics`) use the HTTPS management listener.
 - Spoofing internal owner-routing metadata on the primary listener is rejected unless the call arrives on the internal
   mTLS listener with a trusted peer certificate.
 
@@ -102,13 +102,13 @@ Cluster mTLS is configured only through environment variables (also used by cont
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` | Optional PFX password |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PATH` | PEM node certificate (requires key path) |
 | `SQUIRIX_CLUSTER_MTLS_KEY_PATH` | PEM node private key |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated internal HTTPS listener for internode gRPC mTLS |
+| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated binary peer listener with mTLS |
 
 Provide **either** a PFX **or** PEM cert + key, not both. Startup validation fails fast when files are missing, when
 the internal port equals the primary port, or when the loaded node certificate CN does not match `Cluster.NodeId`.
 
-The primary Kestrel certificate (ASP.NET Core development certificate, `ASPNETCORE_Kestrel__Certificates__Default__*`
-in containers, or your ingress TLS termination) is **independent** from cluster mTLS material.
+The certificate for the client and management listeners (`SQUIRIX_TLS_CERTIFICATE_PATH`) is independent of peer mTLS. If a proxy terminates external TLS, its connection to
+the Squirix primary listener must still use HTTPS; TLS termination does not enable a cleartext Squirix listener.
 
 Outbound peer connections use `https://<peer-host>:<internal-port>`, where `<peer-host>` comes from each
 `Peers[].Uri` and `<internal-port>` is `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`. There is no public settings field to
@@ -120,21 +120,26 @@ Internode JWT propagation is **not** part of the product model. Cluster forwardi
 listener** instead:
 
 - Forwarding nodes present a **trusted client certificate** on the internal transport.
-- The internal gRPC surface allows anonymous authorization policy because **TLS client authentication** is the gate.
+- The peer listener requires a verified TLS client certificate before dispatching a binary peer command.
 - External JWTs are **not** required for peer-to-peer forwarding when internode mTLS is enforced.
 - External callers still need JWT (when auth is enabled) on the **primary** listener; they cannot satisfy internal
   forwarding checks with JWT alone.
 
 ## Certificate rotation (high level)
 
-1. Issue replacement node certificates from the same cluster CA (or migrate to a new CA deliberately). Each
-   replacement certificate must keep `CN` equal to the node's `Cluster.NodeId`.
+The rolling procedure below renews node certificates under the same cluster CA; it does not change the trust root.
+
+1. Issue replacement node certificates from the same cluster CA. Each replacement must keep `CN` equal to the node's
+   `Cluster.NodeId`.
 2. Distribute new PFX/PEM files to each node (rolling update).
 3. Restart nodes one at a time. Peers must trust the same CA during the rollout.
-4. Revoke or retire old certificates in your PKI when no node presents them.
+4. Retire old certificates in your PKI when no node presents them. PKI revocation alone does not make Squirix reject
+   an unexpired certificate; see [Compromised node certificate](#compromised-node-certificate).
 
-For CA rotation, dual-trust or a staged CA bundle change must be handled in your PKI; Squirix accepts a **single**
-`SQUIRIX_CLUSTER_MTLS_CA_PATH` file at a time.
+CA rotation requires a coordinated full stop and restart with the new CA and node certificates, as described in
+[Compromised node certificate](#compromised-node-certificate). The loader reads one trust-anchor certificate from
+`SQUIRIX_CLUSTER_MTLS_CA_PATH`; a PEM bundle is not a supported dual-trust configuration. During a rolling switch,
+old-CA and new-CA nodes reject each other's connections.
 
 ## Compromised node certificate
 
@@ -199,6 +204,18 @@ openssl pkcs12 -export -out node-b.pfx -inkey node-b.key -in node-b.crt \
 Assume primary URLs `https://localhost:5001` (node A) and `https://localhost:5002` (node B), each with `Peers[]`
 listing both nodes in `Squirix.settings.json`. Use internal port **5101** on both nodes (must differ from primary
 ports).
+
+These environment blocks select certificates only; they are not a complete two-process launch recipe. Two processes
+both bound to `localhost` cannot share the same internal port 5101, even when their primary ports differ. Changing the
+internal port on just one node also fails because peers derive the destination port from their own configured value.
+
+Run nodes in separate hosts or container network namespaces, or use distinct loopback IP addresses with matching
+primary/peer URLs and appropriately valid primary HTTPS certificates. For a complete local deployment, use the
+[Docker Compose example](../containerization.md#multi-node-internode-mtls), which already separates node listeners.
+
+When using separate terminals, set `dir` in each terminal to the same absolute certificate directory created above.
+The certificate common names in this example are `node-a` and `node-b`; the bundled Docker topology instead uses
+`A`, `B`, and `C`, so do not mix their certificate identities or paths.
 
 Node A:
 

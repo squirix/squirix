@@ -43,44 +43,29 @@ public sealed class ClientClockExpiryTests : ClockTestBase
         _ = await Assert.That(setGone && touchGone).IsTrue();
     }
 
-    /// <summary>An absolute expiration already in the past on the client clock is rejected instead of writing an entry nobody can read.</summary>
+    /// <summary>Verifies Set, Touch, and GetOrAdd reject an absolute expiration in the past.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PastExpiresAtIsRejected(CancellationToken cancellationToken)
+    public async Task OperationsRejectPastAbsoluteExpiry(CancellationToken cancellationToken)
     {
         var cache = await Client.GetCacheAsync<string>("client-clock-past", cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentOutOfRangeException>(
-            cache.SetAsync("k", "v", Expiry.At(DateTimeOffset.UtcNow.AddSeconds(-1)), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentOutOfRangeException>(cache.SetAsync("k", "v", Expiry.At(DateTimeOffset.UtcNow.AddSeconds(-1)), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-    }
 
-    /// <summary>An absolute touch already in the past on the client clock is rejected.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PastTouchIsRejected(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("client-clock-past-touch", cancellationToken);
-        await cache.SetAsync("k", "v", cancellationToken: cancellationToken);
+        await cache.SetAsync("touch", "v", cancellationToken: cancellationToken);
 
         // The instant is checked when the call is made, so the refusal is synchronous.
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(cache, static c => _ = c.TouchAsync("k", DateTimeOffset.UtcNow.AddSeconds(-1), CancellationToken.None));
-    }
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(cache, static c => _ = c.TouchAsync("touch", DateTimeOffset.UtcNow.AddSeconds(-1), CancellationToken.None));
 
-    /// <summary>GetOrAdd refuses an absolute expiration already in the past before it runs the value factory.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PastGetOrAddSkipsFactory(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("client-clock-past-get-or-add", cancellationToken);
         var calls = new StrongBox<int>(0);
 
         // The options are checked when the call is made, like the key, so the refusal is synchronous.
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
             (Cache: cache, Calls: calls),
             static state => _ = state.Cache.GetOrAddAsync(
-                "k",
+                "get-or-add",
                 (_, _) =>
                 {
                     _ = Interlocked.Increment(ref state.Calls.Value);

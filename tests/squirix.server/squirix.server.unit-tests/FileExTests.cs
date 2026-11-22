@@ -59,7 +59,7 @@ public sealed class FileExTests : ServerUnitTestBase
         var clock = new DueTimerClock(FileEx.PublishRetryDelay);
         var publish = StartPublishAsync(tempPath, finalPath, clock, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(publish);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(publish, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
@@ -79,7 +79,7 @@ public sealed class FileExTests : ServerUnitTestBase
         var clock = new DueTimerClock(FileEx.PublishRetryDelay);
         var publish = StartPublishAsync(tempPath, finalPath, clock, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(publish);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(publish, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(clock.TimerCreated.CurrentCount).IsEqualTo(0);
     }
@@ -108,7 +108,7 @@ public sealed class FileExTests : ServerUnitTestBase
             clock.Advance(FileEx.PublishRetryDelay);
         }
 
-        var exception = await NodeAsyncAssert.ThrowsAsync<IOException>(publish);
+        var exception = await NodeAsyncAssert.ThrowsAsync<IOException>(publish, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.HResult == -2147024864).IsTrue();
         _ = await Assert.That(exception.Message).Contains($"pid {Environment.ProcessId}");

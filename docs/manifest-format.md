@@ -11,7 +11,7 @@ write to one slot never touches the other.
 | Offset | Size | Value                                                             |
 | ------ | ---- | ----------------------------------------------------------------- |
 | 0      | 4    | ASCII `SQMP`                                                      |
-| 4      | 1    | slot version `2`                                                  |
+| 4      | 1    | slot version `4`                                                  |
 | 5      | 8    | `u64` sequence, at least 1, increasing with every write           |
 | 13     | 4    | `i32` current journal segment, at least 1                         |
 | 17     | 8    | `u64` next journal sequence, at least 1                           |
@@ -34,7 +34,9 @@ that flush returns. The same manifest is then written into the other slot with t
 loses nothing, and the publish is acknowledged only after that second flush. Retention of snapshots and journal segments runs only
 after the second flush, so neither slot ever holds a manifest whose snapshot or segments were deleted.
 
-A crash or torn write during the first flush leaves the other slot holding the whole previous manifest; recovery continues from it.
+Until the first flush returns, the other slot still holds the previous manifest. Recovery selects the new slot if it
+survived intact with the higher sequence, or the previous slot if the new record is torn or absent. Retention waits
+until both slot writes have been flushed.
 
 Selection on read:
 
@@ -44,7 +46,7 @@ Selection on read:
 - A missing file, or one whose two slot records hold no non-zero byte, means no manifest was ever published; the default
   manifest (journal segment 1, next sequence 1, no snapshot) applies.
 - Any other file without a valid slot fails loudly and is left unchanged.
-- A file written by an earlier build (magic `SQMC`, or magic `SQMP` with slot version `1`) is refused and left unchanged.
+- The reader rejects earlier manifests. It detects the `SQMC` header and checksum-valid `SQMP` slots with versions `1` through `3`.
 
 ## CRC32C
 

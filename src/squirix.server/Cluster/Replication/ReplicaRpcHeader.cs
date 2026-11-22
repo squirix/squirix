@@ -17,4 +17,7 @@ internal readonly record struct ReplicaRpcHeader(
     ulong ConfigurationGeneration,
     ulong Term,
     string LeaderNodeId,
-    string SenderNodeId);
+    string SenderNodeId)
+{
+    internal string? TransferSource { get; init; }
+}

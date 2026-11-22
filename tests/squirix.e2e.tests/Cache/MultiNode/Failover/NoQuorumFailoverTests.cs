@@ -2,10 +2,10 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// With two of three replicas gone no majority exists: a write through the surviving node, whether it led the group or followed it, ends
 /// with a failure the client can retry within the operation deadline of the SDK, and is never acknowledged.
 /// </summary>
-public sealed class NoQuorumFailoverTests : EndToEndTestBase
+public sealed class NoQuorumFailoverTests
 {
     private const string CacheName = "no-quorum";
 
@@ -68,20 +68,20 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
         await using var wire = WireClient.Connect(cluster.GetUri(survivor));
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         attempt.CancelAfter(AttemptTimeout);
-        var refusal = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token));
+        var refusal = await NodeAsyncAssert.ThrowsAsync<WireCallException>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refusal is RpcException { StatusCode: StatusCode.Unavailable } unavailable && string.Equals(unavailable.Status.Detail, WireClient.NoLeaderRefusalDetail, StringComparison.Ordinal))
-            .IsTrue()
+        _ = await Assert.That((refusal.StatusCode, refusal.Message))
+            .IsEqualTo((WireStatus.Unavailable, WireClient.NoLeaderRefusalDetail))
             .Because($"a node without a leader must refuse the read as unavailable within one attempt, got {Describe(refusal)}");
     }
 
-    private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
+    private static string Describe(Exception exception) => exception is WireCallException rpc ? $"{nameof(WireCallException)} {rpc.StatusCode} '{rpc.Message}'" : exception.GetType().Name;
 
     /// <summary>Determines whether a failure is one the client may answer by sending the write again: an unavailable or timed out call, or an unknown commit.</summary>
     /// <param name="exception">The failure.</param>
     /// <returns><see langword="true" /> for a retryable failure; otherwise <see langword="false" />.</returns>
     private static bool IsRetryable(Exception exception) =>
-        exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded };
+        exception is CommitOutcomeUnknownException or SquirixTransportException { StatusCode: CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded };
 
     /// <summary>Stops the two other members, then writes through the survivor and measures how it fails.</summary>
     /// <param name="testName">The test name, which names the data directory and seeds the election jitter.</param>
@@ -105,13 +105,13 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
         using var guard = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         guard.CancelAfter(FailoverSteps.Bound);
         var started = Stopwatch.GetTimestamp();
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cache.SetAsync(key, 2L, cancellationToken: guard.Token));
+        var failure = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, SquirixTransportException>(cache.SetAsync(key, 2L, cancellationToken: guard.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         if (!leaderSurvives)
             await AssertRefusesReadInOneAttemptAsync(cluster, probe, survivor, key, cancellationToken);
 
-        _ = await Assert.That(leaderSurvives || failure is RpcException { StatusCode: StatusCode.Unavailable }).IsTrue().Because($"a follower without a leader must refuse the write as unavailable, got {Describe(failure)}");
+        _ = await Assert.That(leaderSurvives || failure is SquirixTransportException { StatusCode: CacheTransportStatusCode.Unavailable }).IsTrue().Because($"a follower without a leader must refuse the write as unavailable, got {Describe(failure)}");
         _ = await Assert.That(IsRetryable(failure)).IsTrue().Because($"a write without a quorum must fail retryably, got {Describe(failure)}");
         _ = await Assert.That(elapsed).IsLessThanOrEqualTo(OperationDeadline + Margin).Because($"the write ended after {elapsed.TotalSeconds:F1} s with {Describe(failure)}");
     }

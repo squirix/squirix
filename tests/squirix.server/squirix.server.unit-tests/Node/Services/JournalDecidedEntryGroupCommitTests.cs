@@ -40,21 +40,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-decided-group";
 
-    private JournalReplayKit Kit => new(Dir, _testMeter, true);
-
-    /// <summary>A skipped expiration removal releases the same-key guard, so an immediate set of the key succeeds.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PersistSkipReleasesKeyGuard(CancellationToken cancellationToken)
-    {
-        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken);
-
-        _ = await Assert.That(await session.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsFalse();
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
-
-        _ = await Assert.That((await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken))!.Value).IsEqualTo("w");
-    }
+    private JournalReplayKit Kit => new(Dir, true);
 
     /// <summary>The expiration removal applies the journaled entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -67,6 +53,20 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
 
         await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
         _ = await Assert.That(memory.ExpiresUtc).IsNull();
+    }
+
+    /// <summary>A skipped expiration removal releases the same-key guard, so an immediate set of the key succeeds.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PersistSkipReleasesKeyGuard(CancellationToken cancellationToken)
+    {
+        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken);
+
+        _ = await Assert.That(await session.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsFalse();
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
+
+        _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
 
     /// <summary>A snapshot cut before the tail mutation replays to the state the tail journals.</summary>
@@ -85,22 +85,9 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(persist ? null : start.Add(ExtendedTtl));
-    }
-
-    /// <summary>A skipped touch releases the same-key guard, so an immediate set of the key succeeds.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TouchSkipReleasesKeyGuard(CancellationToken cancellationToken)
-    {
-        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
-
-        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, cancellationToken)).IsFalse();
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
-
-        _ = await Assert.That((await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken))!.Value).IsEqualTo("w");
     }
 
     /// <summary>The touch applies the journaled entry.</summary>
@@ -113,6 +100,19 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
             cancellationToken);
 
         await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
+    }
+
+    /// <summary>A skipped touch releases the same-key guard, so an immediate set of the key succeeds.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TouchSkipReleasesKeyGuard(CancellationToken cancellationToken)
+    {
+        await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
+
+        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, cancellationToken)).IsFalse();
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
+
+        _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
 
     /// <summary>The update applies the journaled entry.</summary>
@@ -158,7 +158,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
             var seeded = new NodeCacheEntry<string>("v1", 3, clock.GetUtcNow().UtcDateTime.Add(OriginalTtl), tags: tags);
             await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, cancellationToken);
             _ = await Assert.That(await mutate(session.Cache, cancellationToken)).IsTrue();
-            memory = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+            memory = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         }
 
         _ = await Assert.That(memory).IsNotNull();

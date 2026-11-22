@@ -2,14 +2,14 @@ using System;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Logging;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -62,7 +62,7 @@ public sealed class VerifiedPeerCertificatesTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(ExpiredEventId, "node-b")).IsEqualTo(1);
         _ = await Assert.That(log.Count(ExpiredEventId, "expired while its connection was open")).IsEqualTo(1);
         var (level, _) = await Assert.That(log.Find(ExpiredEventId)).IsNotNull();
-        _ = await Assert.That(level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(level).IsEqualTo(ServerLogLevel.Warning);
     }
 
     /// <summary>Verifies each connection certificate reports its own expiry once.</summary>

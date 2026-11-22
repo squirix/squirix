@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -12,6 +11,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
@@ -162,12 +162,12 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <param name="host">The node.</param>
     /// <returns>The local cache chain.</returns>
     private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
-        host.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey);
+        host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     /// <summary>Replaces the group log maintenance schedule.</summary>
     /// <param name="services">The node service collection.</param>
     /// <param name="interval">The delay between two maintenance passes.</param>
-    private static void SetMaintenanceInterval(IServiceCollection services, TimeSpan interval)
+    private static void SetMaintenanceInterval(TestServiceCollection services, TimeSpan interval)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {

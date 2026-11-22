@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -17,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// A write whose outcome the client does not know because its leader died keeps one logical identity: sent again with the same operation
 /// identifier through a surviving member once a new leader is elected, it takes effect once, and sending it yet again returns the same answer.
 /// </summary>
-public sealed class UnknownCommitFailoverTests : EndToEndTestBase
+public sealed class UnknownCommitFailoverTests
 {
     private const string CacheName = "unknown-commit";
 
@@ -68,7 +67,7 @@ public sealed class UnknownCommitFailoverTests : EndToEndTestBase
         _ = await Assert.That(held).IsGreaterThan(appended).Because("the entry must reach a follower before the leader dies, or the retry is a plain first execution");
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
-        var unknown = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first);
+        var unknown = await NodeAsyncAssert.ThrowsAsync<WireCallException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         fabric.HealAll();
 
         var (_, term) = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
@@ -93,5 +92,5 @@ public sealed class UnknownCommitFailoverTests : EndToEndTestBase
     /// <param name="exception">The failure.</param>
     /// <returns><see langword="true" /> for a retryable status or an unknown commit outcome; otherwise <see langword="false" />.</returns>
     private static bool IsRetryable(Exception exception) =>
-        exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.Internal or StatusCode.DeadlineExceeded or StatusCode.Cancelled };
+        exception is CommitOutcomeUnknownException or WireCallException { StatusCode: WireStatus.Unavailable or WireStatus.Internal or WireStatus.DeadlineExceeded or WireStatus.Cancelled };
 }

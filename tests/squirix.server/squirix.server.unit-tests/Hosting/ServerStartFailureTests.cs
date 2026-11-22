@@ -1,12 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -20,14 +19,19 @@ public sealed class ServerStartFailureTests
     private const int CleanupFailedEventId = 3018;
 
     /// <summary>A hosted service that fails to start leaves no running service and the original exception reaches the caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailedStartStopsStartedServices()
+    public async Task FailedStartStopsStartedServices(CancellationToken cancellationToken)
     {
         var probe = new StartProbe();
         var failure = new InvalidOperationException("Probe start failure.");
         var app = BuildApp(probe, failure);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
+            StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
@@ -35,28 +39,38 @@ public sealed class ServerStartFailureTests
     }
 
     /// <summary>A cancelled start disposes the application and surfaces the cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancelledStartDisposesApplication()
+    public async Task CancelledStartDisposesApplication(CancellationToken cancellationToken)
     {
         var probe = new StartProbe();
         var app = BuildApp(probe, null);
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(
+            StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(IsContainerDisposed(app)).IsTrue();
     }
 
     /// <summary>A start cancelled after a hosted service started stops that service, disposes its dependency and surfaces the cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancelAfterStartedServiceStopsIt()
+    public async Task CancelAfterStartedServiceStopsIt(CancellationToken cancellationToken)
     {
         using var cts = new CancellationTokenSource();
         var probe = new StartProbe { CancelOnStart = cts };
         var app = BuildApp(probe, null, null, false, true);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(
+            StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
@@ -64,61 +78,74 @@ public sealed class ServerStartFailureTests
     }
 
     /// <summary>A failure before startup begins disposes the built application and rethrows the original exception.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailedConfigureDisposesApplication()
+    public async Task FailedConfigureDisposesApplication(CancellationToken cancellationToken)
     {
         var probe = new StartProbe();
         var failure = new InvalidOperationException("Configure failure.");
         var app = BuildApp(probe, null);
 
         var start = StartAppAsync(app, (_, _) => throw failure, CancellationToken.None);
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(IsContainerDisposed(app)).IsTrue();
     }
 
     /// <summary>A cleanup failure is logged and never replaces the original startup exception.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CleanupFailureDoesNotReplaceStartFailure()
+    public async Task CleanupFailureDoesNotReplaceStartFailure(CancellationToken cancellationToken)
     {
         var probe = new StartProbe { ThrowOnDependencyDispose = true };
         var failure = new InvalidOperationException("Probe start failure.");
         var log = new EventRecordingLogger();
         var app = BuildApp(probe, failure, log);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
+            StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         var entry = log.Find(CleanupFailedEventId);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
-        _ = await Assert.That(entry?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(entry?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(entry?.Cause).IsTypeOf<InvalidOperationException>();
     }
 
     /// <summary>A logger that throws while recording the cleanup failure does not replace the original startup exception.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ThrowingLoggerDoesNotReplaceStartFailure()
+    public async Task ThrowingLoggerDoesNotReplaceStartFailure(CancellationToken cancellationToken)
     {
         var probe = new StartProbe { ThrowOnDependencyDispose = true };
         var failure = new InvalidOperationException("Probe start failure.");
         var app = BuildApp(probe, failure, null, true);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
+            StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
     }
 
-    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(WebApplication app, Func<WebApplication, CancellationToken, Task> configure, CancellationToken cancellationToken) =>
-        SquirixServer.ApplicationHandle.StartApplicationAsync(app, configure, cancellationToken).AsTask();
+    private static Task<SquirixServer.ApplicationHandle> StartAppAsync(
+        ServerApplication app,
+        Func<ServerApplication, CancellationToken, Task> configure,
+        CancellationToken cancellationToken) => SquirixServer.ApplicationHandle.StartApplicationAsync(app, configure, cancellationToken).AsTask();
 
-    private static bool IsContainerDisposed(WebApplication app)
+    private static bool IsContainerDisposed(ServerApplication app)
     {
         try
         {
-            _ = app.Services.GetService<StartProbe>();
+            _ = app.Services.Find<StartProbe>();
             return false;
         }
         catch (ObjectDisposedException)
@@ -127,31 +154,32 @@ public sealed class ServerStartFailureTests
         }
     }
 
-    private static WebApplication BuildApp(StartProbe probe, Exception? startFailure, EventRecordingLogger? log = null, bool throwingLogger = false, bool observeCancellation = false)
+    private static ServerApplication BuildApp(
+        StartProbe probe,
+        Exception? startFailure,
+        EventRecordingLogger? log = null,
+        bool throwingLogger = false,
+        bool observeCancellation = false)
     {
-        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
-        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
-        _ = builder.Logging.ClearProviders();
-        if (log != null)
-            _ = builder.Services.AddSingleton<ILoggerProvider>(_ => new RecordingLoggerProvider(log));
+        var services = new NodeServices();
+        _ = throwingLogger
+            ? services.Own<IServerLoggerFactory>(static _ => new FixedLoggerFactory(new ThrowingLogger()))
+            : services.Own<IServerLoggerFactory>(_ => log == null ? NullLoggerFactory.Instance : new FixedLoggerFactory(log));
 
-        if (throwingLogger)
-            _ = builder.Services.AddSingleton<ILoggerProvider>(static _ => new ThrowingLoggerProvider());
-
-        _ = builder.Services.AddSingleton(probe);
-        _ = builder.Services.AddSingleton(static serviceProvider => new ProbeDependency(serviceProvider.GetRequiredService<StartProbe>()));
-        _ = builder.Services.AddSingleton<IHostedService>(serviceProvider =>
+        _ = services.Use(probe);
+        _ = services.Own(static serviceProvider => new ProbeDependency(serviceProvider.Require<StartProbe>()));
+        _ = services.Own<INodeService>(serviceProvider =>
         {
-            _ = serviceProvider.GetRequiredService<ProbeDependency>();
+            _ = serviceProvider.Require<ProbeDependency>();
             return new RunningService(probe);
         });
         if (startFailure != null)
-            _ = builder.Services.AddSingleton<IHostedService>(_ => new FailingService(startFailure));
+            _ = services.Own<INodeService>(_ => new FailingService(startFailure));
 
         if (observeCancellation)
-            _ = builder.Services.AddSingleton<IHostedService>(static _ => new CancellationObservingService());
+            _ = services.Own<INodeService>(static _ => new CancellationObservingService());
 
-        return builder.Build();
+        return ServerApplication.Build(services);
     }
 
     private sealed class StartProbe
@@ -178,7 +206,7 @@ public sealed class ServerStartFailureTests
     {
         private readonly StartProbe _probe;
 
-        public ProbeDependency(StartProbe probe)
+        internal ProbeDependency(StartProbe probe)
         {
             _probe = probe;
         }
@@ -193,11 +221,11 @@ public sealed class ServerStartFailureTests
         private static void Fail() => throw new InvalidOperationException("Probe dependency dispose failure.");
     }
 
-    private sealed class RunningService : IHostedService
+    private sealed class RunningService : INodeService
     {
         private readonly StartProbe _probe;
 
-        public RunningService(StartProbe probe)
+        internal RunningService(StartProbe probe)
         {
             _probe = probe;
         }
@@ -211,11 +239,11 @@ public sealed class ServerStartFailureTests
         }
     }
 
-    private sealed class FailingService : IHostedService
+    private sealed class FailingService : INodeService
     {
         private readonly Exception _failure;
 
-        public FailingService(Exception failure)
+        internal FailingService(Exception failure)
         {
             _failure = failure;
         }
@@ -225,7 +253,7 @@ public sealed class ServerStartFailureTests
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class CancellationObservingService : IHostedService
+    private sealed class CancellationObservingService : INodeService
     {
         public Task StartAsync(CancellationToken cancellationToken)
         {
@@ -236,23 +264,14 @@ public sealed class ServerStartFailureTests
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class ThrowingLoggerProvider : ILoggerProvider
-    {
-        public ILogger CreateLogger(string categoryName) => new ThrowingLogger();
-
-        public void Dispose()
-        {
-        }
-    }
-
-    private sealed class ThrowingLogger : ILogger
+    private sealed class ThrowingLogger : IServerLogger
     {
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (eventId.Id == CleanupFailedEventId)
                 throw new InvalidOperationException("Logger failure.");

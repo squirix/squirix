@@ -1,15 +1,15 @@
 name: CI
 
 on:
-    # Pull requests run the ubuntu-only fast path: x64 build and tests (smoke included) without
-    # coverage, SonarCloud, NDepend, ARM, format, discovery, explorer, or benchmarks.
+    # Pull requests into develop run x64 Linux builds and tests on .NET 10 and .NET 11 without
+    # coverage, SonarCloud, NDepend, ARM, format, discovery, or explorer.
+    # Allocation guards run on PRs; timed release comparisons run only in performance-nightly.yml.
     # On every event the test artifacts are built without analyzers; the analyzed build runs in parallel as the
     # analyze-ubuntu shards and gates ci-success.
     # Push to develop/main, weekly schedule, and manual dispatch run the full matrix.
     # Windows/macOS builds/tests run on pushes to main and develop, on pull requests into main, and on schedule/dispatch, not on
     # pull requests into develop. They run the test hosts directly.
     # Builds/tests are split per OS so ubuntu tests/Sonar are not gated on Windows/macOS build.
-    # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
     # PVS-Studio (Team): same-repo code changes; requires secrets.PVS_STUDIO_CREDENTIALS ("name key").
     push:
@@ -20,6 +20,11 @@ on:
     schedule:
         - cron: "0 6 * * 1"
     workflow_dispatch:
+        inputs:
+            run_stress:
+                description: Run resiliency repeat checks and the E2E stress suite
+                type: boolean
+                default: false
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -192,7 +197,6 @@ jobs:
         outputs:
             built: ${{ steps.gate.outputs.build }}
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -227,10 +231,10 @@ jobs:
                     # Every run that builds here also tests on ARM, Windows or macOS.
                     runtime-assets: test-runners
 
-    # Packs the client and server packages and runs the sample against them. It has a runner of its own so the jobs
+    # Packs the library packages and runs the sample against them on both frameworks. It has a runner of its own so the jobs
     # that wait for the build outputs of build-ubuntu do not wait for it too.
     package-smoke:
-        name: Package Smoke (Ubuntu / Net10.0)
+        name: Package Smoke (Ubuntu / .NET 10 and 11)
         runs-on: ubuntu-latest
         timeout-minutes: 20
         needs: changes
@@ -242,7 +246,6 @@ jobs:
             github.event_name == 'workflow_dispatch'
             )
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -267,7 +270,7 @@ jobs:
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
             # The smoke restores into a package folder of its own, so the package cache of the build jobs is of no use here.
-            # `dotnet pack` builds only the two packaged projects. SquirixToolCheck builds them without analyzers, which the
+            # `dotnet pack` builds the library packages for both frameworks. SquirixToolCheck builds them without analyzers, which the
             # analysis shards already run on them (and on the sample); see Directory.Build.props.
             -   name: Run External Package Smoke
                 env:
@@ -290,7 +293,6 @@ jobs:
                 # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
                 shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -362,7 +364,6 @@ jobs:
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' ||
             github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -434,7 +435,6 @@ jobs:
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' ||
             github.ref == 'refs/heads/develop' || github.base_ref == 'main'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -481,7 +481,6 @@ jobs:
             github.event_name == 'workflow_dispatch'
             )
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -533,7 +532,6 @@ jobs:
                     && '["light", "e2e-multi-node", "e2e-failover", "server-unit", "server-integration"]'
                     || '["light-e2e", "server-unit-failover", "server-integration"]') }}
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -588,7 +586,6 @@ jobs:
                 # Two jobs of similar length; see test-ubuntu.
                 suite: [ desktop-integration, server-unit-e2e ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -651,7 +648,6 @@ jobs:
                 # see test-ubuntu.
                 suite: [ desktop-integration, server-unit, e2e-cluster ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -690,7 +686,6 @@ jobs:
                 # back in two jobs (the `arm-client` and `arm-server` groups) and leave the job slots to the other runners.
                 suite: [ arm-client, arm-server ]
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -712,6 +707,178 @@ jobs:
                     suite: ${{ matrix.suite }}
                     collect-coverage: "false"
 
+    # The .NET 11 compatibility pipeline follows the .NET 10 build, analysis, and suite layout.
+    build-ubuntu-net11:
+        name: Build (ubuntu-latest / net11.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
+        outputs:
+            built: ${{ steps.gate.outputs.build }}
+        env:
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            SquirixTargetFramework: net11.0
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Build
+                id: gate
+                run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
+            -   name: Build Release Outputs
+                if: steps.gate.outputs.build == 'true'
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: ubuntu-latest
+                    framework: net11.0
+                    # The analysis shards build independently of these test outputs.
+                    analyzers: "false"
+                    # Nothing downloads the benchmark or sample outputs: the guard and package smoke jobs build their own.
+                    test-outputs-only: "true"
+                    # The .NET 11 test jobs run only on this Linux host platform.
+                    runtime-assets: host
+
+    analyze-ubuntu-net11:
+        name: Analyze (ubuntu-latest / net11.0 / ${{ matrix.shard }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        strategy:
+            fail-fast: false
+            matrix:
+                # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
+                shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
+        env:
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            SquirixTargetFramework: net11.0
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Analyze
+                id: gate
+                run: echo "analyze=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
+            -   name: Analyzed Release Build
+                if: steps.gate.outputs.analyze == 'true'
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: ubuntu-latest
+                    framework: net11.0
+                    analysis-shard: ${{ matrix.shard }}
+                    upload-outputs: "false"
+
+            # Together the shards analyze every project exactly once; Squirix.Server.UnitTests is in two shards, each running half of
+            # its analyzers. The checks read the shard listing the build of a shard other than `default` wrote (see
+            # .github/actions/build-release), so they cost no further MSBuild run.
+            #  - The build fails on a shard name Directory.Build.props does not declare, so an equal count means the matrix above
+            #    and the declared shards are the same set and no declared shard is left without a job.
+            #  - Every project of the repository is in squirix.slnx, which the shard listing is taken from.
+            #  - Every project belongs to a declared shard.
+            -   name: Verify Every Project Is Analyzed Once
+                if: steps.gate.outputs.analyze == 'true' && matrix.shard != 'default'
+                shell: bash
+                run: |
+                    listing="$RUNNER_TEMP/analysis-shards.txt"
+                    declared="$(sed -n 's/^ *squirix-analysis-shards|//p' "$listing" | head -n 1)"
+                    IFS=';' read -r -a shards <<< "$declared"
+                    if [ "${#shards[@]}" -ne "${{ strategy.job-total }}" ]; then
+                      echo "Directory.Build.props declares ${#shards[@]} analysis shards ($declared) but this job runs ${{ strategy.job-total }}." >&2
+                      exit 1
+                    fi
+
+                    missing="$(comm -23 <(git ls-files '*.csproj' | sort) <(sed -n 's/.*<Project Path="\([^"]*\)".*/\1/p' squirix.slnx | sort))"
+                    if [ -n "$missing" ]; then
+                      echo "Not in squirix.slnx, so no analysis shard builds them: $missing" >&2
+                      exit 1
+                    fi
+
+                    undeclared="$(sed -n 's/^ *squirix-analysis-shard|\([^|]*\)|.*/\1/p' "$listing" | sort -u | grep -vxF -f <(printf '%s\n' "${shards[@]}") || true)"
+                    if [ -n "$undeclared" ]; then
+                      echo "Projects belong to shards Directory.Build.props does not declare, so no job analyzes them: $undeclared" >&2
+                      exit 1
+                    fi
+
+    test-ubuntu-net11:
+        name: Test (ubuntu-latest / net11.0 / ${{ matrix.suite }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            # Lists the artifacts and jobs of this run to wait for the build outputs.
+            actions: read
+            # The change detection lists the files of the pull request.
+            pull-requests: read
+        strategy:
+            fail-fast: false
+            max-parallel: 8
+            matrix:
+                # Match the .NET 10 suite groups; each framework runs in separate jobs.
+                # Group definitions live in tools/ci/select-test-suite.py.
+                suite: ${{ fromJSON(github.event_name == 'pull_request'
+                    && '["light", "e2e-multi-node", "e2e-failover", "server-unit", "server-integration"]'
+                    || '["light-e2e", "server-unit-failover", "server-integration"]') }}
+        env:
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            SquirixTargetFramework: net11.0
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            # The same decision build-ubuntu makes: there is something to test exactly when it builds (or would build, on a
+            # pull request into develop).
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Test
+                id: gate
+                run: echo "test=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
+            -   name: Run Test Suite
+                if: steps.gate.outputs.test == 'true'
+                uses: ./.github/actions/run-test-suite
+                with:
+                    os: ubuntu-latest
+                    framework: net11.0
+                    suite: ${{ matrix.suite }}
+                    collect-coverage: "false"
+                    # On a pull request each job builds its own suite: that ends sooner than the whole build and its upload.
+                    wait-for-build: ${{ github.event_name != 'pull_request' }}
+                    build: ${{ github.event_name == 'pull_request' }}
+
     # Two short checks of the ubuntu build outputs in one job, so they hold one of the 20 job slots of the organization
     # plan. A check runs even when the other one failed, so one run reports every failure.
     #  - test discovery: every test project lists at least one test;
@@ -726,7 +893,6 @@ jobs:
         # PR fast path: these checks run on push/schedule/dispatch only.
         if: github.event_name != 'pull_request' && needs.build-ubuntu.outputs.built == 'true'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
         steps:
@@ -868,7 +1034,7 @@ jobs:
                     if-no-files-found: warn
 
     # Guards the allocations of the gRPC wire path: GetValue and Set for a scalar and a structured value, ephemeral and
-    # persistent (8 cases of the 52-row matrix in docs/benchmarks/e2e-benchmarks.md). Allocated bytes per operation barely
+    # persistent (8 cases total). Allocated bytes per operation barely
     # move between runs, unlike times on a shared runner, so they are compared with a baseline measured on this runner
     # kind; see tools/ci/check-wire-alloc.py. It also guards the server read paths whose allocations the unit tests do not
     # pin (the value hit of PhysicalCache and the replicated value read), against benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json.
@@ -883,7 +1049,6 @@ jobs:
             github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
@@ -940,8 +1105,8 @@ jobs:
             # MinIterationTime(150): 1 or 2 invocations (512 or 1024 operations) of an operation that takes 0.1-0.7 ms, so
             # one-off allocations (store and journal growth, GCs) landed in that sample and SetAsync moved by up to 8.5%.
             # A fixed invocationCount of 8 (4096 operations, no pilot) amortizes them; timings are not used.
-            # The warmup iteration stays: without it (warmupCount 0) the first-use allocations land in the measured sample and
-            # SetAsync allocates 3-5% more, up to the 5% tolerance of the guard. iterationCount cannot go below 1.
+            # Read cases use three warmup iterations to settle the first in-process gRPC connection. Write cases retain
+            # one warmup: each invocation creates new keys, so extra warmups would change the measured store size.
             # In process, BenchmarkDotNet does not build a project of its own (about 110 s here, since it recompiled the
             # benchmarks with analyzers) or start a process per case.
             -   name: Run Wire Allocation Benchmarks
@@ -956,13 +1121,26 @@ jobs:
                       --configuration Release \
                       --no-build \
                       -- \
-                      --filter '*Wire*AllocBenchmarks.GetValueAsync' '*Wire*AllocBenchmarks.SetAsync' \
+                      --filter '*Wire*AllocBenchmarks.GetValueAsync' \
+                      --warmupCount 3 \
+                      --iterationCount 1 \
+                      --invocationCount 8 \
+                      --unrollFactor 1 \
+                      --exporters json \
+                      --join \
+                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee benchmark-wire-alloc.log
+                    dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj \
+                      --configuration Release \
+                      --no-build \
+                      -- \
+                      --filter '*Wire*AllocBenchmarks.SetAsync' \
                       --warmupCount 1 \
                       --iterationCount 1 \
                       --invocationCount 8 \
                       --unrollFactor 1 \
                       --exporters json \
-                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee benchmark-wire-alloc.log
+                      --join \
+                      --artifacts "$BDN_ARTIFACTS" 2>&1 | tee -a benchmark-wire-alloc.log
 
             # BenchmarkDotNet exits 0 when a case fails or the filter selects nothing, so the check also fails on a missing result.
             -   name: Compare Allocations With The Baseline
@@ -995,6 +1173,27 @@ jobs:
                         benchmark-server-alloc.log
                     if-no-files-found: warn
 
+    # The comparator/runner tests are fast; the native release comparison runs only in performance-nightly.yml.
+    performance-tools-tests:
+        name: Performance Guard Tools (Python)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        needs: changes
+        if: |
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Test Performance Guard
+                run: python3 -m unittest discover -s tools/ci -p test_performance_guard.py -v
+
     # Checks benchmark setup and execution separately from allocation regression limits.
     benchmark-smoke:
         name: Benchmark Smoke (Ubuntu / Net10.0)
@@ -1005,7 +1204,6 @@ jobs:
             github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
             github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
-            ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
@@ -1754,7 +1952,7 @@ jobs:
                     persist-credentials: false
 
             -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+                uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
                 with:
                     global-json-file: global.json
 
@@ -1817,11 +2015,12 @@ jobs:
                     shopt -s inherit_errexit
                     # Either listing can lag behind; their union is scanned newest first. Pull request runs have no NDepend job.
                     list_runs() {
+                      local branch="$1"
                       local filter='.workflow_runs[] | select(.head_branch == env.B and .event != "pull_request"
                         and .status == "completed" and .id != (env.GITHUB_RUN_ID | tonumber)) | "\(.run_number) \(.id)"'
-                      B="$1" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
-                          -f branch="$1" -F per_page=50 --jq "${filter}"
-                      B="$1" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                      B="$branch" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                          -f branch="$branch" -F per_page=50 --jq "${filter}"
+                      B="$branch" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
                           -F per_page=100 --jq "${filter}"
                     }
                     # A failed or malformed answer stops the step: read as "not passed" it would pick a run that failed the gate.
@@ -1866,7 +2065,7 @@ jobs:
                     echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
 
             -   name: Run NDepend Analysis
-                uses: ndepend/ndepend-action@6ea2f4658a571ae7d4e04a2ae07fa70464b68f14 # latest ndepend (unreleased; last release v1.0.0)
+                uses: ndepend/ndepend-action@be6c2e0830c672a6062cbfa00ac03c1c90d7eaa5 # v2 branch
                 with:
                     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     license: ${{ secrets.NDependLicense }}
@@ -1904,11 +2103,15 @@ jobs:
             - build-windows
             - build-macos
             - test-ubuntu
+            - build-ubuntu-net11
+            - analyze-ubuntu-net11
+            - test-ubuntu-net11
             - test-arm
             - test-windows
             - test-macos
             - post-build-checks
             - alloc-guard
+            - performance-tools-tests
             - benchmark-smoke
             - coverage
             - sonarcloud
@@ -1941,11 +2144,15 @@ jobs:
                     RESULT_BUILD_WINDOWS: ${{ needs.build-windows.result }}
                     RESULT_BUILD_MACOS: ${{ needs.build-macos.result }}
                     RESULT_TEST_UBUNTU: ${{ needs.test-ubuntu.result }}
+                    RESULT_BUILD_UBUNTU_NET11: ${{ needs.build-ubuntu-net11.result }}
+                    RESULT_ANALYZE_UBUNTU_NET11: ${{ needs.analyze-ubuntu-net11.result }}
+                    RESULT_TEST_UBUNTU_NET11: ${{ needs.test-ubuntu-net11.result }}
                     RESULT_TEST_ARM: ${{ needs.test-arm.result }}
                     RESULT_TEST_WINDOWS: ${{ needs.test-windows.result }}
                     RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
                     RESULT_POST_BUILD_CHECKS: ${{ needs.post-build-checks.result }}
                     RESULT_ALLOC: ${{ needs.alloc-guard.result }}
+                    RESULT_PERFORMANCE_TOOLS: ${{ needs.performance-tools-tests.result }}
                     RESULT_BENCHMARK_SMOKE: ${{ needs.benchmark-smoke.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
@@ -1955,6 +2162,7 @@ jobs:
                 run: |
                     set -euo pipefail
                     failed=0
+                    readonly pull_request_event="pull_request"
 
                     require_docs=false
                     require_code=false
@@ -1974,18 +2182,18 @@ jobs:
                     if [[ "${{ needs.changes.outputs.docker }}" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docker=true
                     fi
-                    if [[ "$EVENT_NAME" == "pull_request" ]]; then
+                    if [[ "$EVENT_NAME" == "$pull_request_event" ]]; then
                       require_line_endings=true
                     fi
                     if [[ "$require_code" == "true" && ( "$GITHUB_REF" == "refs/heads/develop" || "$GITHUB_BASE_REF" == "develop" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ) ]]; then
                       require_alloc=true
                       require_benchmark_smoke=true
                     fi
-                    if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
+                    if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "$pull_request_event" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_sonar=true
                       require_pvs=true
                     fi
-                    if [[ ( "$require_code" == "true" || "$NDEPEND_CHANGED" == "true" ) && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
+                    if [[ ( "$require_code" == "true" || "$NDEPEND_CHANGED" == "true" ) && ( "$EVENT_NAME" != "$pull_request_event" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_ndepend=true
                     fi
 
@@ -2032,7 +2240,7 @@ jobs:
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
                     # PR fast path: skipped on pull_request into develop, required otherwise.
-                    if [[ "$EVENT_NAME" == "pull_request" && "$GITHUB_BASE_REF" != "main" ]]; then
+                    if [[ "$EVENT_NAME" == "$pull_request_event" && "$GITHUB_BASE_REF" != "main" ]]; then
                       assert_success_or_skipped "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
                     else
                       assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
@@ -2046,6 +2254,13 @@ jobs:
                     assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
                     assert_success_or_skipped "build-macos" "$require_code" "$RESULT_BUILD_MACOS"
                     assert_success "test-ubuntu" "$require_code" "$RESULT_TEST_UBUNTU"
+                    if [[ "$EVENT_NAME" == "$pull_request_event" && "$GITHUB_BASE_REF" != "main" ]]; then
+                      assert_success_or_skipped "build-ubuntu-net11" "$require_code" "$RESULT_BUILD_UBUNTU_NET11"
+                    else
+                      assert_success "build-ubuntu-net11" "$require_code" "$RESULT_BUILD_UBUNTU_NET11"
+                    fi
+                    assert_success "analyze-ubuntu-net11" "$require_code" "$RESULT_ANALYZE_UBUNTU_NET11"
+                    assert_success "test-ubuntu-net11" "$require_code" "$RESULT_TEST_UBUNTU_NET11"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "test-arm" "$require_code" "$RESULT_TEST_ARM"
                     assert_success_or_skipped "test-windows" "$require_code" "$RESULT_TEST_WINDOWS"
@@ -2053,6 +2268,7 @@ jobs:
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "post-build-checks" "$require_code" "$RESULT_POST_BUILD_CHECKS"
                     assert_success "alloc-guard" "$require_alloc" "$RESULT_ALLOC"
+                    assert_success "performance-tools-tests" "$require_code" "$RESULT_PERFORMANCE_TOOLS"
                     assert_success "benchmark-smoke" "$require_benchmark_smoke" "$RESULT_BENCHMARK_SMOKE"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "coverage" "$require_code" "$RESULT_COVERAGE"
@@ -2066,8 +2282,8 @@ jobs:
                     fi
 
     stability-stress:
-        name: Stability Stress (Weekly / Manual)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        name: Stability Stress (Manual)
+        if: github.event_name == 'workflow_dispatch' && inputs.run_stress
         runs-on: windows-latest
         timeout-minutes: 60
         steps:
@@ -2077,7 +2293,7 @@ jobs:
                     persist-credentials: false
 
             -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+                uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
                 with:
                     global-json-file: global.json
 

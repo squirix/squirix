@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -23,10 +23,10 @@ public sealed class ServerLogReplicationTests
     {
         var log = new EventRecordingLogger();
 
-        ServerLog.ReplicaCoordinatorLeakedOnShutdown(log, TimeSpan.FromMilliseconds(200));
+        ReplicaCommitLog.ReplicaCoordinatorLeakedOnShutdown(log, TimeSpan.FromMilliseconds(200));
 
         _ = await Assert.That(log.Count(CoordinatorLeakedOnShutdownEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(CoordinatorLeakedOnShutdownEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(CoordinatorLeakedOnShutdownEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
     }
 
     /// <summary>A fault of coordinator work abandoned at shutdown is logged once, as an error.</summary>
@@ -35,9 +35,9 @@ public sealed class ServerLogReplicationTests
     {
         var log = new EventRecordingLogger();
 
-        ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(log, new InvalidOperationException("apply failed"));
+        ReplicaCommitLog.ReplicaCoordinatorAbandonedWorkFaulted(log, new InvalidOperationException("apply failed"));
 
         _ = await Assert.That(log.Count(AbandonedWorkFaultedEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(AbandonedWorkFaultedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(AbandonedWorkFaultedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
     }
 }

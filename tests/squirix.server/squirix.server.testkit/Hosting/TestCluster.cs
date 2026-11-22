@@ -3,11 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Services;
@@ -53,22 +50,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     private int _disposed;
     private int _seeded;
 
-    /// <summary>Initializes a new instance of the <see cref="TestCluster{TOptions}" /> class for a single-node topology.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="startNode">Starts the topology entry with the supplied options.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dataDir">Optional persistence root disposed with the cluster.</param>
-    private TestCluster(
-        ClusterNode node,
-        Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> startNode,
-        ServerPeer[]? peers = null,
-        ClusterIdentity? identity = null,
-        TempDirectory? dataDir = null)
-        : this([node], startNode, peers, identity, dataDir)
-    {
-    }
-
     /// <summary>Initializes a new instance of the <see cref="TestCluster{TOptions}" /> class.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
     /// <param name="startNode">Starts one topology entry with the supplied options.</param>
@@ -93,269 +74,22 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     }
 
     /// <summary>Gets the persistence root owned by the cluster, or <see langword="null" /> when persistence was not requested.</summary>
-    public TempDirectory? DataDir { get; }
+    internal TempDirectory? DataDir { get; }
 
     /// <summary>Gets the peer set built from the topology, or an empty set when none was supplied.</summary>
-    public IReadOnlyList<ServerPeer> Peers => _peers;
+    internal IReadOnlyList<ServerPeer> Peers => _peers;
 
     /// <summary>Gets the number of nodes that are currently running.</summary>
-    public int StartedCount => _nodes.Count;
+    internal int StartedCount => _nodes.Count;
 
     /// <summary>Gets the topology owned by the cluster.</summary>
-    public IReadOnlyList<ClusterNode> Topology => _topology;
+    internal IReadOnlyList<ClusterNode> Topology => _topology;
 
     /// <summary>Gets the started node with the supplied identifier.</summary>
     /// <param name="nodeId">Node identifier.</param>
     /// <returns>The started test node host.</returns>
     /// <exception cref="KeyNotFoundException">Thrown when the node was never started or was already stopped.</exception>
-    public ITestNodeHost this[string nodeId] => _nodes.TryGetValue(nodeId, out var node) ? node : throw new KeyNotFoundException($"Cluster node '{nodeId}' is not running.");
-
-    /// <summary>Gets the phases of the last stop of a node through <see cref="StopNodeAsync" /> or <see cref="RestartNodeAsync" />.</summary>
-    /// <param name="nodeId">Node identifier.</param>
-    /// <returns>The phases, or <see langword="null" /> when the node was not stopped through the cluster.</returns>
-    public NodeStopPhases? LastStopOf(string nodeId) => _lastStops.TryGetValue(nodeId, out var phases) ? phases : null;
-
-    /// <summary>Stops the node and starts it again from the same topology entry.</summary>
-    /// <param name="nodeId">Node identifier to restart.</param>
-    /// <param name="options">
-    /// Startup options for the restarted node. When <see langword="null" />, the node restarts with the options
-    /// it was last started with, so persistence and other overrides survive the restart unless explicitly changed.
-    /// </param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The restarted test node host.</returns>
-    public async ValueTask<ITestNodeHost> RestartNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
-        await StopNodeAsync(nodeId).ConfigureAwait(false);
-        return await StartNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Stops the node, empties its data directory, and starts it again from the same topology entry, as a node whose disk was lost.</summary>
-    /// <param name="nodeId">Node identifier to restart.</param>
-    /// <param name="options">Startup options for the restarted node; the options it was last started with when <see langword="null" />.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The restarted test node host.</returns>
-    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
-    /// <remarks>
-    /// Unlike <see cref="StartNodeAsync(string, TOptions, CancellationToken)" />, this start does not wait for the first start of the groups: a
-    /// node that came back on an empty disk into a running cluster holds unseeded copies, and its first start does not end.
-    /// </remarks>
-    public async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
-        await WipeNodeAsync(nodeId).ConfigureAwait(false);
-        return await StartWipedNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Starts every topology entry in order, rolling the whole cluster back on any failure.</summary>
-    /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
-    /// <param name="releaseUnstarted">
-    /// Invoked once per topology index that never started, only when a start fails, so the caller can release
-    /// resources (for example a held port) reserved for that entry. Topology entries start strictly in order, so
-    /// <see cref="StartedCount" /> at the point of failure is exactly the first unstarted index; every callback
-    /// covers an index whose node was never handed to a caller, so it is safe even if that index's own resources
-    /// were already released elsewhere (for example the failing start's own port-release-on-failure path).
-    /// </param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>This cluster, with every topology entry started; it has tried to open the forward connections between the nodes.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when some topology entries are already running.</exception>
-    public async ValueTask<TestCluster<TOptions>> StartAllAsync(
-        Func<string, TOptions?>? factory = null,
-        Action<int>? releaseUnstarted = null,
-        CancellationToken cancellationToken = default)
-    {
-        // Checked before the rollback scope: the rollback-index invariant only holds for an empty cluster,
-        // and rejecting this call must not tear down nodes the caller already started individually.
-        if (StartedCount != 0)
-            throw new InvalidOperationException("StartAllAsync requires an empty cluster; some topology entries are already running.");
-
-        try
-        {
-            for (var i = 0; i < _topology.Length; i++)
-                _ = await StartNodeAsync(_topology[i].NodeId, factory?.Invoke(_topology[i].NodeId), cancellationToken).ConfigureAwait(false);
-
-            return this;
-        }
-        catch
-        {
-            // Stop the nodes that did start, then release the held resources of nodes that never bound.
-            // The start failure caught here must always propagate, even if disposal itself fails.
-            var started = StartedCount;
-            var disposeFailure = await this.CaptureFailureAsync().ConfigureAwait(false);
-            if (disposeFailure != null)
-                TestLog.Suppressed("StartAllAsync rollback: cluster disposal failed after a node start failure.", disposeFailure);
-
-            if (releaseUnstarted == null)
-                throw;
-
-            for (var i = started; i < _topology.Length; i++)
-                releaseUnstarted(i);
-
-            throw;
-        }
-    }
-
-    /// <summary>Starts the topology entry with the supplied identifier.</summary>
-    /// <param name="nodeId">Node identifier from the cluster topology.</param>
-    /// <param name="options">Optional startup options for the node.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The started test node host; when it completes the topology, the groups of the cluster are seeded.</returns>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="nodeId" /> is not part of the topology.</exception>
-    public async ValueTask<ITestNodeHost> StartNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, options, cancellationToken).ConfigureAwait(false);
-
-        // Record only after a successful start: a rejected start (already running, cancelled, faulted)
-        // must not overwrite the options a later RestartNodeAsync(nodeId) falls back to.
-        _lastOptions[nodeId] = options;
-
-        // The groups of a fresh cluster take no part until their owners ran the first start, which needs every node up: the node that
-        // completes the topology waits for it, once. A node started again later is not waited for: a node that came back on an empty disk
-        // never ends its first start.
-        if (StartedCount == _topology.Length && Interlocked.Exchange(ref _seeded, 1) == 0)
-            await ClusterSeeding.AwaitSeededAsync(_nodes.Values, cancellationToken).ConfigureAwait(false);
-
-        return host;
-    }
-
-    /// <summary>Starts a node from an explicit topology that may differ from the cluster's own.</summary>
-    /// <remarks>
-    /// Only for divergence and negative tests: the node identifier may be outside <see cref="Topology" />,
-    /// and this start does not update <see cref="Topology" /> or <see cref="Peers" />. A failed start is not
-    /// registered, so callers can await it and assert the thrown exception. This start does not record the
-    /// options used for a later restart either, so a subsequent <see cref="RestartNodeAsync" /> for the same
-    /// identifier falls back to the cluster's own topology entry and last recorded options, not to the values
-    /// passed here.
-    /// </remarks>
-    /// <param name="node">Node to start, including its identifier and listen URI.</param>
-    /// <param name="topology">Topology presented to the node for this start.</param>
-    /// <param name="options">Optional startup options for the node.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The started test node host, registered under <paramref name="node" />'s identifier.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> is <see langword="null" />.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a node with <paramref name="node" />'s identifier is already running.</exception>
-    /// <exception cref="ObjectDisposedException">Thrown when the cluster is disposed before or during this start.</exception>
-    public async ValueTask<ITestNodeHost> StartNodeAsync(ClusterNode node, ClusterNode[] topology, TOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(topology);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
-        if (_nodes.ContainsKey(node.NodeId))
-            throw new InvalidOperationException($"Cluster node '{node.NodeId}' is already running; stop it before starting it again.");
-
-        var host = await _startNode(node, topology, options, cancellationToken).ConfigureAwait(false);
-        if (_nodes.TryAdd(node.NodeId, host))
-        {
-            // A started node has not stopped yet: never report the stop of its previous incarnation.
-            _ = _lastStops.TryRemove(node.NodeId, out _);
-        }
-        else
-        {
-            // Another start for the same identifier won the race while this one was in flight; the
-            // host was never handed to a caller, so this call is responsible for shutting it down.
-            await host.ShutdownAsync().ConfigureAwait(false);
-            throw new InvalidOperationException($"Cluster node '{node.NodeId}' is already running; stop it before starting it again.");
-        }
-
-        // Close the race with a concurrent DisposeAsync: if disposal's node sweep ran before this
-        // registration landed, the host would otherwise survive untracked with its shared identity
-        // and data directory already torn down. Shut it down regardless of whether the registration
-        // is still present to remove: DisposeAsync's own sweep may already have cleared it (in which
-        // case that sweep also already shut this host down), and ShutdownAsync is idempotent, so a
-        // possible double shutdown is strictly safer than skipping it and leaking an untracked host.
-        if (Volatile.Read(ref _disposed) != 1)
-            return host;
-
-        _ = _nodes.TryRemove(node.NodeId, out _);
-        await host.ShutdownAsync().ConfigureAwait(false);
-        throw new ObjectDisposedException(nameof(TestCluster<>), "The cluster was disposed while the node was starting.");
-    }
-
-    /// <summary>Starts a node that <see cref="WipeNodeAsync" /> stopped, from the same topology entry, without waiting for the first start of the groups.</summary>
-    /// <param name="nodeId">Node identifier to start.</param>
-    /// <param name="options">Startup options for the node; the options it was last started with when <see langword="null" />.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The started test node host.</returns>
-    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
-        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        _lastOptions[nodeId] = effectiveOptions;
-        return host;
-    }
-
-    /// <summary>Stops and removes one node while leaving the rest of the cluster running.</summary>
-    /// <remarks>Stopping a node that is already stopped is a no-op; the identifier must still belong to the topology.</remarks>
-    /// <param name="nodeId">Node identifier to stop.</param>
-    /// <returns>A task that completes after the node stopped.</returns>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="nodeId" /> is not part of the cluster topology.</exception>
-    public async ValueTask StopNodeAsync(string nodeId)
-    {
-        Task? stopTask = null;
-        ITestNodeHost? stopping = null;
-        lock (_stopLock)
-        {
-            // DisposeAsync performs a graceful shutdown for a still-running node (see ITestNodeHost), so this
-            // is equivalent to ShutdownAsync while staying a call CA2000 recognizes as disposal. The stop is
-            // registered so a concurrent cluster DisposeAsync waits for it before releasing shared resources.
-            if (_nodes.TryRemove(nodeId, out var node))
-            {
-                stopping = node;
-                _stoppingNodes[nodeId] = stopTask = node.DisposeAsync().AsTask();
-            }
-        }
-
-        if (stopTask != null)
-        {
-            try
-            {
-                await stopTask.ConfigureAwait(false);
-            }
-            finally
-            {
-                if (stopping?.LastStop is { } phases)
-                    _lastStops[nodeId] = phases;
-                else
-                    _ = _lastStops.TryRemove(nodeId, out _);
-
-                lock (_stopLock)
-                    _ = _stoppingNodes.Remove(nodeId);
-            }
-
-            return;
-        }
-
-        // Not currently running is fine (a repeat stop is a no-op); an id outside the topology is
-        // almost always a typo or a stale reference, so fail loudly instead of silently doing nothing.
-        if (!IsTopologyNode(nodeId))
-            throw new ArgumentException($"Node '{nodeId}' is not part of the cluster topology.", nameof(nodeId));
-    }
-
-    /// <summary>Gets the started node with the supplied identifier, when it runs.</summary>
-    /// <param name="nodeId">Node identifier.</param>
-    /// <param name="node">The started test node host; <see langword="null" /> when the node was never started or was already stopped.</param>
-    /// <returns><see langword="true" /> when the node runs.</returns>
-    public bool TryGetNode(string nodeId, [NotNullWhen(true)] out ITestNodeHost? node) => _nodes.TryGetValue(nodeId, out node);
-
-    /// <summary>Stops the node and empties its data directory, as a node whose disk was lost, and leaves it stopped.</summary>
-    /// <param name="nodeId">Node identifier to stop.</param>
-    /// <returns>A task that completes once the node is stopped and its data directory is empty.</returns>
-    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
-    /// <remarks>Start it with <see cref="StartWipedNodeAsync" />; a test stops other nodes meanwhile to decide which leader may repair it.</remarks>
-    public async ValueTask WipeNodeAsync(string nodeId)
-    {
-        var dataDir = this[nodeId].DataDir;
-        if (string.IsNullOrEmpty(dataDir))
-            throw new InvalidOperationException($"Cluster node '{nodeId}' runs without persistence, so it has no data directory to empty.");
-
-        await StopNodeAsync(nodeId).ConfigureAwait(false);
-        foreach (var entry in Directory.EnumerateFileSystemEntries(dataDir))
-        {
-            if (Directory.Exists(entry))
-                Directory.Delete(entry, true);
-            else
-                File.Delete(entry);
-        }
-    }
+    internal ITestNodeHost this[string nodeId] => _nodes.TryGetValue(nodeId, out var node) ? node : throw new KeyNotFoundException($"Cluster node '{nodeId}' is not running.");
 
     /// <inheritdoc />
     /// <exception cref="AggregateException">
@@ -403,29 +137,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             throw new AggregateException("One or more cluster nodes failed to shut down.", failures);
     }
 
-    /// <summary>Creates a single-node cluster with in-process nodes.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dir">
-    /// Optional persistence root name. When supplied, the cluster creates and owns a <see cref="TempDirectory" />
-    /// under this name, disposed with the cluster and exposed through <see cref="DataDir" />.
-    /// </param>
-    /// <returns>A cluster that starts in-process nodes.</returns>
-    internal static TestCluster<TOptions> Create(ClusterNode node, ServerPeer[]? peers = null, ClusterIdentity? identity = null, string? dir = null)
-    {
-        var sharedIdentity = ClusterIdentity.ResolveForTopology([node], identity);
-
-        // An empty hint suppresses the implicit [CallerMemberName] leaf, so disposal deletes exactly the created directory.
-        var dataDir = dir == null ? null : new TempDirectory(dir, string.Empty);
-        return new TestCluster<TOptions>(
-            node,
-            (self, topology, options, cancellationToken) => StartNodeCoreAsync(self, topology, options, sharedIdentity, cancellationToken),
-            peers,
-            sharedIdentity,
-            dataDir);
-    }
-
     /// <summary>Creates a cluster with in-process nodes.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
     /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
@@ -446,20 +157,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             dir == null ? null : new TempDirectory(dir, string.Empty));
     }
 
-    /// <summary>Creates a single-node cluster from the supplied node starter.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="startNode">Starts the topology entry with the supplied options.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dataDir">Optional persistence root disposed with the cluster.</param>
-    /// <returns>A cluster that starts the node through <paramref name="startNode" />.</returns>
-    internal static TestCluster<TOptions> Create(
-        ClusterNode node,
-        Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> startNode,
-        ServerPeer[]? peers = null,
-        ClusterIdentity? identity = null,
-        TempDirectory? dataDir = null) => new(node, startNode, peers, identity, dataDir);
-
     /// <summary>Creates a cluster from the supplied topology and node starter.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
     /// <param name="startNode">Starts one topology entry with the supplied options.</param>
@@ -474,25 +171,263 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         ClusterIdentity? identity = null,
         TempDirectory? dataDir = null) => new(topology, startNode, peers, identity, dataDir);
 
+    /// <summary>Gets the phases of the last stop of a node through <see cref="StopNodeAsync" /> or <see cref="RestartNodeAsync" />.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <returns>The phases, or <see langword="null" /> when the node was not stopped through the cluster.</returns>
+    internal NodeStopPhases? LastStopOf(string nodeId) => _lastStops.TryGetValue(nodeId, out var phases) ? phases : null;
+
+    /// <summary>Stops the node and starts it again from the same topology entry.</summary>
+    /// <param name="nodeId">Node identifier to restart.</param>
+    /// <param name="options">
+    /// Startup options for the restarted node. When <see langword="null" />, the node restarts with the options
+    /// it was last started with, so persistence and other overrides survive the restart unless explicitly changed.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The restarted test node host.</returns>
+    internal async ValueTask<ITestNodeHost> RestartNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
+        await StopNodeAsync(nodeId).ConfigureAwait(false);
+        return await StartNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stops the node, empties its data directory, and starts it again from the same topology entry, as a node whose disk was lost.</summary>
+    /// <param name="nodeId">Node identifier to restart.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The restarted test node host.</returns>
+    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
+    /// <remarks>
+    /// Unlike <see cref="StartNodeAsync(string, TOptions, CancellationToken)" />, this start does not wait for the first start of the groups: a
+    /// node that came back on an empty disk into a running cluster holds unseeded copies, and its first start does not end.
+    /// </remarks>
+    internal async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        await WipeNodeAsync(nodeId).ConfigureAwait(false);
+        return await StartWipedNodeAsync(nodeId, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Starts every topology entry in order, rolling the whole cluster back on any failure.</summary>
+    /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
+    /// <param name="releaseUnstarted">
+    /// Invoked once per topology index that never started, only when a start fails, so the caller can release
+    /// resources (for example a held port) reserved for that entry. Topology entries start strictly in order, so
+    /// <see cref="StartedCount" /> at the point of failure is exactly the first unstarted index; every callback
+    /// covers an index whose node was never handed to a caller, so it is safe even if that index's own resources
+    /// were already released elsewhere (for example the failing start's own port-release-on-failure path).
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>This cluster, with every topology entry started; it has tried to open the forward connections between the nodes.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when some topology entries are already running.</exception>
+    internal async ValueTask<TestCluster<TOptions>> StartAllAsync(
+        Func<string, TOptions?>? factory = null,
+        Action<int>? releaseUnstarted = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Checked before the rollback scope: the rollback-index invariant only holds for an empty cluster,
+        // and rejecting this call must not tear down nodes the caller already started individually.
+        if (StartedCount != 0)
+            throw new InvalidOperationException("StartAllAsync requires an empty cluster; some topology entries are already running.");
+
+        try
+        {
+            for (var i = 0; i < _topology.Length; i++)
+                _ = await StartNodeAsync(_topology[i].NodeId, factory?.Invoke(_topology[i].NodeId), cancellationToken).ConfigureAwait(false);
+
+            return this;
+        }
+        catch
+        {
+            // Stop the nodes that did start, then release the held resources of nodes that never bound.
+            // The start failure caught here must always propagate, even if disposal itself fails.
+            var started = StartedCount;
+            var disposeFailure = await this.CaptureFailureAsync().ConfigureAwait(false);
+            if (disposeFailure != null)
+                TestLog.Suppressed("StartAllAsync rollback: cluster disposal failed after a node start failure.", disposeFailure);
+
+            if (releaseUnstarted == null)
+                throw;
+
+            for (var i = started; i < _topology.Length; i++)
+                releaseUnstarted(i);
+
+            throw;
+        }
+    }
+
+    /// <summary>Starts the topology entry with the supplied identifier.</summary>
+    /// <param name="nodeId">Node identifier from the cluster topology.</param>
+    /// <param name="options">Optional startup options for the node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started test node host; when it completes the topology, the groups of the cluster are seeded.</returns>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="nodeId" /> is not part of the topology.</exception>
+    internal async ValueTask<ITestNodeHost> StartNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, options, cancellationToken).ConfigureAwait(false);
+
+        // Record only after a successful start: a rejected start (already running, cancelled, faulted)
+        // must not overwrite the options a later RestartNodeAsync(nodeId) falls back to.
+        _lastOptions[nodeId] = options;
+
+        // The groups of a fresh cluster take no part until their owners ran the first start, which needs every node up: the node that
+        // completes the topology waits for it, once. A node started again later is not waited for: a node that came back on an empty disk
+        // never ends its first start.
+        if (StartedCount == _topology.Length && Interlocked.Exchange(ref _seeded, 1) == 0)
+            await ClusterSeeding.AwaitSeededAsync(_nodes.Values, cancellationToken).ConfigureAwait(false);
+
+        return host;
+    }
+
+    /// <summary>Starts a node from an explicit topology that may differ from the cluster's own.</summary>
+    /// <remarks>
+    /// Only for divergence and negative tests: the node identifier may be outside <see cref="Topology" />,
+    /// and this start does not update <see cref="Topology" /> or <see cref="Peers" />. A failed start is not
+    /// registered, so callers can await it and assert the thrown exception. This start does not record the
+    /// options used for a later restart either, so a subsequent <see cref="RestartNodeAsync" /> for the same
+    /// identifier falls back to the cluster's own topology entry and last recorded options, not to the values
+    /// passed here.
+    /// </remarks>
+    /// <param name="node">Node to start, including its identifier and listen URI.</param>
+    /// <param name="topology">Topology presented to the node for this start.</param>
+    /// <param name="options">Optional startup options for the node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started test node host, registered under <paramref name="node" />'s identifier.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> is <see langword="null" />.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a node with <paramref name="node" />'s identifier is already running.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown when the cluster is disposed before or during this start.</exception>
+    internal async ValueTask<ITestNodeHost> StartNodeAsync(ClusterNode node, ClusterNode[] topology, TOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
+        if (_nodes.ContainsKey(node.NodeId))
+            throw new InvalidOperationException($"Cluster node '{node.NodeId}' is already running; stop it before starting it again.");
+
+        var host = await _startNode(node, topology, options, cancellationToken).ConfigureAwait(false);
+        if (_nodes.TryAdd(node.NodeId, host))
+        {
+            // A started node has not stopped yet: never report the stop of its previous incarnation.
+            _ = _lastStops.TryRemove(node.NodeId, out _);
+        }
+        else
+        {
+            // Another start for the same identifier won the race while this one was in flight; the
+            // host was never handed to a caller, so this call is responsible for shutting it down.
+            await host.ShutdownAsync().ConfigureAwait(false);
+            throw new InvalidOperationException($"Cluster node '{node.NodeId}' is already running; stop it before starting it again.");
+        }
+
+        // Close the race with a concurrent DisposeAsync: if disposal's node sweep ran before this
+        // registration landed, the host would otherwise survive untracked with its shared identity
+        // and data directory already torn down. Shut it down regardless of whether the registration
+        // is still present to remove: DisposeAsync's own sweep may already have cleared it (in which
+        // case that sweep also already shut this host down), and ShutdownAsync is idempotent, so a
+        // possible double shutdown is strictly safer than skipping it and leaking an untracked host.
+        if (Volatile.Read(ref _disposed) != 1)
+            return host;
+
+        _ = _nodes.TryRemove(node.NodeId, out _);
+        await host.ShutdownAsync().ConfigureAwait(false);
+        throw new ObjectDisposedException(nameof(TestCluster<>), "The cluster was disposed while the node was starting.");
+    }
+
+    /// <summary>Starts a node that <see cref="WipeNodeAsync" /> stopped, from the same topology entry, without waiting for the first start of the groups.</summary>
+    /// <param name="nodeId">Node identifier to start.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started test node host.</returns>
+    internal async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        var options = _lastOptions.GetValueOrDefault(nodeId);
+        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, options, cancellationToken).ConfigureAwait(false);
+        _lastOptions[nodeId] = options;
+        return host;
+    }
+
+    /// <summary>Stops and removes one node while leaving the rest of the cluster running.</summary>
+    /// <remarks>Stopping a node that is already stopped is a no-op; the identifier must still belong to the topology.</remarks>
+    /// <param name="nodeId">Node identifier to stop.</param>
+    /// <returns>A task that completes after the node stopped.</returns>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="nodeId" /> is not part of the cluster topology.</exception>
+    internal async ValueTask StopNodeAsync(string nodeId)
+    {
+        Task? stopTask = null;
+        ITestNodeHost? stopping = null;
+        lock (_stopLock)
+        {
+            // DisposeAsync performs a graceful shutdown for a still-running node (see ITestNodeHost), so this
+            // is equivalent to ShutdownAsync while staying a call CA2000 recognizes as disposal. The stop is
+            // registered so a concurrent cluster DisposeAsync waits for it before releasing shared resources.
+            if (_nodes.TryRemove(nodeId, out var node))
+            {
+                stopping = node;
+                _stoppingNodes[nodeId] = stopTask = node.DisposeAsync().AsTask();
+            }
+        }
+
+        if (stopTask != null)
+        {
+            try
+            {
+                await stopTask.ConfigureAwait(false);
+            }
+            finally
+            {
+                if (stopping?.LastStop is { } phases)
+                    _lastStops[nodeId] = phases;
+                else
+                    _ = _lastStops.TryRemove(nodeId, out _);
+
+                lock (_stopLock)
+                    _ = _stoppingNodes.Remove(nodeId);
+            }
+
+            return;
+        }
+
+        // Not currently running is fine (a repeat stop is a no-op); an id outside the topology is
+        // almost always a typo or a stale reference, so fail loudly instead of silently doing nothing.
+        if (!IsTopologyNode(nodeId))
+            throw new ArgumentException($"Node '{nodeId}' is not part of the cluster topology.", nameof(nodeId));
+    }
+
+    /// <summary>Gets the started node with the supplied identifier, when it runs.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <param name="node">The started test node host; <see langword="null" /> when the node was never started or was already stopped.</param>
+    /// <returns><see langword="true" /> when the node runs.</returns>
+    internal bool TryGetNode(string nodeId, [NotNullWhen(true)] out ITestNodeHost? node) => _nodes.TryGetValue(nodeId, out node);
+
+    /// <summary>Stops the node and empties its data directory, as a node whose disk was lost, and leaves it stopped.</summary>
+    /// <param name="nodeId">Node identifier to stop.</param>
+    /// <returns>A task that completes once the node is stopped and its data directory is empty.</returns>
+    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
+    /// <remarks>Start it with <see cref="StartWipedNodeAsync" />; a test stops other nodes meanwhile to decide which leader may repair it.</remarks>
+    internal async ValueTask WipeNodeAsync(string nodeId)
+    {
+        var dataDir = this[nodeId].DataDir;
+        if (string.IsNullOrEmpty(dataDir))
+            throw new InvalidOperationException($"Cluster node '{nodeId}' runs without persistence, so it has no data directory to empty.");
+
+        await StopNodeAsync(nodeId).ConfigureAwait(false);
+        foreach (var entry in Directory.EnumerateFileSystemEntries(dataDir))
+        {
+            if (Directory.Exists(entry))
+                Directory.Delete(entry, true);
+            else
+                File.Delete(entry);
+        }
+    }
+
     private static NodeHostStartOptions CreateOptions(
         ClusterStartOptions? startOptions,
         PersistenceOptions? persistenceOptions,
-        Func<string, HttpMessageHandler>? peerHandlerFactory,
+        Func<string, PeerSocketOptions>? peerOptionsFactory,
         MtlsOptions? mtlsOptions,
         MtlsCertificate? mtlsMaterial)
     {
         return new NodeHostStartOptions
         {
-            ConfigureLogging = static b =>
-            {
-                _ = b.ClearProviders();
-                _ = b.SetMinimumLevel(LogLevel.Warning);
-                _ = b.AddFilter("Grpc", LogLevel.Warning);
-                _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Warning);
-                _ = b.AddFilter("Squirix", LogLevel.Warning);
-            },
+            EvictionBudgetBytes = startOptions?.EvictionBudgetBytes,
+            ConsoleLogging = false,
             PersistenceOptions = persistenceOptions,
-            PeerHandlerFactory = peerHandlerFactory,
+            PeerOptionsFactory = peerOptionsFactory,
             SecurityOptions = startOptions?.Security?.ToServerOptions(),
             MtlsOptions = mtlsOptions,
             Certificate = mtlsMaterial,
@@ -500,7 +435,9 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             ElectionTiming = startOptions?.ElectionTiming,
             ServicesConfigure = WithCompactionInterval(startOptions?.ServicesConfigure, startOptions?.ReplicaLogCompactionInterval),
             TrackRequests = startOptions?.TrackRequests ?? false,
-            Extensions = startOptions?.Extensions,
+            ManagementUri = startOptions?.ManagementUri,
+            MetricsEnabled = startOptions?.MetricsEnabled ?? false,
+            PrometheusMetricsEnabled = startOptions?.PrometheusMetricsEnabled ?? false,
         };
     }
 
@@ -514,14 +451,13 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(topology);
 
         PersistenceOptions? persistenceOptions = null;
-        var dataDir = options?.DataDir;
-        if (dataDir != null)
+        if (options is { DataDir: { } dataDir })
         {
             if (string.IsNullOrWhiteSpace(dataDir))
                 throw new ArgumentException("DataDir must be non-empty when persistence is enabled.", nameof(options));
 
             persistenceOptions = new PersistenceOptions { DataDir = dataDir };
-            if (options?.ReplicaLogCompactionEntries is { } entries)
+            if (options.ReplicaLogCompactionEntries is { } entries)
                 persistenceOptions = persistenceOptions with { ReplicaLogCompactionEntries = entries };
         }
 
@@ -550,13 +486,13 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
                 ? new NodeMtlsStartup(null, null, null)
                 : await identity.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, options?.PartitionFabric, cancellationToken).ConfigureAwait(false);
 
-            var nodeHostStartOptions = CreateOptions(options, persistenceOptions, startup.PeerHandlerFactory, startup.Options, startup.Certificate);
+            var nodeHostStartOptions = CreateOptions(options, persistenceOptions, startup.PeerOptionsFactory, startup.Options, startup.Certificate);
             ListenPortPool.ReleaseHeldPrimary(self.Uri);
             var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);
 
             IDisposable? scope = identity;
             if (callerOwnedIdentity)
-                scope = startup.Owner == null ? null : identity?.NodeHandlers.CreateScope(startup.Owner);
+                scope = startup.Owner == null ? null : identity?.PeerOptionLifetimes.CreateScope(startup.Owner);
 
             return new TestNodeHost(app, self.Uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null, scope);
         }
@@ -573,11 +509,11 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// <param name="configure">The hook of the caller, if any.</param>
     /// <param name="interval">The delay between two compaction passes; none replaces nothing.</param>
     /// <returns>The hook to run after the server composition.</returns>
-    private static Action<IServiceCollection>? WithCompactionInterval(Action<IServiceCollection>? configure, TimeSpan? interval)
+    private static Action<TestServiceCollection>? WithCompactionInterval(Action<TestServiceCollection>? configure, TimeSpan? interval)
     {
         return interval is not { } delay ? configure : Hook(delay);
 
-        Action<IServiceCollection> Hook(TimeSpan span)
+        Action<TestServiceCollection> Hook(TimeSpan span)
         {
             return services =>
             {

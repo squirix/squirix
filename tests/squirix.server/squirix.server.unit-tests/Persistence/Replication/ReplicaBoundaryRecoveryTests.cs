@@ -3,10 +3,10 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -121,7 +121,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
 
         await using (var failing = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = faults.Instance() }))
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failing.OpenAsync(cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failing.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(failing.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 

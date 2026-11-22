@@ -25,7 +25,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "journal-survives" });
         var prepared = JournalEntryPayload.PrepareEncode(entry);
         using var buffer = JournalEntryPayload.Encode(in prepared);
-        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(buffer.Memory.Span, out var roundTrip)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(buffer.Memory.Span, out var roundTrip, out _)).IsTrue();
         _ = await Assert.That(roundTrip).IsNotNull();
         var json = (await Assert.That(roundTrip.Value).IsTypeOf<JsonUtf8Value>())!;
         var element = json.ToJsonElement();
@@ -59,7 +59,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         // one tag (2 + 2 + 6 + 2 + 4) + string value (1 + 4 + 15).
         _ = await Assert.That(prepared.EncodedLength).IsEqualTo(54);
         using var buffer = JournalEntryPayload.Encode(in prepared);
-        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Memory.Span, out var roundTrip)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Memory.Span, out var roundTrip, out _)).IsTrue();
         _ = await Assert.That(roundTrip).IsNotNull();
         _ = await Assert.That(roundTrip.Value).IsEqualTo(entry.Value);
         _ = await Assert.That(roundTrip.Version).IsEqualTo(entry.Version);
@@ -77,7 +77,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         // Golden length: flags (2) + version (8) + empty tags (2) + string value (1 + 4 + 13).
         _ = await Assert.That(prepared.EncodedLength).IsEqualTo(30);
         using var buffer = JournalEntryPayload.Encode(in prepared);
-        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Memory.Span, out var roundTrip)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<string>(buffer.Memory.Span, out var roundTrip, out _)).IsTrue();
         _ = await Assert.That(roundTrip).IsNotNull();
         _ = await Assert.That(roundTrip.Value).IsEqualTo("journal-value");
         _ = await Assert.That(roundTrip.Version).IsEqualTo(4);

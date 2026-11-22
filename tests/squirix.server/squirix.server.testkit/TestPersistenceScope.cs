@@ -17,7 +17,7 @@ public static class TestPersistenceScope
     public static string ResolvePersistenceScopeSegment(string? callerMemberName)
     {
         var uniqueId = TestContext.Current?.Id;
-        var resolvePersistenceScopeSegment = !string.IsNullOrEmpty(callerMemberName) ? callerMemberName : Guid.NewGuid().ToString("N");
-        return !string.IsNullOrEmpty(uniqueId) ? uniqueId : resolvePersistenceScopeSegment;
+        var scope = string.IsNullOrEmpty(uniqueId) ? callerMemberName : uniqueId;
+        return !string.IsNullOrEmpty(scope) ? scope : Guid.NewGuid().ToString("N");
     }
 }

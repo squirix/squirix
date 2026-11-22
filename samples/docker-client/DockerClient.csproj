@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Squirix.DockerClient</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/squirix/Squirix.csproj" />
+  </ItemGroup>
+</Project>

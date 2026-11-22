@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 
 namespace Squirix.Server.Node.Services;
@@ -12,7 +13,7 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Walks the stored entries of the node by the replica group that owns each key.</summary>
 /// <remarks>
 /// The walk reads the entries the local cache reports as live, which includes an entry past its deadline that no committed record has
-/// removed yet, and names the owner of each key through the node locator. It yields one entry at a time and allocates nothing per entry.
+/// removed yet, and names the owner of each key through the node locator.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaGroupEntries
@@ -51,6 +52,19 @@ internal sealed class ReplicaGroupEntries
                 continue;
 
             yield return new ReplicaGroupEntry(owner, key.Namespace, key.Key, entry);
+        }
+    }
+
+    /// <summary>Enumerates the live keys owned by one group without materializing their entries.</summary>
+    /// <param name="groupId">The group whose keys to yield.</param>
+    /// <param name="cancellationToken">Cancellation token of the walk.</param>
+    /// <returns>The matching keys in local cache order.</returns>
+    internal async IAsyncEnumerable<CacheKey> EnumerateKeysAsync(string groupId, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var key in _reader.EnumerateLiveKeysAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (string.Equals(OwnerOf(key.Namespace, key.Key), groupId, StringComparison.Ordinal))
+                yield return key;
         }
     }
 }

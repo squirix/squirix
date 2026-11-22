@@ -222,11 +222,12 @@ internal sealed class GroupIdempotencyState
 
     /// <summary>Exports only resolved records for inclusion in a group snapshot.</summary>
     /// <param name="capturedUtc">The capture time on the clock the exported resolution times are stamped on.</param>
+    /// <param name="lastIncludedIndex">The inclusive log index to export through. Defaults to all retained indexes.</param>
     /// <returns>
     /// The resolved records currently retained. Each resolution time is restated as <paramref name="capturedUtc" /> minus the age
     /// of the record on the monotonic clock, so the age a snapshot carries is unaffected by a wall-clock step on this node.
     /// </returns>
-    internal IReadOnlyList<GroupIdempotencyRecord> ExportResolved(out DateTime capturedUtc)
+    internal IReadOnlyList<GroupIdempotencyRecord> ExportResolved(out DateTime capturedUtc, ulong lastIncludedIndex = ulong.MaxValue)
     {
         lock (_sync)
         {
@@ -236,7 +237,7 @@ internal sealed class GroupIdempotencyState
             // snapshot carries is never shorter than the true age.
             var now = _timeProvider.GetUtcNow().UtcDateTime;
             capturedUtc = now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond));
-            return _records.ExportResolved(_timeProvider, capturedUtc);
+            return _records.ExportResolved(_timeProvider, capturedUtc, lastIncludedIndex);
         }
     }
 
@@ -386,12 +387,19 @@ internal sealed class GroupIdempotencyState
     {
         ArgumentNullException.ThrowIfNull(records);
         ArgumentNullException.ThrowIfNull(retainedLogIndexes);
-        lock (_sync)
-        {
-            ExpireCore();
-            GroupIdempotencyRecord.ThrowIfOutcomeUnresolved(records);
-            _records.ReplaceWithSnapshot(records, capturedUtc, [.. retainedLogIndexes], _order, in _limits);
-        }
+        var retained = new HashSet<ulong>(retainedLogIndexes);
+        RestoreSnapshot(records, capturedUtc, new RetainedLogIndexes(retained, 0, 0));
+    }
+
+    /// <summary>Restores outcomes while preserving records in a verified contiguous journal suffix.</summary>
+    /// <param name="records">The snapshot outcomes.</param>
+    /// <param name="capturedUtc">The snapshot capture time.</param>
+    /// <param name="boundary">The exclusive lower bound of the retained suffix.</param>
+    /// <param name="lastIndex">The inclusive upper bound of the retained suffix.</param>
+    internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, ulong boundary, ulong lastIndex)
+    {
+        ArgumentNullException.ThrowIfNull(records);
+        RestoreSnapshot(records, capturedUtc, new RetainedLogIndexes(null, boundary, lastIndex));
     }
 
     /// <summary>Restores the resolved outcome of a committed log entry, the newest log index winning over a snapshot outcome.</summary>
@@ -504,11 +512,11 @@ internal sealed class GroupIdempotencyState
     /// <summary>Resolves an existing record with the exact outcome bytes and a resolution timestamp.</summary>
     /// <param name="scope">The operation scope.</param>
     /// <param name="operationId">The operation identifier.</param>
-    /// <param name="outcomePayload">The exact resolved outcome bytes.</param>
+    /// <param name="outcomePayload">The exact resolved outcome bytes in a dedicated, immutable buffer that may be retained by the table.</param>
     /// <param name="logIndex">The journal index that carries the record.</param>
     /// <param name="term">The term in which the record was appended.</param>
     /// <returns><see langword="true" /> when the record existed with matching coordinates and was resolved; otherwise <see langword="false" />.</returns>
-    internal bool TryResolve(string scope, string operationId, ReadOnlySpan<byte> outcomePayload, ulong logIndex, ulong term)
+    internal bool TryResolve(string scope, string operationId, ReadOnlyMemory<byte> outcomePayload, ulong logIndex, ulong term)
     {
         lock (_sync)
         {
@@ -529,7 +537,7 @@ internal sealed class GroupIdempotencyState
 
             // The entry is committed, so its outcome is never refused. Its pin already charges the expected outcome; only an outcome larger than
             // that trims the oldest outcomes past the minimum retention to fit. The pin is not in the order, so the trim never takes it.
-            var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
+            var resolved = record.Resolve(outcomePayload, _timeProvider.GetUtcNow().UtcDateTime);
             var size = GroupOutcomeTable.SizeOf(in resolved);
             _ = TryMakeRoom(0, size - stored.Bytes);
             var anchor = _timeProvider.GetTimestamp();
@@ -581,5 +589,15 @@ internal sealed class GroupIdempotencyState
         var live = _records.TryGetValue(key, out var stored) && stored.Sequence == sequence;
         age = live ? stored.Age(_timeProvider) : TimeSpan.Zero;
         return live;
+    }
+
+    private void RestoreSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, in RetainedLogIndexes retained)
+    {
+        lock (_sync)
+        {
+            ExpireCore();
+            GroupIdempotencyRecord.ThrowIfOutcomeUnresolved(records);
+            _records.ReplaceWithSnapshot(records, capturedUtc, in retained, _order, in _limits);
+        }
     }
 }

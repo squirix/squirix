@@ -3,14 +3,14 @@ using System.Diagnostics.Metrics;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -26,12 +26,13 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
 
     /// <summary>One timer bounds an attempt on a shared clock, including an otherwise infinite attempt.</summary>
     /// <param name="scenario">Zero for attempt expiry, one for a shorter budget, two for an infinite attempt, or three for an early budget timer callback.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(0)]
     [Arguments(1)]
     [Arguments(2)]
     [Arguments(3)]
-    public async Task SharedClockUsesOneAttemptTimer(int scenario)
+    public async Task SharedClockUsesOneAttemptTimer(int scenario, CancellationToken cancellationToken)
     {
         using var hangGuard = new CancellationTokenSource(Bound + Bound);
         var clock = new CountingClock();
@@ -45,22 +46,23 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
         var timerCount = clock.TimerCount;
 
         clock.Advance(scenario == 0 ? timeout : duration, scenario != 3);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(timerCount).IsEqualTo(1);
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
-        _ = await Assert.That(error.Status.Detail).IsEqualTo(scenario == 0 ? "All attempts timed out." : "Request deadline exceeded.");
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
+        _ = await Assert.That(error.Message).IsEqualTo(scenario == 0 ? "All attempts timed out." : "Request deadline exceeded.");
     }
 
     /// <summary>A backoff cannot extend the shared operation budget or start another attempt after expiry.</summary>
     /// <param name="httpFailure">Whether the attempt fails with an HTTP transport error instead of a gRPC error.</param>
     /// <param name="advanceTimestamp">Whether the clock timestamp advances along with its timer callbacks.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false, false)]
     [Arguments(false, true)]
     [Arguments(true, false)]
     [Arguments(true, true)]
-    public async Task BudgetBoundsBackoff(bool httpFailure, bool advanceTimestamp)
+    public async Task BudgetBoundsBackoff(bool httpFailure, bool advanceTimestamp, CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         await using var policy = CreatePolicy(clock, TimeSpan.FromHours(1), 3, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -70,16 +72,17 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
         clock.Advance(TimeSpan.FromMinutes(1) - TimeSpan.FromTicks(1), advanceTimestamp);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromTicks(1), advanceTimestamp);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(state.Attempts).IsEqualTo(1);
-        _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        _ = await Assert.That(error.Message).IsEqualTo("Request deadline exceeded.");
     }
 
     /// <summary>A terminal mutation or topology failure retains its no-retry contract when the budget timer has already fired.</summary>
     /// <param name="independentClocks">Whether the attempt and operation budget use different clock instances.</param>
     /// <param name="terminal">Zero for an ambiguous outcome, one for a ring mismatch, or two for a fenced ring.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false, 0)]
     [Arguments(false, 1)]
@@ -87,7 +90,7 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
     [Arguments(true, 0)]
     [Arguments(true, 1)]
     [Arguments(true, 2)]
-    public async Task TerminalFailureWinsOverBudgetTimer(bool independentClocks, int terminal)
+    public async Task TerminalFailureWinsOverBudgetTimer(bool independentClocks, int terminal, CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         var budgetClock = independentClocks ? new CountingClock() : clock;
@@ -109,12 +112,12 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
         budgetClock.Advance(TimeSpan.FromHours(1), false);
         var failure = terminal switch
         {
-            0 => new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail)),
+            0 => new ServerCallException(FrameStatus.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail),
             1 => RingMismatchFailure.Mismatch(),
             _ => RingMismatchFailure.Fenced(),
         };
         _ = response.TrySetException(failure);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error).IsSameReferenceAs(failure);
         _ = await Assert.That(attempts[0]).IsEqualTo(1);
@@ -122,8 +125,9 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
     }
 
     /// <summary>Caller cancellation during a budget-limited backoff remains caller cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerCancelDuringBackoff()
+    public async Task CallerCancelDuringBackoff(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         using var caller = new CancellationTokenSource();
@@ -133,13 +137,14 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
         var call = ExecuteAsync(policy, static (counter, _) => counter.FailAsync(), state, caller.Token, budget).AsTask();
 
         await caller.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(state.Attempts).IsEqualTo(1);
     }
 
     /// <summary>Retrying a timed-out attempt retains the time spent before the next attempt.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RetryKeepsRemainingBudget()
+    public async Task RetryKeepsRemainingBudget(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         await using var policy = CreatePolicy(clock, TimeSpan.FromHours(1), 3, TimeSpan.Zero, TimeSpan.Zero);
@@ -151,31 +156,33 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
         _ = await Assert.That(await attempts.WaitAsync(Bound, CancellationToken.None)).IsTrue();
         var timerCount = clock.TimerCount;
         clock.Advance(TimeSpan.FromMinutes(30));
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(timerCount).IsEqualTo(2);
         _ = await Assert.That(attempts.CurrentCount).IsEqualTo(0);
-        _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        _ = await Assert.That(error.Message).IsEqualTo("Request deadline exceeded.");
     }
 
     /// <summary>An operation whose budget is already spent never enters the action or creates a timer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SpentBudgetDoesNotStartAttempt()
+    public async Task SpentBudgetDoesNotStartAttempt(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         await using var policy = CreatePolicy(clock);
         var budget = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime.AddSeconds(-1), clock);
         var state = new FailureState(false);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(ExecuteAsync(policy, static (counter, _) => counter.FailAsync(), state, CancellationToken.None, budget));
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(ExecuteAsync(policy, static (counter, _) => counter.FailAsync(), state, CancellationToken.None, budget), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(state.Attempts).IsEqualTo(0);
         _ = await Assert.That(clock.TimerCount).IsEqualTo(0);
-        _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        _ = await Assert.That(error.Message).IsEqualTo("Request deadline exceeded.");
     }
 
     /// <summary>Independent clocks retain separate operation and attempt timers.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task IndependentClocksRetainBothLimits()
+    public async Task IndependentClocksRetainBothLimits(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         var budgetClock = new CountingClock();
@@ -187,9 +194,9 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
         _ = await Assert.That(clock.TimerCount).IsEqualTo(1);
         _ = await Assert.That(budgetClock.TimerCount).IsEqualTo(1);
         clock.Advance(TimeSpan.FromHours(1));
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(error.Status.Detail).IsEqualTo("All attempts timed out.");
+        _ = await Assert.That(error.Message).IsEqualTo("All attempts timed out.");
     }
 
     /// <inheritdoc />
@@ -257,7 +264,7 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
         internal ValueTask<int> FailAsync()
         {
             _ = Interlocked.Increment(ref _attempts);
-            return ValueTask.FromException<int>(_httpFailure ? new HttpRequestException("down") : new RpcException(new Status(StatusCode.Unavailable, "down")));
+            return ValueTask.FromException<int>(_httpFailure ? new HttpRequestException("down") : new ServerCallException(FrameStatus.Unavailable, "down"));
         }
     }
 }

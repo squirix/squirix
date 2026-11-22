@@ -1,20 +1,16 @@
 using System;
-using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
-using Squirix.Server.Node.Observability;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -25,12 +21,6 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class DurableVisibilityTests : IsolatedStorageTestBase
 {
-    private const string Fingerprint = "fp-1";
-
-    private const string OperationId = "0123456789abcdef0123456789abcdef";
-
-    private const string OtherOperationId = "fedcba9876543210fedcba9876543210";
-
     private static readonly TimeSpan ShouldCompleteTimeout = TimeSpan.FromSeconds(5);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
@@ -41,8 +31,6 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
 
     private static readonly string KeyW = CacheKey.Default("w").ToString();
 
-    private readonly Meter _testMeter = new("test");
-
     /// <summary>While the flush that covers the frame is stalled, the frame is in the file but memory does not hold the value yet.</summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -52,14 +40,14 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
     public async Task ReaderCannotObserveWriteBeforeFlush(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
-        var target = new Target(journal, CreateStore());
+        var target = new Target(journal);
         journal.Writer.Flush.Arm();
         string visibleDuringStall;
         string framesDuringStall;
         TryAddAsyncResponse response;
         try
         {
-            var put = target.PutAsync(OperationId, "a", cancellationToken);
+            var put = target.PutAsync("a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             visibleDuringStall = target.Memory.Snapshot;
             framesDuringStall = journal.ReadStampedPuts(cancellationToken);
@@ -73,13 +61,13 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
 
         await journal.ShutdownAsync();
 
-        _ = await Assert.That(framesDuringStall).IsEqualTo(StallableJournal.Describe([$"{KeyA}#{OperationId}", KeyW]));
+        _ = await Assert.That(framesDuringStall).IsEqualTo(StallableJournal.Describe([KeyA, KeyW]));
         _ = await Assert.That(visibleDuringStall).IsEmpty();
         _ = await Assert.That(response.Added).IsTrue();
         _ = await Assert.That(target.Memory.Snapshot).IsEqualTo(KeyA);
     }
 
-    /// <summary>A flush that fails never exposes the write: the writer gets the unknown outcome, memory stays empty, the pipeline is latched and a retry stays unknown.</summary>
+    /// <summary>A flush that fails never exposes the write: the writer gets the unknown outcome, memory stays empty, and the pipeline is latched.</summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -88,17 +76,15 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
     public async Task FailedFlushNeverExposesWrite(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
-        var target = new Target(journal, CreateStore());
+        var target = new Target(journal);
         journal.Writer.Flush.Arm();
         SquirixException originalError;
-        RpcException retryError;
         try
         {
-            var put = target.PutAsync(OperationId, "a", cancellationToken);
+            var put = target.PutAsync("a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             journal.Writer.Flush.ReleaseWithFailure(new IOException("device lost"));
-            originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -106,7 +92,6 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(originalError.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
         _ = await Assert.That(target.Memory.Snapshot).IsEmpty();
         _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNotNull();
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
@@ -121,14 +106,14 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
     public async Task DistinctKeyAdmittedDuringStalledFlush(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
-        var target = new Target(journal, CreateStore());
+        var target = new Target(journal);
         var preconditionRan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         journal.Writer.Flush.Arm();
         TryAddAsyncResponse response;
         int other;
         try
         {
-            var put = target.PutAsync(OperationId, "a", cancellationToken);
+            var put = target.PutAsync("a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var otherPut = target.PutObservingPreconditionAsync("b", preconditionRan, cancellationToken);
             await preconditionRan.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -155,7 +140,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
     public async Task SameKeySuccessorWaitsForDurableApply(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
-        var target = new Target(journal, CreateStore());
+        var target = new Target(journal);
         journal.Writer.Flush.Arm();
         var preconditionRan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         TryAddAsyncResponse first;
@@ -165,9 +150,9 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         string framesDuringStall;
         try
         {
-            var put = target.PutAsync(OperationId, "a", cancellationToken);
+            var put = target.PutAsync("a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            var add = target.AddAsync(OtherOperationId, "a", preconditionRan, cancellationToken);
+            var add = target.AddAsync("a", preconditionRan, cancellationToken);
             pendingDuringStall = await PendingProbe.StaysPendingAsync(add);
             preconditionRanDuringStall = preconditionRan.Task.IsCompleted;
             framesDuringStall = journal.ReadStampedPuts(cancellationToken);
@@ -184,10 +169,10 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
 
         _ = await Assert.That(pendingDuringStall).IsTrue();
         _ = await Assert.That(preconditionRanDuringStall).IsFalse();
-        _ = await Assert.That(framesDuringStall).IsEqualTo(StallableJournal.Describe([$"{KeyA}#{OperationId}", KeyW]));
+        _ = await Assert.That(framesDuringStall).IsEqualTo(StallableJournal.Describe([KeyA, KeyW]));
         _ = await Assert.That(first.Added).IsTrue();
         _ = await Assert.That(second.Added).IsFalse();
-        _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(StallableJournal.Describe([$"{KeyA}#{OperationId}", KeyW]));
+        _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(StallableJournal.Describe([KeyA, KeyW]));
     }
 
     /// <summary>A replicated apply, whose durable source is the group log, does not wait for the cache journal flush.</summary>
@@ -199,7 +184,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
     public async Task ReplicatedApplyDoesNotWaitForFlush(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
-        var target = new Target(journal, CreateStore());
+        var target = new Target(journal);
         journal.Writer.Flush.Arm();
         int applied;
         bool flushEntered;
@@ -227,7 +212,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
     public async Task CutDuringStalledApplyCoversWrite(bool groupCommit, CancellationToken cancellationToken)
     {
         await using var journal = await CreateWarmJournalAsync(groupCommit, cancellationToken);
-        var target = new Target(journal, CreateStore());
+        var target = new Target(journal);
         journal.Writer.Flush.Arm();
         var captureRan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         (ulong Watermark, string Memory) captured;
@@ -235,7 +220,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         bool capturedDuringStall;
         try
         {
-            var put = target.PutAsync(OperationId, "a", cancellationToken);
+            var put = target.PutAsync("a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var cut = journal.Journal.ExecuteSnapshotCutAsync(
                 (target.Memory, captureRan),
@@ -263,34 +248,23 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
 
     /// <summary>
     /// A write parked in the durability wait that precedes its apply when the journal stops gracefully is made durable by the final seal and
-    /// applied, but its outcome append is refused: the caller gets the unknown outcome and the started intent is retained.
+    /// applied, and the caller receives a successful response.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task GracefulStopDuringPreApplyWait(CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, UnreachedBatchDeadline, 64, cancellationToken);
-        var target = new Target(journal, CreateStore());
-        var put = target.PutAsync(OperationId, "a", cancellationToken);
+        var target = new Target(journal);
+        var put = target.PutAsync("a", cancellationToken);
 
         // The idle journal thread waits without a timeout until a waiter registers in the batch, so this pins the parked path.
         await journal.Journal.WaitUntilAsync(static j => j.GroupCommit!.GetJournalThreadWaitTimeoutMs() != Timeout.Infinite, StallTimeout, TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
 
-        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-        var retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That((await put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken)).Added).IsTrue();
         _ = await Assert.That(target.Memory.Snapshot).IsEqualTo(KeyA);
-        _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo($"{KeyA}#{OperationId}");
-    }
-
-    /// <inheritdoc />
-    protected override void DisposeManaged()
-    {
-        base.DisposeManaged();
-        _testMeter.Dispose();
+        _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(KeyA);
     }
 
     private static ValueTask<(ulong Watermark, string Memory)> CaptureAsync(AppliedKeys memory, TaskCompletionSource captureRan, ulong watermark)
@@ -301,20 +275,9 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
 
     private static async Task<int> ReplicatedPutAsync(Target target, string key, CancellationToken cancellationToken)
     {
-        var scope = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(scope, OperationId, Fingerprint);
-        try
-        {
-            using var suspended = RpcMutationIdempotencyExecutionAmbient.SuspendStamping();
-            return await target.Memory.PutAsync(target.Executor, target.Journal.Journal, key, cancellationToken);
-        }
-        finally
-        {
-            RpcMutationIdempotencyExecutionAmbient.Deactivate(scope);
-        }
+        using var applying = ReplicaApplyContext.Enter();
+        return await target.Memory.PutAsync(target.Executor, target.Journal.Journal, key, cancellationToken);
     }
-
-    private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
 
     /// <summary>Creates a journal whose segment header and a first frame are already durable, so later stalls catch only the frames under test.</summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
@@ -336,18 +299,15 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>Idempotent puts through the coordinator, the durable executor and a real (stallable) journal, over an in-memory key model.</summary>
+    /// <summary>Puts through the durable executor and a real (stallable) journal, over an in-memory key model.</summary>
     [ThreadSafe]
     private sealed class Target
     {
-        private readonly RpcMutationIdempotencyCoordinator _coordinator;
-
-        internal Target(StallableJournal journal, RpcMutationIdempotencyStore store)
+        internal Target(StallableJournal journal)
         {
             var log = new EventRecordingLogger();
             Journal = journal;
             Executor = new DurableMutationExecutor(journal.Journal, log);
-            _coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal, log);
         }
 
         /// <summary>Gets the executor the mutations run through.</summary>
@@ -359,40 +319,26 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         /// <summary>Gets the keys the mutations applied to memory.</summary>
         internal AppliedKeys Memory { get; } = new();
 
-        /// <summary>Runs one idempotent add that skips when memory already holds any key.</summary>
-        /// <param name="operationId">Idempotency operation id.</param>
+        /// <summary>Runs one add that skips when memory already holds any key.</summary>
         /// <param name="key">Default-namespace key to add.</param>
         /// <param name="preconditionRan">Completed when the precondition runs.</param>
         /// <param name="cancellationToken">Caller cancellation token.</param>
         /// <returns>The RPC response; <see cref="TryAddAsyncResponse.Added" /> is <see langword="false" /> when the key was already applied.</returns>
-        internal Task<TryAddAsyncResponse> AddAsync(string operationId, string key, TaskCompletionSource preconditionRan, CancellationToken cancellationToken) =>
-            _coordinator.ExecuteAsync(
-                operationId,
-                static _ => Fingerprint,
-                (Target: this, Key: key, Ran: preconditionRan),
-                static async (s, ct) =>
-                {
-                    var applied = await s.Target.AddIfMemoryEmptyAsync(s.Key, s.Ran, ct).ConfigureAwait(false);
-                    return new TryAddAsyncResponse { Added = applied == 1 };
-                },
-                cancellationToken);
+        internal async Task<TryAddAsyncResponse> AddAsync(string key, TaskCompletionSource preconditionRan, CancellationToken cancellationToken)
+        {
+            var applied = await AddIfMemoryEmptyAsync(key, preconditionRan, cancellationToken).ConfigureAwait(false);
+            return new TryAddAsyncResponse { Added = applied == 1 };
+        }
 
-        /// <summary>Runs one idempotent put of <paramref name="key" /> through the coordinator.</summary>
-        /// <param name="operationId">Idempotency operation id.</param>
+        /// <summary>Runs a durable put of the key.</summary>
         /// <param name="key">Default-namespace key to put.</param>
         /// <param name="cancellationToken">Caller cancellation token.</param>
         /// <returns>The RPC response.</returns>
-        internal Task<TryAddAsyncResponse> PutAsync(string operationId, string key, CancellationToken cancellationToken) =>
-            _coordinator.ExecuteAsync(
-                operationId,
-                static _ => Fingerprint,
-                (Target: this, Key: key),
-                static async (s, ct) =>
-                {
-                    var applied = await s.Target.Memory.PutAsync(s.Target.Executor, s.Target.Journal.Journal, s.Key, ct).ConfigureAwait(false);
-                    return new TryAddAsyncResponse { Added = applied == 1 };
-                },
-                cancellationToken);
+        internal async Task<TryAddAsyncResponse> PutAsync(string key, CancellationToken cancellationToken)
+        {
+            var applied = await Memory.PutAsync(Executor, Journal.Journal, key, cancellationToken).ConfigureAwait(false);
+            return new TryAddAsyncResponse { Added = applied == 1 };
+        }
 
         /// <summary>Runs one unstamped put of <paramref name="key" /> whose precondition signals <paramref name="preconditionRan" />; it applies nothing to <see cref="Memory" />.</summary>
         /// <param name="key">Default-namespace key to put.</param>

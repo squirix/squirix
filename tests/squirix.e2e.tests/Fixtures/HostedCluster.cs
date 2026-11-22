@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.Server.TestKit;
@@ -63,7 +62,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         TestNodeSecurityOptions? security = null,
         bool persistence = false,
         TimeProvider? timeProvider = null,
-        Action<string, IServiceCollection>? configure = null,
+        Action<string, TestServiceCollection>? configure = null,
         CancellationToken cancellationToken = default)
     {
         var options = new MultiNodeStartOptions { Security = security, TimeProvider = timeProvider, ServicesConfigure = configure };
@@ -153,6 +152,8 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     internal Uri GetUri(string nodeId) => Cluster[nodeId].Uri;
 
+    internal Uri GetManagementUri(string nodeId) => Cluster[nodeId].ManagementUri;
+
     /// <summary>Gets a value indicating whether a running node opened the internode mTLS listener.</summary>
     /// <param name="nodeId">Node identifier.</param>
     /// <returns><see langword="true" /> when the node listens for internode mTLS traffic.</returns>
@@ -185,7 +186,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         }
         finally
         {
-            _ = await Cluster.RestartWipedNodeAsync(id, null, cancellationToken);
+            _ = await Cluster.RestartWipedNodeAsync(id, cancellationToken);
         }
     }
 

@@ -1,5 +1,4 @@
 using System.Threading;
-using System.Threading.Tasks;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
@@ -12,5 +11,5 @@ internal interface ILocalCacheRawReader<T>
     /// <param name="key">Physical cache key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The raw entry, or <see langword="null" /> when absent.</returns>
-    ValueTask<NodeCacheEntry<T>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken);
+    NodeCacheEntry<T>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken);
 }

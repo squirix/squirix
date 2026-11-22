@@ -2,8 +2,8 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -23,7 +23,7 @@ internal sealed class VerifiedPeerCertificates
 {
     private readonly PeerChainCache _chains;
     private readonly TimeProvider _clock;
-    private readonly ILogger _logger;
+    private readonly IServerLogger _logger;
     private readonly string[] _nodeIds;
     private readonly ConditionalWeakTable<X509Certificate2, Verdict> _verdicts = [];
 
@@ -33,7 +33,7 @@ internal sealed class VerifiedPeerCertificates
     /// <param name="clock">The clock that decides whether a certificate is valid; the host passes the system clock, as the TLS handshake uses real time.</param>
     /// <param name="logger">The logger a certificate that expired on an open connection is reported to.</param>
     /// <exception cref="ArgumentNullException">An argument is <see langword="null" />.</exception>
-    internal VerifiedPeerCertificates(PeerChainCache chains, string[] nodeIds, TimeProvider clock, ILogger logger)
+    internal VerifiedPeerCertificates(PeerChainCache chains, string[] nodeIds, TimeProvider clock, IServerLogger logger)
     {
         ArgumentNullException.ThrowIfNull(chains);
         ArgumentNullException.ThrowIfNull(nodeIds);
@@ -52,7 +52,7 @@ internal sealed class VerifiedPeerCertificates
     /// <param name="logger">The logger a certificate that expired on an open connection is reported to.</param>
     /// <returns>The verifier, or <see langword="null" /> when <paramref name="mtls" /> is not enabled.</returns>
     /// <exception cref="ArgumentNullException">An argument is <see langword="null" />.</exception>
-    internal static VerifiedPeerCertificates? CreateIfEnabled(TopologyOptions cluster, MtlsCertificate mtls, TimeProvider clock, ILogger logger)
+    internal static VerifiedPeerCertificates? CreateIfEnabled(TopologyOptions cluster, MtlsCertificate mtls, TimeProvider clock, IServerLogger logger)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtls);
@@ -83,7 +83,7 @@ internal sealed class VerifiedPeerCertificates
         var valid = verdict.Chain.IsValidAt(now);
         nodeId = valid ? verdict.Chain.NodeId : string.Empty;
         if (!valid && now > verdict.Chain.NotAfter && verdict.TryMarkExpiredLogged())
-            ServerLog.PeerCertificateExpiredOnOpenConnection(_logger, verdict.Chain.NodeId, verdict.Chain.NotAfter);
+            TransportLog.PeerCertificateExpiredOnOpenConnection(_logger, verdict.Chain.NodeId, verdict.Chain.NotAfter);
 
         return valid;
     }

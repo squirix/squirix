@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -82,7 +81,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
         var harness = new Harness(this, NearLimitBytes, null, null);
         var larger = new NodeCacheEntry<string> { Value = new string('x', 3000), Version = 2 };
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, larger, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, larger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -95,7 +94,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, CriticalBytes, null, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -108,7 +107,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, 0, static (_, _) => true, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -159,9 +158,8 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
             var accounting = new IMemoryUsageAccountingCreateExpectations();
             _ = accounting.Setups.ReadEstimatedBytes().ReturnValue(currentBytes);
             _ = accounting.Setups.RecordAdmissionRejection();
-            var options = Options.Create(
-                new PressureOptions { MaxEstimatedCacheBytes = LimitBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-            var gate = new PressureGate(new StateEvaluator(options.Value), accounting.Instance(), "node-a", owner._testMeter);
+            var options = new PressureOptions { MaxEstimatedCacheBytes = LimitBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+            var gate = new PressureGate(new StateEvaluator(options), accounting.Instance(), "node-a", owner._testMeter);
             Cache = new MemoryAdmissionCacheDecorator<string>(
                 inner.Instance(),
                 gate,

@@ -143,7 +143,7 @@ public sealed class JournalRingWakeTests
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_workSignal")]
     private static extern ref AutoResetEvent GetWorkSignal(BoundedJournalRing ring);
 
-    private static bool IsBlocked(Thread? thread) => thread != null && (thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == System.Threading.ThreadState.WaitSleepJoin;
+    private static bool IsBlocked(Thread? thread) => thread != null && (thread.ThreadState & ThreadState.WaitSleepJoin) == ThreadState.WaitSleepJoin;
 
     private sealed class ProducerRun
     {

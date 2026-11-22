@@ -30,10 +30,10 @@ public sealed class DataDirectoryLockTests : NodeIntegrationTestBase
     {
         await using var first = await StartClusterAsync("node-a", new IntegrationStartOptions { UsePersistence = true, ExtraScope = FirstScope }, cancellationToken);
         var dataDir = first["node-a"].DataDir;
-        var shared = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 64 };
+        var shared = new PersistenceOptions { DataDir = dataDir };
         var secondOptions = new IntegrationStartOptions { PersistenceOptions = shared, CleanTestDir = false, ExtraScope = SecondScope };
 
-        var refused = NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartSecondAsync(secondOptions, cancellationToken));
+        var refused = NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartSecondAsync(secondOptions, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var ex = await refused;
         _ = await Assert.That(ex.Message).Contains("in use by another node");
 
@@ -58,12 +58,12 @@ public sealed class DataDirectoryLockTests : NodeIntegrationTestBase
         var options = new IntegrationStartOptions
         {
             ReplicaCount = 2,
-            PersistenceOptions = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 },
+            PersistenceOptions = new PersistenceOptions { DataDir = dir },
             CleanTestDir = false,
             ExtraScope = ReplicatedScope,
         };
 
-        var refused = NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync("node-a", "node-b", options, cancellationToken));
+        var refused = NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync("node-a", "node-b", options, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var ex = await refused;
 
         _ = await Assert.That(ex.Message).Contains("another node");
@@ -85,7 +85,7 @@ public sealed class DataDirectoryLockTests : NodeIntegrationTestBase
 
         // An RF=1 start on a directory activated for replication is refused after the lock is taken.
         var wrong = new IntegrationStartOptions { ReplicaCount = 1, UsePersistence = true, CleanTestDir = false, ExtraScope = RefusedScope };
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("node-a", wrong, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("node-a", wrong, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var right = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = RefusedScope };
         var restarted = await cluster.StartNodeAsync("node-a", right, cancellationToken);

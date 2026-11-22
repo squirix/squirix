@@ -1,6 +1,6 @@
 using System;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -12,13 +12,13 @@ internal sealed class JournalSlowOperationReporter
 {
     internal const int WarningThresholdMs = 1000;
 
-    private readonly ILogger _logger;
+    private readonly IServerLogger _logger;
     private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes a new instance of the <see cref="JournalSlowOperationReporter" /> class.</summary>
     /// <param name="logger">The logger the warnings go to.</param>
     /// <param name="timeProvider">The clock every timestamp handed to this reporter is taken from and measured with.</param>
-    internal JournalSlowOperationReporter(ILogger logger, TimeProvider timeProvider)
+    internal JournalSlowOperationReporter(IServerLogger logger, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -45,7 +45,7 @@ internal sealed class JournalSlowOperationReporter
 
         // Diagnostics only: a faulty log sink must not fail the journal thread after a successful fsync.
         // A sink failure has nowhere to go without global state, so it is discarded by design.
-        _ = Isolated.Run((Logger: _logger, ElapsedMs: elapsedMs), static state => ServerLog.JournalFsyncSlow(state.Logger, state.ElapsedMs));
+        _ = Isolated.Run((Logger: _logger, ElapsedMs: elapsedMs), static state => StorageLog.JournalFsyncSlow(state.Logger, state.ElapsedMs));
     }
 
     /// <summary>Warns when a mutation gate held since <paramref name="acquiredTimestamp" /> exceeded the threshold; never throws.</summary>
@@ -59,7 +59,7 @@ internal sealed class JournalSlowOperationReporter
 
         // Diagnostics only: a faulty log sink must not mask the gate holder's own outcome.
         // A sink failure has nowhere to go without global state, so it is discarded by design.
-        _ = Isolated.Run((Logger: _logger, HeldMs: heldMs, Holder: holder), static state => ServerLog.JournalMutationGateHeldLong(state.Logger, state.HeldMs, state.Holder));
+        _ = Isolated.Run((Logger: _logger, HeldMs: heldMs, Holder: holder), static state => StorageLog.JournalMutationGateHeldLong(state.Logger, state.HeldMs, state.Holder));
     }
 
     /// <summary>
@@ -80,7 +80,7 @@ internal sealed class JournalSlowOperationReporter
         // A sink failure has nowhere to go without global state, so it is discarded by design.
         _ = Isolated.Run(
                 (Logger: _logger, WaitingFor: waitingFor, IoOperation: ioOperation ?? "none", IoMs: ioMs, GateHolder: gateHolder ?? "none", GateHeldMs: gateHeldMs),
-                static state => ServerLog.JournalWaitCanceledWhileStalled(state.Logger, state.WaitingFor, state.IoOperation, state.IoMs, state.GateHolder, state.GateHeldMs));
+                static state => StorageLog.JournalWaitCanceledWhileStalled(state.Logger, state.WaitingFor, state.IoOperation, state.IoMs, state.GateHolder, state.GateHeldMs));
     }
 
     private long ElapsedMs(long startedTimestamp) => Convert.ToInt64(_timeProvider.GetElapsedTime(startedTimestamp).TotalMilliseconds);

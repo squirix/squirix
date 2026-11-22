@@ -53,7 +53,7 @@ internal static class ReplicaBatchKit
     {
         _ = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
         clock.Advance(CommitBudget);
-        return await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        return await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Describes the idempotency record of each entry: F found, U unresolved, M missing, X conflicting.</summary>

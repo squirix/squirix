@@ -1,0 +1,23 @@
+using Squirix.Transport.Binary;
+
+// ReSharper disable once CheckNamespace
+namespace Squirix.Transport.Wire.Mappers;
+
+/// <summary>Stable transport signals for stale-owner and stale-term routing failures on internal cluster gRPC calls.</summary>
+internal static class StaleOwnerMarkers
+{
+    /// <summary>Trailer key that carries a stable machine-readable error code on internal cluster gRPC calls.</summary>
+    internal const string ErrorCodeMetadataKey = Frames.ErrorCodeTrailer;
+
+    /// <summary>Trailer key that names the node the refusing node knows as the leader of the group.</summary>
+    internal const string LeaderNodeIdMetadataKey = "squirix-leader-node-id";
+
+    /// <summary>Trailer key that carries the term of the named leader, in invariant decimal form.</summary>
+    internal const string LeaderTermMetadataKey = "squirix-leader-term";
+
+    /// <summary>The error code and the status detail of a refusal by a node whose term is stale: nothing was appended.</summary>
+    internal const string StaleTermErrorCodeValue = "stale-term";
+
+    /// <summary>The error code of a refusal by a node that neither owns nor leads the key's group: nothing was appended.</summary>
+    internal const string StaleOwnerErrorCodeValue = "stale-owner";
+}

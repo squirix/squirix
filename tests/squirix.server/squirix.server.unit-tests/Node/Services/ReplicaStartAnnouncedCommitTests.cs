@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -27,7 +27,7 @@ public sealed class ReplicaStartAnnouncedCommitTests : IsolatedStorageTestBase
     public async Task StartMakesAnnouncedCommitDurable(CancellationToken cancellationToken)
     {
         var local = RecoveredCache();
-        await using var registry = await ReplicaCommitBatchKit.OpenRegistryAsync(Dir, DefaultOptions(), cancellationToken);
+        await using var registry = await OpenRegistryAsync(Dir, DefaultOptions(), cancellationToken);
         await AppendAnnouncedAsync(registry, cancellationToken);
         await using var committer = CreateCommitter(registry, local, new AcceptingGateway(), TimeProvider.System);
         var before = await GetOwnedLog(registry).GetStatusAsync(cancellationToken);

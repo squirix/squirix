@@ -2,14 +2,14 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -161,9 +161,9 @@ public sealed class ReplicaGroupBootstrapTests : ServerUnitTestBase
         using var stopping = new CancellationTokenSource();
         var gateway = new ScriptedBootstrapGateway();
         gateway.Report("n2", Unseeded());
-        gateway.FailStatus("n3", new RpcException(new Status(StatusCode.Cancelled, "canceled")), stopping.Cancel);
+        gateway.FailStatus("n3", new ServerCallException(FrameStatus.Cancelled, "canceled"), stopping.Cancel);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(gateway.Offers).IsEqualTo(0);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Unseeded);
@@ -180,9 +180,9 @@ public sealed class ReplicaGroupBootstrapTests : ServerUnitTestBase
         var gateway = new ScriptedBootstrapGateway();
         gateway.Report("n2", Unseeded());
         gateway.Report("n3", Unseeded());
-        gateway.FailOffer("n3", new RpcException(new Status(StatusCode.Cancelled, "canceled")), stopping.Cancel);
+        gateway.FailOffer("n3", new ServerCallException(FrameStatus.Cancelled, "canceled"), stopping.Cancel);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(Create(log, gateway).RunOnceAsync(stopping.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Unseeded);
     }

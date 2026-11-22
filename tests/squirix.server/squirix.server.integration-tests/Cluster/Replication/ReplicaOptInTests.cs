@@ -50,7 +50,7 @@ public sealed class ReplicaOptInTests : NodeIntegrationTestBase
             "n1",
             new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, EnableReplication = false, ExtraScope = "rf2-optin-refused" },
             cancellationToken);
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(task);
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(task, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(exception.Message).Contains(ReplicationActivationGuard.OptInRequired, StringComparison.Ordinal);
     }
 }

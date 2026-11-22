@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -126,9 +126,9 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Tombstoned);
         _ = await Assert.That(results[2].Status).IsEqualTo(ReplicaExpiryStatus.Tombstoned);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 2);
-        _ = await Assert.That(await leader.RawAsync("a", cancellationToken)).IsNotNull();
-        _ = await Assert.That(await leader.RawAsync("b", cancellationToken)).IsNull();
-        _ = await Assert.That(await leader.RawAsync("c", cancellationToken)).IsNull();
+        _ = await Assert.That(leader.Raw("a", cancellationToken)).IsNotNull();
+        _ = await Assert.That(leader.Raw("b", cancellationToken)).IsNull();
+        _ = await Assert.That(leader.Raw("c", cancellationToken)).IsNull();
     }
 
     /// <summary>A pinned tombstone before the only other one is mapped like it is in a longer run: it fails alone, and the other key commits alone.</summary>
@@ -151,7 +151,7 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         _ = await Assert.That((results[0].Failure as SquirixException)?.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Tombstoned);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
-        _ = await Assert.That(await leader.RawAsync("b", cancellationToken)).IsNull();
+        _ = await Assert.That(leader.Raw("b", cancellationToken)).IsNull();
     }
 
     /// <summary>A key whose decision throws fails alone: the other keys of the batch still commit their tombstones.</summary>
@@ -178,8 +178,8 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Failed);
         _ = await Assert.That(results[1].Failure).IsSameReferenceAs(failure);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 2);
-        _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, "a"), cancellationToken)).IsNull();
-        _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, "b"), cancellationToken)).IsNull();
+        _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, "a"), cancellationToken)).IsNull();
+        _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, "b"), cancellationToken)).IsNull();
     }
 
     private static IFollowerLog Log(ReplicaGroupRegistry registry) =>
@@ -194,7 +194,7 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
     /// <exception cref="InvalidOperationException">The key holds no entry.</exception>
     private static async Task PinExpiryAsync(Leader leader, ReplicaGroupRegistry registry, string key, CancellationToken cancellationToken)
     {
-        var entry = await leader.RawAsync(key, cancellationToken) ?? ThrowHelper.Throw<NodeCacheEntry<object?>>(new InvalidOperationException("The key must hold an entry."));
+        var entry = leader.Raw(key, cancellationToken) ?? ThrowHelper.Throw<NodeCacheEntry<object?>>(new InvalidOperationException("The key must hold an entry."));
         var ticks = Math.Max(1L, entry.ExpiresUtc.GetValueOrDefault().Ticks);
         var operationId = ReplicaExpirationOperationId.Create(leader.Committer.GroupId, CacheName, key, entry.Version, new DateTime(ticks, DateTimeKind.Utc));
         var reserved = Log(registry).Idempotency.Reserve(
@@ -228,7 +228,7 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetValueAsync(cacheName, key, cancellationToken);
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>

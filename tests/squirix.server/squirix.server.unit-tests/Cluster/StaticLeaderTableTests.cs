@@ -1,10 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -34,7 +33,7 @@ public sealed class StaticLeaderTableTests : ServerUnitTestBase
     [Test]
     public async Task WaitReturnsAtOnce(CancellationToken cancellationToken)
     {
-        var table = new StaticLeaderTable("n1");
+        IGroupLeaderTable table = new StaticLeaderTable("n1");
         table.Refute("n2", new LeaderRoute("n2", 1UL));
 
         var wait = table.WaitForLeaderAsync("n2", TimeSpan.FromHours(1), cancellationToken);
@@ -52,14 +51,14 @@ public sealed class StaticLeaderTableTests : ServerUnitTestBase
     {
         var cluster = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") }) { NodeId = "n1" };
         var election = new StaticLeaderTable("other");
-        var replaced = new ServiceCollection().AddSquirixClusterLocator(cluster).Replace(ServiceDescriptor.Singleton<IGroupLeaderTable>(election));
-        await using var fallback = new ServiceCollection().AddSquirixClusterLocator(cluster).BuildServiceProvider();
-        await using var elected = replaced.BuildServiceProvider();
-        await using var kept = new ServiceCollection().AddSingleton<IGroupLeaderTable>(election).AddSquirixClusterLocator(cluster).BuildServiceProvider();
+        var replaced = new NodeServices().AddSquirixClusterLocator(cluster).ReplaceFactory<IGroupLeaderTable>(_ => election);
+        await using var fallback = new NodeProvider(new NodeServices().AddSquirixClusterLocator(cluster));
+        await using var elected = new NodeProvider(replaced);
+        await using var kept = new NodeProvider(new NodeServices().Use<IGroupLeaderTable>(election).AddSquirixClusterLocator(cluster));
 
-        _ = await Assert.That(fallback.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority("n1", out _)).IsTrue();
-        _ = await Assert.That(elected.GetRequiredService<IGroupLeaderTable>()).IsSameReferenceAs(election);
-        _ = await Assert.That(elected.GetServices<IGroupLeaderTable>()).Count().IsEqualTo(1);
-        _ = await Assert.That(kept.GetRequiredService<IGroupLeaderTable>()).IsSameReferenceAs(election);
+        _ = await Assert.That(fallback.Require<IGroupLeaderTable>().HasLocalAuthority("n1", out _)).IsTrue();
+        _ = await Assert.That(elected.Require<IGroupLeaderTable>()).IsSameReferenceAs(election);
+        _ = await Assert.That(elected.All<IGroupLeaderTable>()).Count().IsEqualTo(1);
+        _ = await Assert.That(kept.Require<IGroupLeaderTable>()).IsSameReferenceAs(election);
     }
 }

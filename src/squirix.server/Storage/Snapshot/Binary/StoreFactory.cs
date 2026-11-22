@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -136,31 +135,26 @@ internal static class StoreFactory
                 _expiredAsOf = expiredAsOf;
             }
 
-            internal List<(CacheKey Key, NodeCacheEntry<T> Entry)> Entries { get; } = [with(1024)];
+            internal List<(CacheKey Key, NodeCacheEntry<T> Entry)> Entries { get; } = [];
 
             internal List<PersistedIdempotencyRecord> IdempotencyRecords { get; } = [with(16)];
 
-            internal List<int?> Lengths { get; } = [with(1024)];
+            internal List<int?> Lengths { get; } = [];
 
             /// <summary>Adds an entry record, skipping it when it expired by the load cutoff.</summary>
             /// <param name="body">The entry record body.</param>
             /// <exception cref="InvalidDataException">The body is not a readable entry.</exception>
             internal void AddEntry(ReadOnlySpan<byte> body)
             {
-                if (!SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength) || entry == null)
+                if (!SnapshotCodec.TryReadEntryBody<T>(body, out var key, out var entry, out var encodedLength, _expiredAsOf))
                     throw new InvalidDataException("Binary snapshot entry body could not be read.");
 
-                if (_expiredAsOf is { } utcNow && IsExpired(entry, utcNow))
+                if (entry == null)
                     return;
 
-                if (!CacheEntryCodec.TryMapEntry<T>(entry, out var mapped) || mapped == null)
-                    throw new InvalidDataException("Binary snapshot entry payload could not be read.");
-
-                Entries.Add((key, mapped));
+                Entries.Add((key, entry));
                 Lengths.Add(encodedLength);
             }
-
-            private static bool IsExpired(NodeCacheEntry<object?> entry, DateTime utcNow) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= utcNow;
         }
     }
 }

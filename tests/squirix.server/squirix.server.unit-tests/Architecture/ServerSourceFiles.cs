@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Enumeration;
 using System.Threading.Tasks;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -30,18 +31,28 @@ internal static class ServerSourceFiles
 
         _ = await Assert.That(Directory.Exists(searchRoot)).IsTrue().Because($"Expected source root '{searchRoot}'.");
 
-        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        var files = Directory.GetFiles(searchRoot, "*.cs", SearchOption.AllDirectories);
-        var results = new List<string>(files.Length);
-        for (var index = 0; index < files.Length; index++)
+        return new List<string>(EnumerateUnder(searchRoot));
+    }
+
+    /// <summary>Enumerates C# sources without descending into excluded build directories.</summary>
+    /// <param name="searchRoot">The directory to scan.</param>
+    /// <param name="excludeBin">Whether bin trees are excluded as well as obj trees.</param>
+    /// <returns>Matching paths in the underlying directory enumeration order.</returns>
+    internal static IEnumerable<string> EnumerateUnder(string searchRoot, bool excludeBin = false)
+    {
+        var separator = Path.DirectorySeparatorChar;
+        var root = Path.GetFullPath(searchRoot) + separator;
+        if (root.Contains($"{separator}obj{separator}", StringComparison.Ordinal) || (excludeBin && root.Contains($"{separator}bin{separator}", StringComparison.Ordinal)))
+            return [];
+
+        return new FileSystemEnumerable<string>(
+            searchRoot,
+            static (ref entry) => entry.ToFullPath(),
+            new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.None })
         {
-            var path = files[index];
-            if (path.Contains(objMarker, StringComparison.Ordinal))
-                continue;
-
-            results.Add(path);
-        }
-
-        return results;
+            ShouldIncludePredicate = static (ref entry) =>
+                !entry.IsDirectory && FileSystemName.MatchesWin32Expression("*.cs", entry.FileName, OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()),
+            ShouldRecursePredicate = (ref entry) => entry.FileName is not "obj" && (!excludeBin || entry.FileName is not "bin"),
+        };
     }
 }

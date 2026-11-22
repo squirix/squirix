@@ -97,11 +97,11 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token for the start.</param>
     /// <returns>The started proxy.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="upstream" /> is <see langword="null" />.</exception>
-    public static Task<TcpPartitionProxy> StartAsync(IPEndPoint upstream, CancellationToken cancellationToken = default)
+    public static TcpPartitionProxy StartListening(IPEndPoint upstream, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(upstream);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new TcpPartitionProxy(upstream));
+        return new TcpPartitionProxy(upstream);
     }
 
     /// <summary>Gets the number of bytes forwarded in <paramref name="direction" /> since start.</summary>
@@ -410,12 +410,12 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
         }
     }
 
-    /// <summary>A completion swapped on every pulse, so a waiter that captures it before checking its condition cannot miss an update.</summary>
+    /// <summary>A completion created on demand, so a waiter that captures it before checking its condition cannot miss an update.</summary>
     [Mutable]
     private sealed class ChangeSignal
     {
         private readonly Lock _lock = new();
-        private TaskCompletionSource _next = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource? _next;
 
         /// <summary>Gets the completion of the next pulse.</summary>
         private Task Next
@@ -423,20 +423,20 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             get
             {
                 lock (_lock)
-                    return _next.Task;
+                    return (_next ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             }
         }
 
         internal void Pulse()
         {
-            TaskCompletionSource completed;
+            TaskCompletionSource? completed;
             lock (_lock)
             {
                 completed = _next;
-                _next = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _next = null;
             }
 
-            completed.SetResult();
+            completed?.SetResult();
         }
 
         /// <summary>Waits until <paramref name="condition" /> holds, re-checking it after every pulse.</summary>

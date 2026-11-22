@@ -19,6 +19,7 @@ internal static class FollowerLogSnapshotRecovery
     /// </exception>
     internal static async Task<ulong> RestoreSnapshotBaseAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
     {
+        journal.SnapshotWalPosition = default;
         if (!journal.Snapshot.SnapshotExists)
             return 0UL;
 
@@ -67,9 +68,8 @@ internal static class FollowerLogSnapshotRecovery
             await ReconcileSnapshotMetadataAsync(journal, owner, snapshot.Value, cancellationToken).ConfigureAwait(false);
             owner.Idempotency.RestoreFromSnapshot(snapshot.Value.CommittedOutcomes, snapshot.Value.CapturedUtc, []);
 
-            // Recovery rebuilds both indexes from the durable log after this point; the baseline is
-            // restored without pruning because the walk owns the index lifecycle.
             owner.RestoreBaseline(new SnapshotBaseline(snapshot.Value.LastIncludedIndex, snapshot.Value.LastIncludedTerm));
+            journal.SnapshotWalPosition = snapshot.Value.WalPosition;
             return snapshot.Value.LastIncludedIndex;
         }
         catch (InvalidDataException)

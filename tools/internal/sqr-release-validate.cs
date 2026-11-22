@@ -30,9 +30,13 @@ var requiredDocs = new[]
 var packageProjects = new[]
 {
     "src/squirix/Squirix.csproj",
+    "src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj",
     "src/squirix.server/Squirix.Server.csproj",
+    "src/squirix.server.host/Squirix.Server.Host.csproj",
 };
 
+const string toolPackageId = "squirix.server.tool";
+string[] releaseFrameworks = ["net10.0", "net11.0"];
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
@@ -111,7 +115,7 @@ try
             repoRootResolved,
             [
                 "test", "--project", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
-                "normal",
+                "normal", "--treenode-filter", "/*/*/*/*[Suite!=Stress]",
             ]).ConfigureAwait(false);
 
         await StepAsync("Run smoke tests").ConfigureAwait(false);
@@ -164,11 +168,21 @@ try
     var packages = new List<string>(Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly));
 
     packages.Sort(StringComparer.OrdinalIgnoreCase);
-    if (packages.Count < packageProjects.Length)
-        throw new InvalidOperationException($"Expected at least {packageProjects.Length} .nupkg files in {packageOutputPath}.");
+    if (packages.Count != packageProjects.Length)
+        throw new InvalidOperationException($"Expected {packageProjects.Length} .nupkg files in {packageOutputPath}.");
 
+    string? toolVersion = null;
     foreach (var package in packages)
-        await ValidatePackageMetadataAsync(package, CancellationToken.None).ConfigureAwait(false);
+    {
+        var packageName = Path.GetFileNameWithoutExtension(package);
+        var isTool = packageName.StartsWith(toolPackageId + ".", StringComparison.OrdinalIgnoreCase);
+        await ValidatePackageMetadataAsync(package, releaseFrameworks, isTool, CancellationToken.None).ConfigureAwait(false);
+        if (isTool)
+            toolVersion = packageName[(toolPackageId.Length + 1)..];
+    }
+
+    if (toolVersion == null)
+        throw new InvalidOperationException($"Package {toolPackageId} was not produced.");
 
     await StepAsync("Prepare external package smoke source").ConfigureAwait(false);
     if (Directory.Exists(smokePackageOutputPath))
@@ -177,25 +191,23 @@ try
     foreach (var package in Directory.EnumerateFiles(packageOutputPath, "*.*nupkg", SearchOption.TopDirectoryOnly))
         File.Copy(package, Path.Join(smokePackageOutputPath, Path.GetFileName(package)));
 
-    await StepAsync("Build external package smoke against packed artifacts").ConfigureAwait(false);
+    await StepAsync("Run external package smoke for both frameworks").ConfigureAwait(false);
     await RunDotnetOrThrowAsync(
-        repoRootResolved,
-        [
-            "build",
-            "samples/external-package-smoke/ExternalPackageSmoke.csproj",
-            "--configuration",
-            options.Configuration,
-            "/p:SmokeUsePackages=true",
-        ]).ConfigureAwait(false);
+        repoRootResolved, ["run", "--file", "tools/internal/sqr-package-smoke.cs", "--", "--use-existing-packages", options.Configuration, toolVersion]).ConfigureAwait(false);
 
-    await StepAsync("Run external package smoke against packed artifacts").ConfigureAwait(false);
-    var smokeRunCode = await RunDotnetAsync(
-        dotnetPath,
-        Path.Join(repoRootResolved, "samples", "external-package-smoke"),
-        ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"],
-        CancellationToken.None).ConfigureAwait(false);
-    if (smokeRunCode != 0)
-        throw new InvalidOperationException($"External package smoke failed with exit code {smokeRunCode.ToString(CultureInfo.InvariantCulture)}.");
+    foreach (var framework in releaseFrameworks)
+    {
+        await StepAsync($"Install and run {toolPackageId} for {framework}").ConfigureAwait(false);
+        var toolPath = Path.Join(artifactsPath, "tools", framework);
+        await RunDotnetOrThrowAsync(
+            repoRootResolved,
+            ["tool", "install", toolPackageId, "--version", toolVersion, "--framework", framework, "--tool-path", toolPath, "--source", packageOutputPath]).ConfigureAwait(false);
+
+        var toolCommand = Path.Join(toolPath, OperatingSystem.IsWindows() ? "squirix-server.exe" : "squirix-server");
+        var toolExitCode = await RunDotnetAsync(toolCommand, repoRootResolved, ["version"], CancellationToken.None).ConfigureAwait(false);
+        if (toolExitCode != 0)
+            throw new InvalidOperationException($"The {framework} server tool failed with exit code {toolExitCode.ToString(CultureInfo.InvariantCulture)}.");
+    }
 
     if (options.IncludeBenchmarks)
     {
@@ -224,7 +236,7 @@ catch (UnauthorizedAccessException ex)
     return 1;
 }
 
-async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
+static async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
 {
     var parsed = new ReleaseOptions();
     var argIndex = 0;
@@ -318,10 +330,10 @@ static IReadOnlyList<string> NewPackArguments(string projectPath, string configu
         projectPath,
         "--configuration",
         configuration,
-        "--no-build",
         "-o",
         packageOutputPath,
         "/p:ContinuousIntegrationBuild=true",
+        "/p:SquirixPackAllFrameworks=true",
     };
     if (string.IsNullOrWhiteSpace(packageVersion))
         return args;
@@ -330,28 +342,22 @@ static IReadOnlyList<string> NewPackArguments(string projectPath, string configu
     return args;
 }
 
-static async Task ValidatePackageMetadataAsync(string packagePath, CancellationToken cancellationToken)
+static async Task ValidatePackageMetadataAsync(string packagePath, string[] frameworks, bool isTool, CancellationToken cancellationToken)
 {
     var archive = await ZipFile.OpenReadAsync(packagePath, cancellationToken).ConfigureAwait(false);
     await using (archive.ConfigureAwait(false))
     {
         var names = new List<string>();
+        ZipArchiveEntry? nuspecEntry = null;
         foreach (var entry in archive.Entries)
-            names.Add(entry.FullName);
-
-        string? nuspecName = null;
-        var nameSpan = CollectionsMarshal.AsSpan(names);
-        for (var i = 0; i < nameSpan.Length; i++)
         {
-            var name = nameSpan[i];
-            if (!name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            nuspecName = name;
-            break;
+            names.Add(entry.FullName);
+            if (nuspecEntry == null && entry.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+                nuspecEntry = entry;
         }
 
-        if (string.IsNullOrWhiteSpace(nuspecName))
+        var nameSpan = CollectionsMarshal.AsSpan(names);
+        if (nuspecEntry == null)
             throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
 
         var hasReadme = false;
@@ -366,7 +372,29 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
         if (!hasReadme)
             throw new InvalidOperationException($"Package has no README.md: {packagePath}");
 
-        var nuspecEntry = archive.GetEntry(nuspecName) ?? MissingNuspecEntry(packagePath);
+        foreach (var framework in frameworks)
+        {
+            var prefix = isTool ? $"tools/{framework}/any/" : $"lib/{framework}/";
+            if (!HasAssembly(names, prefix))
+                throw new InvalidOperationException($"Package has no assembly under {prefix}: {packagePath}");
+            if (!isTool)
+                continue;
+
+            var runtimeConfig = archive.GetEntry(prefix + "Squirix.Server.Host.runtimeconfig.json");
+            if (runtimeConfig == null || archive.GetEntry(prefix + "DotnetToolSettings.xml") == null ||
+                archive.GetEntry(prefix + "Squirix.Server.Host.dll") == null)
+                throw new InvalidOperationException($"Package has incomplete tool files under {prefix}: {packagePath}");
+
+            var configStream = await runtimeConfig.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using (configStream.ConfigureAwait(false))
+            {
+                using var configReader = new StreamReader(configStream, leaveOpen: true);
+                var json = await configReader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+                if (json.Contains("\"Microsoft.AspNetCore.App\"", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"The server tool under {prefix} requires the ASP.NET Core shared framework: {packagePath}");
+            }
+        }
+
         var stream = await nuspecEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using (stream.ConfigureAwait(false))
         {
@@ -380,6 +408,17 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
             await ValidateMetadataXmlAsync(reader, packagePath, cancellationToken).ConfigureAwait(false);
         }
     }
+}
+
+static bool HasAssembly(List<string> entries, string prefix)
+{
+    foreach (var entry in CollectionsMarshal.AsSpan(entries))
+    {
+        if (entry.StartsWith(prefix, StringComparison.Ordinal) && entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            return true;
+    }
+
+    return false;
 }
 
 static async Task ValidateMetadataXmlAsync(XmlReader reader, string packagePath, CancellationToken cancellationToken)
@@ -482,11 +521,6 @@ static async Task ValidateMetadataElementAsync(XmlReader reader, string packageP
         throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
 }
 
-static ZipArchiveEntry MissingNuspecEntry(string packagePath)
-{
-    throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
-}
-
 static async Task<string> ReadElementTextAsync(XmlReader reader)
 {
     if (reader.IsEmptyElement)
@@ -514,25 +548,25 @@ static async Task<string> ReadElementTextAsync(XmlReader reader)
 
 internal sealed class ReleaseOptions
 {
-    public string ArtifactsDirectory { get; set; } = "artifacts/release-validation";
+    internal string ArtifactsDirectory { get; set; } = "artifacts/release-validation";
 
-    public string Configuration { get; set; } = "Release";
+    internal string Configuration { get; set; } = "Release";
 
-    public bool IncludeBenchmarks { get; set; }
+    internal bool IncludeBenchmarks { get; set; }
 
-    public bool IncludeIntegrationTests { get; set; }
+    internal bool IncludeIntegrationTests { get; set; }
 
-    public bool IncludeStressChecks { get; set; }
+    internal bool IncludeStressChecks { get; set; }
 
-    public bool IsValid { get; private init; } = true;
+    internal bool IsValid { get; private init; } = true;
 
-    public string PackageVersion { get; set; } = string.Empty;
+    internal string PackageVersion { get; set; } = string.Empty;
 
-    public bool SkipFormat { get; set; }
+    internal bool SkipFormat { get; set; }
 
-    public bool SkipTests { get; set; }
+    internal bool SkipTests { get; set; }
 
-    public static async Task<ReleaseOptions> InvalidAsync(string message)
+    internal static async Task<ReleaseOptions> InvalidAsync(string message)
     {
         await Console.Error.WriteLineAsync($"ERROR: {message}", CancellationToken.None).ConfigureAwait(false);
         return new ReleaseOptions { IsValid = false };

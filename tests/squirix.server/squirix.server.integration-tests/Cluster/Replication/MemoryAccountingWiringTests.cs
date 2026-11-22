@@ -30,12 +30,12 @@ public sealed class MemoryAccountingWiringTests : NodeIntegrationTestBase
         var before = accounting.ReadEstimatedBytes();
         var entry = new NodeCacheEntry<object?> { Value = "wired", Version = 1 };
 
-        await host.GetRequiredService<ISquirixServerEntryCachePipeline<object?>>().SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", entry, cancellationToken);
+        await host.GetRequiredService<ILogicalNamespacedCache<object?>>().SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", entry, cancellationToken);
 
         var expected = host.GetRequiredService<ICacheEntrySizeEstimator<object?>>().EstimateBytes(new CacheKey(CacheName, "k"), entry, false);
         _ = await Assert.That(before).IsEqualTo(0L);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expected);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1L);
-        _ = await Assert.That((await physical.GetValueAsync(new CacheKey(CacheName, "k"), cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(physical.GetValue(new CacheKey(CacheName, "k"), cancellationToken).Found).IsTrue();
     }
 }

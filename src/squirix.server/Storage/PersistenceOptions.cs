@@ -33,8 +33,16 @@ internal sealed record PersistenceOptions
     /// <summary>Gets the maximum number of journal segments; a write that would exceed it is refused until retention frees segments.</summary>
     internal int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;
 
-    /// <summary>Gets the maximum size of a single journal segment in megabytes.</summary>
-    internal int JournalMaxSegmentMb { get; init; } = JournalSegmentLimits.DefaultMaxSegmentMb;
+    /// <summary>Gets the configured maximum size of a single journal segment in megabytes, if specified.</summary>
+    internal int? JournalMaxSegmentMb { get; init; }
+
+    /// <summary>Gets the segment size limit, using a default that fits the largest admitted frame.</summary>
+    internal int EffectiveJournalMaxSegmentMb => JournalMaxSegmentMb ?? Math.Max(JournalSegmentLimits.DefaultMaxSegmentMb, MinimumSegmentMb);
+
+    /// <summary>Gets the largest serialized value admitted by the hosting pipeline.</summary>
+    internal int ValueLimitBytes { get; init; }
+
+    internal int MinimumSegmentMb => ValueLimitBytes == 0 ? JournalSegmentLimits.MinSegmentMb : JournalSegmentLimits.MinimumSegmentMb(ValueLimitBytes);
 
     /// <summary>Gets the maximum total journal storage in megabytes across all segments.</summary>
     internal int JournalMaxTotalBytesMb { get; init; } = JournalSegmentLimits.DefaultMaxTotalBytesMb;
@@ -79,8 +87,8 @@ internal sealed record PersistenceOptions
         ValidateGroupCommit();
 
         RequirePositive(JournalMaxSegmentCount, nameof(JournalMaxSegmentCount));
-        RequireHoldsLargestFrame(JournalMaxSegmentMb, nameof(JournalMaxSegmentMb));
-        RequireHoldsLargestFrame(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb));
+        RequireHoldsLargestFrame(EffectiveJournalMaxSegmentMb, nameof(JournalMaxSegmentMb), MinimumSegmentMb);
+        RequireHoldsLargestFrame(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb), MinimumSegmentMb);
         RequirePositive(JournalStallDegradedThreshold, nameof(JournalStallDegradedThreshold));
         RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
         RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
@@ -98,13 +106,14 @@ internal sealed record PersistenceOptions
     /// <summary>Refuses a journal size that cannot hold the largest frame, under which valid writes would be refused forever.</summary>
     /// <param name="valueMb">The configured size in megabytes.</param>
     /// <param name="name">The option name.</param>
-    /// <exception cref="InvalidOperationException">Thrown when the size is below <see cref="JournalSegmentLimits.MinSegmentMb" />.</exception>
-    private static void RequireHoldsLargestFrame(int valueMb, string name)
+    /// <param name="minimumSegmentMb">The minimum for the node's largest journal frame.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the size is below the minimum.</exception>
+    private static void RequireHoldsLargestFrame(int valueMb, string name, int minimumSegmentMb)
     {
-        if (valueMb < JournalSegmentLimits.MinSegmentMb)
+        if (valueMb < minimumSegmentMb)
         {
             throw new InvalidOperationException(
-                $"Persistence {name} must be at least {JournalSegmentLimits.MinSegmentMb}: a journal segment must hold the largest journal frame.");
+                $"Persistence {name} must be at least {minimumSegmentMb}: a journal segment must hold the largest journal frame.");
         }
     }
 

@@ -2,14 +2,16 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -41,7 +43,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         var healthy = committer.AppendProgress();
 
         hooks.Arm();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(healthy).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 0UL, false, false));
         _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
@@ -88,11 +90,11 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         hooks.ReleaseWithFailure(new IOException("Injected metadata write failure."));
         await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(latching);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(latching, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var refused = committer.AppendProgress();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         _ = await Assert.That(refused).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
@@ -147,14 +149,14 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         await using var committer = await LeadAsync(registry, events, cancellationToken);
 
         hooks.Arm();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var first = events.Count(LocalAppendFailedEventId);
         for (var i = 0; i < 2; i++)
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(first).IsEqualTo(1);
         _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(committer.AppendProgress().Refused).IsTrue();
     }
 
@@ -200,11 +202,11 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         await using var committer = await LeadAsync(registry, cancellationToken);
 
         hooks.Arm();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var failed = committer.AppendProgress();
         hooks.Disarm();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failed.Started).IsEqualTo(1UL);
         _ = await Assert.That(committer.AppendProgress().Started).IsEqualTo(2UL);
@@ -227,7 +229,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
             throw new InvalidOperationException("The group log n2 is not open.");
 
         _ = await log.ObserveTermAsync(3UL, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, false, false));
         _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(0);
@@ -244,7 +246,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     private static Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
         LeadAsync(registry, NullLogger<ReplicaGroupCommitter>.Instance, cancellationToken);
 
-    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, ILogger<ReplicaGroupCommitter> logger, CancellationToken cancellationToken)
+    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, IServerLogger<ReplicaGroupCommitter> logger, CancellationToken cancellationToken)
     {
         if (!registry.TryGetLog("n2", out var log))
             throw new InvalidOperationException("The group log n2 is not open.");

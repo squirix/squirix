@@ -31,9 +31,9 @@ internal static class ModelTransitionUtil
         return copy;
     }
 
-    internal static List<InFlightMessage> CloneMessages(IReadOnlyList<InFlightMessage> messages)
+    internal static List<InFlightMessage> CloneMessages(IReadOnlyList<InFlightMessage> messages, int additionalCapacity)
     {
-        var copy = new List<InFlightMessage>(messages.Count + 2);
+        var copy = new List<InFlightMessage>(messages.Count + additionalCapacity);
         for (var i = 0; i < messages.Count; i++)
             copy.Add(messages[i]);
 
@@ -107,26 +107,21 @@ internal static class ModelTransitionUtil
         return null;
     }
 
-    internal static NodeState Patch(NodeState node, NodePatch patch)
+    internal static NodeState Patch(NodeState node, in NodePatch patch)
     {
+        var runtime = PatchRuntime(node, in patch);
         return node.With(
             patch.Role ?? node.Role,
             patch.CurrentTerm ?? node.CurrentTerm,
             patch.VotedFor ?? node.VotedFor,
             patch.LogEntries ?? node.LogEntries,
-            NodeRuntime.Create(
-                patch.CommitIndex ?? node.CommitIndex,
-                patch.AppliedIndex ?? node.AppliedIndex,
-                patch.VotesGranted ?? node.VotesGranted,
-                patch.ReadIndex ?? node.ReadIndex,
-                patch.ReadAcks ?? node.ReadAcks,
-                patch.ReadReady ?? node.ReadReady),
+            in runtime,
             patch.Unseeded ?? node.Unseeded);
     }
 
-    internal static List<LogEntry> TruncateTo(IReadOnlyList<LogEntry> log, int lastIndex)
+    internal static List<LogEntry> TruncateTo(IReadOnlyList<LogEntry> log, int lastIndex, int additionalCapacity = 0)
     {
-        var result = new List<LogEntry>(log.Count);
+        var result = new List<LogEntry>(log.Count + additionalCapacity);
         for (var i = 0; i < log.Count; i++)
         {
             if (log[i].Index <= lastIndex)
@@ -135,4 +130,24 @@ internal static class ModelTransitionUtil
 
         return result;
     }
+
+    private static NodeRuntime PatchRuntime(NodeState node, in NodePatch patch) => NodeRuntime.Create(
+        patch.CommitIndex ?? node.CommitIndex,
+        patch.AppliedIndex ?? node.AppliedIndex,
+        patch.VotesGranted ?? node.VotesGranted,
+        patch.ReadIndex ?? node.ReadIndex,
+        patch.ReadAcks ?? node.ReadAcks,
+        patch.ReadReady ?? node.ReadReady,
+        patch.Stopping ?? node.Stopping) with
+    {
+        KnownLeaderTerm = patch.KnownLeaderTerm ?? node.KnownLeaderTerm,
+        KnownLeaderId = patch.KnownLeaderId ?? node.KnownLeaderId,
+        DurableCommitIndex = ResolveDurableCommitIndex(node, in patch),
+    };
+
+    private static int ResolveDurableCommitIndex(NodeState node, in NodePatch patch) =>
+        patch.DurableCommitIndex ?? patch.CommitIndex ?? (WritesElectionMetadata(node, in patch) ? node.CommitIndex : node.DurableCommitIndex);
+
+    private static bool WritesElectionMetadata(NodeState node, in NodePatch patch) =>
+        (patch.CurrentTerm is { } term && term != node.CurrentTerm) || (patch.VotedFor is { } vote && vote != node.VotedFor);
 }

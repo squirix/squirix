@@ -67,7 +67,7 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
         _dir = new TempDirectory("squirix-e2e-authority");
         try
         {
-            _cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uri));
+            _cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", uri)]);
             _ = await _cluster.StartNodeAsync("nodeA", new ClusterStartOptions { DataDir = _dir }, CancellationToken.None).ConfigureAwait(false);
             _client = await E2EBenchmarkClientLease.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             _cache = await _client.Client.GetCacheAsync<string>("authority", CancellationToken.None).ConfigureAwait(false);

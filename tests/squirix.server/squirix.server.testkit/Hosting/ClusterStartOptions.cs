@@ -1,7 +1,5 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 
@@ -62,14 +60,17 @@ public class ClusterStartOptions
     /// <summary>Gets the replica factor including the original owner.</summary>
     public int ReplicaCount { get; init; } = 1;
 
-    /// <summary>Gets the optional package extensions of the node, such as a decorator of the cache pipeline.</summary>
-    public ExtensionOptions? Extensions { get; init; }
+    /// <summary>Gets the optional HTTPS management listener address.</summary>
+    public Uri? ManagementUri { get; init; }
+
+    /// <summary>Gets or initializes a value indicating whether the node collects Squirix metrics.</summary>
+    public bool MetricsEnabled { get; init; }
+
+    /// <summary>Gets or initializes a value indicating whether the node exposes the built-in Prometheus endpoint.</summary>
+    public bool PrometheusMetricsEnabled { get; init; }
 
     /// <summary>Gets optional per-node security settings.</summary>
     public TestNodeSecurityOptions? Security { get; init; }
-
-    /// <summary>Gets an optional hook that registers additional services on the node after the server composition, for test probes.</summary>
-    public Action<IServiceCollection>? ServicesConfigure { get; init; }
 
     /// <summary>
     /// Gets the node time source. When set, cache expiration (and every subsystem resolving
@@ -83,4 +84,9 @@ public class ClusterStartOptions
     /// Adds a middleware to the request pipeline, so it stays off unless the evidence needs it. Defaults to <see langword="false" />.
     /// </summary>
     public bool TrackRequests { get; init; }
+
+    /// <summary>Gets an optional hook that registers additional services on the node after the server composition, for test probes.</summary>
+    internal Action<TestServiceCollection>? ServicesConfigure { get; init; }
+
+    internal long? EvictionBudgetBytes { get; init; }
 }

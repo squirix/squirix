@@ -43,7 +43,7 @@ internal static class DirectoryPathValidator
         var isSameDirectory = candidateFull.Equals(baseFull, SubPathComparison);
 
         // A trailing separator rules out partial-name matches ("/base" vs "/base2").
-        var isPrefixedDirectory = baseFull.EndsWith(Path.DirectorySeparatorChar) && candidateFull.StartsWith(baseFull, SubPathComparison);
+        var isPrefixedDirectory = baseFull.Length > 0 && baseFull[^1] == Path.DirectorySeparatorChar && candidateFull.StartsWith(baseFull, SubPathComparison);
 
         // Otherwise the candidate must extend the base and cut on a separator boundary.
         var extendsBeyondBase = candidateFull.Length > baseFull.Length;

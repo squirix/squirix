@@ -112,6 +112,40 @@ public sealed class MajorityCommitTests
         _ = await Assert.That(new ReplicaCommitQuorum(5).RequiredCopies).IsEqualTo(3);
     }
 
+    /// <summary>The required replica rank determines the index, bounded by local durability and prior commit.</summary>
+    /// <param name="replicaCount">The replica group size.</param>
+    /// <param name="expected">The majority-backed position.</param>
+    [Test]
+    [Arguments(1, 10UL)]
+    [Arguments(2, 10UL)]
+    [Arguments(3, 20UL)]
+    [Arguments(4, 20UL)]
+    [Arguments(5, 30UL)]
+    public async Task CommitUsesRequiredReplicaRank(int replicaCount, ulong expected)
+    {
+        var quorum = new ReplicaCommitQuorum(replicaCount);
+        for (var i = 0; i < replicaCount; i++)
+            quorum.Admit(i, ulong.CreateChecked((i + 1) * 10));
+
+        _ = await Assert.That(quorum.FindCommitIndex(0UL, 100UL)).IsEqualTo(expected);
+        _ = await Assert.That(quorum.FindCommitIndex(0UL, 5UL)).IsEqualTo(5UL);
+        _ = await Assert.That(quorum.FindCommitIndex(60UL, 100UL)).IsEqualTo(60UL);
+        _ = await Assert.That(quorum.FindCommitIndex(60UL, 50UL)).IsEqualTo(60UL);
+    }
+
+    /// <summary>Large empty gaps do not require visiting every missing journal index.</summary>
+    [Test]
+    public async Task CommitHandlesMaximumIndexGap()
+    {
+        var quorum = new ReplicaCommitQuorum(3);
+        quorum.Admit(0, ulong.MaxValue);
+        quorum.Admit(1, 42UL);
+
+        _ = await Assert.That(quorum.FindCommitIndex(0UL, ulong.MaxValue)).IsEqualTo(42UL);
+        quorum.Admit(2, ulong.MaxValue);
+        _ = await Assert.That(quorum.FindCommitIndex(0UL, ulong.MaxValue)).IsEqualTo(ulong.MaxValue);
+    }
+
     private static ReplicaDurableAcknowledgement CreateAcknowledgement(PreparedReplicaMutation mutation) => new(
         mutation.GroupId,
         mutation.Term,

@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using Grpc.Net.Client;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
 
@@ -15,16 +14,16 @@ internal readonly record struct ServerChannelLease : IDisposable
 
     private readonly QuiescenceGate? _calls;
 
-    internal ServerChannelLease(GrpcChannel channel, CancellationTokenSource? cancellation, QuiescenceGate calls, CancellationToken token)
+    internal ServerChannelLease(IPeerClient client, CancellationTokenSource? cancellation, QuiescenceGate calls, CancellationToken token)
     {
-        Channel = channel;
+        Client = client;
         Token = token;
         _cancellation = cancellation;
         _calls = calls;
     }
 
     /// <summary>Gets the pooled channel.</summary>
-    internal GrpcChannel Channel { get; }
+    internal IPeerClient Client { get; }
 
     /// <summary>Gets the token of the call: the caller's token linked with the pool's disposal, or the pool's disposal token alone when the caller's cannot cancel.</summary>
     internal CancellationToken Token { get; }

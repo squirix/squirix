@@ -6,7 +6,7 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 ## What bootstrap endpoints are
 
 - **HA / standby / front door:** interchangeable views of the same Squirix cluster. Each URL should reach a node (or
-  proxy) that can serve the cache API and route to key owners.
+  layer-4 TLS pass-through proxy) that can serve the cache API and route to key owners.
 - **Not shards:** do not list independent partitions as bootstrap endpoints. Key placement is owned by the server
   cluster, not the client URL list.
 
@@ -14,31 +14,41 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 
 - Warm-up succeeds when **any** configured endpoint is reachable (configuration order).
 - Unreachable endpoints are skipped without failing connect.
-- The first reachable peer uses the configured bootstrap connect budget (default 5s per attempt, 30s overall).
-- After a primary peer is selected, remaining peers are probed with a short fail-fast budget (500ms per attempt, 2s
-  overall) so dead standby URLs do not delay connect.
+- Before a primary peer is selected, each endpoint has its own connect budget: 5s per attempt and 30s for that endpoint.
+  Unreachable endpoints earlier in the list can each consume that budget before a later endpoint is tried.
+- After a primary peer is selected, each remaining peer is probed with a shorter budget: 500ms per attempt and 2s for
+  that peer. These probes still complete before `ConnectAsync` returns.
+- The 30s budget is not a cap on the complete `ConnectAsync` call. Pass a caller `CancellationToken` with a timeout to
+  bound the whole connection sequence.
 - When at least one peer connects but others fail warm-up, the client emits
   `squirix_client_pool_bootstrap_warmup_skipped_total` (tags: `node_id`, `reason`) and an OpenTelemetry activity
   `client.bootstrap.warmup.peer_skipped` per skipped peer. Connect semantics are unchanged.
 
+Warm-up establishes TCP reachability; it does not execute a cache RPC or complete TLS and connection authentication. `ConnectAsync` can
+succeed against a JWT-protected server without a token, while the first cache operation fails with `Unauthenticated`.
+A fresh physical transport obtains credentials from `BearerTokenProvider` once, during the binary TLS connection handshake.
+See [cache connection authentication](security/connection-authentication.md) for expiry and automatic transport renewal.
+It also does not establish that recovery has finished or that a replica group has a leader.
+
 ## Per-operation failover (v0.1 exported client)
 
-The v0.1 `Squirix` client exposes basic key/value and expiration operations on `ICache<T>` only. Each exported method
-maps to **one** unary gRPC RPC on the server (transport failover may **retry** that same RPC on another bootstrap
-endpoint).
+Each exported `ICache<T>` operation maps to one binary cache operation. The SDK can retry that request on the same
+bootstrap endpoint or send it to another endpoint.
 
-| Operation kind                                                                                                                                                  | Failover behavior                                                              |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| exported `ICache<T>` methods (`GetValueAsync`, `SetAsync`, `AddAsync`, `RemoveAsync`, `GetOrAddAsync`, `TouchAsync`, `RemoveExpirationAsync`, `UpdateAsync`, …) | On transport-level failure, retry the same RPC on the next bootstrap endpoint. |
+The retry policy uses cache transport status codes, not a distinction between transport and application errors. It retries
+`Unavailable`, `Internal`, and `ResourceExhausted`, as well as attempt timeouts, while attempts and the operation budget
+remain. After the endpoint policy fails, `Unavailable`, `DeadlineExceeded`, `Internal`, and `ResourceExhausted` can move
+the call to another bootstrap endpoint. This includes capacity refusals such as memory pressure, journal quota, and
+payload limits: a deterministic rejection can therefore be retried without becoming recoverable.
 
-Transport failover covers gRPC transport errors (for example `Unavailable`, `DeadlineExceeded`). Application-level
-outcomes (`NotFound`, validation errors) are not failover signals. An answer from a deposed replica group leader (gRPC
-`FailedPrecondition` with the detail `stale-term`) reroutes the call once to the next bootstrap endpoint. `COMMIT_OUTCOME_UNKNOWN` never
-fails over.
+`NotFound`, `InvalidArgument`, and authentication failures are not failover signals. An answer from a deposed replica
+group leader (`FailedPrecondition` with detail `stale-term`) reroutes the call at most once to another endpoint.
+`COMMIT_OUTCOME_UNKNOWN` is neither retried nor failed over. Avoid adding an unbounded application retry loop around
+these SDK retries; inspect capacity and validation failures instead.
 
-The client SDK keeps the same `operation_id` when it retries a mutating RPC on the next bootstrap endpoint. Server
-nodes propagate that id through owner-routing hops, so a retry that reaches a different entry node still deduplicates on
-the key owner when the payload fingerprint matches. See [api.md](api.md) for `operation_id` format and replay rules.
+For a node without replica groups, the SDK returns `CommitOutcomeUnknownException` when it cannot confirm
+whether a sent mutation took effect. For replica groups, retries keep the operation identifier across endpoints and
+owner routing. See [api.md](api.md) for the replica-group replay rules.
 
 ## Operation deadline
 
@@ -46,18 +56,19 @@ Every exported `ICache<T>` operation runs under one absolute deadline, 15s after
 shared by everything the operation does: retries on one endpoint (3 attempts of up to 3s each), failover to the next
 bootstrap endpoint, and the server-side routing to the key owner. It does not grow with the number of endpoints.
 
-- The client sends the deadline to the server as the gRPC call deadline. The entry node and any owner-routing hop work
+- The client sends the deadline to the server as a timeout in the binary request. The entry node and any owner-routing hop work
   within the same remaining budget.
-- When the deadline passes, the operation fails with `RpcException` and status `DeadlineExceeded`; no further attempt or
-  endpoint is tried. When the deadline passes after an endpoint failed with a transport error, that endpoint's error is
-  surfaced and the remaining endpoints are not tried.
+- When the deadline passes before a request could have reached the server (or while waiting for a read), the operation fails
+  with `SquirixTransportException` and status `DeadlineExceeded`. No further attempt or endpoint is tried.
+  If an endpoint already failed with a transport error, the SDK surfaces that error when the deadline passes.
 - For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by
-  cancellation. Concurrent callers on one key share one factory run, and its token is canceled once every caller waiting
+  cancellation. Concurrent callers using the same client-side cache instance and key share one in-flight factory run, and its token is canceled once every caller waiting
   on it has canceled; a canceled caller stops waiting without canceling the others.
 - A caller `CancellationToken` still applies: whichever of the token and the deadline fires first ends the operation.
   Caller cancellation surfaces as `OperationCanceledException`.
-- A mutation that fails with `DeadlineExceeded` may still have been applied on the server. Treat its outcome as unknown:
-  a new call gets a new `operation_id`, so read the key back before repeating a change that is not idempotent.
+- A mutation that times out or whose caller stops waiting may still have been applied on the server. A new SDK call
+  starts a separate operation. Reconcile the application state before repeating a non-idempotent change; reading the key
+  can help, but does not by itself prove which writer produced its current value.
 - Deadline expiry is counted in `squirix_rpc_timeouts_total` with tags `scope=overall` and `kind=deadline_budget`.
 
 ## Testing
@@ -66,7 +77,7 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
   an unreachable peer using production connect defaults.
 - Client integration tests (`ClientPoolWarmUpTests`) cover unreachable-only warm-up with explicit fail-fast options.
 - Client unit tests (`OperationDeadlineTests`) drive a real `RemoteCache` against hung endpoints and check the shared
-  deadline, its gRPC call deadline, caller cancellation and the `operation_id` across retries.
+  deadline, its transport deadline, caller cancellation and the `operation_id` across retries.
 - E2E (`OperationDeadlineE2ETests`) checks that the server receives the client deadline and that an owner-routing hop
   gets a budget no larger than the entry node's.
 

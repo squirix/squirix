@@ -11,6 +11,10 @@ namespace Squirix.Server.Storage.Replication;
 /// </remarks>
 internal interface IFollowerLogContext : IFollowerLogState, IFollowerLogDurability
 {
+    /// <summary>Gets a value indicating whether the log refuses operations that require a complete and ready replica.</summary>
+    /// <remarks>Read while holding the log gate.</remarks>
+    bool Refuses { get; }
+
     /// <summary>
     /// Installs the snapshot baseline without pruning the retained indexes; reserved for paths whose index
     /// lifecycle is owned separately (snapshot publication retains the covered prefix until the applied

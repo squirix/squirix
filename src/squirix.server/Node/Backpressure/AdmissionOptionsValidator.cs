@@ -1,22 +1,23 @@
 using System;
-using Microsoft.Extensions.Options;
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Backpressure;
 
 [Immutable]
-internal sealed class AdmissionOptionsValidator : IValidateOptions<AdmissionOptions>
+internal sealed class AdmissionOptionsValidator : ISettingsRule<AdmissionOptions>
 {
-    public ValidateOptionsResult Validate(string? name, AdmissionOptions options)
+    public IReadOnlyList<string> Check(AdmissionOptions options)
     {
         try
         {
             options.Validate();
-            return ValidateOptionsResult.Success;
+            return [];
         }
         catch (InvalidOperationException ex)
         {
-            return ValidateOptionsResult.Fail(ex.Message);
+            return [ex.Message];
         }
     }
 }

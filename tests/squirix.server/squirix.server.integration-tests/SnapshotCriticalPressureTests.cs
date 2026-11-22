@@ -1,14 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -39,21 +38,19 @@ public sealed class SnapshotCriticalPressureTests : NodeIntegrationTestBase
             cancellationToken);
         var node = cluster["node-critical"];
         var coordinator = node.GetRequiredService<Coordinator>();
-        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        coordinator.SnapshotCompleted += (_, _) => published.TrySetResult();
+        var ledger = node.GetRequiredService<Ledger>();
+        var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
         var cache = node.GetCache<object?>(CacheName);
 
         // An entry that bypasses admission, as a recovered one does, leaves the node critical; the same-size overwrite does not grow it.
-        await node.GetRequiredService<PhysicalCache<object?>>().SetAsync(new CacheKey(CacheName, "k"), new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        node.GetRequiredService<PhysicalCache<object?>>().Set(new CacheKey(CacheName, "k"), new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
-        await published.Task.WaitAsync(SnapshotTimeout, TimeProvider.System, cancellationToken);
+        await SnapshotPublicationWait.WaitAsync(ledger, coordinator, previousIndex, SnapshotTimeout, cancellationToken);
 
-        var manifest = await node.GetRequiredService<Ledger>().ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(node.GetRequiredService<ICriticalMemoryPressureReader>().IsCritical()).IsTrue();
-        _ = await Assert.That(manifest.LastSnapshot).IsNotNull();
     }
 
-    private static void ForceCriticalEagerSnapshots(IServiceCollection services)
+    private static void ForceCriticalEagerSnapshots(TestServiceCollection services)
     {
         _ = services.RemoveAll<IMemoryPressureStateEvaluator>().AddSingleton<IMemoryPressureStateEvaluator>(
             new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1 }));

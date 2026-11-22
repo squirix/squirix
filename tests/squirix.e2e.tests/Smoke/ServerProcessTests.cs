@@ -1,11 +1,13 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Net;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Client;
 using Squirix.E2ETests.Fixtures.ProcessHosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -16,7 +18,7 @@ namespace Squirix.E2ETests.Smoke;
 [Property("Suite", "Smoke")]
 public sealed class ServerProcessTests
 {
-    /// <summary>Verifies startup, public CRUD operations, health, and metrics against a separate server process.</summary>
+    /// <summary>Verifies startup, public CRUD operations and health against a separate server process.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(60_000)]
@@ -32,14 +34,70 @@ public sealed class ServerProcessTests
         _ = await Assert.That(await cache.RemoveAsync("key", cancellationToken)).IsTrue();
         _ = await Assert.That((await cache.GetValueAsync("key", cancellationToken)).Found).IsFalse();
 
-        using var live = await server.HttpClient.GetAsync(new Uri(server.Uri, "/health/live"), cancellationToken);
+        using var live = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/live"), cancellationToken);
         _ = await Assert.That(live.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        using var ready = await server.HttpClient.GetAsync(new Uri(server.Uri, "/health/ready"), cancellationToken);
+        using var ready = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/ready"), cancellationToken);
         _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        using var metrics = await server.HttpClient.GetAsync(new Uri(server.Uri, "/metrics"), cancellationToken);
-        _ = await Assert.That(metrics.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        var body = await metrics.Content.ReadAsStringAsync(cancellationToken);
-        _ = await Assert.That(ContainsSuccessfulSet(body)).IsTrue();
+    }
+
+    /// <summary>Verifies that a server started with no Prometheus opt-in does not expose the scrape endpoint.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(60_000)]
+    public async Task PrometheusEndpointIsDisabledByDefault(CancellationToken cancellationToken)
+    {
+        await using var server = await ServerProcess.StartAsync(false, cancellationToken);
+        using var metrics = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/metrics"), cancellationToken);
+
+        _ = await Assert.That(metrics.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>Verifies that both opt-ins are required and the endpoint uses the path from the selected settings file.</summary>
+    /// <param name="collect">Whether to enable metrics collection.</param>
+    /// <param name="export">Whether the settings file enables Prometheus export.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true, true)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Timeout(60_000)]
+    public async Task PrometheusRequiresBothOptions(bool collect, bool export, CancellationToken cancellationToken)
+    {
+        await using var server = await ServerProcess.StartAsync(
+            false,
+            cancellationToken,
+            async (start, token) =>
+            {
+                var settingsIndex = start.ArgumentList.IndexOf("--settings") + 1;
+                var settings = JsonNode.Parse(await File.ReadAllTextAsync(start.ArgumentList[settingsIndex], token))!;
+                settings["Squirix"]!["PrometheusMetrics"] = new JsonObject
+                {
+                    ["enabled"] = export,
+                    ["path"] = "/custom-metrics",
+                };
+                var customPath = Path.Join(start.WorkingDirectory, "custom.settings.json");
+                await File.WriteAllTextAsync(customPath, settings.ToJsonString(), token);
+                start.ArgumentList[settingsIndex] = customPath;
+
+                if (collect)
+                    start.ArgumentList.Add("--metrics");
+            });
+
+        await using var client = await SquirixClient.ConnectAsync(server.Uri, cancellationToken);
+        var cache = await client.GetCacheAsync<string>("process-metrics", cancellationToken);
+        await cache.SetAsync("key", "value", cancellationToken: cancellationToken);
+
+        using var customMetrics = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/custom-metrics"), cancellationToken);
+        var expectedStatus = collect && export ? HttpStatusCode.OK : HttpStatusCode.NotFound;
+        _ = await Assert.That(customMetrics.StatusCode).IsEqualTo(expectedStatus);
+        if (expectedStatus == HttpStatusCode.OK)
+        {
+            var body = await customMetrics.Content.ReadAsStringAsync(cancellationToken);
+            _ = await Assert.That(ContainsSuccessfulSet(body)).IsTrue();
+        }
+
+        using var defaultMetrics = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/metrics"), cancellationToken);
+        _ = await Assert.That(defaultMetrics.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
     /// <summary>Verifies that the process requires JWT for cache access while its health probes remain public.</summary>
@@ -49,7 +107,7 @@ public sealed class ServerProcessTests
     public async Task AuthenticatedServerRequiresJwt(CancellationToken cancellationToken)
     {
         await using var server = await ServerProcess.StartAsync(true, cancellationToken);
-        _ = await Assert.That(await ProbeAnonymousAsync(server.Uri, cancellationToken)).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(await ProbeAnonymousAsync(server.Uri, cancellationToken)).IsEqualTo(CacheTransportStatusCode.Unauthenticated);
 
         await using var client = await SquirixClient.ConnectAsync(
             options =>
@@ -61,20 +119,20 @@ public sealed class ServerProcessTests
         var cache = await client.GetCacheAsync<string>("authenticated-smoke", cancellationToken);
         await cache.SetAsync("key", "authenticated", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("key", cancellationToken)).Value).IsEqualTo("authenticated");
-        using var live = await server.HttpClient.GetAsync(new Uri(server.Uri, "/health/live"), cancellationToken);
+        using var live = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/live"), cancellationToken);
         _ = await Assert.That(live.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
-    private static async Task<StatusCode> ProbeAnonymousAsync(Uri uri, CancellationToken cancellationToken)
+    private static async Task<CacheTransportStatusCode> ProbeAnonymousAsync(Uri uri, CancellationToken cancellationToken)
     {
         try
         {
             await using var client = await SquirixClient.ConnectAsync(uri, cancellationToken);
             var cache = await client.GetCacheAsync<string>("anonymous-smoke", cancellationToken);
             _ = await cache.GetValueAsync("key", cancellationToken);
-            return StatusCode.OK;
+            return CacheTransportStatusCode.Ok;
         }
-        catch (RpcException ex)
+        catch (SquirixTransportException ex)
         {
             return ex.StatusCode;
         }

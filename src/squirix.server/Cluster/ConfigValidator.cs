@@ -1,11 +1,12 @@
-using Microsoft.Extensions.Options;
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
 [Immutable]
-internal sealed class ConfigValidator : IValidateOptions<TopologyOptions>
+internal sealed class ConfigValidator : ISettingsRule<TopologyOptions>
 {
-    public ValidateOptionsResult Validate(string? name, TopologyOptions options) =>
-        TopologyValidator.TryValidate(options, out var failures) ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    public IReadOnlyList<string> Check(TopologyOptions options) =>
+        TopologyValidator.TryValidate(options, out var failures) ? [] : failures;
 }

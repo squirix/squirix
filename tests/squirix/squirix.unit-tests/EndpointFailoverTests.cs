@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal;
+using Squirix.Testing;
 using Squirix.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -17,31 +17,6 @@ namespace Squirix.UnitTests;
 public sealed class EndpointFailoverTests
 {
     private static readonly string[] BootstrapEndpoints = ["endpoint-0", "endpoint-1"];
-
-    /// <summary>Verifies failover moves active traffic to the next bootstrap endpoint on transport errors.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FailsOverWhenSelectedEndpointDown(CancellationToken cancellationToken)
-    {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
-        var callCount = new MutableCallCount();
-
-        var value = await failover.ExecuteAsync(
-            static (nodeId, state, _, _) =>
-            {
-                state.Value++;
-                var equals = string.Equals(nodeId, "endpoint-0", StringComparison.OrdinalIgnoreCase);
-                return equals ? throw new RpcException(new Status(StatusCode.Unavailable, "down")) : new ValueTask<int>(42);
-            },
-            callCount,
-            cancellationToken);
-
-        _ = await Assert.That(value).IsEqualTo(42);
-        _ = await Assert.That(callCount.Value).IsEqualTo(2);
-
-        var nextEndpoint = await failover.ExecuteAsync(static (nodeId, _, _, _) => ValueTask.FromResult(nodeId), 0, cancellationToken);
-        _ = await Assert.That(nextEndpoint).IsEqualTo("endpoint-1");
-    }
 
     /// <summary>Concurrent reroutes publish a valid endpoint that subsequent calls reuse.</summary>
     [Test]
@@ -59,7 +34,7 @@ public sealed class EndpointFailoverTests
                 {
                     _ = budget;
                     if (string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
-                        throw new RpcException(new Status(StatusCode.Unavailable, "down"));
+                        throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "down"));
 
                     _ = state.Ready.Release();
                     await state.Release.WaitAsync(ct).ConfigureAwait(false);
@@ -96,13 +71,10 @@ public sealed class EndpointFailoverTests
         var remaining = await failover.ExecuteAsync(
             static (nodeId, state, budget, _) =>
             {
-                if (string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
-                {
-                    state.Advance(TimeSpan.FromSeconds(10));
-                    throw new RpcException(new Status(StatusCode.Unavailable, "down"));
-                }
-
-                return ValueTask.FromResult(budget.Remaining);
+                if (!string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
+                    return ValueTask.FromResult(budget.Remaining);
+                state.Advance(TimeSpan.FromSeconds(10));
+                throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "down"));
             },
             clock,
             CancellationToken.None);
@@ -117,10 +89,13 @@ public sealed class EndpointFailoverTests
     {
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken));
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
+            failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.NotFound, "missing")), 0, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.NotFound);
     }
 
     /// <summary>
@@ -134,17 +109,20 @@ public sealed class EndpointFailoverTests
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
         var callCount = new MutableCallCount();
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
             failover.ExecuteAsync<MutableCallCount, int>(
                 static (_, state, _, _) =>
                 {
                     state.Value++;
-                    throw new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
+                    throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
                 },
                 callCount,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.Unavailable);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(CommitOutcomeUnknownException.StableDetail);
         _ = await Assert.That(callCount.Value).IsEqualTo(1);
     }
@@ -153,9 +131,15 @@ public sealed class EndpointFailoverTests
     [Test]
     public void ConstructorRejectsNonPositiveDeadline()
     {
-        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.Zero, TimeProvider.System));
-        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.FromSeconds(-1), TimeProvider.System));
-        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", Timeout.InfiniteTimeSpan, TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            BootstrapEndpoints,
+            static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.Zero, TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            BootstrapEndpoints,
+            static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.FromSeconds(-1), TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            BootstrapEndpoints,
+            static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", Timeout.InfiniteTimeSpan, TimeProvider.System));
     }
 
     private sealed class MutableCallCount

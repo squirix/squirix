@@ -1,7 +1,9 @@
 # External JWT signing keys
 
 Squirix authenticates **external clients** (application SDKs, operators, remote `/metrics` scrapes) on the **primary
-HTTPS listener** with JWT bearer tokens when auth is enabled. This document covers **JWT signing and rotation** only.
+HTTPS listener** with JWT credentials when auth is enabled. Cache RPCs authenticate their physical connection once;
+remote operational HTTP requests retain their bearer-header rules. See [cache connection authentication](connection-authentication.md).
+This document covers **JWT signing and rotation** only.
 
 Internode cluster forwarding uses **mTLS**, not JWT. See [internode-mtls.md](internode-mtls.md).
 
@@ -19,7 +21,7 @@ Environment variable reference: [configuration.md](../configuration.md#environme
 | **OIDC / JWKS (recommended for production)** | `SQUIRIX_JWT_AUTHORITY` + `SQUIRIX_JWT_AUDIENCE` (optional `SQUIRIX_JWT_ISSUER`) | Your identity provider publishes JWKS; Squirix loads keys from authority metadata |
 | **Symmetric (dev / small deployments)** | `SQUIRIX_JWT_SIGNING_KEY` + `SQUIRIX_JWT_ISSUER` + `SQUIRIX_JWT_AUDIENCE` | You — shared secret in every node and client that mints tokens |
 
-Implementation (symmetric mode): `SquirixSecurityServiceRegistration` accepts **one** symmetric key
+Implementation (symmetric mode): `SecurityServiceRegistration` accepts **one** symmetric key
 (`IssuerSigningKey`). In v0.1, symmetric mode has no built-in support for multiple active symmetric keys or
 `kid`-based rollover.
 
@@ -28,7 +30,7 @@ Implementation (symmetric mode): `SquirixSecurityServiceRegistration` accepts **
 `SQUIRIX_JWT_SIGNING_KEY` is a **shared secret**. Any party that knows the key can mint JWTs that every Squirix node
 configured with the same key will accept on the primary listener.
 
-A compromised symmetric signing key allows forgery of **external** API access (cache gRPC, remote metrics / readiness
+A compromised symmetric signing key allows forgery of **external** API access (binary cache connections, remote metrics / readiness
 details when JWT is required). It does **not** bypass internode mTLS: cluster forwarding still requires valid node
 certificates on the internal listener.
 
@@ -61,8 +63,12 @@ openssl rand -base64 48
 The key must be base64 that decodes to at least 32 bytes; startup fails otherwise. `SQUIRIX_JWT_AUDIENCE` is required,
 so a token minted for another service that shares the key is rejected.
 
-Store production values in a secret manager. Set the same key on every validating node and every token issuer
-(clients, scrapers, CI). Pair with environment-specific `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE`.
+Store production values in a secret manager. Set the same key on every validating node and every token issuer.
+Clients, scrapers, and CI jobs that only obtain and send tokens do not need the signing secret. Pair the key with
+environment-specific `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE`.
+
+The server validates token lifetime with a two-minute clock-skew allowance. Token expiry is therefore not an immediate
+revocation mechanism; allow for that tolerance when planning token lifetimes and key rotation.
 
 Cluster mTLS material is separate — generate per-environment node certificates as described in
 [internode-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl](internode-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl)
@@ -77,13 +83,14 @@ where old and new keys are both accepted.
 
 1. Generate a new signing key (base64 of at least 32 random bytes).
 2. Update `SQUIRIX_JWT_SIGNING_KEY` on **every** node that validates JWTs.
-3. Update every client, scraper, and token issuer (`BearerTokenProvider`, sidecars, CI secrets) to mint tokens with the
-   new key.
-4. Restart all Squirix nodes (rolling restart is fine once each node has the new env value).
-5. Revoke or destroy the old secret in your secret store.
+3. Update every token issuer to sign with the new key. Update clients and scrapers to obtain tokens from that issuer;
+   only components that actually mint tokens need the signing secret. `BearerTokenProvider` supplies a token, not a signing key.
+4. Restart all validating Squirix nodes to load the new key, coordinating the cutover with token issuers and clients.
+5. Stop using tokens signed with the old key, then revoke or destroy the old secret in your secret store.
 
-Expect brief invalid-token errors for in-flight clients until they pick up the new secret. Plan a maintenance window or
-coordinate client updates before node restarts.
+Plan a maintenance window for this cutover. During a rolling restart, old-key and new-key validators coexist;
+neither accepts the other's tokens. Issuing a new token or configuring bootstrap failover does not make this a
+zero-downtime procedure. Expect authentication failures until clients and all validating nodes use the new key.
 
 **Not supported in v0.1:**
 
@@ -91,13 +98,14 @@ coordinate client updates before node restarts.
 - Zero-downtime symmetric rotation without coordinating all issuers and validators
 - Automatic key rollover inside Squirix
 
-If you need graceful signing-key rotation without a hard cutover, use OIDC/JWKS or terminate JWT validation at a gateway
-that supports multi-key rollover.
+If you need graceful signing-key rotation without a hard cutover, use OIDC/JWKS with an overlapping key publication
+window. A gateway in front of Squirix does not by itself remove the server's JWT requirements.
 
 ## Rotating OIDC / JWKS keys
 
-When `SQUIRIX_JWT_AUTHORITY` is set, Squirix uses the standard JWT bearer middleware to fetch signing keys from the
-authority metadata endpoint. Key rotation is owned by your IdP:
+When `SQUIRIX_JWT_AUTHORITY` is set, Squirix uses the framework JWT configuration manager to obtain signing keys from the
+authority metadata endpoint. Cache connections validate credentials during their authentication exchange and renew when supported trust state changes.
+Key rotation is owned by your IdP:
 
 1. Publish new keys in JWKS (often with a new `kid`).
 2. Allow validators and issuers to overlap during the IdP's rotation window.

@@ -2,11 +2,12 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -18,14 +19,14 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-external-hardening";
 
-    /// <summary>Verifies health is served on the primary HTTPS listener.</summary>
+    /// <summary>Verifies health is served on the management HTTPS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task HealthServedOnPrimaryHttpsListener(CancellationToken cancellationToken)
+    public async Task HealthServedOnManagementListener(CancellationToken cancellationToken)
     {
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken);
 
-        var response = await HttpClient.GetAsync(new Uri(cluster[NodeId].Uri, "/health"), cancellationToken);
+        var response = await HttpClient.GetAsync(new Uri(cluster[NodeId].ManagementUri, "/health"), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
@@ -43,11 +44,10 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
             cancellationToken);
 
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", held.Port).Uri;
-        using var channel = CreateGrpcChannel(clientUri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: cancellationToken).ResponseAsync);
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        using var channel = CreateBinaryChannel(clientUri);
+        var client = new CacheWireClient(channel);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.Unauthenticated);
     }
 
     /// <summary>Verifies non-loopback primary listeners require authentication.</summary>
@@ -58,8 +58,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         using var held = AllocateDedicatedPort();
         var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", held.Port).Uri;
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
-            StartClusterAsync(new ClusterNode(NodeId, uri), new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(new ClusterNode(NodeId, uri), new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("JWT", StringComparison.Ordinal);
     }
 }

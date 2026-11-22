@@ -13,6 +13,6 @@ public static class EntryPayloadWritePathBenchmarkSupport
     public static int BinarySerializeOnce(NodeCacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        return JournalEntryPayload.MeasureSerializedBytes(entry);
+        return PreparedJournalEntry.MeasureEncodedLength(entry);
     }
 }

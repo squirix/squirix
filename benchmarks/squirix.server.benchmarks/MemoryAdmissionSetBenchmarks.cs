@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -38,8 +37,8 @@ public class MemoryAdmissionSetBenchmarks
         _meter = new Meter("Squirix.Benchmarks.AdmissionSet");
         var estimator = new CacheEntrySizeEstimator<object?>();
         var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, NodeId, _meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var gate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
         _admission = new MemoryAdmissionCacheDecorator<object?>(new StoredCache(), gate, estimator);
     }
 
@@ -65,7 +64,7 @@ public class MemoryAdmissionSetBenchmarks
 
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 

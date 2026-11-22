@@ -1,6 +1,6 @@
 using System;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Manifest;
@@ -10,13 +10,12 @@ namespace Squirix.Server.Storage.Manifest;
 internal sealed record RetentionContext
 {
     internal RetentionContext(
-        RetentionSettings settings,
+        string dataDir,
         IStorageFileOperations? fileOperations,
-        ILogger logger,
+        IServerLogger logger,
         IManifestRetentionFailureMetrics failureMetrics)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-        DataDir = settings.DataDir;
+        DataDir = dataDir;
         FileOperations = fileOperations ?? new FileOperations();
         ArgumentNullException.ThrowIfNull(logger);
         Logger = logger;
@@ -30,5 +29,5 @@ internal sealed record RetentionContext
 
     internal IStorageFileOperations FileOperations { get; }
 
-    internal ILogger Logger { get; }
+    internal IServerLogger Logger { get; }
 }

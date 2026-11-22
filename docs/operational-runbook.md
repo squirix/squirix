@@ -25,7 +25,7 @@ When a node behaves unexpectedly:
 Before changing cluster topology in containers, validate settings:
 
 ```bash
-squirix-server validate-config --settings ./Squirix.settings.json --strict
+squirix-server validate-config --settings Squirix.settings.json --strict
 ```
 
 See [containerization.md](containerization.md) for Docker Compose examples (`Cluster.Uri` must match the local peer
@@ -56,7 +56,7 @@ Trace ownership during triage:
 
 - Logical cache operation spans are emitted by `TracingCacheDecorator<T>` through the `Squirix` `ActivitySource`.
 - Use logical spans for operation/result triage (`cache.operation`, `cache.result`, `squirix.node_id`).
-- Use gRPC interceptor spans and correlation for transport-level failures.
+- Use transport spans and correlation for transport-level failures.
 - Use journal and snapshot spans for storage failures.
 - Do not expect logical operation spans to include raw keys, values, payloads, cache names, or exception messages.
 
@@ -71,11 +71,11 @@ Security checks during triage:
   OIDC in production. See [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
 - Treat a leaked internode mTLS node certificate and key as usable until the certificate expires or the cluster CA is
   replaced: Squirix does not check revocation. See [security/internode-mtls.md](security/internode-mtls.md#compromised-node-certificate).
-- Verify that gRPC cache, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
+- Verify that binary cache connections, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
   consistently for missing/invalid credentials (`/health`, `/health/live`, and `/health/ready` remain anonymous).
 - On shared or multi-tenant hosts, remember that loopback `/metrics` scrapes stay anonymous even when JWT is enabled;
   see [diagnostics — Loopback trust](diagnostics.md#metrics-loopback-trust).
-- Operational routes (`/health`, `/metrics`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and HTTP/2).
+- Operational routes (`/health`, `/metrics`) are served on the dedicated HTTPS management listener (HTTP/1.1).
 
 If failures are isolated to owner-routing paths, compare owner lookup results with the configured peer set and the
 node's local ring view.
@@ -91,7 +91,7 @@ Ownership mismatch signals:
 Ring mismatch signals:
 
 - A ring mismatch means two nodes were started with different `ClusterId`, `VirtualNodes`, or peer `NodeId` lists, so they disagree on key owners.
-- The first forwarded call between them is refused before it touches any idempotency store. Clients see `Unavailable` and the trailer `squirix-error-code`
+- The first forwarded call between them is refused before the key owner executes it. Clients see `Unavailable` and the trailer `squirix-error-code`
   with `ring-mismatch`; later operations on the fenced nodes see `ring-fenced`.
 - A missing fingerprint means the peer runs a version without ring agreement: a rolling upgrade to this version fences the upgraded nodes, so upgrade RF=1 clusters
   with a full stop and start.
@@ -171,20 +171,18 @@ Behavior:
   snapshot did not cover, and it pauses an incoming [state transfer](#state-transfer) until the journal has room again.
 - Durable writes are rejected when `usedBytes + appendBytes > maxBytes`, including while `state` remains `high`.
 - Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
-  fail with stable `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
-  stays healthy so operators can still scrape details and run cleanup.
+  fail with stable `JOURNAL_DISK_QUOTA` (`ResourceExhausted`). Quota pressure alone does not change `/health/ready`. Check
+  `journalDisk` on `/health/ready/details` before reclaiming space.
 - This quota covers **journal segments only**, not snapshots or the `man-current` manifest under the data directory.
 
 Operator actions when approaching or at quota:
 
 1. Confirm `journalDisk` and journal backlog on `/health/ready/details`.
-2. Trigger or wait for a snapshot, after which retention removes the segments it covers (see
-   [storage-maintenance.md](storage-maintenance.md)).
-3. If legitimate working set needs more journal headroom, raise `JournalMaxTotalBytesMb` on the host's
-   `PersistenceOptions` (v0.1 public hosting uses the 2048 MiB default and does not read this from
-   `Squirix.settings.json`) and related segment caps, then restart after confirming disk capacity.
-4. Clients should treat `JOURNAL_DISK_QUOTA` like other capacity rejections — back off and retry after operators reclaim
-   space or raise the limit.
+2. Watch for an automatic snapshot and the retention pass that removes covered segments. At the high-water mark
+   the snapshot trigger needs a closed segment that the last snapshot did not cover.
+3. If cleanup stalls, check snapshot and retention errors. Free disk space outside the persisted files or address the
+   reported failure, then watch for a successful snapshot and cleanup. The public host uses a fixed journal quota.
+4. On `JOURNAL_DISK_QUOTA`, back off and retry after capacity is available.
 
 ## Runtime backpressure
 
@@ -193,9 +191,9 @@ concurrency limits, bounded queues, slowdown, and optional rate limits. A backpr
 cache operations enter memory admission or clustered/local paths, so rejected writes do not append journal records,
 mutate local memory, update memory accounting, or record idempotency outcomes.
 
-Runtime placement: gRPC adapters keep transport-level protections such as auth, request size limits, serialization
+Runtime placement: Cache transport adapters keep transport-level protections such as auth, request size limits, serialization
 limits, deadlines, cancellation, and server/connection protection. Logical cache-operation backpressure applies after
-validation and before memory admission. Reads and writes share this policy across gRPC and in-process calls.
+validation and before memory admission. Reads and writes share this policy across binary and in-process calls.
 Treat runtime backpressure as overload protection; memory pressure remains capacity admission based on estimated cache
 working-set size.
 
@@ -220,16 +218,23 @@ all of its per-owner forwarding permits (half of `MaxInFlight`, at least one) ar
 `ResourceExhausted` and retries. It increments `squirix_call_policy_busy_rejects_total` with a `peer` label naming the
 owner. A rising count for one peer points at a slow or hung owner.
 
-Raise a limit only after checking that the node, not one noisy caller, is saturated. A request forwarded between nodes is
-counted against the caller on the entry node only, where it also waits in the queue. The owner treats it as a trusted
+Before raising limits, identify whether the refusals come from a busy owner, a noisy caller, or a full node queue.
+For `peer_busy` and `forwarded_no_slot`, inspect the named owner's latency and capacity; increasing the entry node's
+queue does not add owner capacity. For client limits, check whether callers intentionally share the same JWT subject.
+Increasing `MaxQueue` makes room for more waiters but does not increase the number of operations the node can execute.
+
+Change `MaxInFlight` together with a valid `SlowdownThreshold` and per-client cap; omitted fields keep their defaults.
+Validate the full settings file before restart. See [Backpressure configuration](configuration.md#backpressure).
+
+A forwarded request is counted against the caller on the entry node only, where it also waits in the queue. The owner treats it as a trusted
 internal owner RPC (client id `internal`, peer mTLS on the internal listener): it applies the node rate limit and admits it
 only to a free slot, with no per-client limits, slowdown or queue. A rising `forwarded_no_slot` count on a node means it
 owns more load than its `MaxInFlight` serves; queue metrics (`squirix_backpressure_queue_wait_seconds`, `squirix_backpressure_queue_timeouts_total`) on that node no
 longer include forwarded requests.
 
 Per-client concurrency and rate limits isolate callers by backpressure client id: JWT `sub` / `NameIdentifier` when the
-request is authenticated (`jwt:{subject}`), otherwise the ASP.NET Core connection id (`conn:{id}`). Callers without an
-`HttpContext` (in-process paths) share the `runtime` bucket — see [configuration.md](configuration.md#backpressure).
+request is authenticated (`jwt:{subject}`), otherwise the binary connection id (`conn:{id}`). Callers without a
+network connection (in-process paths) share the `runtime` bucket — see [configuration.md](configuration.md#backpressure).
 Do not expect anonymous loopback clients on distinct TCP connections to share one JWT principal bucket; they are
 isolated by connection unless they present the same subject.
 
@@ -240,6 +245,7 @@ Back up the full persistence set for a node:
 - journal segments
 - snapshot files
 - the `man-current` manifest
+- for RF>1, the activated topology stamp and complete `replication` directory (group logs, metadata, and snapshots)
 - Node configuration
 - Serializer configuration and package versions
 
@@ -249,7 +255,8 @@ Recommended flow:
 2. Wait for in-flight writes to complete or fail.
 3. Stop the node process.
 4. Copy the full persistence directory to a separate location.
-5. Verify the backup contains journal, snapshots, and the `man-current` manifest from the same point in time.
+5. Verify the backup contains the complete stopped data directory, including journal, snapshots, manifest, topology
+   stamp, and replica group state where present. Retain the matching node configuration and package version.
 6. Start the node only after the backup copy is complete.
 
 Do not copy only snapshots without the corresponding journal.
@@ -271,13 +278,20 @@ Do not copy only snapshots without the corresponding journal.
   [Journal disk quota](#journal-disk-quota)). Free disk space or fix the logged cause; a success clears the state. A
   latched journal pipeline or an unknown failure instead stops snapshots for good: readiness turns **Unhealthy** and the
   node needs a restart.
-- **Disk headroom:** a snapshot is written to a temporary file next to the previous one, so the data directory needs about
-  twice the snapshot size free while it runs.
+- **Disk headroom:** the previous snapshot already occupies disk space. Keep enough additional free space for the
+  new snapshot, journal growth during its creation, and any files whose cleanup is delayed. The old and new snapshots
+  coexist until retention removes the older file.
 
 ## Restore
 
-Restore only from a backup produced from the same node identity and compatible serializer configuration unless release
-notes document a migration path.
+The procedure below applies to RF=1 nodes only. Restoring a backup rolls that node's state back to the backup time.
+Use the same node identity, compatible package version, and compatible serializer configuration unless release notes
+document a migration path.
+
+Do not restore an RF>1 node's data directory from an older backup into a live cluster. Old persisted terms, votes, and
+logs can compromise election safety. Follow [Starting a replica group](clustering.md#starting-a-replica-group) and
+[State transfer](#state-transfer) instead. Those recovery paths require enough surviving members and do not guarantee
+recovery after a majority loses its data.
 
 1. Stop the node process.
 2. Move the current data directory aside.
@@ -291,22 +305,25 @@ If recovery fails, stop the node and preserve both the failed restore directory 
 
 ## Recovery
 
-Recovery should be deterministic. Do not manually delete journal files or the `man-current` manifest unless a documented repair workflow
-says it is safe.
+Preserve the journal files and the `man-current` manifest during recovery triage.
 
-Snapshot recovery is staged. A node publishes snapshot cache entries and retained idempotency records only after the
-whole snapshot validates. If validation fails, the node discards the snapshot for that startup and replays journal from
-clean recovery state without applying the snapshot watermark.
+Snapshot recovery is staged. A node publishes snapshot cache entries only after the
+whole snapshot validates. A snapshot with an unsupported format version stops recovery; the node does not skip it.
+For other snapshot load failures, recovery can fall back to journal replay from a clean state, without applying the
+snapshot watermark, only if the journal replay range is available. If the required range is unavailable, startup fails
+instead. Preserve the original data directory before attempting recovery; see [snapshot format](snapshot-format.md).
 
 Recovery triage:
 
 1. Capture the error, recovery logs, manifest contents, and journal segment list.
 2. Check whether the active serializer can read persisted payloads.
 3. Check whether the node was upgraded or downgraded before the failure.
-4. Validate the copied data directory with offline maintenance tooling before changing production files.
-5. Apply repair output to production data only after the copied-directory result is understood.
+4. Follow the [startup diagnostics procedure](storage-maintenance.md#inspect-a-startup-failure) on a copy of
+   the stopped node's data directory. The `doctor` command checks startup prerequisites and reports replica
+   state. It cannot repair data or confirm that recovery will succeed.
 
-For corruption suspicion, prefer restoring from a known-good backup over manual file edits.
+For an RF=1 node with suspected corruption, prefer the stopped-node [restore procedure](#restore) over manual file edits.
+For RF>1, preserve the failed directory and follow the replicated recovery constraints; do not replace it with an older backup.
 
 ## State transfer
 
@@ -347,7 +364,7 @@ When a transfer keeps failing, read the `outcome` of the counter and the logs of
   transfers, a few segments at a time. If the journal stays at the mark for 5 minutes without progress, or its snapshots fail
   for good, the transfer ends as `follower_refused` with reason `journal-full`, and the leader waits 30 seconds, doubling up to
   10 minutes, before it tries that follower again. Check `squirix_snapshot_consecutive_failures` and the snapshot logs of the
-  follower, free disk space, or raise `JournalMaxTotalBytesMb`: see [Journal disk quota](#journal-disk-quota). A node whose
+  follower, then follow [Journal disk quota](#journal-disk-quota) to restore progress. A node whose
   `JournalMaxSegmentMb` plus the largest journal frame does not fit below the high-water mark logs a startup warning, because
   its snapshots may free no segment before the active one fills the quota.
 - The follower does not apply memory admission to a transfer, as with replicated applies, so a group that does not fit
@@ -362,16 +379,10 @@ leader down.
 
 ## Activated topology stamp
 
-The first start of an RF>1 node with persistence enabled writes `topology.stamp` into the data directory. It records
-the configuration generation, the replica count, and the topology fingerprint (cluster id, replica count, virtual
-nodes, configuration generation, peer set, minimum cluster package version, and replication policy constants). Every
-later RF>1 start compares the configured topology with the stamp and refuses startup on any difference. RF=1 nodes
-never write it, and an RF=1 start with persistence refuses a data directory that carries one. See
-[configuration.md](configuration.md#activated-topology-stamp-topologystamp) for the fields and the exact startup
-errors.
+See [Activated topology stamp](configuration.md#activated-topology-stamp-topologystamp) for the stamp fields,
+the startup checks, and the errors for unsupported topology or replica-factor changes.
 
-Changing the activated topology of an existing data directory is not supported in this release, and neither is moving
-existing RF=1 data to RF>1 or starting an RF>1 data directory as RF=1. When startup refuses:
+When startup refuses:
 
 1. Read which field the error names: generation, replica count, or topology fingerprint. An RF=1 start on a stamped
    directory names the replica count and generation the directory was activated with.
@@ -419,12 +430,13 @@ Before upgrade:
 
 1. Confirm whether rolling upgrade is supported for the source and target versions.
 2. Back up each node data directory.
-3. Validate recovery from a backup copy with the target version.
+3. Validate RF=1 recovery from an isolated backup copy with the target version. For RF>1, use the offline `doctor`
+   check in step 6; do not start copied node identities against the live cluster.
 4. Run `tools/internal/sqr-release-validate.cs` locally for the target commit before tagging.
 5. Validate security posture after startup:
-    - Non-loopback cache gRPC rejects missing/invalid JWT when auth is enabled.
+    - Non-loopback binary cache transport rejects missing/invalid JWT when auth is enabled.
     - Remote `/metrics` and `/health/ready/details` require the same JWT bearer credentials.
-    - Operational routes are HTTPS-only on the primary listener.
+    - Operational routes use the separate HTTPS management listener.
 6. For RF>1 data directories, run `squirix-server doctor` from the target version against a backup copy of the data directory. A
    `topology stamp: fingerprint MISMATCH` line (doctor exits with code 1) means the target version refuses to start on
    that directory; see [Activated topology stamp](#activated-topology-stamp).
@@ -433,7 +445,7 @@ Compatible rolling upgrade:
 
 1. Upgrade one non-critical node.
 2. Confirm readiness, journal backlog, snapshot age, and client pool state.
-3. Watch logs for serializer, journal, gRPC, and backpressure errors.
+3. Watch logs for serializer, journal, transport, and backpressure errors.
 4. Continue one node at a time.
 5. Keep old binaries and backups until all nodes are validated.
 

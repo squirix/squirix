@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
@@ -10,6 +9,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -83,7 +83,8 @@ public sealed class StorageFilePermissionsTests : ServerUnitTestBase
 
         _ = await Assert.That(File.GetUnixFileMode(snapshotPath)).IsEqualTo(FileEx.PrivateFileMode);
         _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetMetadataPath(root, GroupId))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 0))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 1))).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(GroupSnapshotFile.PointerPath(root, GroupId))).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(GroupSnapshotFile.SlotPath(root, GroupId, 0))).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(GroupSnapshotFile.SlotPath(root, GroupId, 1))).IsEqualTo(FileEx.PrivateFileMode);
     }
 }

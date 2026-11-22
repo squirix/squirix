@@ -19,7 +19,7 @@ public sealed class ConnectTests
     [Test]
     public async Task ConnectAsyncOptionsRejectNoEndpoints(CancellationToken cancellationToken)
     {
-        var ex = await AsyncAssert.ThrowsAsync<InvalidOperationException, ISquirixClient>(SquirixClient.ConnectAsync(static _ => { }, cancellationToken));
+        var ex = await AsyncAssert.ThrowsAsync<InvalidOperationException, ISquirixClient>(SquirixClient.ConnectAsync(static _ => { }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("endpoint", StringComparison.OrdinalIgnoreCase);
     }
@@ -29,7 +29,7 @@ public sealed class ConnectTests
     [Test]
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint(CancellationToken cancellationToken)
     {
-        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(SquirixClient.ConnectAsync(new Uri("http://127.0.0.1:1"), cancellationToken));
+        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(SquirixClient.ConnectAsync(new Uri("http://127.0.0.1:1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("HTTPS", StringComparison.OrdinalIgnoreCase);
     }
@@ -39,8 +39,7 @@ public sealed class ConnectTests
     [Test]
     public async Task OptionsRejectPlaintextHttpEndpoint(CancellationToken cancellationToken)
     {
-        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), cancellationToken));
+        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("HTTPS", StringComparison.OrdinalIgnoreCase);
     }
@@ -50,8 +49,7 @@ public sealed class ConnectTests
     [Test]
     public async Task OptionsRejectRelativeEndpoint(CancellationToken cancellationToken)
     {
-        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("not-absolute", UriKind.Relative)), cancellationToken));
+        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("not-absolute", UriKind.Relative)), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("absolute Squirix server URI", StringComparison.Ordinal);
     }

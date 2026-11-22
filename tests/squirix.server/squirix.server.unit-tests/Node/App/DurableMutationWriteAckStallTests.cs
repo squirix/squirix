@@ -2,17 +2,17 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -74,8 +74,9 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         string crashImage;
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
             crashImage = journal.ReadStampedPuts(cancellationToken);
         }
         finally
@@ -108,21 +109,21 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         SquirixException error;
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
             await journal.ReclaimLeakedAsync(StallTimeout);
         }
 
-        var transport = error.ToRpcException();
+        var transport = error.ToServerCallException();
         var logged = log.Find(CommitUnknownEventId);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-        _ = await Assert.That(transport.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(transport.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(transport.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(transport.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(logged?.Cause).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
         _ = await Assert.That(memory.Snapshot).IsEmpty();
@@ -143,7 +144,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         var memory = new AppliedKeys();
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(memory.PutAsync(executor, journal, "a", cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(memory.PutAsync(executor, journal, "a", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var applied = await memory.PutAsync(executor, journal, "a", cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
@@ -180,7 +181,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
                 static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), ct),
                 static (_, _) => ValueTask.FromResult(1)),
             cancellationToken).AsTask();
-        var error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(put, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error).IsTypeOf<InvalidOperationException>().Because(error.ToString());
         _ = await Assert.That(error.InnerException).IsSameReferenceAs(reason);
@@ -197,8 +198,8 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
     {
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -263,9 +264,6 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         public double RecentAppendLatencyMs => 0;
 
         public long UsedBytes => 0;
-
-        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
 
         public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
             Interlocked.Exchange(ref _faultNextPut, 0) == 1 ? WriteAckFaultAsync() : ValueTask.CompletedTask;

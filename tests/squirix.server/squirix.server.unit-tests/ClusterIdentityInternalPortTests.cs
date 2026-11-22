@@ -47,7 +47,7 @@ public sealed class ClusterIdentityInternalPortTests
         }
     }
 
-    /// <summary>An allocated internal port must stay bound until released, so a parallel test cannot grab it between probing and Kestrel bind.</summary>
+    /// <summary>An allocated internal port must stay bound until released, so a parallel test cannot grab it between probing and the native bind.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task InternalPortStaysBoundUntilReleased(CancellationToken cancellationToken)
@@ -151,7 +151,7 @@ public sealed class ClusterIdentityInternalPortTests
         var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaries[0] };
         identity.Dispose();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static void BindExclusively(int port)

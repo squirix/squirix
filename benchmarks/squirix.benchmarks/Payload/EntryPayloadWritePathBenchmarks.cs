@@ -1,5 +1,4 @@
 using System;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
@@ -29,14 +28,14 @@ public class EntryPayloadWritePathBenchmarks
     /// <summary>Builds the entry under test for the selected payload profile.</summary>
     /// <exception cref="InvalidOperationException">Thrown when <see cref="Profile" /> is not a supported value.</exception>
     [GlobalSetup]
-    public async Task SetupEntryAsync()
+    public void SetupEntry()
     {
         var value = Profile switch
         {
             EntryPayloadProfile.Small256B => new string('x', 256),
             EntryPayloadProfile.Medium64KiB => new string('x', 64 * 1024),
             EntryPayloadProfile.Large1MiB => new string('x', 1024 * 1024),
-            EntryPayloadProfile.NearLimitEntry => await EntryLimitKit.CreateNearLimitStringValueAsync().ConfigureAwait(false),
+            EntryPayloadProfile.NearLimitEntry => EntryLimitKit.CreateNearLimitStringValue(),
             _ => throw new InvalidOperationException("Unsupported entry payload profile."),
         };
 

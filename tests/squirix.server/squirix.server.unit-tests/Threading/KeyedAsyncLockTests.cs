@@ -64,7 +64,7 @@ public sealed class KeyedAsyncLockTests : ServerUnitTestBase
         var survivor = locks.LockAsync("k", cancellationToken);
 
         await waiterCancellation.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<string>.Lease>(waiter);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<string>.Lease>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(locks.Count).IsEqualTo(1);
 
@@ -83,7 +83,7 @@ public sealed class KeyedAsyncLockTests : ServerUnitTestBase
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<string>.Lease>(locks.LockAsync("k", cancelled.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, KeyedAsyncLock<string>.Lease>(locks.LockAsync("k", cancelled.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(locks.Count).IsEqualTo(0);
         (await locks.LockAsync("k", cancellationToken)).Dispose();

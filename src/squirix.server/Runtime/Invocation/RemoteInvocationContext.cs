@@ -7,22 +7,20 @@ internal static class RemoteInvocationContext
 {
     /// <summary>A shared marker represents true without boxing a Boolean on every context change; null represents false.</summary>
     private static readonly object InternalOwnerMarker = new();
+    private static readonly object PublicMarker = new();
 
-    private static readonly AsyncLocal<object?> InternalOwnerInvocation = new();
+    private static readonly AsyncLocal<object?> Invocation = new();
 
-    internal static bool IsInternalOwnerInvocation => InternalOwnerInvocation.Value != null;
+    internal static bool IsInternalOwnerInvocation => ReferenceEquals(Invocation.Value, InternalOwnerMarker);
+
+    internal static bool IsRemoteInvocation => Invocation.Value != null;
 
     internal static RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation = false)
     {
-        var value = IsInternalOwnerInvocation;
-        if (value != isInternalOwnerInvocation)
-            InternalOwnerInvocation.Value = isInternalOwnerInvocation ? InternalOwnerMarker : null;
-        return new RemoteInvocationScope(value);
+        var previous = Invocation.Value;
+        Invocation.Value = isInternalOwnerInvocation ? InternalOwnerMarker : PublicMarker;
+        return new RemoteInvocationScope(previous);
     }
 
-    internal static void RestoreInternalOwnerInvocation(bool internalOwnerInvocation)
-    {
-        if (IsInternalOwnerInvocation != internalOwnerInvocation)
-            InternalOwnerInvocation.Value = internalOwnerInvocation ? InternalOwnerMarker : null;
-    }
+    internal static void RestoreInvocation(object? previous) => Invocation.Value = previous;
 }

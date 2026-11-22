@@ -1,10 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
 using System.Net;
-using System.Net.Http;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -23,7 +22,7 @@ public sealed class PartitionFabric : IAsyncDisposable
 {
     private readonly HashSet<string> _blackHoled = [with(StringComparer.Ordinal)];
     private readonly Lock _gate = new();
-    private readonly HashSet<TaskCompletionSource<Stream>> _hungDials = [];
+    private readonly HashSet<TaskCompletionSource> _hungDials = [];
     private readonly Dictionary<ProxyKey, TcpPartitionProxy> _proxies = [];
     private int _disposed;
 
@@ -44,21 +43,10 @@ public sealed class PartitionFabric : IAsyncDisposable
         }
     }
 
-    /// <summary>Creates a socket connect callback that dials the proxy for the pair instead of the upstream endpoint.</summary>
-    /// <param name="from">The dialing node identifier.</param>
-    /// <param name="to">The dialed node identifier.</param>
-    /// <returns>A callback for <see cref="SocketsHttpHandler.ConnectCallback" />; the proxy is resolved on every connect.</returns>
-    public Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> CreateConnectCallback(string from, string to)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(from);
-        ArgumentException.ThrowIfNullOrWhiteSpace(to);
-        return (_, cancellationToken) => IsBlackHoled(to) ? HangAsync(cancellationToken) : ConnectAsync(this[from, to].ListenEndPoint, cancellationToken);
-    }
-
     /// <summary>Makes every new dial towards <paramref name="nodeId" /> hang until its connect is canceled, and resets the connections bridged to it.</summary>
     /// <param name="nodeId">The node whose host stops answering.</param>
     /// <returns>A task that completes once no connection towards the node is bridged; <see cref="HealAll" /> lifts the black hole.</returns>
-    /// <remarks>A dial that hangs never reaches a proxy, so no proxy counts it; the connect timeout of the dialing handler is what ends it.</remarks>
+    /// <remarks>A dial that hangs never reaches a proxy, so no proxy counts it; the dial timeout is what ends it.</remarks>
     public Task BlackHoleAsync(string nodeId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
@@ -128,20 +116,20 @@ public sealed class PartitionFabric : IAsyncDisposable
     /// <returns>The proxy carrying the link.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the pair already has a proxy in front of another endpoint.</exception>
     /// <exception cref="ObjectDisposedException">Thrown when the fabric has been disposed.</exception>
-    public Task<TcpPartitionProxy> EnsureProxyAsync(string from, string to, IPEndPoint upstream, CancellationToken cancellationToken = default)
+    public ValueTask<TcpPartitionProxy> EnsureProxyAsync(string from, string to, IPEndPoint upstream, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(from);
         ArgumentException.ThrowIfNullOrWhiteSpace(to);
         ArgumentNullException.ThrowIfNull(upstream);
 
         var key = new ProxyKey(from, to);
-        return TryGet(key, upstream, out var existing) ? Task.FromResult(existing) : StartProxyAsync(key, upstream, cancellationToken);
+        return TryGet(key, upstream, out var existing) ? ValueTask.FromResult(existing) : StartProxyAsync(key, upstream, cancellationToken);
     }
 
     /// <summary>Heals every link of the fabric and lifts every black hole; a dial that hung towards a black-holed node fails as unreachable.</summary>
     public void HealAll()
     {
-        TaskCompletionSource<Stream>[] hung;
+        TaskCompletionSource[] hung;
         lock (_gate)
         {
             _blackHoled.Clear();
@@ -152,7 +140,7 @@ public sealed class PartitionFabric : IAsyncDisposable
             proxy.Heal();
 
         foreach (var dial in hung)
-            _ = dial.TrySetException(new HttpRequestException(HttpRequestError.ConnectionError, "The connection attempt failed after the black hole was lifted."));
+            _ = dial.TrySetException(new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.ConnectionRefused)));
     }
 
     /// <summary>Holds the bytes <paramref name="from" /> sends to <paramref name="to" /> on both links, whichever side dialed.</summary>
@@ -198,37 +186,29 @@ public sealed class PartitionFabric : IAsyncDisposable
         this[to, from].Release(ProxyDirection.UpstreamToClient);
     }
 
-    private static async ValueTask<Stream> ConnectAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
+    internal async ValueTask<EndPoint> ResolveEndpointAsync(string from, string to, CancellationToken cancellationToken)
     {
-        Socket? socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-        try
-        {
-            await socket.ConnectAsync(endPoint, cancellationToken).ConfigureAwait(false);
-            var stream = new NetworkStream(socket, true);
-            socket = null;
-            return stream;
-        }
-        finally
-        {
-            socket?.Dispose();
-        }
+        if (IsBlackHoled(to))
+            await WaitForDialFailureAsync(cancellationToken).ConfigureAwait(false);
+
+        return this[from, to].ListenEndPoint;
     }
 
     private static InvalidOperationException UpstreamMismatch(ProxyKey key, TcpPartitionProxy existing, IPEndPoint requested) =>
         new($"The link {key.From} -> {key.To} already has a proxy in front of {existing.Upstream}, not {requested}.");
 
     /// <summary>Waits for a connect that never completes, as towards a host that drops connection attempts.</summary>
-    /// <param name="cancellationToken">The connect token; the connect timeout of the dialing handler cancels it.</param>
+    /// <param name="cancellationToken">The connect token; the dial timeout cancels it.</param>
     /// <returns>A task that fails with the cancellation, or with a failed connect once <see cref="HealAll" /> lifts the black hole.</returns>
-    private async ValueTask<Stream> HangAsync(CancellationToken cancellationToken)
+    private async Task WaitForDialFailureAsync(CancellationToken cancellationToken)
     {
-        var never = new TaskCompletionSource<Stream>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_gate)
             _ = _hungDials.Add(never);
 
         try
         {
-            return await never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -249,9 +229,9 @@ public sealed class PartitionFabric : IAsyncDisposable
             return [.. _proxies.Values];
     }
 
-    private async Task<TcpPartitionProxy> StartProxyAsync(ProxyKey key, IPEndPoint upstream, CancellationToken cancellationToken)
+    private async ValueTask<TcpPartitionProxy> StartProxyAsync(ProxyKey key, IPEndPoint upstream, CancellationToken cancellationToken)
     {
-        var created = await TcpPartitionProxy.StartAsync(upstream, cancellationToken).ConfigureAwait(false);
+        var created = TcpPartitionProxy.StartListening(upstream, cancellationToken);
         TcpPartitionProxy? surplus = null;
         try
         {

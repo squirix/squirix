@@ -1,31 +1,31 @@
-using Grpc.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Errors;
 
 internal static class SquirixErrorMapper
 {
-    internal static StatusCode ToGrpcStatusCode(SquirixErrorCode code) => code switch
+    internal static FrameStatus ToFrameStatus(SquirixErrorCode code) => code switch
     {
-        SquirixErrorCode.None => StatusCode.Internal,
-        SquirixErrorCode.InvalidCacheKey => StatusCode.InvalidArgument,
-        SquirixErrorCode.PayloadTooLarge => StatusCode.ResourceExhausted,
-        SquirixErrorCode.TooManyRequests => StatusCode.ResourceExhausted,
-        SquirixErrorCode.MemoryPressure => StatusCode.ResourceExhausted,
-        SquirixErrorCode.JournalDiskQuota => StatusCode.ResourceExhausted,
-        SquirixErrorCode.OperationIdRequired => StatusCode.InvalidArgument,
-        SquirixErrorCode.OperationIdInvalidFormat => StatusCode.InvalidArgument,
-        SquirixErrorCode.OperationIdTooLong => StatusCode.InvalidArgument,
-        SquirixErrorCode.OperationIdReuseMismatch => StatusCode.FailedPrecondition,
-        SquirixErrorCode.InvalidEntryTags => StatusCode.InvalidArgument,
-        SquirixErrorCode.CommitOutcomeUnknown => StatusCode.Unavailable,
-        _ => StatusCode.Internal,
+        SquirixErrorCode.None => FrameStatus.Internal,
+        SquirixErrorCode.InvalidCacheKey => FrameStatus.InvalidArgument,
+        SquirixErrorCode.PayloadTooLarge => FrameStatus.ResourceExhausted,
+        SquirixErrorCode.TooManyRequests => FrameStatus.ResourceExhausted,
+        SquirixErrorCode.MemoryPressure => FrameStatus.ResourceExhausted,
+        SquirixErrorCode.JournalDiskQuota => FrameStatus.ResourceExhausted,
+        SquirixErrorCode.OperationIdRequired => FrameStatus.InvalidArgument,
+        SquirixErrorCode.OperationIdInvalidFormat => FrameStatus.InvalidArgument,
+        SquirixErrorCode.OperationIdTooLong => FrameStatus.InvalidArgument,
+        SquirixErrorCode.OperationIdReuseMismatch => FrameStatus.FailedPrecondition,
+        SquirixErrorCode.InvalidEntryTags => FrameStatus.InvalidArgument,
+        SquirixErrorCode.CommitOutcomeUnknown => FrameStatus.Unavailable,
+        _ => FrameStatus.Internal,
     };
 
     internal static string ToPublicCode(SquirixErrorCode code) => code switch
     {
         SquirixErrorCode.None => "INTERNAL_ERROR",
         SquirixErrorCode.InvalidCacheKey => "INVALID_CACHE_KEY",
-        SquirixErrorCode.PayloadTooLarge => "PAYLOAD_TOO_LARGE",
+        SquirixErrorCode.PayloadTooLarge => Frames.PayloadTooLargeCode,
         SquirixErrorCode.TooManyRequests => "TOO_MANY_REQUESTS",
         SquirixErrorCode.MemoryPressure => "MEMORY_PRESSURE",
         SquirixErrorCode.OperationIdRequired => "OPERATION_ID_REQUIRED",

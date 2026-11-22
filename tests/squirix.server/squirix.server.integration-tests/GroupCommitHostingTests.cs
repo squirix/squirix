@@ -1,19 +1,18 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -52,8 +51,8 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
         await using (app)
         {
-            using var channel = CreateGrpcChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            using var channel = CreateBinaryChannel(uri);
+            var client = new CacheWireClient(channel);
             _ = await client.SetEntryAsync(CreateSet("warm-up", "warm"), cancellationToken: cancellationToken);
 
             var started = TimeProvider.System.GetTimestamp();
@@ -76,8 +75,8 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         {
             _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsTrue();
 
-            using var channel = CreateGrpcChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            using var channel = CreateBinaryChannel(uri);
+            var client = new CacheWireClient(channel);
 
             // The first call opens the connection and the segment, so the measured writes arrive together.
             _ = await client.SetEntryAsync(CreateSet("warm-up", "warm"), cancellationToken: cancellationToken);
@@ -112,8 +111,8 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
         await using (app)
         {
-            using var channel = CreateGrpcChannel(uri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            using var channel = CreateBinaryChannel(uri);
+            var client = new CacheWireClient(channel);
 
             var mutations = new Task[Concurrency];
             for (var i = 0; i < Concurrency; i++)
@@ -128,14 +127,13 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         var (restarted, restartedUri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
         await using (restarted)
         {
-            using var channel = CreateGrpcChannel(restartedUri);
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            using var channel = CreateBinaryChannel(restartedUri);
+            var client = new CacheWireClient(channel);
 
             var after = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
 
             // Whatever state the burst left, Set, Remove or Touch last, the restart replays the journal to exactly that state.
-            _ = await Assert.That(after.Found).IsEqualTo(before.Found);
-            _ = await Assert.That(after.Value).IsEqualTo(before.Value);
+            _ = await Assert.That(after.ToByteArray().AsSpan().SequenceEqual(before.ToByteArray())).IsTrue();
         }
     }
 
@@ -145,11 +143,11 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         options.Journal.GroupCommitMaxBatch = Concurrency;
     }
 
-    private static async Task WriteBurstAsync(SquirixCacheService.SquirixCacheServiceClient client, int round, CancellationToken cancellationToken)
+    private static async Task WriteBurstAsync(CacheWireClient client, int round, CancellationToken cancellationToken)
     {
         var writes = new Task[Concurrency];
         for (var i = 0; i < Concurrency; i++)
-            writes[i] = client.SetEntryAsync(CreateSet($"distinct-{round}-{i}", "value"), cancellationToken: cancellationToken).ResponseAsync;
+            writes[i] = client.SetEntryAsync(CreateSet($"distinct-{round}-{i}", "value"), cancellationToken: cancellationToken);
 
         await Task.WhenAll(writes).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
     }
@@ -159,31 +157,31 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         OperationId = Guid.NewGuid().ToString("N"),
         CacheName = CacheName,
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+        Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
     };
 
-    private static JournalCoordinator GetJournal(WebApplication app) =>
+    private static JournalCoordinator GetJournal(ServerApplication app) =>
         ThrowHelper.Required(app.Services.GetRequiredService<JournalCoordinatorHost>().Coordinator as JournalCoordinator, "The hosted journal is not a JournalCoordinator.");
 
-    private static Task MutateAsync(SquirixCacheService.SquirixCacheServiceClient client, string key, int index, CancellationToken cancellationToken)
+    private static Task MutateAsync(CacheWireClient client, string key, int index, CancellationToken cancellationToken)
     {
         var operationId = Guid.NewGuid().ToString("N");
         return (index % 3) switch
         {
-            0 => client.SetEntryAsync(CreateSet(key, $"value-{index}"), cancellationToken: cancellationToken).ResponseAsync,
-            1 => client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken).ResponseAsync,
+            0 => client.SetEntryAsync(CreateSet(key, $"value-{index}"), cancellationToken: cancellationToken),
+            1 => client.RemoveAsync(new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken),
             _ => client.TouchAsync(
-                new TouchAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Expiration = Duration.FromTimeSpan(TimeSpan.FromHours(1)) },
-                cancellationToken: cancellationToken).ResponseAsync,
+                new TouchAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Expiration = TimeSpan.FromHours(1) },
+                cancellationToken: cancellationToken),
         };
     }
 
-    private static async Task<(WebApplication App, Uri Uri)> StartAsync(string dataDirectory, Action<SquirixServerOptions>? configure, CancellationToken cancellationToken)
+    private static async Task<(ServerApplication App, Uri Uri)> StartAsync(string dataDirectory, Action<SquirixServerOptions>? configure, CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
+        var services = TestNodeBuilder.CreateServices();
         var uri = GetNextHttpUri();
         ListenPortPool.ReleaseHeldPrimary(uri);
-        _ = await builder.AddSquirixServerAsync(
+        _ = await services.ConfigureNodeAsync(
             options =>
             {
                 options.Uri = uri;
@@ -191,19 +189,11 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
                 configure?.Invoke(options);
             },
             loadDiscoveredSettings: false,
+            configureComposition: static args => args.ManagementUri = new Uri("https://127.0.0.1:0"),
             cancellationToken: cancellationToken);
 
-        var app = builder.Build();
-        try
-        {
-            _ = await app.MapSquirixServerAsync(cancellationToken);
-            await app.StartAsync(cancellationToken);
-            return (app, uri);
-        }
-        catch
-        {
-            await app.DisposeAsync();
-            throw;
-        }
+        var app = services.BuildNode();
+        await SquirixServer.ApplicationHandle.StartWithRollbackAsync(app, static (node, token) => ServerHostingComposition.OpenStorageAsync(node.Services, token), cancellationToken);
+        return (app, uri);
     }
 }

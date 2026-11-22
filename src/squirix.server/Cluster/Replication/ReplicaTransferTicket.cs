@@ -82,11 +82,11 @@ internal sealed class ReplicaTransferTicket
     /// <returns><see langword="true" /> when the chunk was appended; otherwise nothing changed.</returns>
     internal bool TryReceive(long offset, ReadOnlySpan<byte> chunk, out bool overflow)
     {
-        _image ??= new byte[Baseline.SnapshotBytes];
-        overflow = chunk.Length > _image.Length - _received;
+        overflow = chunk.Length > Baseline.SnapshotBytes - _received;
         if (offset != _received || overflow)
             return false;
 
+        _image ??= new byte[Baseline.SnapshotBytes];
         chunk.CopyTo(_image.AsSpan(_received));
         _received += chunk.Length;
         return true;

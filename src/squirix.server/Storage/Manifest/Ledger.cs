@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -28,7 +28,7 @@ internal sealed class Ledger : IDisposable
 
     internal Ledger(
         PersistenceOptions options,
-        ILogger<Ledger> logger,
+        IServerLogger<Ledger> logger,
         IManifestRetentionFailureMetrics failureMetrics,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
         IStorageFileOperations? fileOperations = null,
@@ -39,7 +39,7 @@ internal sealed class Ledger : IDisposable
         var dir = options.DataDir;
         _currentPath = PathEx.Combine(dir, CurrentFileName);
         _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
-        var retentionContext = new RetentionContext(new RetentionSettings(dir), fileOperations, logger, failureMetrics);
+        var retentionContext = new RetentionContext(dir, fileOperations, logger, failureMetrics);
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness, CapacityResync);
     }
 
@@ -200,7 +200,7 @@ internal sealed class Ledger : IDisposable
             string path,
             Action<State, ulong> setCache,
             Func<State?> rbl,
-            ILogger logger,
+            IServerLogger logger,
             TimeSpan stopBudget)
         {
             _dir = dir;
@@ -214,7 +214,7 @@ internal sealed class Ledger : IDisposable
                 work => work.Execute(this),
                 static (work, ex) => work.OnFailure?.Invoke(ex),
                 stopBudget,
-                () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
+                () => StorageLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
         internal Exception? Failure => Volatile.Read(ref _failure);

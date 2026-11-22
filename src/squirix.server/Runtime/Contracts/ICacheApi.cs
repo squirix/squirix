@@ -11,9 +11,11 @@ internal interface ICacheApi<T>
 {
     ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken);
 
+    ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string key, CancellationToken cancellationToken);
+
     ValueTask<NodeCacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken);
 
-    ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string key, CancellationToken cancellationToken);
+    ValueTask<bool> RemoveAsync(string operationId, string key, CancellationToken cancellationToken);
 
     ValueTask<bool> RemoveExpirationAsync(string operationId, string key, CancellationToken cancellationToken);
 

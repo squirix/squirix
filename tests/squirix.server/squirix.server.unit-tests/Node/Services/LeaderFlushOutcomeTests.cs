@@ -2,13 +2,13 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -52,7 +52,7 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
             lengthBefore = LogFileLength(dir);
 
             hooks.Arm();
-            var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+            var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             if (!registry.TryGetLog(GroupId, out var log))
                 throw new InvalidOperationException("The group log n2 is not open.");
@@ -75,7 +75,7 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
         await using var committer = await LeadAsync(registry, cancellationToken);
 
         hooks.ArmFlush();
-        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(hooks.Failures).IsEqualTo(1);
@@ -93,7 +93,7 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
         {
             await using var committer = await LeadAsync(registry, cancellationToken);
             hooks.Arm();
-            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using var reopened = await OpenRegistryAsync(dir, Groups, Options(new FailingFrameWriteHooks()), cancellationToken);
@@ -125,11 +125,11 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
         await using var committer = await LeadAsync(registry, cache, LeaderTerm, cancellationToken);
         var operationId = NewOperationId();
         hooks.Arm();
-        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         hooks.Disarm();
         var lengthAtFailure = LogFileLength(dir);
 
-        var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+        var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(retry.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(hooks.Failures).IsEqualTo(1);
@@ -152,7 +152,7 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
         {
             await using var committer = await LeadAsync(registry, cancellationToken);
             hooks.Arm();
-            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         var cache = new StubCache();
@@ -181,7 +181,7 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
             await using var committer = await LeadAsync(registry, cancellationToken);
             lengthBefore = LogFileLength(dir);
             hooks.Arm();
-            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         TruncateLog(dir, lengthBefore);

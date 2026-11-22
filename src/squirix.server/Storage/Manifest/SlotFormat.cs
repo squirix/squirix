@@ -41,9 +41,6 @@ internal static class SlotFormat
     /// <summary>Magic bytes of the single-record pointer written by earlier builds, <c language="csharp">"SQMC"</c>.</summary>
     private const uint EarlierMagic = 0x434D5153u;
 
-    /// <summary>Version of the slot record that held only a manifest index.</summary>
-    private const byte EarlierSlotVersion = 1;
-
     private const int HasSnapshotOffset = NextSequenceOffset + sizeof(ulong);
 
     private const int LastAppliedOffset = SnapshotIndexOffset + sizeof(int);
@@ -59,7 +56,7 @@ internal static class SlotFormat
     /// <summary>Slot magic bytes, <c language="csharp">"SQMP"</c>.</summary>
     private const uint SlotMagic = 0x504D5153u;
 
-    private const byte SlotVersion = 2;
+    private const byte SlotVersion = 4;
 
     private const int SnapshotIndexOffset = HasSnapshotOffset + sizeof(byte);
 
@@ -113,7 +110,7 @@ internal static class SlotFormat
     internal static SlotSelection Select(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second, long fileLength, string path)
     {
         if (IsEarlierBuildRecord(first) || IsEarlierBuildRecord(second))
-            throw new InvalidDataException($"Manifest at {path} was written by an earlier build and is not supported; the file was left unchanged.");
+            throw new InvalidDataException($"Manifest at {path} was written by an earlier build and is not supported. Start with an empty data directory. The manifest was left unchanged.");
 
         if (fileLength > FileSize)
             throw new InvalidDataException($"Manifest at {path} has invalid length {fileLength}.");
@@ -198,7 +195,23 @@ internal static class SlotFormat
             return false;
 
         var magic = BinaryPrimitives.ReadUInt32LittleEndian(record);
-        return magic == EarlierMagic || (magic == SlotMagic && record.Length > VersionOffset && record[VersionOffset] == EarlierSlotVersion);
+        if (magic == EarlierMagic)
+            return true;
+        if (magic != SlotMagic || record.Length <= VersionOffset)
+            return false;
+
+        // Only complete, checksum-valid old records fence an upgrade. A torn header must leave the other slot usable.
+        var earlierSize = record[VersionOffset] switch
+        {
+            1 => sizeof(uint) + sizeof(byte) + sizeof(ulong) + sizeof(int) + sizeof(uint),
+            2 or 3 => RecordSize,
+            _ => 0,
+        };
+        if (earlierSize == 0 || record.Length < earlierSize)
+            return false;
+
+        var crcOffset = earlierSize - sizeof(uint);
+        return Crc32C.Compute(record[..crcOffset]) == BinaryPrimitives.ReadUInt32LittleEndian(record[crcOffset..]);
     }
 
     private static bool IsValid(State m) =>

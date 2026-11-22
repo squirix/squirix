@@ -1,15 +1,15 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -123,7 +123,7 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
 
         var resolver = app.Services.GetRequiredService<IBackpressureClientIdResolver>();
 
-        _ = await Assert.That(resolver).IsTypeOf<HttpContextClientIdResolver>();
+        _ = await Assert.That(resolver).IsTypeOf<BinaryClientIdResolver>();
     }
 
     /// <summary>A rate-only per-client limit also switches the host to per-caller client ids.</summary>
@@ -141,7 +141,7 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
 
         var resolver = app.Services.GetRequiredService<IBackpressureClientIdResolver>();
 
-        _ = await Assert.That(resolver).IsTypeOf<HttpContextClientIdResolver>();
+        _ = await Assert.That(resolver).IsTypeOf<BinaryClientIdResolver>();
     }
 
     /// <summary>Invalid backpressure options fail the public hosting entry point.</summary>
@@ -149,8 +149,8 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
     [Test]
     public async Task InvalidBackpressureFailsHosting(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
-        var operation = builder.AddSquirixServerAsync(
+        var services = TestNodeBuilder.CreateServices();
+        var operation = services.ConfigureNodeAsync(
             static options =>
             {
                 options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
@@ -159,18 +159,18 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("MaxInFlight", StringComparison.Ordinal);
     }
 
-    private static async Task<WebApplication> BuildAppAsync(Action<SquirixServerBackpressureOptions> configure, CancellationToken cancellationToken)
+    private static async Task<ServerApplication> BuildAppAsync(Action<SquirixServerBackpressureOptions> configure, CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        var services = TestNodeBuilder.CreateServices();
 
         // The frozen clock keeps rate-limit buckets from refilling during the test.
-        _ = builder.Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
-        _ = await builder.AddSquirixServerAsync(
+        _ = services.AddSingleton<TimeProvider>(new FakeTimeProvider());
+        _ = await services.ConfigureNodeAsync(
             options =>
             {
                 options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
@@ -178,6 +178,6 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
             },
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
-        return builder.Build();
+        return services.BuildNode();
     }
 }

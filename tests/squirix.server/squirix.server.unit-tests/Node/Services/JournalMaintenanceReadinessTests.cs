@@ -3,8 +3,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
@@ -14,6 +12,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -43,9 +42,9 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
         journal.Journal.FailJournalPipeline(new InvalidOperationException("memory apply failed"));
 
-        var result = await CreateCheck(traced).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced).CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("memory apply failed", StringComparison.Ordinal);
     }
 
@@ -59,9 +58,9 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         await traced.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         await traced.AwaitDurabilityCommitAsync(cancellationToken);
 
-        var result = await CreateCheck(traced).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced).CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>A latched pipeline stays unhealthy while a flush is also stalled past the threshold: the latch takes precedence over degraded.</summary>
@@ -77,11 +76,11 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         journal.Journal.FailJournalPipeline(new InvalidOperationException("memory apply failed"));
 
-        var result = await CreateCheck(traced, journal.Journal.StallProbe, new ShiftedClock(Threshold)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced, journal.Journal.StallProbe, new ShiftedClock(Threshold)).CheckHealthAsync(cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException(FsyncFailureMessage));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(commit.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, Bound, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("memory apply failed", StringComparison.Ordinal);
     }
 
@@ -97,17 +96,14 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException(FsyncFailureMessage));
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(commit.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(commit, Bound, TimeProvider.System, cancellationToken);
 
         // The checkpoint waiter is faulted before the journal thread latches the failure; its exit orders the latch first.
         _ = await Assert.That(await journal.Journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();
-        var result = await CreateCheck(traced).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced).CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
-        _ = await Assert.That(result.Description).Contains(nameof(IOException), StringComparison.Ordinal);
-        _ = await Assert.That(result.Description).Contains(FsyncFailureMessage, StringComparison.Ordinal);
-        _ = await Assert.That(result.Description).DoesNotContain(" at ", StringComparison.Ordinal);
-        _ = await Assert.That(result.Exception).IsNull();
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
+        _ = await Assert.That(result.Description).IsEqualTo($"journal pipeline is latched as failed until restart: {nameof(IOException)}: {FsyncFailureMessage}");
     }
 
     /// <summary>Without a stall probe (a journal that does not record its segment I/O) a stalled flush never degrades readiness.</summary>
@@ -122,11 +118,11 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        var result = await CreateCheck(traced, null, new ShiftedClock(Threshold)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced, null, new ShiftedClock(Threshold)).CheckHealthAsync(cancellationToken);
         journal.Writer.Flush.Release();
         await commit.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>A flush in progress for less than the threshold keeps readiness healthy.</summary>
@@ -143,11 +139,11 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
         clock.Advance(Threshold / 2);
-        var result = await CreateCheck(traced, journal.Journal.StallProbe, clock).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced, journal.Journal.StallProbe, clock).CheckHealthAsync(cancellationToken);
         journal.Writer.Flush.Release();
         await commit.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>A flush in progress for the threshold degrades readiness and names the operation; readiness recovers once the flush returns.</summary>
@@ -163,14 +159,14 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        var stalled = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var stalled = await check.CheckHealthAsync(cancellationToken);
         journal.Writer.Flush.Release();
         await commit.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        var recovered = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var recovered = await check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(stalled.Status).IsEqualTo(HealthStatus.Degraded);
+        _ = await Assert.That(stalled.Status).IsEqualTo(ReadinessStatus.Degraded);
         _ = await Assert.That(stalled.Description).Contains($": {nameof(IJournalSegmentWriter.FlushToDisk)} ", StringComparison.Ordinal);
-        _ = await Assert.That(recovered.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(recovered.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>A flush in progress degrades readiness once the journal clock passes the threshold, with no real stall.</summary>
@@ -187,14 +183,14 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        var fresh = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var fresh = await check.CheckHealthAsync(cancellationToken);
         clock.Advance(Threshold);
-        var stalled = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var stalled = await check.CheckHealthAsync(cancellationToken);
         journal.Writer.Flush.Release();
         await commit.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(fresh.Status).IsEqualTo(HealthStatus.Healthy);
-        _ = await Assert.That(stalled.Status).IsEqualTo(HealthStatus.Degraded);
+        _ = await Assert.That(fresh.Status).IsEqualTo(ReadinessStatus.Healthy);
+        _ = await Assert.That(stalled.Status).IsEqualTo(ReadinessStatus.Degraded);
     }
 
     /// <summary>A segment write in progress for the threshold degrades readiness and names the operation; readiness recovers once it returns.</summary>
@@ -212,16 +208,16 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
             cancellationToken);
         await journal.Writer.Write.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 
-        var stalled = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var stalled = await check.CheckHealthAsync(cancellationToken);
         journal.Writer.Write.Release();
 
         // The durable append returns only after its write and fsync returned, so no segment I/O is left in progress.
         await append.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        var recovered = await check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var recovered = await check.CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(stalled.Status).IsEqualTo(HealthStatus.Degraded);
+        _ = await Assert.That(stalled.Status).IsEqualTo(ReadinessStatus.Degraded);
         _ = await Assert.That(stalled.Description).Contains($": {nameof(IJournalSegmentWriter.Write)} ", StringComparison.Ordinal);
-        _ = await Assert.That(recovered.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(recovered.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>Snapshots that keep failing degrade readiness and name the count and the last failure; the node keeps serving.</summary>
@@ -233,9 +229,9 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
         var failure = new SnapshotFailure(nameof(InvalidDataException), "snapshot too large", 3, DateTimeOffset.UnixEpoch);
 
-        var result = await CreateCheck(traced, null, TimeProvider.System, new SnapshotStatus(failure, false)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced, null, TimeProvider.System, new SnapshotStatus(failure, false)).CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Degraded);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Degraded);
         _ = await Assert.That(result.Description).Contains("3 in a row", StringComparison.Ordinal);
         _ = await Assert.That(result.Description).Contains($"{nameof(InvalidDataException)}: snapshot too large", StringComparison.Ordinal);
     }
@@ -249,9 +245,9 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
         var failure = new SnapshotFailure(nameof(ArgumentException), "unexpected", 1, DateTimeOffset.UnixEpoch);
 
-        var result = await CreateCheck(traced, null, TimeProvider.System, new SnapshotStatus(failure, true)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+        var result = await CreateCheck(traced, null, TimeProvider.System, new SnapshotStatus(failure, true)).CheckHealthAsync(cancellationToken);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("restart required", StringComparison.Ordinal);
         _ = await Assert.That(result.Description).Contains($"{nameof(ArgumentException)}: unexpected", StringComparison.Ordinal);
     }

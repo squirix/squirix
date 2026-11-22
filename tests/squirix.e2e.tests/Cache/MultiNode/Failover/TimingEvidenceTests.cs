@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>The percentiles and the limit of the failover timing evidence, which only the stress job exercises with real timings.</summary>
-public sealed class TimingEvidenceTests : EndToEndTestBase
+public sealed class TimingEvidenceTests
 {
     /// <summary>The nearest rank percentile of thirty values takes the fifteenth for the median and the twenty-ninth for p95; one value is every percentile.</summary>
     /// <returns>A task that represents the asynchronous test.</returns>
@@ -64,7 +64,10 @@ public sealed class TimingEvidenceTests : EndToEndTestBase
     [Test]
     public async Task EvidenceRoundTripsStopPhases()
     {
-        var withPhases = new FailoverSample(1, "nodeA", "nodeB", 2UL, 1000.0, 100.0, 900.0, null, null, null, null, 90.0, 4.0, 2.5, 97.0, 3, 88.0);
+        var withPhases = new FailoverSample(1, "nodeA", "nodeB", 2UL, 1000.0, 100.0, 900.0, null, null, null, null, 90.0, 4.0, 2.5, 97.0, 3, 88.0)
+        {
+            ElectionCalls = [new ElectionCall(6.5, "nodeA", "nodeB", "hint", 1UL)],
+        };
         var without = new FailoverSample(2, "nodeA", "nodeB", 2UL, 1000.0, 100.0, 900.0, null, null, null, null);
         var evidence = FailoverEvidence.Build("test", new TestElectionTiming(), [withPhases, without], true);
 
@@ -73,8 +76,11 @@ public sealed class TimingEvidenceTests : EndToEndTestBase
 
         _ = await Assert.That(json).Contains("\"stopHostMs\": 90");
         _ = await Assert.That(json).Contains("\"stopInFlightRequests\": 3");
-        _ = await Assert.That(read!.Samples[0]).IsEqualTo(withPhases);
-        _ = await Assert.That(read.Samples[1]).IsEqualTo(without);
+        _ = await Assert.That(read!.Samples[0] with { ElectionCalls = withPhases.ElectionCalls }).IsEqualTo(withPhases);
+        _ = await Assert.That(read.Samples[0].ElectionCalls).Count().IsEqualTo(1);
+        _ = await Assert.That(read.Samples[0].ElectionCalls[0]).IsEqualTo(withPhases.ElectionCalls[0]);
+        _ = await Assert.That(read.Samples[1] with { ElectionCalls = without.ElectionCalls }).IsEqualTo(without);
+        _ = await Assert.That(read.Samples[1].ElectionCalls).IsEmpty();
         _ = await Assert.That(read.Samples[1].StopTotalMs).IsNull();
     }
 
@@ -91,9 +97,12 @@ public sealed class TimingEvidenceTests : EndToEndTestBase
         for (var i = 0; i < added.Length; i++)
             _ = oldSample.Remove(added[i]);
 
+        _ = oldSample.Remove("electionCalls");
+
         var read = JsonSerializer.Deserialize(old.ToJsonString(), FailoverEvidenceJsonContext.Default.FailoverTimingEvidence);
 
         _ = await Assert.That(oldSample.ContainsKey("stopHostMs")).IsFalse();
-        _ = await Assert.That(read!.Samples[0]).IsEqualTo(sample with { StopHostMs = null, StopDisposeMs = null, StopPersistenceReleaseMs = null, StopTotalMs = null, StopInFlightRequests = null, StopLastRequestFinishedMs = null });
+        _ = await Assert.That(read!.Samples[0] with { ElectionCalls = sample.ElectionCalls }).IsEqualTo(sample with { StopHostMs = null, StopDisposeMs = null, StopPersistenceReleaseMs = null, StopTotalMs = null, StopInFlightRequests = null, StopLastRequestFinishedMs = null });
+        _ = await Assert.That(read.Samples[0].ElectionCalls).IsEmpty();
     }
 }

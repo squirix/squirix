@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -126,7 +126,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
                 continue;
             }
 
-            _ = state.TryResolve(Scope, id, [2], index, 1UL);
+            _ = state.TryResolve(Scope, id, new byte[] { 2 }, index, 1UL);
             clock.Advance(TimeSpan.FromSeconds(1));
         }
 
@@ -302,7 +302,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
     private static void Resolve(GroupIdempotencyState state, string id, ulong index)
     {
         _ = state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
-        _ = state.TryResolve(Scope, id, [2], index, 1UL);
+        _ = state.TryResolve(Scope, id, new byte[] { 2 }, index, 1UL);
     }
 
     private static void Commit(GroupIdempotencyState state, FakeTimeProvider clock, string id, ulong index, TimeSpan decided)

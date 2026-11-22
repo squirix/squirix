@@ -12,6 +12,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal interface IReplicaVoteGateway
 {
+    Task SendTransferAsync(string target, ReplicaRpcHeader header, CancellationToken cancellationToken) => Task.CompletedTask;
+
     /// <summary>Asks one voter whether it would grant a vote for the term the candidate proposes, without changing the voter.</summary>
     /// <param name="nodeId">Target voter node identifier.</param>
     /// <param name="header">Replication envelope identity; its term is the proposed term.</param>

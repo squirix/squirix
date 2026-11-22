@@ -3,20 +3,19 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.TestKit;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>Logger provider recording every entry a host logs, with its category.</summary>
 [ThreadSafe]
-internal sealed class RecordingLoggerProvider : ILoggerProvider
+internal sealed class RecordingLoggerProvider : IServerLoggerFactory
 {
     private readonly ConcurrentQueue<RecordedLogEntry> _entries = new();
 
-    public ILogger CreateLogger(string categoryName) => new RecordingLogger(this, categoryName);
+    public IServerLogger CreateLogger(string categoryName) => new RecordingLogger(this, categoryName);
 
     public void Dispose()
     {
@@ -39,12 +38,9 @@ internal sealed class RecordingLoggerProvider : ILoggerProvider
     /// <summary>Waits until the host logger records an entry with <paramref name="eventId" />.</summary>
     /// <param name="eventId">The event id to wait for.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The first matching entry.</returns>
-    internal async Task<RecordedLogEntry> WhenLoggedAsync(int eventId, CancellationToken cancellationToken)
-    {
-        await this.WaitUntilAsync(provider => provider.Find(eventId) != null, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        return Find(eventId)!;
-    }
+    /// <returns>The wait task.</returns>
+    internal Task WhenLoggedAsync(int eventId, CancellationToken cancellationToken) =>
+        this.WaitUntilAsync(provider => provider.Find(eventId) != null, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
     /// <summary>Takes a snapshot of every recorded entry.</summary>
     /// <returns>The entries in recording order.</returns>
@@ -52,7 +48,7 @@ internal sealed class RecordingLoggerProvider : ILoggerProvider
 
     /// <summary>Registers this provider with the host logger factory.</summary>
     /// <param name="services">The host service collection.</param>
-    internal void Register(IServiceCollection services) => _ = services.AddSingleton<ILoggerProvider>(this);
+    internal void Register(TestServiceCollection services) => _ = services.AddSingleton<IServerLoggerFactory>(this);
 
     private void Record(RecordedLogEntry entry) => _entries.Enqueue(entry);
 
@@ -62,10 +58,10 @@ internal sealed class RecordingLoggerProvider : ILoggerProvider
     /// <param name="Category">The logger category.</param>
     /// <param name="Message">The formatted message.</param>
     [Immutable]
-    internal sealed record RecordedLogEntry(int EventId, LogLevel Level, string Category, string Message);
+    internal sealed record RecordedLogEntry(int EventId, ServerLogLevel Level, string Category, string Message);
 
     [Immutable]
-    private sealed class RecordingLogger : ILogger
+    private sealed class RecordingLogger : IServerLogger
     {
         private readonly string _category;
         private readonly RecordingLoggerProvider _owner;
@@ -79,9 +75,9 @@ internal sealed class RecordingLoggerProvider : ILoggerProvider
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             _owner.Record(new RecordedLogEntry(eventId.Id, logLevel, _category, formatter(state, exception)));
     }
 }

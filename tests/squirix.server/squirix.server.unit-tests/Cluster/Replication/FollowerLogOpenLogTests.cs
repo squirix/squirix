@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -43,7 +43,7 @@ public sealed class FollowerLogOpenLogTests : ServerUnitTestBase
             await log.OpenAsync(cancellationToken);
 
         _ = await Assert.That(fresh.Count(OpenedNotCompleteEventId)).IsEqualTo(1);
-        _ = await Assert.That(fresh.Find(OpenedNotCompleteEventId)?.Level).IsEqualTo(LogLevel.Information);
+        _ = await Assert.That(fresh.Find(OpenedNotCompleteEventId)?.Level).IsEqualTo(ServerLogLevel.Information);
         _ = await Assert.That(fresh.FindMessage(OpenedNotCompleteEventId)).Contains("Replica group n1 log opened with a copy that is unseeded");
         _ = await Assert.That(reopened.Count(OpenedNotCompleteEventId)).IsEqualTo(1);
         _ = await Assert.That(complete.Count(OpenedNotCompleteEventId)).IsEqualTo(0);

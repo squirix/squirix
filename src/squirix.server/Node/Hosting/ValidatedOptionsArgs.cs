@@ -3,6 +3,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage;
 
 namespace Squirix.Server.Node.Hosting;
@@ -13,11 +14,13 @@ internal sealed class ValidatedOptionsArgs
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
-    internal MtlsCertificate? Certificate { get; init; }
+    internal required MtlsCertificate Certificate { get; init; }
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
 
-    internal MtlsOptions? MtlsOptions { get; init; }
+    internal required MtlsOptions MtlsOptions { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
+
+    internal PrometheusMetricsEndpointOptions? PrometheusMetricsOptions { get; init; }
 }

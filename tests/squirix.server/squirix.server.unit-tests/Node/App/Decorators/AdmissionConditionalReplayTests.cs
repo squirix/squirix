@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -15,6 +13,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -58,7 +57,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
                                                     && string.Equals(operationId, "op-1", StringComparison.Ordinal),
             1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, OtherKey, entry, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, OtherKey, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await cache.SetEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
@@ -201,7 +200,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var accounting = CreateAccounting();
         var cache = Create(inner.Instance(), accounting, static (_, _, _) => false, 1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
     }
@@ -221,7 +220,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var accounting = CreateAccounting();
         var refusing = Create(instance, accounting, static (_, _, _) => false, 1, FencedAbsentAsync);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(refusing.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(refusing.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(admitted).IsTrue();
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
@@ -271,12 +270,12 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
             CreateAccounting(),
             static (_, _, _) => false,
             10_000_000_000,
-            static (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(new RpcException(new Status(StatusCode.Unavailable, "unconfirmed"))));
+            static (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(new ServerCallException(FrameStatus.Unavailable, "unconfirmed")));
 
         // The inner double has no add set up: a call would throw a different exception.
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }
 
     /// <inheritdoc />
@@ -293,9 +292,8 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         long maxEstimatedCacheBytes = 10_000_000_000,
         Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<string>>>? readFenced = null)
     {
-        var options = Options.Create(
-            new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, Self, _testMeter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome, null, readFenced);
     }
 }

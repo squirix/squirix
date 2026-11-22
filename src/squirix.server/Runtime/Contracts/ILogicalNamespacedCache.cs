@@ -22,7 +22,7 @@ internal interface ILogicalNamespacedCache<T>
     ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         ValueWithDeadlineOfAsync(GetEntryAsync(cacheName, key, cancellationToken));
 
-    ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
+    ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
 
     ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
 
@@ -79,6 +79,6 @@ internal interface ILogicalNamespacedCache<T>
     private static async ValueTask<NodeCacheValueRead<T>> ValueWithDeadlineOfAsync(ValueTask<NodeCacheEntry<T>?> reading)
     {
         var entry = await reading.ConfigureAwait(false);
-        return entry == null ? default : new NodeCacheValueRead<T>(true, entry.Value, entry.ExpiresUtc);
+        return entry == null ? default : new NodeCacheValueRead<T>(true, entry.RawValue, entry.ExpiresUtc);
     }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
@@ -8,15 +9,16 @@ namespace Squirix.Server.Node.Observability;
 [Immutable]
 internal sealed class ManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics
 {
-    private readonly StorageRetentionMetrics _storageRetentionMetrics;
+    private readonly StorageRetentionMetrics? _storageRetentionMetrics;
 
-    internal ManifestRetentionFailureMetrics(Meter meter)
+    internal ManifestRetentionFailureMetrics(Meter? meter)
     {
-        _storageRetentionMetrics = new StorageRetentionMetrics(meter);
+        if (meter != null)
+            _storageRetentionMetrics = new StorageRetentionMetrics(meter);
     }
 
     /// <inheritdoc />
-    public void RecordDeleteFailure(string artifactKind, string outcome) => _storageRetentionMetrics.IncrementDeleteFailuresTotal(artifactKind, outcome);
+    public void RecordDeleteFailure(string artifactKind, string outcome) => _storageRetentionMetrics?.IncrementDeleteFailuresTotal(artifactKind, outcome);
 
     /// <summary>Low-cardinality manifest retention cleanup metrics on the host-scoped <see cref="Meter" />.</summary>
     [Immutable]
@@ -29,12 +31,20 @@ internal sealed class ManifestRetentionFailureMetrics : IManifestRetentionFailur
             _deleteFailuresTotal = new Counter2Labels(meter.CreateCounter<long>("squirix_storage_retention_delete_failures_total"), "artifact", "outcome");
         }
 
-        internal void IncrementDeleteFailuresTotal(string artifactKind, string outcome, int increment = 1) => _deleteFailuresTotal.WithLabels(artifactKind, outcome).Inc(increment);
+        internal void IncrementDeleteFailuresTotal(string artifactKind, string outcome, int increment = 1) => _deleteFailuresTotal.Add(artifactKind, outcome, increment);
 
         [Immutable]
         private sealed record Counter2Labels(Counter<long> Counter, string Key1, string Key2)
         {
-            internal ServerCounterLabelBinding WithLabels(string v1, string v2) => new(Counter, Key1, v1, Key2, v2);
+            internal void Add(string v1, string v2, long value = 1)
+            {
+                var tags = new TagList
+                {
+                    { Key1, v1 },
+                    { Key2, v2 },
+                };
+                Counter.Add(value, in tags);
+            }
         }
     }
 }

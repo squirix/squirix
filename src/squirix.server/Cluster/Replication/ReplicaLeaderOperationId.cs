@@ -8,8 +8,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Derives the deterministic identity of the no-op a leader appends at the start of its leadership.</summary>
 /// <remarks>
 /// One term has one leader and one log index holds one entry, so the term and the index name the entry within its group. Every
-/// leadership appends a no-op of its own: a leader of the provisional term one that restarts appends another at a new index, which no
-/// entry of the earlier run can stand in for, and two no-ops of one term recovered together in a tail never share a pin.
+/// leadership appends a no-op of its own: an uncommitted provisional bootstrap that restarts appends another after its durable tail,
+/// while a recovered committed owner must win a higher term. Two no-ops of one term recovered together in a tail never share a pin.
 /// </remarks>
 internal static class ReplicaLeaderOperationId
 {

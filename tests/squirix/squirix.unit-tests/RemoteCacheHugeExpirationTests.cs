@@ -1,78 +1,74 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
-using Squirix.TestKit;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
-/// <summary>Covers the client wire form of a relative expiration beyond the normalized duration range.</summary>
+/// <summary>Covers the client wire form of a relative expiration up to TimeSpan.MaxValue.</summary>
 [Immutable]
 public sealed class RemoteCacheHugeExpirationTests
 {
     private const long FourMillionDaysTicks = 4_000_000L * TimeSpan.TicksPerDay;
     private const string Key = "key-a";
-    private const long MaxDurationSeconds = 315_576_000_000L;
 
-    /// <summary>TryAdd sends the largest normalized duration.</summary>
+    /// <summary>TryAdd sends the exact duration.</summary>
     /// <param name="ticks">The expiration in ticks.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(long.MaxValue)]
     [Arguments(FourMillionDaysTicks)]
-    public async Task AddClampsExpiration(long ticks, CancellationToken cancellationToken)
+    public async Task AddPreservesExpiration(long ticks, CancellationToken cancellationToken)
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
 
         _ = await CreateCache(pool).TryAddAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
 
-        _ = await Assert.That(transport.Expiration?.Seconds).IsEqualTo(MaxDurationSeconds);
+        _ = await Assert.That(transport.Expiration?.Ticks).IsEqualTo(ticks);
     }
 
-    /// <summary>Set sends the largest normalized duration.</summary>
+    /// <summary>Set sends the exact duration.</summary>
     /// <param name="ticks">The expiration in ticks.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(long.MaxValue)]
     [Arguments(FourMillionDaysTicks)]
-    public async Task SetClampsExpiration(long ticks, CancellationToken cancellationToken)
+    public async Task SetPreservesExpiration(long ticks, CancellationToken cancellationToken)
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
 
         await CreateCache(pool).SetAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
 
-        _ = await Assert.That(transport.Expiration?.Seconds).IsEqualTo(MaxDurationSeconds);
+        _ = await Assert.That(transport.Expiration?.Ticks).IsEqualTo(ticks);
     }
 
-    /// <summary>Touch sends the largest normalized duration.</summary>
+    /// <summary>Touch sends the exact duration.</summary>
     /// <param name="ticks">The expiration in ticks.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(long.MaxValue)]
     [Arguments(FourMillionDaysTicks)]
-    public async Task TouchClampsExpiration(long ticks, CancellationToken cancellationToken)
+    public async Task TouchPreservesExpiration(long ticks, CancellationToken cancellationToken)
     {
         var transport = new CaptureTransport();
         await using var policy = CreatePolicy();
-        await using var pool = CreatePool(transport, policy);
+        await using var pool = SingleNodeClientPool.Create(transport.InvokeAsync, policy);
 
         _ = await CreateCache(pool).TouchAsync(Key, TimeSpan.FromTicks(ticks), cancellationToken);
 
-        _ = await Assert.That(transport.Expiration?.Seconds).IsEqualTo(MaxDurationSeconds);
+        _ = await Assert.That(transport.Expiration?.Ticks).IsEqualTo(ticks);
     }
 
     private static RemoteCache<long> CreateCache(IClientPool pool) => new(
@@ -83,47 +79,24 @@ public sealed class RemoteCacheHugeExpirationTests
 
     private static CallPolicy CreatePolicy() => new(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "huge-expiration");
 
-    private static IClientPool CreatePool(CaptureTransport transport, CallPolicy policy)
+    private sealed class CaptureTransport
     {
-        var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
-        var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
-        _ = poolExpectations.Setups.BeginDrain();
-        _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-        return poolExpectations.Instance();
-    }
+        internal TimeSpan? Expiration { get; private set; }
 
-    private sealed class CaptureTransport : CallInvoker
-    {
-        internal Duration? Expiration { get; private set; }
+        internal Func<BinaryOperation, WireMessage, IWireParser, BinaryCallOptions, Task<WireMessage>> InvokeAsync =>
+            (_, request, _, _) => HandleAsync(request);
 
-        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The capture transport supports unary calls only.");
-
-        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options) => throw new InvalidOperationException("The capture transport supports unary calls only.");
-
-        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
-            Method<TRequest, TResponse> method,
-            string? host,
-            CallOptions options,
-            TRequest request) => throw new InvalidOperationException("The capture transport supports unary calls only.");
-
-        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
+        private Task<WireMessage> HandleAsync(WireMessage request)
         {
-            object response;
+            WireMessage response;
             switch (request)
             {
                 case SetEntryAsyncRequest set:
-                    Expiration = set.Entry.Expiration;
+                    Expiration = set.Entry!.Expiration;
                     response = new SetAsyncResponse();
                     break;
                 case TryAddEntryAsyncRequest tryAdd:
-                    Expiration = tryAdd.Entry.Expiration;
+                    Expiration = tryAdd.Entry!.Expiration;
                     response = new TryAddAsyncResponse { Added = true };
                     break;
                 case TouchAsyncRequest touch:
@@ -134,16 +107,7 @@ public sealed class RemoteCacheHugeExpirationTests
                     throw new InvalidOperationException("The capture transport supports set, try-add and touch requests only.");
             }
 
-            var typed = KitThrowHelper.Required(response as TResponse, "The capture transport got an unexpected response type.");
-            return new AsyncUnaryCall<TResponse>(
-                Task.FromResult(typed),
-                Task.FromResult(new Metadata()),
-                static () => new Status(StatusCode.OK, string.Empty),
-                static () => [],
-                static () => { });
+            return Task.FromResult(response);
         }
-
-        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-            throw new InvalidOperationException("The capture transport supports asynchronous calls only.");
     }
 }

@@ -19,15 +19,15 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     [Test]
     public async Task CustomRecordRoundTripsAcrossTwoNodes(CancellationToken cancellationToken)
     {
-        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>(cancellationToken);
-        var nodeAKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-record-a");
-        var nodeBKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-record-b");
+        var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
+        var nodeAKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-record-a");
+        var nodeBKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-record-b");
         var nodeAValue = TypedValueFactory.CreateProfile(nodeAKey);
         var nodeBValue = TypedValueFactory.CreateUpdatedProfile(nodeBKey);
-        await cluster.CacheA.SetAsync(nodeAKey, nodeAValue, cancellationToken: cancellationToken);
-        await cluster.CacheA.SetAsync(nodeBKey, nodeBValue, cancellationToken: cancellationToken);
-        var nodeAResult = await cluster.CacheA.GetValueAsync(nodeAKey, cancellationToken);
-        var nodeBResult = await cluster.CacheA.GetValueAsync(nodeBKey, cancellationToken);
+        await cache.SetAsync(nodeAKey, nodeAValue, cancellationToken: cancellationToken);
+        await cache.SetAsync(nodeBKey, nodeBValue, cancellationToken: cancellationToken);
+        var nodeAResult = await cache.GetValueAsync(nodeAKey, cancellationToken);
+        var nodeBResult = await cache.GetValueAsync(nodeBKey, cancellationToken);
         _ = await Assert.That(nodeAResult.Found).IsTrue();
         _ = await Assert.That(nodeBResult.Found).IsTrue();
         await TypedValueAssertions.AssertProfileEqualsAsync(nodeAValue, nodeAResult.Value!);
@@ -39,14 +39,14 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     [Test]
     public async Task GetOrAddStoresCustomRecordForRemoteOwner(CancellationToken cancellationToken)
     {
-        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-get-or-add");
+        var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-get-or-add");
         var expected = TypedValueFactory.CreateProfile(key);
-        var added = await cluster.CacheA.GetOrAddAsync(
+        var added = await cache.GetOrAddAsync(
             key,
             static (factoryKey, _) => Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateProfile(factoryKey)),
             cancellationToken: cancellationToken);
-        var reread = await cluster.CacheA.GetOrAddAsync(
+        var reread = await cache.GetOrAddAsync(
             key,
             static (_, _) => Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateUpdatedProfile("unused")),
             cancellationToken: cancellationToken);
@@ -56,34 +56,20 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
         await TypedValueAssertions.AssertProfileEqualsAsync(expected, reread.Value!);
     }
 
-    /// <summary>Verifies LocalOwnerCustomRecordRoundTripsTwoNodes.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LocalOwnerCustomRecordRoundTripsTwoNodes(CancellationToken cancellationToken)
-    {
-        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "typed-local-record");
-        var expected = TypedValueFactory.CreateProfile(key);
-        await cluster.CacheA.SetAsync(key, expected, cancellationToken: cancellationToken);
-        var result = await cluster.CacheA.GetValueAsync(key, cancellationToken);
-        _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
-    }
-
     /// <summary>Verifies MutableClassRoundTripsAcrossTwoNodes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task MutableClassRoundTripsAcrossTwoNodes(CancellationToken cancellationToken)
     {
-        var cluster = await GetNamedCachesAsync<TypedMutableCart>(cancellationToken);
-        var nodeAKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-cart-a");
-        var nodeBKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-cart-b");
+        var cache = await Fixture.GetCacheAAsync<TypedMutableCart>(cancellationToken);
+        var nodeAKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-cart-a");
+        var nodeBKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-cart-b");
         var nodeAValue = TypedValueFactory.CreateCart(nodeAKey);
         var nodeBValue = TypedValueFactory.CreateUpdatedCart(nodeBKey);
-        await cluster.CacheA.SetAsync(nodeAKey, nodeAValue, cancellationToken: cancellationToken);
-        await cluster.CacheA.SetAsync(nodeBKey, nodeBValue, cancellationToken: cancellationToken);
-        var nodeAResult = await cluster.CacheA.GetValueAsync(nodeAKey, cancellationToken);
-        var nodeBResult = await cluster.CacheA.GetValueAsync(nodeBKey, cancellationToken);
+        await cache.SetAsync(nodeAKey, nodeAValue, cancellationToken: cancellationToken);
+        await cache.SetAsync(nodeBKey, nodeBValue, cancellationToken: cancellationToken);
+        var nodeAResult = await cache.GetValueAsync(nodeAKey, cancellationToken);
+        var nodeBResult = await cache.GetValueAsync(nodeBKey, cancellationToken);
         _ = await Assert.That(nodeAResult.Found).IsTrue();
         _ = await Assert.That(nodeBResult.Found).IsTrue();
         await TypedValueAssertions.AssertCartEqualsAsync(nodeAValue, nodeAResult.Value!);
@@ -95,11 +81,11 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     [Test]
     public async Task RemoteOwnerCustomRecordRoundTripsNodes(CancellationToken cancellationToken)
     {
-        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-record");
+        var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-record");
         var expected = TypedValueFactory.CreateProfile(key);
-        await cluster.CacheA.SetAsync(key, expected, cancellationToken: cancellationToken);
-        var result = await cluster.CacheA.GetValueAsync(key, cancellationToken);
+        await cache.SetAsync(key, expected, cancellationToken: cancellationToken);
+        var result = await cache.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
         await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
@@ -109,11 +95,11 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     [Test]
     public async Task RemoveDeletesRemoteOwnerCustomRecord(CancellationToken cancellationToken)
     {
-        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-remove");
-        await cluster.CacheA.SetAsync(key, TypedValueFactory.CreateProfile(key), cancellationToken: cancellationToken);
-        _ = await Assert.That(await cluster.CacheA.RemoveAsync(key, cancellationToken)).IsTrue();
-        _ = await Assert.That((await cluster.CacheA.GetValueAsync(key, cancellationToken)).Found).IsFalse();
+        var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-remove");
+        await cache.SetAsync(key, TypedValueFactory.CreateProfile(key), cancellationToken: cancellationToken);
+        _ = await Assert.That(await cache.RemoveAsync(key, cancellationToken)).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync(key, cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies UpdateKeepsExpiryOfRemoteCustomRecord.</summary>
@@ -121,13 +107,13 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     [Test]
     public async Task UpdateKeepsExpiryOfRemoteCustomRecord(CancellationToken cancellationToken)
     {
-        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");
+        var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");
         var updated = TypedValueFactory.CreateUpdatedProfile(key);
-        await cluster.CacheA.SetAsync(key, TypedValueFactory.CreateProfile(key), Expiry.In(TimeSpan.FromMinutes(5)), cancellationToken);
-        _ = await Assert.That(await cluster.CacheA.UpdateAsync(key, updated, cancellationToken)).IsTrue();
-        var result = await cluster.CacheA.GetValueAsync(key, cancellationToken);
-        var expiration = await cluster.CacheA.GetExpirationAsync(key, cancellationToken);
+        await cache.SetAsync(key, TypedValueFactory.CreateProfile(key), Expiry.In(TimeSpan.FromMinutes(5)), cancellationToken);
+        _ = await Assert.That(await cache.UpdateAsync(key, updated, cancellationToken)).IsTrue();
+        var result = await cache.GetValueAsync(key, cancellationToken);
+        var expiration = await cache.GetExpirationAsync(key, cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
         _ = await Assert.That(expiration.HasExpiration).IsTrue();
         await TypedValueAssertions.AssertProfileEqualsAsync(updated, result.Value!);

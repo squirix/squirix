@@ -237,7 +237,7 @@ so a group led statically, or with the switch off, refuses while its copy is not
 
 ### Executable model (isolation)
 
-- Model project: `src/squirix.protocol-model` (`Squirix.ProtocolModel`), `net10.0` only; not a shipped product package.
+- Model project: `src/squirix.protocol-model` (`Squirix.ProtocolModel`) follows the solution's selected target framework and is not shipped as a product package.
 - Tests: `tests/squirix.protocol-model/squirix.protocol-model.tests` — reference the model only (not product assemblies).
 - No `ProjectReference` from model → product or product → model.
 - Layers: immutable canonical state → pure transitions → deterministic BFS explorer → safety invariants + minimal
@@ -459,30 +459,22 @@ places, recorded here as known deviations.
   applied index roll back by one publish. The model has no media damage; the rollback is safe because the committed entries stay in
   the log or its snapshot and are committed again by the next leader's commit index.
 
-### Mapping model → future product components
+### Mapping the model to the implementation
 
-| Model concept                         | Future product home                                                                                 |
-|---------------------------------------|-----------------------------------------------------------------------------------------------------|
-| Term / vote persistence               | `Squirix.Server.Cluster.Replication` + durable group state via `Squirix.Server.Storage.Replication` |
-| AppendEntries / vote / ReadIndex RPCs | Server-only protobuf under `Squirix.Server.Adapters.Grpc` (not shared `SquirixCache.proto`)         |
-| Log matching / catch-up               | `Cluster.Replication` orchestration over `Storage.Replication` journal/snapshot ports               |
-| Majority commit pipeline              | Durable replication pipeline (M8-07+)                                                               |
-| ReadIndex wait on apply               | Leader read authority path (M8-11/M8-12)                                                            |
-| Topology fingerprint / generation     | Placement + config (M8-02/M8-03)                                                                    |
+| Model concept | Implementation |
+| --- | --- |
+| Elections and durable term/vote state | [ReplicaGroupElection](../../src/squirix.server/Cluster/Replication/ReplicaGroupElection.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
+| Append, vote, and state transfer RPCs | Server-only native binary messages over [the internal peer protocol](../security/internode-mtls.md) |
+| Log matching, catch-up, and majority commit | [ReplicaGroupCommitter](../../src/squirix.server/Node/Services/ReplicaGroupCommitter.cs), [FollowerLog](../../src/squirix.server/Storage/Replication/FollowerLog.cs) |
+| ReadIndex confirmation and wait for apply | [ReplicaGroupCommitPipeline](../../src/squirix.server/Node/Services/ReplicaGroupCommitPipeline.cs), [ReplicaGroupCommitterReads](../../src/squirix.server/Node/Services/ReplicaGroupCommitterReads.cs) |
+| Topology fingerprint and generation | [TopologyFingerprint](../../src/squirix.server/Cluster/Replication/TopologyFingerprint.cs), replication RPC headers |
 
-`ProtocolModelConformanceTests` checks that the leader's sequence of terms and indexes during a commit, an election and a
-quorum read is a path the model reaches, with the leader's slot, the term of its last entry, the votes of its election, the copies
-behind each commit, and the read index and confirmations of each read. The test kit counts those votes, copies and confirmations
-itself, from the replies it hands to the real election, commit coordinator and read-index round; the model needs at most that many,
-so a product that commits, wins or serves a read with fewer is rejected. The scenarios with a minority (a commit whose followers gave
-no valid acknowledgement, an election with one counted vote, a read confirmed only by stale replies) produce no step the model can
-accept, which is how they catch a weakened majority or a dropped term check. A node's commit index in the model rises only through its
-own leader commit rule or a leader's repair, so each point that observes copies describes the leader's own commit decision. The
-commit, election and read scenarios run on the small profiles. The recovered-tail scenario runs in the log-rules profile with two terms
-and two entries; `ProtocolModelTraceTests.ModelRejectsEarlierTermTailTrace` pins that the model does not accept an earlier-term commit
-there. Its tail copies are declared by the scenario, not counted from replies. The tables above tie each model rule to the product tests that fail when it is
-broken. The model version hash comes from the `semantic` string in `ExploreRunner` (`ComputeModelVersionHash`), which is changed
-whenever the model's transitions change, and `ProtocolModelConformanceTests.ProtocolVersionMatchesModelManifest` pins it.
+`ProtocolModelConformanceTests` compares product traces with the model. It counts votes, copies, and read
+confirmations from replies supplied to the product. Minority commit, election, and read traces must be rejected.
+For the recovered-tail scenario, the scenario supplies the copy counts.
+`ProtocolModelTraceTests.ModelRejectsEarlierTermTailTrace` checks that the model rejects an earlier-term commit.
+`ProtocolModelConformanceTests.ProtocolVersionMatchesModelManifest` pins the model version hash, which
+`ExploreRunner.ComputeModelVersionHash` derives from the model's semantic version string.
 
 ### Namespace DAG
 
@@ -507,10 +499,10 @@ machinery scales across the allowed RF set; operational budgets are validated by
 
 ### Replica-group snapshots
 
-The storage layer publishes a CRC32C-validated snapshot, held in two in-place slot files (`group.snapshot.0` and
-`group.snapshot.1`; see [snapshot format](../snapshot-format.md#replica-group-snapshots)), containing the committed
-baseline and resolved idempotency outcomes, and carries no cache entries. Compaction removes only the journal prefix covered by the
-published snapshot and rewrites the log into a new generation file. A snapshot reaches a follower only inside a
+The storage layer publishes CRC32C-validated snapshots through a two-slot pointer file
+(see [snapshot format](../snapshot-format.md#replica-group-snapshots)). Each snapshot contains the committed
+baseline and resolved idempotency outcomes. Compaction writes one new snapshot and keeps the WAL required to
+recover from the preceding one. A snapshot reaches a follower only inside a
 [state transfer](#state-transfer), which also carries the cache entries of the group; there is no request that installs
 a snapshot alone, because it would move the applied index of a follower past data that follower does not hold.
 
@@ -533,17 +525,17 @@ build is refused and left unchanged.
 - **Trigger.** The same pass compacts a group log once the group log reaches `ReplicaLogCompactionMb` (default 64 MiB) or
   holds `ReplicaLogCompactionEntries` entries (default 100 000); see
   [configuration](../configuration.md#persistence-host-defaults).
-- **Follower compaction.** A follower compacts its copy of a group through the applied index it persisted, while the
-  commit index may be higher. It publishes the group snapshot through that index and rewrites the group log to its header
-  plus every entry above it, committed or not, so the apply loop and the leader's next append find them. The step waits
-  until the apply loop has rebuilt the outcomes of the applied entries, and while nothing was applied past the last
-  snapshot. A crash after the snapshot is published, or after the group log is rewritten, recovers the same state: the
-  snapshot, the commit index, and the entries above the snapshot.
-- **Gated owner step.** The owner's compaction runs as one step under the commit gate, so writes wait for it and
-  continue after it.
-  It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
-  follower slot verified ready with a durable match index at the commit index. It then publishes the group snapshot
-  through the commit index and rewrites the group log to its header.
+- **Follower compaction.** A follower captures the durable applied index once it advances past the previous snapshot and
+  the apply loop has rebuilt its outcomes. The follower prepares the snapshot and copies and flushes the retained WAL
+  prefix outside the log gate, allowing replication appends to continue. It rechecks the captured boundary before
+  publishing and preserves every entry above it, including entries appended during preparation. Recovery selects the old
+  WAL until the new WAL header is sealed and flushed.
+- **Owner compaction.** Under the commit gate the owner checks the committed, applied prefix and captures its
+  outcomes at the durable applied index. It writes and verifies the immutable snapshot and copies and flushes the
+  retained committed prefix into the inactive WAL slot outside the commit and log gates. Publication reacquires the gates
+  and rechecks the tenure, applied boundary, WAL generation, fallback pointers and follower progress. It publishes
+  the snapshot pointer, copies and flushes any remaining WAL frames, and seals the new WAL header before
+  retiring the old WAL. Recovery ignores the inactive slot until it has a valid header.
 - **Every follower must have caught up, up to a limit.** The leader keeps every entry a follower may still need: a
   follower that is down, or that missed an entry, blocks compaction of the owner's group log until it is back. A
   follower whose append failed is taken out of the write quorum; once it answers again, the owner sends it the entries
@@ -560,7 +552,7 @@ build is refused and left unchanged.
   past the limit too.
 - **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. The outcomes a group
   keeps are bounded to 48 MiB of snapshot bytes: the 64 MiB snapshot limit less one 16 MiB replication message, the
-  largest outcome one entry can carry. Large outcomes such as removed values therefore do not stall compaction. The
+  largest outcome one entry can carry. The headroom remains reserved even though current removal and renewal outcomes contain only a boolean. The
   rest of the limit is headroom for outcomes kept past the bound: on a follower whose clock ages them later than the
   leader's, and after a restart that keeps outcomes younger than the 30-second retry window. At a full table the headroom
   covers about 10 seconds of follower clock lag (16 MiB at 48 MiB per 30 seconds). Above the limit compaction stalls with
@@ -643,7 +635,7 @@ Each attempt is logged when it starts and ends on the leader and on the follower
 ### Replicated mutation effects
 
 The leader decides every replicated mutation once, at prepare time, from one read of the key and one reading of its
-clock. The record carries the decision: the outcome (the applied flag and, for a remove, the removed entry), the
+clock. The record carries the decision: the compact boolean outcome, the
 effect, and the pinned absolute expiration deadline.
 
 | Kind             | Applied when                 | Effect when applied                   | Effect otherwise                     |
@@ -671,17 +663,10 @@ entries above the durable applied index with the same result, and a recovered un
 record carries. The client outcome, the durable record outcome and the group idempotency outcome are always the same
 bytes. The operation fingerprint is computed from the request, not from the decision, so a retry keeps its identity.
 
-On a replicated host the replica group is the only authority that dedupes a write: the idempotency state of the group replays the
-outcome of a retry, joins a duplicate that is in flight, refuses a reuse of the identifier with another request, survives a leader change
-and a restart, and is rebuilt from the group log. The node-wide replay store takes no part: it is not reserved, no request fingerprint is
-computed for it, and no outcome frame is written to the node journal, so a failure of the node journal after a group commit does not
-turn the committed outcome into an unknown one. A new operation refused because the group state is full is counted by
-`squirix_replication_idempotency_refusals_total` (labels `node`, `group`). The supported rate is therefore per led group, about
-524,288 outcomes or 48 MiB per 30 seconds, whichever is reached first, and there is no node-wide limit on top of it. An RF=1 node, which has no
-group, is limited by its byte-bounded store instead, about `min(count, bytes / (512 + response bytes)) / 30` new mutations per second, up
-to about 17,400 per second with the default budget (see [configuration.md](../configuration.md#idempotency-store-capacity)). Switching a
-node from RF=1 to a replicated topology needs an empty data directory or a wait of the retention (15 minutes by default) without writes,
-because outcomes recorded by the node-wide store are not read by the group state.
+The replica group records committed outcomes, joins duplicates in flight, and refuses identifier reuse with a
+different request. It rebuilds the outcomes from the group log after a restart. A group-capacity refusal increments
+`squirix_replication_idempotency_refusals_total` (labels `node`, `group`). Each led group admits up to 524,288
+outcomes or 48 MiB per 30 seconds, whichever it reaches first.
 
 The group identifies an operation by the replica group and the cache of its key. An identifier reused with another request is refused
 only within that group and cache; the same identifier on a key of another group or cache is a separate operation. A retry of a committed
@@ -690,17 +675,18 @@ per operation id.
 
 A replica group admits up to 524,288 idempotency outcomes within a 48 MiB outcome-byte bound; recovery may briefly keep young
 outcomes above that bound. An outcome counts the bytes
-it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
+it takes in the group snapshot: framing, scope, operation id, request fingerprint and compact result. Remove and sliding renewal outcomes contain only a boolean, never the value.
 The leader decides the result before it reserves the operation, so a write in flight counts its outcome from the start
 and writes running at the same time cannot together pass the bound. An outcome is replayable for at least the retry window of 30 seconds
 by the clock of the node that answers the retry, and with node clocks within 10 seconds of each other, for at least 20 seconds after the
 leader decided it, across a leader change or a restart too. The window is twice the 15 s operation deadline of the `squirix` client, which
 covers the deadline, a clock skew of up to 10 seconds between nodes, and the time of transit and commit. An outcome may be kept longer; do
-not rely on it. A raw gRPC client that retries after that may get a new execution of the mutation. Outcomes past the window expire before
+not rely on it. A raw binary client that retries after that may get a new execution of the mutation. Outcomes past the window expire before
 room is made, so when the table is full by count or by bytes under the default policy (minimum retention equal to the window), no outcome
 can be evicted and a new write is refused for capacity; where the minimum retention is below the retention, a new write takes the place of
-the oldest outcome older than the minimum retention. A group therefore sustains the smaller of 524,288 outcomes and 48 MiB of outcomes per window: with 1 KiB removed
-values, about 1,400 removes per second, and with small sets about 13,000 writes per second. A group that takes no writes drops its expired
+the oldest outcome older than the minimum retention. A group therefore admits the smaller of 524,288 records and the number that fit in 48 MiB per window.
+For example, a 132-byte record permits about 12,700 outcomes per second over a 30-second window; this is a budget calculation, not a throughput benchmark.
+The removed value size does not affect this retained-outcome bound. A group that takes no writes drops its expired
 outcomes in the periodic maintenance pass. A write that commits is never refused for its own
 outcome. Admission is not fair by size: a write with a large outcome needs that much room at once, so while a steady
 flow of small writes keeps the table full, each outcome that passes the window makes room for the next small write
@@ -755,8 +741,23 @@ and on every follower alike.
 Pinned deadlines are rounded up to whole milliseconds, the precision of the cache journal, so a journal recovery and a log re-apply write
 the same entry.
 
-The canonical record encoding is version 4 and nodes refuse records of any other version, version 3 included: every node
-of a replica group must run the same replica log codec version.
+The canonical record encoding is version 6 and nodes refuse records of any other version: every node
+of a replica group must run the same replica log codec version. Durability schema 2 and minimum cluster package
+preview.11 participate in the topology fingerprint, so older peers cannot agree on this topology.
+
+Remove retains only its original boolean, not the deleted entry. A retry with the same retained identity returns
+that boolean and leaves a replacement untouched. Adapter Get uses a fresh server renewal identity per transport
+execution. Under the existing commit serialization it captures the current payload and the renewal decision together,
+waits for majority commit and apply, and returns that transient payload. Its retained outcome contains no response bytes.
+A network retry reads the current entry and can return newer bytes or a miss. It does not replay a historical observation.
+
+A renewal still writes the full decided entry in log order. An old pending renewal is applied before any later write,
+so retrying an internal append cannot renew or replace a newer incarnation out of order. Read fencing, term checks,
+unknown-commit handling and the existing finite retention and capacity limits remain in force.
+
+The native wire format requires manifest slot version 4, journal version 5, replica group log and metadata record version 3, and group snapshot version 6.
+Stop all nodes and start the new version with empty data directories.
+Retain the previous directories as a backup for the previous release.
 
 ### Expiry
 
@@ -766,7 +767,7 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
 
 - A read on the leader that finds its entry at or past the deadline commits an Expire record and applies it before it
   reports the miss. Concurrent reads of one key share one commit. A read whose Expire record cannot commit (no write
-  majority, a pending apply, the commit budget, or an unknown outcome) is refused with gRPC `Unavailable` and the detail
+  majority, a pending apply, the commit budget, or an unknown outcome) is refused with `Unavailable` and the detail
   `replica_expiration_pending`; nothing was read, and a retry may succeed. It is never reported as `COMMIT_OUTCOME_UNKNOWN`.
 - A background sweep on the leader expires, every 10 seconds, up to 1024 owned keys that no read touched; a pass stops
   at its first failure, logs it once, and the next pass retries. Keys of groups the node only follows are left to their
@@ -800,3 +801,36 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
 | Time-based leader lease                | Clock skew / false authority without quorum       |
 | Embed model inside `Squirix.Server`    | Shared-bug risk; ambiguous isolation              |
 | Unbounded model checking as merge gate | Non-terminating; residual risk must stay explicit |
+
+## Capacity eviction
+
+The internal default is unbounded LRU. A finite test configuration limits the number of resident keys in one named
+cache for each original owner. All copies of a key count once toward that owner's limit. Expired entries count until
+removed. The limit is fixed at startup. Ordinary memory admission runs before a write is prepared. It can refuse a
+growing write even when replacing another key might free enough memory. A refused write leaves the resident intact.
+
+On a replicated host, a group prepares a bounded write alone under its commit gate, after earlier committed writes
+have been applied. An insertion into a full scope records the victim selected by the leader. Filling an empty slot
+and overwriting an existing resident use the ordinary record. FIFO takes the oldest insertion. LFU takes the oldest
+resident still at frequency one. If all residents have already been accessed, the new key itself has the unique
+minimum frequency and is discarded. This is exact for insertion-triggered eviction with fixed capacity. Selection and
+first-hit bookkeeping take constant time. An LFU reader only enters its scope's gate on the first hit. LRU samples
+up to 16 consecutive residents of a dense array and advances the sample window on each eviction. Hits publish a
+monotonic-clock timestamp on the observed node. Near-simultaneous accesses and sampling make LRU approximate.
+Successful live lookups and updates count. Raw reads, including snapshot enumeration and journal inspection,
+do not change recency. A stale reader can update only the node it observed.
+
+Version 6 remains the encoding for every write without an eviction. Version 7 appends the selected key in the same
+cache to the record for an applied Set or TryAdd. All members must understand version 7 before a finite capacity is
+enabled. The leader and followers apply the deletion before the insertion. If the incoming key is itself the victim,
+only the deletion is applied. The group applied index advances after both effects. A crash between the effects can leave
+a local journal with only the removal. Replaying the committed group record repeats that removal and completes the
+insertion. A retry retains the original operation fingerprint and outcome. Unfenced reads may observe the interval
+between effects. Quorum readers wait for the applied index.
+
+Only committed effects change membership on replicated hosts. A promoted leader uses its local access history for
+future decisions. Snapshot installation and journal recovery rebuild policy state from the installed entries. Neither
+access timestamps nor read frequencies are replicated. Previously committed victims are replayed verbatim.
+
+On a 64-bit runtime the bounded node adds 40 bytes. The LRU sample array also holds a reference slot per resident,
+with spare slots from resizing. Admission budgets 52 additional bytes per LRU entry and 40 for LFU or FIFO.

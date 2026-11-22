@@ -1,51 +1,55 @@
 # Storage maintenance
 
-For a persistence overview, see [persistence.md](persistence.md). This document covers journal maintenance built into
-`Squirix.Server` and offline operator workflows referenced from the runbook.
+Squirix performs snapshots and journal retention online. Operators can validate configuration and inspect startup
+diagnostics with the public CLI; the CLI does not provide manual journal compaction or storage repair.
 
-## Journal retention
+## Automatic journal retention
 
-The node takes snapshots while online. After each snapshot is published, retention deletes the journal segments and older
-snapshot files it covers, so the journal quota counts only the tail after the latest snapshot. See [persistence](persistence.md).
+After a snapshot is published, retention deletes the journal segments and older snapshots it covers. The journal quota
+then counts the retained tail, not all writes since the node first started. See [Persistence](persistence.md).
 
-Readiness reports retention failures on `/health/ready/details` (`retentionCleanup`).
+Retention failures appear in `/health/ready/details` under `retentionCleanup`. Start with the reported error and the
+node logs rather than deleting files to free space. See [Journal disk quota](operational-runbook.md#journal-disk-quota).
 
-## Offline maintenance
+## Inspect a startup failure
 
-When a node cannot start or operators need to inspect on-disk layout:
+1. Capture the startup error, logs, package version, and effective node settings.
+2. Stop the node and copy its complete data directory to a separate location. Keep the original unchanged.
+3. Use the matching node configuration when inspecting that copy. Do not start a copied RF>1 directory as a duplicate
+   node or restore it into a live cluster.
 
-1. Stop the node process.
-2. Copy the full data directory to a safe location.
-3. Work on the copy first. See [operational runbook](operational-runbook.md).
+For example, if the stopped node's copied data is in `data-copy` and its settings are in `Squirix.settings.json` in the
+current directory, run:
 
-Do not delete journal segments, snapshots, or `man-current` manually unless a documented repair workflow
-confirms it is safe.
+```bash
+squirix-server validate-config --settings Squirix.settings.json --strict
+squirix-server doctor --settings Squirix.settings.json --persist --data-dir data-copy
+```
 
-Typical offline workflows (semantics only):
+Check that `data-copy` is the intended existing copy before running the second command. `doctor` can create a missing
+directory and writes, then deletes, a small access-probe file; it is not a read-only inspection command. Inspect the
+reported data path and access results, not just the exit code. An access-probe failure can be printed without making
+the command fail.
 
-- **Inspect** — summarize whether the `man-current` manifest is readable, list journal segment and snapshot indices,
-  and flag obvious layout issues.
-- **Compact** — rewrite journal history using the latest manifest snapshot watermark (node must stay stopped).
-- **Repair** — rebuild manifest metadata conservatively when `man-current` is inconsistent so recovery
-  can proceed.
+`doctor` reports configuration, port availability, data-directory access, and replica-state diagnostics. It does not
+validate every journal frame or snapshot payload, repair corruption, or prove that a restore is safe. A successful
+configuration check likewise does not prove the data directory can recover.
 
-These workflows require dedicated offline tooling and are outside the v0.1 exported `Squirix` / `Squirix.Server` product
-surface.
+## Recovery boundaries
 
-## Safety notes
+There are no public `inspect`, `compact`, or `repair` CLI commands. Do not reconstruct `man-current`, edit persisted
+terms or votes, or delete journal segments and snapshots manually. Preserve the failed directory and follow the
+[recovery runbook](operational-runbook.md#recovery) and the [RF=1 restore procedure](operational-runbook.md#restore).
 
-- Invoke mutating offline maintenance only when the node is fully stopped.
-- `repair` is intentionally conservative. If manifest metadata is lost and journal still exists, a repaired manifest
-  prefers journal-only recovery rather than guessing snapshot watermarks.
-- Take a backup before compact or repair on important datasets.
+For RF>1, an older backup must not be used to roll a node back into a live cluster. See
+[replicated-node recovery constraints](clustering.md#starting-a-replica-group).
 
-## On-disk layout (operator reference)
+## Data directory contents
 
-A node data directory typically contains:
+See [On-disk layout](persistence.md#on-disk-layout) for the file inventory and
+[Data directory lock](persistence.md#data-directory-lock) for `node.lock`.
+Follow the [backup procedure](operational-runbook.md#backup) to stop the node and copy its complete data directory
+with its matching configuration and package version.
 
-- journal segment files
-- snapshot files
-- the `man-current` manifest
-
-Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without the
-matching journal is unsafe.
+Format references: [journal](journal-binary-format.md), [snapshot](snapshot-format.md), and
+[manifest](manifest-format.md).

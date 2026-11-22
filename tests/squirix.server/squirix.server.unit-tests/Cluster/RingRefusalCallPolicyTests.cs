@@ -2,12 +2,12 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -36,7 +36,7 @@ public sealed class RingRefusalCallPolicyTests : DisposableServerUnitTestBase
             new CallPolicyTimeouts());
         int[] attempts = [0];
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(
             policy.ExecuteAsync(
                 (Mismatch: mismatch, Attempts: attempts),
                 static (state, _) =>
@@ -44,7 +44,10 @@ public sealed class RingRefusalCallPolicyTests : DisposableServerUnitTestBase
                     state.Attempts[0]++;
                     return ValueTask.FromException<int>(state.Mismatch ? RingMismatchFailure.Mismatch() : RingMismatchFailure.Fenced());
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(RingMismatchFailure.IsRefusal(ex)).IsTrue();
         _ = await Assert.That(attempts[0]).IsEqualTo(1);

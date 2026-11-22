@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
@@ -11,6 +9,8 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -75,10 +75,10 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         var admission = CreateAdmission(new ReplicatedCache(cache, committers, true), meter);
 
         var refusing = StartAddAsync(admission, getOrAdd, NewOperationId(), cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(refusing);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(refusing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(gateway.Requests).IsEqualTo(sentBefore);
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     /// <summary>
@@ -109,10 +109,10 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         var adding = StartAddAsync(admission, getOrAdd, NewOperationId(), cancellationToken);
         var waited = !adding.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(adding.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adding, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waited).IsTrue();
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(logIndexBefore);
     }
 
@@ -137,10 +137,10 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         var updating = admission.UpdateAsync(NewOperationId(), CacheName, "b", "c", cancellationToken).AsTask();
         var waited = !updating.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(updating.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(updating, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waited).IsTrue();
-        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
+        _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(logIndexBefore);
     }
 

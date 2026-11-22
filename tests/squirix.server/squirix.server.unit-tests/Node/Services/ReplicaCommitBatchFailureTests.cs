@@ -35,7 +35,7 @@ public sealed class ReplicaCommitBatchFailureTests : IsolatedStorageTestBase
         var kept = SetAsync(committer, "k1", cancellationToken);
         await giveUp.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(canceled.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(canceled, StallTimeout, TimeProvider.System, cancellationToken);
         gateway.Release();
         await Task.WhenAll(first, kept).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -78,7 +78,7 @@ public sealed class ReplicaCommitBatchFailureTests : IsolatedStorageTestBase
         var next = SetAsync(committer, "k1", cancellationToken);
         await giveUp.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(leader.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(leader, StallTimeout, TimeProvider.System, cancellationToken);
         held.Dispose();
         await next.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -103,7 +103,7 @@ public sealed class ReplicaCommitBatchFailureTests : IsolatedStorageTestBase
         gateway.Release();
 
         await Task.WhenAll(first, before, after).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(failing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(failing, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.Message).IsEqualTo("Injected prepare failure.");
         _ = await Assert.That(Applied(local)).IsEqualTo("k0,k1,k2");
@@ -195,8 +195,8 @@ public sealed class ReplicaCommitBatchFailureTests : IsolatedStorageTestBase
 
         await parked.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await queued[0].WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var second = await NodeAsyncAssert.ThrowsAsync<SquirixException>(queued[1].WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-        var third = await NodeAsyncAssert.ThrowsAsync<SquirixException>(queued[2].WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var second = await NodeAsyncAssert.ThrowsAsync<SquirixException>(queued[1], StallTimeout, TimeProvider.System, cancellationToken);
+        var third = await NodeAsyncAssert.ThrowsAsync<SquirixException>(queued[2], StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(second.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(third.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);

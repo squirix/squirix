@@ -3,12 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
-using Squirix.Server.Utils;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Services;
 
@@ -40,20 +39,28 @@ internal static class ReplicaGroupCommitterBatches
         /// <param name="cancellationToken">Ends the wait of a write that is still queued; a write a leader took is decided whatever the caller does.</param>
         /// <returns>The committed outcome payload of the write.</returns>
         /// <exception cref="OperationCanceledException">The caller gave up while the write was still queued, or while it waited for the commit gate as the leader.</exception>
-        internal async Task<ReadOnlyMemory<byte>> SubmitAsync(ReplicaCommitRequest request, CancellationToken cancellationToken)
+        internal async Task<ReadOnlyMemory<byte>> SubmitAsync(ReplicaCommitRequestBase request, CancellationToken cancellationToken)
         {
-            var leads = committer.Combiner.Enter(request) || await request.AwaitLeadershipAsync(cancellationToken).ConfigureAwait(false);
-            if (leads)
-                await committer.LeadAsync(request, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var leads = committer.Combiner.Enter(request) || await request.AwaitLeadershipAsync(cancellationToken).ConfigureAwait(false);
+                if (leads)
+                    await committer.LeadAsync(request, cancellationToken).ConfigureAwait(false);
 
-            return request.OutcomeOrThrow();
+                return request.OutcomeOrThrow();
+            }
+            catch (OperationCanceledException)
+            {
+                committer.Combiner.RemoveCanceled(request);
+                throw;
+            }
         }
 
         /// <summary>Decides a write the disposing committer never admitted: a retained entry of its operation answers it, otherwise it was refused without a leader.</summary>
         /// <param name="request">The write.</param>
         /// <returns>The retained outcome payload of the operation.</returns>
         /// <exception cref="Exception">The failure the write is refused with.</exception>
-        internal ReadOnlyMemory<byte> Refused(ReplicaCommitRequest request)
+        internal ReadOnlyMemory<byte> Refused(ReplicaCommitRequestBase request)
         {
             committer.Refuse(request, ServerOpContract.NoLeaderAuthority());
             return request.OutcomeOrThrow();
@@ -70,9 +77,18 @@ internal static class ReplicaGroupCommitterBatches
         /// <summary>Decides a write the leader cannot commit: a retained entry of its operation answers it, otherwise it fails with the refusal.</summary>
         /// <param name="request">The write.</param>
         /// <param name="refusal">The failure of a write with no retained entry.</param>
-        /// <exception cref="ArgumentOutOfRangeException">The lookup of the write returned an unnamed result; it is recorded as the failure of the write.</exception>
+        internal void Refuse(ReplicaCommitRequestBase request, Exception refusal)
+        {
+            if (!committer.TryReplayRetained(request))
+                request.Fail(refusal);
+        }
+
+        /// <summary>Completes a request from a retained outcome, mismatch or unresolved identity.</summary>
+        /// <param name="request">The request whose identity is being checked.</param>
+        /// <returns>Whether the request was completed.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">The lookup returned an unnamed result, recorded as the request's failure.</exception>
         [SuppressMessage("Design", "CA1031", Justification = "A fault of the lookup is recorded as the failure of the write, whose caller rethrows it.")]
-        internal void Refuse(ReplicaCommitRequest request, Exception refusal)
+        internal bool TryReplayRetained(ReplicaCommitRequestBase request)
         {
             try
             {
@@ -89,8 +105,7 @@ internal static class ReplicaGroupCommitterBatches
                         request.Fail(ServerOpContract.CommitOutcomeUnknown());
                         break;
                     case GroupIdempotencyLookup.Miss:
-                        request.Fail(refusal);
-                        break;
+                        return false;
                     default:
                         throw new ArgumentOutOfRangeException(nameof(request), "Unsupported lookup result.");
                 }
@@ -99,19 +114,21 @@ internal static class ReplicaGroupCommitterBatches
             {
                 request.Fail(error);
             }
+
+            return true;
         }
 
         /// <summary>Forms and commits the batch of the leading write, then hands the leadership over.</summary>
         /// <param name="self">The leading write.</param>
-        /// <param name="cancellationToken">Ends the wait for the commit gate only.</param>
+        /// <param name="cancellationToken">Ends the wait for catch-up or the commit gate, before the batch takes the write.</param>
         /// <returns>An asynchronous operation that completes once the write is decided; a failed commit is recorded on the write, not thrown.</returns>
         /// <exception cref="OperationCanceledException">The caller gave up while the leader waited for the commit gate.</exception>
-        private async Task LeadAsync(ReplicaCommitRequest self, CancellationToken cancellationToken)
+        private async Task LeadAsync(ReplicaCommitRequestBase self, CancellationToken cancellationToken)
         {
-            AsyncLockHolder guard;
+            (AsyncLockHolder CatchUp, AsyncLockHolder Commit) guard;
             try
             {
-                guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+                guard = await committer.LockForWriteAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -131,7 +148,8 @@ internal static class ReplicaGroupCommitterBatches
 
             try
             {
-                using (guard)
+                using (guard.CatchUp)
+                using (guard.Commit)
                     await committer.CommitBatchUnderGateAsync(self).ConfigureAwait(false);
             }
             finally
@@ -140,11 +158,25 @@ internal static class ReplicaGroupCommitterBatches
             }
         }
 
+        private async ValueTask<(AsyncLockHolder CatchUp, AsyncLockHolder Commit)> LockForWriteAsync(CancellationToken cancellationToken)
+        {
+            var catchUp = await committer.CatchUpGate.LockAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return (catchUp, await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false));
+            }
+            catch
+            {
+                catchUp.Dispose();
+                throw;
+            }
+        }
+
         /// <summary>Starts the coordinator when needed, forms the batch of the leader, and commits it. Every write the leader took is decided before it returns.</summary>
         /// <param name="self">The leading write.</param>
         /// <returns>An asynchronous operation.</returns>
         [SuppressMessage("Design", "CA1031", Justification = "A failure of the batch leader is handed to the callers of the writes it took, who rethrow it; leaving one open would wait for ever.")]
-        private async Task CommitBatchUnderGateAsync(ReplicaCommitRequest self)
+        private async Task CommitBatchUnderGateAsync(ReplicaCommitRequestBase self)
         {
             self.TakeLeading();
             ReplicaCommitBatchFormer? former = null;
@@ -177,12 +209,12 @@ internal static class ReplicaGroupCommitterBatches
                     failed = true;
                 }
 
-                for (var i = 0; former != null && i < former.Taken.Count; i++)
+                for (var i = 0; former != null && i < former.TakenRequests.Count; i++)
                 {
-                    if (former.Taken[i].IsCompleted)
+                    if (former.TakenRequests[i].IsCompleted)
                         continue;
 
-                    former.Taken[i].Fail(failed ? FreshFailure(error) : error);
+                    former.TakenRequests[i].Fail(failed ? FreshFailure(error) : error);
                     failed = true;
                 }
             }
@@ -193,7 +225,7 @@ internal static class ReplicaGroupCommitterBatches
         /// <param name="entries">The writes of the batch with their prepared mutations.</param>
         /// <returns>An asynchronous operation; every write of the batch is decided when it completes.</returns>
         [SuppressMessage("Design", "CA1031", Justification = "The failure of the commit is recorded on the write, whose caller rethrows it.")]
-        private async Task CommitEntriesAsync(ReplicaCommitCoordinator coordinator, List<(ReplicaCommitRequest Request, PreparedReplicaMutation Mutation)> entries)
+        private async Task CommitEntriesAsync(ReplicaCommitCoordinator coordinator, List<(ReplicaCommitRequestBase Request, PreparedReplicaMutation Mutation)> entries)
         {
             committer.CountCommitRound(entries.Count);
             if (entries.Count == 1)
@@ -224,7 +256,7 @@ internal static class ReplicaGroupCommitterBatches
         /// recorded outcome when its entry is committed, otherwise an unknown outcome.
         /// </remarks>
         [SuppressMessage("Design", "CA1031", Justification = "The failure of the run is recorded on each write of it, whose callers rethrow it.")]
-        private async Task CommitRunAsync(ReplicaCommitCoordinator coordinator, List<(ReplicaCommitRequest Request, PreparedReplicaMutation Mutation)> entries)
+        private async Task CommitRunAsync(ReplicaCommitCoordinator coordinator, List<(ReplicaCommitRequestBase Request, PreparedReplicaMutation Mutation)> entries)
         {
             var run = new PreparedReplicaMutation[entries.Count];
             for (var i = 0; i < run.Length; i++)
@@ -239,15 +271,7 @@ internal static class ReplicaGroupCommitterBatches
             }
             catch (Exception error) when (ReplicaGroupCommitterCommits.IsPostAppendOutcome(error))
             {
-                if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
-                {
-                    // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
-                    // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
-                    committer.DropStartedState();
-                    committer.ReportLocalAppendFault(unconfirmed, failedBefore);
-                }
-
-                ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+                committer.ReportPostAppendFailure(error, failedBefore);
                 committer.DecideAfterAppendFailure(entries);
             }
             catch (Exception error)
@@ -276,7 +300,7 @@ internal static class ReplicaGroupCommitterBatches
 
         /// <summary>Decides each write of a run after a failure past the local append, from the idempotency record of its operation.</summary>
         /// <param name="entries">The writes of the run with their prepared mutations.</param>
-        private void DecideAfterAppendFailure(List<(ReplicaCommitRequest Request, PreparedReplicaMutation Mutation)> entries)
+        private void DecideAfterAppendFailure(List<(ReplicaCommitRequestBase Request, PreparedReplicaMutation Mutation)> entries)
         {
             var log = committer.Registry.TryGetLog(committer.GroupId, out var open) ? open : null;
             for (var i = 0; i < entries.Count; i++)
@@ -315,7 +339,7 @@ internal static class ReplicaGroupCommitterBatches
     /// <returns>A new exception of the same contract, or <paramref name="shared" /> itself when it has no cheap copy.</returns>
     private static Exception FreshFailure(Exception shared) => shared switch
     {
-        RpcException rpc => new RpcException(rpc.Status, rpc.Trailers),
+        ServerCallException rpc => new ServerCallException(rpc.StatusCode, rpc.Error, rpc.InnerException),
         SquirixException { Detail: not null } squirix => new SquirixException(squirix.Code, squirix.Error, squirix.Detail),
         ServerOpIdMismatchException => new ServerOpIdMismatchException(),
         _ => shared,

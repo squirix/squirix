@@ -13,7 +13,7 @@ namespace Squirix.E2ETests;
 /// helpers without widening the cache-test surface, while still exercising only the public SDK.
 /// </summary>
 [Immutable]
-public abstract class LoadTestBase : EndToEndTestBase
+public abstract class LoadTestBase
 {
     /// <summary>Runs concurrent writer tasks until they complete or the budget elapses.</summary>
     /// <param name="writers">Number of concurrent writer tasks.</param>

@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -70,7 +69,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
             static (state, _) => ValueTask.FromResult(!state.Eligibility.CanCountInWriteQuorum(state.Slot)),
             Bound,
-            TimeProvider.System,
             cancellationToken);
 
         var outcome = await ReplicaNodeCommitters.OwnCommitter(owner).CompactOwnedLogAsync(
@@ -85,7 +83,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
             await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
                 static (state, _) => ValueTask.FromResult(state.Eligibility.StateFor(state.Slot) == ReplicaParticipantState.Ready),
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -93,8 +90,8 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
             throw new TimeoutException($"The owner did not admit node-c within {Bound}; compaction outcome {outcome}, slot state {eligibility.StateFor(slot)}.", exception);
         }
 
-        var held = await restarted.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
-        var metrics = await HttpClient.GetStringAsync(new Uri(owner.Uri, "/metrics"), cancellationToken);
+        var held = restarted.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
+        var metrics = await HttpClient.GetStringAsync(new Uri(owner.ManagementUri, "/metrics"), cancellationToken);
 
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
         _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");
@@ -147,30 +144,20 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
             static (state, _) => ValueTask.FromResult(state.Eligibility.StateFor(state.Slot) == ReplicaParticipantState.Ready),
             Bound,
-            TimeProvider.System,
             cancellationToken);
 
         var follower = cluster["node-c"].GetRequiredService<PhysicalCache<object?>>();
         var expected = $"{Writes}:{large}";
         await (Cache: follower, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
-            static async (state, token) => (await state.Cache.GetValueAsync(state.Key, token)).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal),
+            static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal)),
             Bound,
-            TimeProvider.System,
             cancellationToken);
-        var held = await follower.GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
+        var held = follower.GetValue(new CacheKey(CacheName, key), cancellationToken);
 
         _ = await Assert.That(readyBefore).IsEqualTo(ReplicaParticipantState.Ready);
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
         _ = await Assert.That(stateAfter).IsNotEqualTo(ReplicaParticipantState.Ready);
         _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");
-    }
-
-    private static int SlotOf(ITestNodeHost host, string nodeId)
-    {
-        var locator = host.GetRequiredService<IReplicaGroupLocator>();
-        var members = new string[locator.ReplicaCount];
-        locator.GetReplicaGroup(OwnerId, members);
-        return Array.IndexOf(members, nodeId);
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) => new()
@@ -180,12 +167,14 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         CleanTestDir = clean,
         ExtraScope = scope,
         PersistenceOptions = Persistence,
+        MetricsEnabled = true,
+        PrometheusMetricsEnabled = true,
         ServicesConfigure = SetManualMaintenance,
     };
 
     /// <summary>Replaces the group log maintenance schedule so no timer pass races the test.</summary>
     /// <param name="services">The node service collection.</param>
-    private static void SetManualMaintenance(IServiceCollection services)
+    private static void SetManualMaintenance(TestServiceCollection services)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {
@@ -194,5 +183,13 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         }
 
         _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = ManualMaintenanceInterval });
+    }
+
+    private static int SlotOf(ITestNodeHost host, string nodeId)
+    {
+        var locator = host.GetRequiredService<IReplicaGroupLocator>();
+        var members = new string[locator.ReplicaCount];
+        locator.GetReplicaGroup(OwnerId, members);
+        return Array.IndexOf(members, nodeId);
     }
 }

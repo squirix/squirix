@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -12,6 +10,7 @@ using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -47,7 +46,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var removedCount = 0;
         foreach (var result in results)
         {
-            if (result.Removed)
+            if (result)
                 removedCount++;
         }
 
@@ -169,7 +168,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             index => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, index == 0 ? small : large, cancellationToken).AsTask(),
             cancellationToken);
 
-        var stored = await physical.GetEntryAsync(new CacheKey(CacheName, key), cancellationToken);
+        var stored = physical.GetEntry(new CacheKey(CacheName, key), cancellationToken);
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(EstimateEntryBytes(estimator, CacheName, key, stored!));
@@ -281,14 +280,13 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
     private static PressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId, Meter meter)
     {
-        var options = Options.Create(
-            new PressureOptions
-            {
-                MaxEstimatedCacheBytes = 10_000_000_000,
-                HighPressureThresholdPercent = 80,
-                CriticalPressureThresholdPercent = 95,
-            });
-        return new PressureGate(new StateEvaluator(options.Value), accounting, nodeId, meter);
+        var options = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 10_000_000_000,
+            HighPressureThresholdPercent = 80,
+            CriticalPressureThresholdPercent = 95,
+        };
+        return new PressureGate(new StateEvaluator(options), accounting, nodeId, meter);
     }
 
     private static long EstimateEntryBytes(CacheEntrySizeEstimator<string> estimator, string cacheName, string key, NodeCacheEntry<string> entry) =>
@@ -363,7 +361,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             Update = UpdateCoreAsync;
         }
 
-        internal Func<int, Task<CacheRemoveResult<string>>> Remove { get; }
+        internal Func<int, Task<bool>> Remove { get; }
 
         internal Func<int, Task> SetEntry { get; }
 
@@ -371,7 +369,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
         internal Func<int, Task<bool>> Update { get; }
 
-        private Task<CacheRemoveResult<string>> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, _cancellationToken).AsTask();
+        private Task<bool> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, _cancellationToken).AsTask();
 
         private Task SetEntryCoreAsync(int index)
         {

@@ -83,7 +83,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
 
         await owner.Worker.EnqueueAsync(1).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(owner.Worker.EnqueueAsync(2));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(owner.Worker.EnqueueAsync(2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>
@@ -212,8 +212,9 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
     }
 
     /// <summary>A failing item does not prevent later items from being handled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task IsolatesHandlerExceptions()
+    public async Task IsolatesHandlerExceptions(CancellationToken cancellationToken)
     {
         var handled = new List<int>();
         using var worker = new SingleConsumerWorker<int>(
@@ -226,15 +227,16 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
             },
             static (_, _) => { });
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(worker.EnqueueAsync(1));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(worker.EnqueueAsync(1), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await worker.EnqueueAsync(2);
 
         await SequenceAssert.EqualAsync([2], handled);
     }
 
     /// <summary>A non-curated handler exception is isolated and does not kill the worker thread, so later items still run.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task IsolatesNonCuratedHandlerExceptions()
+    public async Task IsolatesNonCuratedHandlerExceptions(CancellationToken cancellationToken)
     {
         var handled = new List<int>();
         using var worker = new SingleConsumerWorker<int>(
@@ -247,7 +249,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
             },
             static (_, _) => { });
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException>(worker.EnqueueAsync(1));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException>(worker.EnqueueAsync(1), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await worker.EnqueueAsync(2);
 
         await SequenceAssert.EqualAsync([2], handled);
@@ -376,7 +378,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
             handler.Release();
         }
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(second);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(second, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await first;
         _ = await Assert.That(stopped).IsFalse();
         _ = await Assert.That(handler.Handled).IsEqualTo(1);

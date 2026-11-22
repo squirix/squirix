@@ -3,10 +3,10 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -43,7 +43,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
 
         await provider.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A throwing journal dispose is reported at error level with the journal failure as its cause.</summary>
@@ -60,7 +60,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
 
         var entry = log.Find(JournalDisposeFailedEventId);
 
-        _ = await Assert.That(entry?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(entry?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(entry?.Cause).IsSameReferenceAs(failure);
     }
 
@@ -70,17 +70,17 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
     public async Task JournalDisposedBeforeStorageOwners(CancellationToken cancellationToken)
     {
         using var meter = new Meter("test-persistence-dispose-order");
-        var services = new ServiceCollection();
-        _ = services.AddLogging();
+        var services = new TestServiceCollection();
         _ = services.AddSingleton(TimeProvider.System);
-        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
+        _ = services.AddSingleton(meter);
+        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
         _ = services.AddSingleton(static sp => new ReplicaGroupRegistry(
             sp.GetRequiredService<PersistenceOptions>().DataDir,
             ["group-a"],
             2,
             new byte[32],
             1UL,
-            sp.GetRequiredService<ILoggerFactory>(),
+            sp.GetRequiredService<IServerLoggerFactory>(),
             new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
         { ElectionClock = TimeProvider.System });
         var provider = services.BuildServiceProvider();
@@ -106,7 +106,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         await provider.DisposeAsync();
 
         _ = await Assert.That(openAtJournalDispose).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(CanLockExclusively(groupLog)).IsTrue();
     }
 
@@ -135,7 +135,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         await provider.DisposeAsync();
 
         _ = await Assert.That(readFailure).IsNull();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Resolving the journal before storage is opened fails with an explicit error instead of a null journal.</summary>
@@ -158,7 +158,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         using var meter = new Meter("test-persistence-open-twice");
         await using var provider = await BuildProviderAsync(meter, null, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Tells whether <paramref name="path" /> can be opened for exclusive access, which fails while a durability worker holds it open.</summary>
@@ -203,24 +203,22 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         host.Attach(expectations.Instance());
     }
 
-    private async Task<ServiceProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)
+    private async Task<NodeProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)
     {
         var provider = BuildUnopenedProvider(meter, log);
         await PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken);
         return provider;
     }
 
-    private ServiceProvider BuildUnopenedProvider(Meter meter, EventRecordingLogger? log)
+    private NodeProvider BuildUnopenedProvider(Meter meter, EventRecordingLogger? log)
     {
-        var services = new ServiceCollection();
-        _ = services.AddLogging(builder =>
-        {
-            if (log != null)
-                _ = builder.AddProvider(new RecordingLoggerProvider(log));
-        });
+        var services = new TestServiceCollection();
 
         _ = services.AddSingleton(TimeProvider.System);
-        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, meter, false);
+        _ = services.AddSingleton(meter);
+        _ = services.AddPersistenceServices(new PersistenceOptions { DataDir = Dir }, false);
+        if (log != null)
+            _ = services.AddSingleton<IServerLoggerFactory>(_ => new FixedLoggerFactory(log));
         return services.BuildServiceProvider();
     }
 }

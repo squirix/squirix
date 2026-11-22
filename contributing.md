@@ -37,12 +37,13 @@ feature/my-fix → develop → main → tag vX.Y.Z
    git checkout -b my-fix
    ```
 
-2. Make your change and run tests (trust the ASP.NET Core HTTPS development certificate once per machine):
+2. Install the SDK selected by [global.json](global.json), then build and run tests. Trust the ASP.NET Core HTTPS
+   development certificate once per machine:
 
    ```bash
    dotnet build squirix.slnx --configuration Release
    dotnet dev-certs https --trust
-   dotnet test squirix.slnx --configuration Release
+   dotnet test --solution squirix.slnx --configuration Release --no-build
    ```
 
    CI runs [`tools/ci/ensure-dev-https-cert.sh`](./tools/ci/ensure-dev-https-cert.sh) before tests.
@@ -66,9 +67,9 @@ Smoke scenarios and their process fixture cannot reference server or server Test
 
 ### Continuous integration
 
-- **`develop` pull requests and pushes** — Linux (`ubuntu-latest`) only for build and test jobs (fast feedback).
-- **`main` integration** — pull requests targeting `main` (release sync) and pushes to `main` run the full cross-OS
-  matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`) for build and test suites.
+- **Pull requests targeting `develop`** — Linux (`ubuntu-latest`) build and tests provide the fast feedback path.
+- **Pushes to `develop` or `main`, and pull requests targeting `main`** — run the cross-OS build and test matrix
+  (`ubuntu-latest`, `windows-latest`, `macos-latest`).
 - **Scheduled and manual runs** — the same full cross-OS matrix runs weekly and on `workflow_dispatch`.
 
 ## Guidelines

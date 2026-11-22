@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 

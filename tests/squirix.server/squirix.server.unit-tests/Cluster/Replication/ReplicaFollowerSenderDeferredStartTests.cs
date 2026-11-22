@@ -25,7 +25,7 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
     {
         const int capacity = 2;
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingEntries = capacity } };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new ReplicaFollowerSenderLimits { MaxPendingEntries = capacity } };
         try
         {
             var run = EnqueueRun(sender);
@@ -37,7 +37,7 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
             _ = await BoundedAsync(run[1], cancellationToken);
 
             _ = await Assert.That(request.Count).IsEqualTo(capacity);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(run[^1]);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(run[^1], TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -140,7 +140,8 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
         sender.StartPending();
 
         _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(BoundedAsync(run[0], cancellationToken));
+        foreach (var pending in run)
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pending, HangGuard, TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Entries admitted before a drain began are still sent by the start of their run, so the drain leaves none unsent.</summary>

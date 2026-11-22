@@ -1,5 +1,5 @@
 using System;
-using Grpc.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Errors;
 
@@ -37,7 +37,7 @@ internal static class ServerOpContractClassifier
     }
 
     /// <summary>
-    /// Classifies <see cref="StatusCode.FailedPrecondition" /> status detail strings that map to a stable
+    /// Classifies <see cref="FrameStatus.FailedPrecondition" /> status detail strings that map to a stable
     /// <see cref="InvalidOperationException" /> in the logical cache pipeline.
     /// </summary>
     /// <param name="detail">The gRPC status detail string.</param>

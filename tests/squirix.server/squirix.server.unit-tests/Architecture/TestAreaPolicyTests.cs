@@ -97,7 +97,7 @@ public sealed partial class TestAreaPolicyTests : ServerUnitTestBase
     {
         return domain switch
         {
-            _ when domain.StartsWith('/') => Regex.IsMatch(testNamespace, domain[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+            ['/', ..] => Regex.IsMatch(testNamespace, domain[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
             _ when domain.EndsWith(".*", StringComparison.Ordinal) => testNamespace.Equals(domain[..^2], StringComparison.Ordinal) || testNamespace.StartsWith(domain[..^1], StringComparison.Ordinal),
             _ => domain.Equals("*", StringComparison.Ordinal) || testNamespace.Equals(domain, StringComparison.Ordinal),
         };

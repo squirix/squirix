@@ -21,6 +21,8 @@ internal static class ReplicaCatchUpOutcomeNames
         [ReplicaCatchUpOutcome.Aborted] = "aborted",
         [ReplicaCatchUpOutcome.Incomplete] = "incomplete",
         [ReplicaCatchUpOutcome.Unseeded] = "unseeded",
+        [ReplicaCatchUpOutcome.Yielded] = "yielded",
+        [ReplicaCatchUpOutcome.PrefixCopied] = "prefix_copied",
     }.ToFrozenDictionary();
 
     /// <summary>Returns the stable name of an outcome.</summary>

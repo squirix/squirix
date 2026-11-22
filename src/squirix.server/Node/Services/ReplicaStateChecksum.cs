@@ -51,14 +51,10 @@ internal sealed class ReplicaStateChecksum
 
     private void AppendText(string text)
     {
-        var length = Encoding.UTF8.GetByteCount(text);
-        if (length > StackLimit)
-        {
-            AppendBytes(Encoding.UTF8.GetBytes(text));
-            return;
-        }
-
         Span<byte> bytes = stackalloc byte[StackLimit];
-        AppendBytes(bytes[..Encoding.UTF8.GetBytes(text, bytes)]);
+        if (Encoding.UTF8.TryGetBytes(text, bytes, out var written))
+            AppendBytes(bytes[..written]);
+        else
+            AppendBytes(Encoding.UTF8.GetBytes(text));
     }
 }

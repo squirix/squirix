@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
@@ -92,7 +91,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
 
         var watch = probe.AssertNoElectionAsync(Group, Bound, cancellationToken);
         await fabric.IsolateAsync(leader);
-        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(watch);
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(watch, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).Contains($"group {Group} keeps leader {leader}", StringComparison.Ordinal);
     }
@@ -182,7 +181,7 @@ public sealed class ClusterLeaderProbeTests : NodeIntegrationTestBase
         _ = await cluster.StartNodeAsync(Three[1], Options("probe-no-leader"), cancellationToken);
         var probe = new ClusterLeaderProbe<IntegrationStartOptions>(cluster);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(probe.AssertNoElectionAsync(Group, Timing.Round, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(probe.AssertNoElectionAsync(Group, Timing.Round, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await probe.AssertNoElectionAsync(Group, Timing.Round * 2, false, cancellationToken);
 
         _ = await Assert.That(refused.Message).Contains("No running node holds authority", StringComparison.Ordinal);

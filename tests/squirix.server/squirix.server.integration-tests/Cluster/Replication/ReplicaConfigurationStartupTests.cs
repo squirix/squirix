@@ -3,16 +3,11 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
-using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -34,18 +29,21 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     public async Task FailoverPairRefusedAtStartup(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri()), new ClusterNode("n3", GetNextHttpUri())]);
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, ITestNodeHost>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
             cluster.StartNodeAsync(
                 "n1",
                 new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, AutomaticFailoverEnabled = true, ExtraScope = "failover-pair" },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex.Message).Contains(TopologyValidator.AutomaticFailoverRequiresQuorumReads, StringComparison.Ordinal);
     }
 
     /// <summary>
     /// The public hosting path maps both switches from the server options into the node topology, and with them on registers one more
     /// hosted service, the election service; the host is built but not started, so storage stays closed. The cluster mTLS material comes from the testkit instead of process environment variables; nothing else differs from
-    /// <see cref="AspNetCoreExtensions.AddSquirixServerAsync" />.
+    /// <see cref="TestNodeBuilder.ConfigureNodeAsync" />.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -89,8 +87,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     public async Task RfTwoReportsMissingPersistenceFirst(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
-            cluster.StartNodeAsync("n1", new IntegrationStartOptions { ReplicaCount = 2 }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", new IntegrationStartOptions { ReplicaCount = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains(ReplicationActivationGuard.PersistenceRequired, StringComparison.Ordinal);
     }
 
@@ -104,7 +101,10 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             cluster.StartNodeAsync(
                 "n1",
                 new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, OmitClusterMtls = true, ExtraScope = "rf2-mtls" },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex.Message).Contains(ReplicationActivationGuard.MtlsRequired, StringComparison.Ordinal);
     }
 
@@ -173,8 +173,8 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task PublicHostDisablesFoundationMode(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
-        _ = await builder.AddSquirixServerAsync(
+        var services = TestNodeBuilder.CreateServices();
+        _ = await services.ConfigureNodeAsync(
             static options =>
             {
                 options.NodeId = "node-a";
@@ -183,7 +183,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             },
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
-        await using var app = builder.Build();
+        await using var app = services.BuildNode();
         var features = app.Services.GetRequiredService<FeatureState>();
         _ = await Assert.That(features.FoundationOnly).IsFalse();
         _ = await Assert.That(features.NetworkReplicationEnabled).IsFalse();
@@ -217,17 +217,8 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             throw new InvalidOperationException("RF1 must not open a replica group log.");
     }
 
-    private static bool HasReplicationEndpoint(ITestNodeHost host)
-    {
-        foreach (var endpoint in host.GetRequiredService<EndpointDataSource>().Endpoints)
-        {
-            var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
-            if (grpc != null && string.Equals(grpc.Method.ServiceName, SquirixReplicationService.Descriptor.FullName, StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
-    }
+    private static bool HasReplicationEndpoint(ITestNodeHost host) =>
+        host.Services.GetService<SquirixReplicationServiceAdapter>() != null && host.GetRequiredService<MtlsOptions>().InternalListenPort > 0;
 
     /// <summary>Builds, without starting, a node of the given three-node topology through the public hosting path.</summary>
     /// <param name="nodes">The topology.</param>
@@ -251,10 +242,9 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             cancellationToken);
         using var identityScope = identity;
         using var material = certificate;
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
+        var services = TestNodeBuilder.CreateServices();
 
-        _ = await AspNetCoreExtensions.ConfigureSquirixServerBuilderAsync(
-            builder,
+        _ = await services.ConfigureNodeAsync(
             options =>
             {
                 options.NodeId = nodes[0].NodeId;
@@ -268,7 +258,6 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             },
             null,
             false,
-            null,
             args =>
             {
                 args.MtlsOptions = mtlsOptions;
@@ -276,13 +265,13 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             },
             cancellationToken);
         var hostedServices = 0;
-        foreach (var descriptor in builder.Services)
+        foreach (var descriptor in services)
         {
-            if (descriptor.ServiceType == typeof(IHostedService))
+            if (descriptor.ServiceType == typeof(INodeService))
                 hostedServices++;
         }
 
-        await using var app = builder.Build();
+        await using var app = services.BuildNode();
         return (app.Services.GetRequiredService<TopologyOptions>(), hostedServices);
     }
 }

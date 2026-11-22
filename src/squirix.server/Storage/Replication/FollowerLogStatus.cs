@@ -11,7 +11,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="VotedFor">The node voted for in the current term, or an empty string.</param>
 /// <param name="LastLogIndex">The durable last log index.</param>
 /// <param name="LastLogTerm">The term at the durable last log index or installed snapshot baseline.</param>
-/// <param name="CommitIndex">The durable commit index.</param>
+/// <param name="CommitIndex">The current commit index, which can lead the checkpoint on an authorized elected leader.</param>
 /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
 /// <param name="Readiness">The durability readiness state of the log.</param>
 /// <param name="MemberState">Whether this copy holds the data of the group.</param>

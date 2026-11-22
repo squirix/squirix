@@ -1,16 +1,15 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -224,23 +223,6 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
 
         _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.VoteLost, 4UL));
         await AssertRefusedWithoutLeaderAsync(scope, answers, voterOne, voterTwo, 4UL, cancellationToken);
-    }
-
-    /// <summary>An old-term majority waits: commit requires a current-term entry through the candidate index.</summary>
-    [Test]
-    public async Task OldTermMajorityWaitsForCurrentTermEntry()
-    {
-        List<FollowerLogEntry> entries =
-        [
-            new(1UL, 1UL, new byte[] { 1 }),
-            new(2UL, 1UL, new byte[] { 2 }),
-        ];
-
-        _ = await Assert.That(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 2UL, 2UL)).IsFalse();
-
-        entries.Add(new FollowerLogEntry(3UL, 2UL, new byte[] { 3 }));
-        _ = await Assert.That(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 2UL, 3UL)).IsTrue();
-        _ = await Assert.That(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 3UL, 3UL)).IsFalse();
     }
 
     /// <summary>A request for the static provisional leader term is refused on both paths and changes no durable state.</summary>

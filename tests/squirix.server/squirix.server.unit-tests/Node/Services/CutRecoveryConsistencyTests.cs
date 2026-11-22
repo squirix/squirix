@@ -2,11 +2,9 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -18,6 +16,7 @@ using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -168,14 +167,13 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             StoreFactory.CreateReader(),
             TimeProvider.System);
         var options = new RecoveryOptions { BlockOnStart = true };
         await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
 
-        _ = await Assert.That((await cache.GetValueAsync(BaseKey, cancellationToken)).Value).IsEqualTo("base");
-        var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
+        _ = await Assert.That(cache.GetValue(BaseKey, cancellationToken).Value).IsEqualTo("base");
+        var tailEntry = cache.GetValue(TailKey, cancellationToken);
         _ = await Assert.That(tailEntry.Found).IsTrue();
         _ = await Assert.That(tailEntry.Value).IsEqualTo("tail");
     }

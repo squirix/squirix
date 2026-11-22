@@ -3,10 +3,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -66,7 +66,7 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
             {
                 var entry = EnqueueAsync(sender, i);
                 (await BoundedAsync(gateway.CallAsync(int.CreateChecked(i) - 1), cancellationToken)).Refuse("log mismatch");
-                _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(entry);
+                _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(entry, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
                 await AwaitRetryStateAsync(sender, (int.CreateChecked(i), false));
             }
 

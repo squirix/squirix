@@ -20,6 +20,9 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
 {
     private static readonly string AssemblyPath = Path.Join(AppContext.BaseDirectory, "Squirix.Server.dll");
 
+    private static readonly Lazy<LoggerScanResult> Findings =
+        new(static () => LoggerArchitectureScanner.Scan(AssemblyPath));
+
     private static readonly string[] ProductionSourceRoots =
     [
         Path.Join("src", "squirix"),
@@ -36,7 +39,7 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
     [Test]
     public async Task StaticMembersShouldNotHoldLoggers()
     {
-        var violations = LoggerArchitectureScanner.FindStaticLoggerMembers(AssemblyPath);
+        var violations = Findings.Value.StaticMembers;
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
@@ -45,7 +48,7 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
     [Test]
     public async Task StaticClassesShouldNotTakeLoggers()
     {
-        var violations = LoggerArchitectureScanner.FindStaticClassLoggerParameters(AssemblyPath);
+        var violations = Findings.Value.StaticClassParameters;
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
@@ -54,7 +57,7 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
     [Test]
     public async Task LoggersShouldBeRequired()
     {
-        var violations = LoggerArchitectureScanner.FindOptionalLoggers(AssemblyPath);
+        var violations = Findings.Value.OptionalLoggers;
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
@@ -71,28 +74,20 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
             var directory = Path.Join(root, ProductionSourceRoots[rootIndex]);
             _ = await Assert.That(Directory.Exists(directory)).IsTrue().Because($"Expected source root '{directory}'.");
 
-            var files = Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories);
-            for (var index = 0; index < files.Length; index++)
+            foreach (var path in ServerSourceFiles.EnumerateUnder(directory, true))
             {
-                var path = files[index];
-                if (IsBuildOutput(path))
-                    continue;
-
                 var masked = CsharpSourceMasker.Mask(await File.ReadAllTextAsync(path, cancellationToken));
+                var scanned = 0;
+                var line = 1;
                 for (var match = NullLoggerPattern.Match(masked); match.Success; match = match.NextMatch())
                 {
-                    var line = masked.AsSpan(0, match.Index).Count('\n') + 1;
+                    line += masked.AsSpan(scanned, match.Index - scanned).Count('\n');
+                    scanned = match.Index;
                     violations.Add($"{path}({line}): '{match.Value}' is banned in production code; take the logger as a required argument.");
                 }
             }
         }
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
-    }
-
-    private static bool IsBuildOutput(string path)
-    {
-        var separator = Path.DirectorySeparatorChar;
-        return path.Contains($"{separator}obj{separator}", StringComparison.Ordinal) || path.Contains($"{separator}bin{separator}", StringComparison.Ordinal);
     }
 }

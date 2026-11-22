@@ -90,16 +90,6 @@ internal sealed class ReplicaEligibility
     /// <returns><see langword="true" /> only for a verified ready participant.</returns>
     internal bool CanVote(int replicaIndex) => IsReady(replicaIndex);
 
-    /// <summary>Returns the last retained progress report for a participant.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <returns>The retained progress report.</returns>
-    internal ReplicaProgress ProgressFor(int replicaIndex)
-    {
-        ValidateIndex(replicaIndex);
-        lock (_sync)
-            return _progress[replicaIndex];
-    }
-
     /// <summary>Returns the state and the last retained progress report of a participant, read together.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns>The participant state and its retained progress report.</returns>

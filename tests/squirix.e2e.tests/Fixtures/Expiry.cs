@@ -8,10 +8,10 @@ internal static class Expiry
     /// <summary>Creates options that expire after the supplied relative duration.</summary>
     /// <param name="after">Time until expiry.</param>
     /// <returns>Cache entry options.</returns>
-    public static CacheEntryOptions In(TimeSpan after) => new() { Expiration = after };
+    internal static CacheEntryOptions In(TimeSpan after) => new() { Expiration = after };
 
     /// <summary>Creates options that expire at the supplied absolute point in time.</summary>
     /// <param name="when">Absolute expiry time.</param>
     /// <returns>Cache entry options.</returns>
-    public static CacheEntryOptions At(DateTimeOffset when) => new() { ExpiresAt = when };
+    internal static CacheEntryOptions At(DateTimeOffset when) => new() { ExpiresAt = when };
 }

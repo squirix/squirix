@@ -177,7 +177,7 @@ public sealed class JournalEntryExpirationMaterializerTests
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30) };
 
-        var measured = JournalEntryPayload.MeasureSerializedBytes(entry);
+        var measured = PreparedJournalEntry.MeasureEncodedLength(entry);
         var written = JournalEntryPayload.PrepareEncode(JournalEntryExpirationMaterializer.ForDurableWrite(entry, Boundary)).EncodedLength;
 
         _ = await Assert.That(measured).IsEqualTo(written);

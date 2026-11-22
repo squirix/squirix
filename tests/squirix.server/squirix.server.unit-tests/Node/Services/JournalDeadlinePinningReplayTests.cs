@@ -30,7 +30,7 @@ public sealed class JournalDeadlinePinningReplayTests : IsolatedStorageTestBase
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-pinning";
 
-    private JournalReplayKit Kit => new(Dir, _testMeter);
+    private JournalReplayKit Kit => new(Dir);
 
     /// <summary>A set with an absolute deadline one tick past a millisecond boundary keeps the rounded-up deadline in memory, journal and replay.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -84,7 +84,7 @@ public sealed class JournalDeadlinePinningReplayTests : IsolatedStorageTestBase
         var expected = written.WriteStart.AddTicks(-1).Add(Ttl).AddMilliseconds(1);
         var journaled = Kit.ReadLastJournaledPut(cancellationToken);
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
-        var replayed = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var replayed = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
 
         _ = await Assert.That(written.Memory!.ExpiresUtc).IsEqualTo(expected);
         _ = await Assert.That(journaled.ExpiresUtc).IsEqualTo(expected);

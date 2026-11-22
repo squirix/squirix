@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -26,7 +26,7 @@ namespace Squirix.Server.Node.Services;
 /// once the copy is complete or incomplete, and with the host.
 /// </para>
 /// </remarks>
-internal sealed class ReplicaGroupBootstrapService : BackgroundService
+internal sealed class ReplicaGroupBootstrapService : NodeWorkerBase
 {
     /// <summary>The first delay between two iterations.</summary>
     internal static readonly TimeSpan InitialDelay = TimeSpan.FromMilliseconds(250);
@@ -37,8 +37,8 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
     private readonly ReplicaApplySignal _applySignal;
     private readonly ReplicaGroupBootstrap _bootstrap;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly IHostApplicationLifetime _lifetime;
-    private readonly ILogger<ReplicaGroupBootstrapService> _log;
+    private readonly INodeLifetime _lifetime;
+    private readonly IServerLogger<ReplicaGroupBootstrapService> _log;
     private readonly ReplicaBootstrapPacer _pacer;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupBootstrapService" /> class.</summary>
@@ -52,8 +52,8 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
     /// <param name="timeProvider">Time source for the delay between iterations.</param>
     internal ReplicaGroupBootstrapService(
         ReplicaGroupBootstrap bootstrap,
-        (ReplicaPeerContact Contact, IHostApplicationLifetime Lifetime, ReplicaGroupCommitters Committers, ReplicaApplySignal ApplySignal) schedule,
-        ILogger<ReplicaGroupBootstrapService> log,
+        (ReplicaPeerContact Contact, INodeLifetime Lifetime, ReplicaGroupCommitters Committers, ReplicaApplySignal ApplySignal) schedule,
+        IServerLogger<ReplicaGroupBootstrapService> log,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(bootstrap);
@@ -105,13 +105,13 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
 
                 if (await _pacer.WaitAsync(outcome, stoppingToken).ConfigureAwait(false) != TimedWaitResult.Canceled)
                     continue;
-                ServerLog.ReplicaBootstrapStopped(_log, _bootstrap.GroupId);
+                ReplicaBootstrapLog.ReplicaBootstrapStopped(_log, _bootstrap.GroupId);
                 return;
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            ServerLog.ReplicaBootstrapStopped(_log, _bootstrap.GroupId);
+            ReplicaBootstrapLog.ReplicaBootstrapStopped(_log, _bootstrap.GroupId);
         }
     }
 
@@ -127,25 +127,25 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
         switch (outcome.Result)
         {
             case ReplicaBootstrapResult.Completed:
-                ServerLog.ReplicaBootstrapCompleted(_log, groupId);
+                ReplicaBootstrapLog.ReplicaBootstrapCompleted(_log, groupId);
                 break;
             case ReplicaBootstrapResult.AlreadyComplete:
-                ServerLog.ReplicaBootstrapAlreadyComplete(_log, groupId);
+                ReplicaBootstrapLog.ReplicaBootstrapAlreadyComplete(_log, groupId);
                 break;
             case ReplicaBootstrapResult.Incomplete:
-                ServerLog.ReplicaBootstrapIncomplete(_log, groupId);
+                ReplicaBootstrapLog.ReplicaBootstrapIncomplete(_log, groupId);
                 break;
             case ReplicaBootstrapResult.LogNotReady:
-                ServerLog.ReplicaBootstrapLogNotReady(_log, groupId);
+                ReplicaBootstrapLog.ReplicaBootstrapLogNotReady(_log, groupId);
                 break;
             case ReplicaBootstrapResult.WaitingForMember:
-                ServerLog.ReplicaBootstrapWaiting(_log, groupId, outcome.NodeId);
+                ReplicaBootstrapLog.ReplicaBootstrapWaiting(_log, groupId, outcome.NodeId);
                 break;
             case ReplicaBootstrapResult.MemberHoldsCompleteCopy:
-                ServerLog.ReplicaBootstrapMemberComplete(_log, groupId, outcome.NodeId);
+                ReplicaBootstrapLog.ReplicaBootstrapMemberComplete(_log, groupId, outcome.NodeId);
                 break;
             case ReplicaBootstrapResult.OfferRefused:
-                ServerLog.ReplicaBootstrapOfferRefused(_log, groupId, outcome.NodeId, outcome.MemberStateName, outcome.RefusalCode);
+                ReplicaBootstrapLog.ReplicaBootstrapOfferRefused(_log, groupId, outcome.NodeId, outcome.MemberStateName, outcome.RefusalCode);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Result, "Unsupported bootstrap result.");
@@ -161,7 +161,7 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {
             // A storage fault of the own log is retried like an unreachable member; anything unexpected still faults the service.
-            ServerLog.ReplicaBootstrapRetry(_log, _bootstrap.GroupId, exception);
+            ReplicaBootstrapLog.ReplicaBootstrapRetry(_log, _bootstrap.GroupId, exception);
             return null;
         }
     }

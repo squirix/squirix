@@ -2,11 +2,11 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -39,7 +39,6 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         await store.WaitUntilValueAsync(
             static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System,
             cancellationToken);
 
         Volatile.Read(ref rollError.Value).ThrowIfFaulted();

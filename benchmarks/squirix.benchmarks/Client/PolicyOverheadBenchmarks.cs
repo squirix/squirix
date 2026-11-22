@@ -9,7 +9,7 @@ using Squirix.Internal.Cluster.Reliability;
 
 namespace Squirix.Benchmarks.Client;
 
-/// <summary>Isolates client-side reliability and bootstrap wrappers without gRPC transport.</summary>
+/// <summary>Isolates client-side reliability and bootstrap wrappers with a stub cache transport.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
 public class PolicyOverheadBenchmarks : IAsyncDisposable
@@ -28,7 +28,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
             CallPolicyMetrics.ObserveQueueWaitSeconds("node-a", TimeSpan.Zero);
     }
 
-    /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.</summary>
+    /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape with a stub cache transport.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task BootstrapCallPolicyDoneVtBatchedAsync()
     {

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -16,7 +18,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 [Immutable]
 public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 {
-    /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
+    /// <summary>Ensures standalone server bootstrap starts through the public native lifecycle.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task BootstrapSourcesUsePackageHostStartup(CancellationToken cancellationToken)
@@ -24,8 +26,8 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         var sources = await ServerArchitectureFixtures.ReadServerBootstrapSourceTextsAsync(cancellationToken);
         var combined = string.Join(Environment.NewLine, Array.ConvertAll(sources, static source => source.Text));
 
-        _ = await Assert.That(combined).Contains("AddSquirixServerAsync", StringComparison.Ordinal);
-        _ = await Assert.That(combined).Contains("MapSquirixServerAsync", StringComparison.Ordinal);
+        _ = await Assert.That(combined).Contains("SquirixServer.StartAsync", StringComparison.Ordinal);
+        _ = await Assert.That(combined).Contains("server.ApplicationStopping", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures the standalone process host stays separate from the packable server runtime.</summary>
@@ -34,7 +36,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var index = ServerArchitectureFixtures.ParseMsbuildProject(await ServerArchitectureFixtures.LoadProjectAsync("src/squirix.server.host/Squirix.Server.Host.csproj"));
 
-        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("$(SquirixTargetFramework)");
         _ = await Assert.That(await index.RequirePropertyAsync("OutputType")).IsEqualTo("Exe");
         _ = await Assert.That(await index.RequirePropertyAsync("AssemblyName")).IsEqualTo("Squirix.Server.Host");
         _ = await Assert.That(await index.RequirePropertyAsync("RootNamespace")).IsEqualTo("Squirix.Server.Host");
@@ -53,24 +55,26 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     public async Task HostingDependenciesMatchApprovedBaseline()
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
-        var frameworkIncludes = index.GetIncludes("FrameworkReference");
-        _ = await Assert.That(frameworkIncludes).IsNotNull();
+        _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain(static package => package.StartsWith("Grpc.", StringComparison.OrdinalIgnoreCase));
+        _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain(static package => package.StartsWith("Microsoft.AspNetCore.", StringComparison.OrdinalIgnoreCase));
+        var frameworks = index.GetIncludes("FrameworkReference") ?? [];
+        _ = await Assert.That(frameworks).DoesNotContain("Microsoft.AspNetCore.App");
+        string[] excluded =
+        [
+            "Microsoft.Extensions.Hosting",
+            "Microsoft.Extensions.Hosting.Abstractions",
+            "Microsoft.Extensions.DependencyInjection",
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            "Microsoft.Extensions.Caching.Abstractions",
+            "Microsoft.Extensions.Primitives",
+        ];
+        await using var stream = File.OpenRead(Path.Join(AppContext.BaseDirectory, "Squirix.Server.dll"));
+        using var pe = new PEReader(stream);
+        var metadata = pe.GetMetadataReader();
+        foreach (var handle in metadata.AssemblyReferences)
+            _ = await Assert.That(excluded).DoesNotContain(metadata.GetString(metadata.GetAssemblyReference(handle).Name));
 
-        _ = await Assert.That(
-            ServerArchitectureFixtures.CollectUnexpectedMatches(
-                index.GetIncludes("PackageReference"),
-                static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal),
-                ServerArchitectureFixtures.KnownServerPackageDependencyBaseline,
-                StringComparer.Ordinal)).IsEmpty();
-
-        _ = await Assert.That(
-            ServerArchitectureFixtures.CollectUnexpectedMatches(
-                frameworkIncludes,
-                static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal),
-                ServerArchitectureFixtures.KnownServerFrameworkDependencyBaseline,
-                StringComparer.Ordinal)).IsEmpty();
-
-        _ = await Assert.That(frameworkIncludes).Contains(static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
+        _ = await Assert.That(index.GetIncludes("PackageReference")).DoesNotContain("Microsoft.Extensions.Hosting");
     }
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>
@@ -96,7 +100,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         while ((index = text.IndexOf("InternalsVisibleTo(\"", index, StringComparison.Ordinal)) >= 0)
         {
             index += "InternalsVisibleTo(\"".Length;
-            var end = text.IndexOf('"', index);
+            var end = index + text.AsSpan(index).IndexOf('"');
             granted.Add(text[index..end]);
             index = end + 1;
         }
@@ -112,7 +116,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
 
-        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("$(SquirixTargetFramework)");
         _ = await Assert.That(index.ContainsElement("OutputType")).IsFalse();
         _ = await Assert.That(await index.RequirePropertyAsync("AssemblyName")).IsEqualTo(ServerArchitectureNamespaces.Root);
         _ = await Assert.That(await index.RequirePropertyAsync("RootNamespace")).IsEqualTo(ServerArchitectureNamespaces.Root);
@@ -131,16 +135,11 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     public async Task SourcesMustNotUseIgnoresAccessChecksTo(CancellationToken cancellationToken)
     {
         var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src");
-        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        var paths = new List<string>(200);
-        paths.AddRange(Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories));
+        var paths = new List<string>(ServerSourceFiles.EnumerateUnder(root));
 
         paths.Sort(StringComparer.Ordinal);
         foreach (var path in paths)
         {
-            if (path.Contains(objMarker, StringComparison.Ordinal))
-                continue;
-
             var text = await File.ReadAllTextAsync(path, cancellationToken);
             _ = await Assert.That(text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal)).IsFalse();
         }

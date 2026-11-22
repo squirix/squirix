@@ -91,6 +91,21 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(Path.Join(dir, "absent"))).IsFalse();
     }
 
+    /// <summary>Matching file extensions do not bypass positive numeric segment validation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalStateRejectsInvalidNames(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-stamp-invalid-segments");
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsFalse();
+        foreach (var index in new[] { string.Empty, "000000", "-1", "text", "2147483648" })
+            await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}{index}{FileExtensions.Journal}"), [1], cancellationToken);
+
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsFalse();
+        await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}2147483647{FileExtensions.Journal}"), [1], cancellationToken);
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsTrue();
+    }
+
     /// <summary>Mismatched generation, replica count, or fingerprint never matches.</summary>
     [Test]
     public async Task MatchesRejectsDifferences()
@@ -110,7 +125,7 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-stamp-roundtrip");
         var store = new ActivatedTopologyStampStore(dir);
-        var stamp = new ActivatedTopologyStamp { Generation = 2, Fingerprint = new byte[32], ReplicaCount = 3 };
+        var stamp = new ActivatedTopologyStamp { Generation = 2, Fingerprint = Filled(0x5A), ReplicaCount = 3 };
 
         await store.PublishAsync(stamp, cancellationToken);
         var decoded = await store.ReadAsync(cancellationToken);
@@ -129,8 +144,7 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         var first = new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 };
         await store.PublishAsync(first, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
-            store.PublishAsync(new ActivatedTopologyStamp { Generation = 2, Fingerprint = new byte[32], ReplicaCount = 3 }, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(store.PublishAsync(new ActivatedTopologyStamp { Generation = 2, Fingerprint = new byte[32], ReplicaCount = 3 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var decoded = await store.ReadAsync(cancellationToken);
         _ = await Assert.That(decoded).IsNotNull();
@@ -148,23 +162,26 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-stamp-fingerprint-length");
         var store = new ActivatedTopologyStampStore(dir);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[length], ReplicaCount = 2 }, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[length], ReplicaCount = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A corrupted stamp file fails with InvalidDataException.</summary>
+    /// <param name="offset">The byte to corrupt in the magic, version, or checksum.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReadCorruptThrowsInvalidData(CancellationToken cancellationToken)
+    [Arguments(0)]
+    [Arguments(4)]
+    [Arguments(53)]
+    public async Task ReadCorruptThrowsInvalidData(int offset, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-stamp-corrupt");
         var store = new ActivatedTopologyStampStore(dir);
         await store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 }, cancellationToken);
         var bytes = await File.ReadAllBytesAsync(store.StampPath, cancellationToken);
-        bytes[^1] ^= 0xFF;
+        bytes[offset] ^= 0xFF;
         await File.WriteAllBytesAsync(store.StampPath, bytes, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Reading a directory that was never activated returns null.</summary>
@@ -178,19 +195,26 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         _ = await Assert.That(await store.ReadAsync(cancellationToken)).IsNull();
     }
 
-    /// <summary>An oversized stamp file fails before its contents are allocated.</summary>
+    /// <summary>Truncated, extended, and oversized stamp files are rejected.</summary>
+    /// <param name="length">The invalid file length.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ReadOversizedThrowsInvalidData(CancellationToken cancellationToken)
+    [Arguments(0)]
+    [Arguments(53)]
+    [Arguments(55)]
+    [Arguments(256)]
+    [Arguments(257)]
+    [Arguments(512)]
+    public async Task ReadWrongLengthThrowsInvalidData(int length, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-stamp-oversize");
         var store = new ActivatedTopologyStampStore(dir);
         await store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 }, cancellationToken);
 
         using (var handle = File.OpenHandle(store.StampPath, FileMode.Open, FileAccess.Write, FileShare.None))
-            RandomAccess.SetLength(handle, 512);
+            RandomAccess.SetLength(handle, length);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static byte[] Filled(byte value)

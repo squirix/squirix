@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -109,7 +107,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         var host = await cluster.StartNodeAsync(OwnerId, options, cancellationToken);
 
         var electionRegistered = false;
-        foreach (var service in host.GetRequiredService<IEnumerable<IHostedService>>())
+        foreach (var service in host.GetServices<INodeService>())
             electionRegistered |= service is ReplicaElectionService;
 
         _ = await Assert.That(electionRegistered).IsFalse();
@@ -176,7 +174,7 @@ public sealed class ElectionFailoverTests : NodeIntegrationTestBase
         var log = Log(leader);
         var status = await log.GetStatusAsync(cancellationToken);
         var read = await log.ReadEntriesAsync(index, 1, cancellationToken);
-        var record = read.Entries.Count == 1 ? ReplicaLogCodec.Decode(read.Entries[0].Payload) : null;
+        var record = read.Entries.Count == 1 ? ReplicaLogCodec.DecodeBorrowed(read.Entries[0].Payload) : null;
         return record is { } noop ? (noop, status.CommitIndex >= index) : throw new InvalidOperationException($"The group log {OwnerId} holds no decodable entry at {index}.");
     }
 

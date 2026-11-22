@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -15,7 +15,7 @@ internal static class RecoveryReplayTestRegistration
     /// <summary>Builds a <see cref="IntegrationStartOptions.ServicesConfigure" /> action without a capturing lambda.</summary>
     /// <param name="signal">Replay gate owned by the test.</param>
     /// <returns>Configure callback that registers <paramref name="signal" /> for delayed recovery.</returns>
-    internal static Action<IServiceCollection> CreateDelayedReplayConfigure(RecoveryReplayDelaySignal signal)
+    internal static Action<TestServiceCollection> CreateDelayedReplayConfigure(RecoveryReplayDelaySignal signal)
     {
         ArgumentNullException.ThrowIfNull(signal);
         return new DelayedReplayConfigure(signal).Configure;
@@ -60,7 +60,7 @@ internal static class RecoveryReplayTestRegistration
             _signal = signal;
         }
 
-        internal void Configure(IServiceCollection services)
+        internal void Configure(TestServiceCollection services)
         {
             ArgumentNullException.ThrowIfNull(services);
 
@@ -72,7 +72,7 @@ internal static class RecoveryReplayTestRegistration
                 static sp => new DelayedLocalCacheRecoveryDecorator<object?>(sp.GetRequiredService<PhysicalCache<object?>>(), sp.GetRequiredService<RecoveryReplayDelaySignal>()));
         }
 
-        private static void ReplaceSingleton<TService>(IServiceCollection services, Func<IServiceProvider, TService> factory)
+        private static void ReplaceSingleton<TService>(TestServiceCollection services, Func<IServiceProvider, TService> factory)
             where TService : class
         {
             for (var i = services.Count - 1; i >= 0; i--)
@@ -84,7 +84,7 @@ internal static class RecoveryReplayTestRegistration
             _ = services.AddSingleton(factory);
         }
 
-        private static void ReplaceSingleton<TService>(IServiceCollection services, TService instance)
+        private static void ReplaceSingleton<TService>(TestServiceCollection services, TService instance)
             where TService : class
         {
             for (var i = services.Count - 1; i >= 0; i--)

@@ -1,21 +1,21 @@
 # Observability
 
-squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTelemetry tracing.
+Squirix nodes expose HTTP health endpoints and support opt-in metrics and server-side OpenTelemetry tracing.
 
 ## Health routes
 
 | Route | Purpose |
 | --- | --- |
-| `GET /health` | Aggregate health |
+| `GET /health` | Basic HTTP response (`200` with JSON `"OK"`) |
 | `GET /health/live` | Liveness probe |
 | `GET /health/ready` | Readiness probe |
-| `GET /health/ready/details` | JSON diagnostics payload (loopback-anonymous; remote JWT when auth is enabled) |
+| `GET /health/ready/details` | JSON diagnostics payload. Loopback is anonymous. Remote requests require a valid JWT. |
 
 When persistence is enabled, readiness stays unhealthy until journal recovery completes. Fatal journal maintenance
 failures also affect readiness. Ephemeral nodes skip journal recovery and report readiness without `journal_recovery`.
 Critical memory pressure and journal disk at the configured hard quota do **not** flip readiness by themselves — use
 `/health/ready/details` (`memoryPressure`, `journalDisk`) and metrics for capacity incidents. Durable oversize journal
-appends fail with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`).
+appends fail with `JOURNAL_DISK_QUOTA` (`ResourceExhausted`).
 
 When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age,
 retention-cleanup status, and journal on-disk pressure. All nodes report client pool peers, stubbed coordination
@@ -25,10 +25,12 @@ Full field reference: [diagnostics.md](diagnostics.md).
 
 ## Metrics
 
-`GET /metrics` — Prometheus text exposition (enabled by default; configurable in settings).
+Start the server with `squirix-server run --metrics` to enable metrics collection. To expose the Prometheus scrape
+endpoint at `/metrics`, also [enable Prometheus export in the settings file](configuration.md#prometheus-metrics-squirixsettingsjson).
 
-Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must send a JWT bearer token
-when server auth is enabled. The same rule applies to `/health/ready/details`. Details:
+Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must authenticate with a valid
+JWT bearer token. An unauthenticated remote request receives `401`, even if JWT authentication is not configured.
+The same rule applies to `/health/ready/details`. Details:
 [diagnostics — Metrics route](diagnostics.md#metrics-route) and
 [diagnostics — Readiness details](diagnostics.md#readiness-details).
 
@@ -43,7 +45,7 @@ Client-side pool disposal failures emit `squirix_client_pool_dispose_failures_to
   see [diagnostics.md](diagnostics.md#logical-operation-tracing))
 - Client bootstrap warm-up skips emit `client.bootstrap.warmup.peer_skipped` activities
 
-Use logical spans (`cache.operation`, `cache.result`) for operation triage and gRPC interceptor spans for transport
+Use logical spans (`cache.operation`, `cache.result`) for operation triage and transport spans for transport
 failures.
 
 ## Operational response
@@ -52,6 +54,6 @@ When a node behaves unexpectedly:
 
 1. Check `/health/ready/details` and metrics
 2. Capture logs and configuration before restart
-3. Back up the data directory before repair or upgrade
+3. Stop the node and back up its complete data directory before attempting recovery or an upgrade
 
 Runbook: [operational-runbook.md](operational-runbook.md).

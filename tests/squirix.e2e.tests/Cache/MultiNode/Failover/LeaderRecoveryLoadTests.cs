@@ -4,9 +4,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -14,8 +14,9 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>Manual mixed-load evidence for SDK requests across a leader loss, without application retries.</summary>
+[Property(StressSuite.TraitName, StressSuite.TraitValue)]
 [Explicit]
-public sealed class LeaderRecoveryLoadTests : EndToEndTestBase
+public sealed class LeaderRecoveryLoadTests
 {
     private const int BatchSize = 30;
     private const int Batches = 200;
@@ -113,7 +114,7 @@ public sealed class LeaderRecoveryLoadTests : EndToEndTestBase
                 _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, 1L));
             }
         }
-        catch (Exception exception) when (exception is RpcException or CommitOutcomeUnknownException)
+        catch (Exception exception) when (exception is SquirixTransportException or CommitOutcomeUnknownException)
         {
             failures.Enqueue($"{operation.Index}: {exception.Message}");
         }

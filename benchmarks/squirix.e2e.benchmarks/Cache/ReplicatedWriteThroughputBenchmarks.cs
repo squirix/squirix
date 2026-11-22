@@ -58,6 +58,10 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     private ICache<string>? _strings;
     private long _writes;
 
+    /// <summary>Gets or sets the eviction mode exercised by the workload.</summary>
+    [Params("default", "bounded", "memory")]
+    public string Eviction { get; set; } = "default";
+
     /// <summary>Gets or sets the number of concurrent clients; each runs its share of the operations one after another.</summary>
     [Params(1, 48, 256)]
     public int Clients { get; set; }
@@ -282,6 +286,8 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     private ClusterStartOptions StartOptions(string node) => new()
     {
         ReplicaCount = 3,
+        EvictionBudgetBytes = string.Equals(Eviction, "memory", StringComparison.Ordinal) ? 2 * 1024 * 1024 : null,
+        ServicesConfigure = string.Equals(Eviction, "bounded", StringComparison.Ordinal) ? static services => services.UseLruCapacity(64) : null,
         DataDir = PathKit.Combine(_dir!, node),
     };
 }

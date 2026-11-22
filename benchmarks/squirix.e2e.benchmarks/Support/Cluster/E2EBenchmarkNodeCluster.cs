@@ -22,7 +22,7 @@ internal static class E2EBenchmarkNodeCluster
 
     private static async Task<TestCluster<ClusterStartOptions>> StartAsync(string nodeId, Uri uri, DurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
-        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode(nodeId, uri), dir: durabilityMode is DurabilityMode.Persistence ? "squirix-e2e-bench" : null);
+        var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode(nodeId, uri)], dir: durabilityMode is DurabilityMode.Persistence ? "squirix-e2e-bench" : null);
 
         try
         {

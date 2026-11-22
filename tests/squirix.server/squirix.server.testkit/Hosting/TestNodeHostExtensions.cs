@@ -1,5 +1,7 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -12,6 +14,15 @@ internal static class TestNodeHostExtensions
     /// <param name="host">A started in-process test node.</param>
     extension(ITestNodeHost host)
     {
+        /// <summary>Seeds a binary entry through the logical mutation pipeline for exported-client read tests.</summary>
+        /// <param name="cacheName">Target cache namespace.</param>
+        /// <param name="key">Entry key.</param>
+        /// <param name="value">Source bytes, copied before mutation.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The write operation.</returns>
+        internal ValueTask SeedBinaryAsync(string cacheName, string key, ReadOnlyMemory<byte> value, CancellationToken cancellationToken) =>
+            host.GetCache<object?>(cacheName).SetEntryAsync(Guid.NewGuid().ToString("N"), cacheName, key, new NodeCacheEntry<object?>(value.ToArray()), cancellationToken);
+
         /// <summary>Finds a cache key owned by the given node.</summary>
         /// <param name="cacheName">Target cache namespace.</param>
         /// <param name="owner">Expected owner node identifier.</param>
@@ -50,6 +61,15 @@ internal static class TestNodeHostExtensions
         {
             ArgumentNullException.ThrowIfNull(host);
             return host.Services.GetRequiredService<T>();
+        }
+
+        /// <summary>Resolves all registrations of a service in node registration order.</summary>
+        /// <typeparam name="T">Service type.</typeparam>
+        /// <returns>The registered services.</returns>
+        internal IEnumerable<T> GetServices<T>()
+        {
+            ArgumentNullException.ThrowIfNull(host);
+            return host.Services.GetServices<T>();
         }
 
         /// <summary>Resolves a service from the node's root service provider, if registered.</summary>

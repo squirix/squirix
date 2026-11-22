@@ -249,23 +249,38 @@ internal static class CsharpSourceMasker
             return true;
         }
 
+        if (text[position] is not ('$' or '@' or '"'))
+            return false;
+
         var quote = position;
         var dollars = 0;
         var verbatim = false;
+        var afterAtSign = position;
         while (quote < text.Length)
         {
             if (text[quote] == '$')
+            {
                 dollars++;
+            }
             else if (text[quote] == '@' && !verbatim)
+            {
                 verbatim = true;
+                afterAtSign = quote + 1;
+            }
             else
+            {
                 break;
+            }
 
             quote++;
         }
 
-        if (quote >= text.Length || text[quote] != '"')
-            return false;
+        if (text[quote..] is not ['"', ..])
+        {
+            // A second @ may form a literal with the dollars after the first @.
+            position = quote < text.Length && text[quote] == '@' ? afterAtSign : quote;
+            return true;
+        }
 
         var quotes = CountRun(text, quote, '"');
         position = !verbatim && quotes >= 3

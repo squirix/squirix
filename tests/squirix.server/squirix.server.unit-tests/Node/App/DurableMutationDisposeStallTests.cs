@@ -4,16 +4,16 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.App;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -67,7 +67,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             journal.Writer.Flush.ReleaseWithFailure(failure);
         }
 
-        var observed = await NodeAsyncAssert.ThrowsAsync<IOException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var observed = await NodeAsyncAssert.ThrowsAsync<IOException>(commit, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(completedWhileStalled).IsFalse();
         _ = await Assert.That(observed).IsSameReferenceAs(failure);
@@ -115,9 +115,9 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         var replayed = journal.Recover(string.Empty, 0, cancellationToken);
 
         _ = await Assert.That(putError).IsTypeOf<SquirixException>().Because(putError.ToString());
-        _ = await Assert.That(transport?.StatusCode).IsEqualTo(StatusCode.Unavailable);
-        _ = await Assert.That(transport?.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
-        _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(transport?.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(transport?.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.Cause(CommitUnknownEventId)).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(memory.Snapshot).IsEmpty();
         _ = await Assert.That(replayed).IsEqualTo(KeyA);
@@ -145,7 +145,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             journal.Journal.FailJournalPipeline(reason);
-            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -155,8 +155,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         var cause = log.Cause(CommitUnknownEventId);
 
         _ = await Assert.That(error).IsTypeOf<SquirixException>().Because(error.ToString());
-        _ = await Assert.That(ToTransport(error)?.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
-        _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(ToTransport(error)?.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(ReferenceEquals(cause, reason) || ReferenceEquals(cause?.InnerException, reason)).IsTrue().Because(cause?.ToString() ?? "no cause logged");
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
@@ -183,7 +183,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             // The put parks on the gate held here, before its frame is encoded or enqueued.
             var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -231,10 +231,10 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         // An applier that never leaves the gate: disposal must not wait for it beyond its bound.
         journal.Journal.InFlightApplyGate.Enter();
         await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var gateError = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(journal.Journal.MutationGate.LockAsync(cancellationToken));
+        var gateError = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(journal.Journal.MutationGate.LockAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(gateError).IsNotNull();
-        _ = await Assert.That(log.Find(ApplyWaitTimedOutEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(ApplyWaitTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
     }
 
     /// <summary>
@@ -308,7 +308,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             await journal.Journal.MutationGate.WaitUntilAsync(static g => g.HasWaiters, StallTimeout, TimeProvider.System, cancellationToken);
             completedWhileGated = !await PendingProbe.StaysPendingAsync(put);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -339,7 +339,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             journal.Journal.FailJournalPipeline(reason);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -414,8 +414,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
         _ = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
 
-        _ = await Assert.That(log.Find(JoinTimedOutEventId)).IsEqualTo((LogLevel.Error, 1));
-        _ = await Assert.That(log.Find(LeakedOnShutdownEventId)).IsEqualTo((LogLevel.Error, 1));
+        _ = await Assert.That(log.Find(JoinTimedOutEventId)).IsEqualTo((ServerLogLevel.Error, 1));
+        _ = await Assert.That(log.Find(LeakedOnShutdownEventId)).IsEqualTo((ServerLogLevel.Error, 1));
     }
 
     /// <summary>
@@ -431,8 +431,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         try
         {
-            var disposeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            var putError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var disposeError = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            var putError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
             return (disposeError, putError);
         }
         finally
@@ -450,7 +450,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     /// <param name="log">Logger of the executor running the put.</param>
     /// <param name="cancellationToken">Caller cancellation token.</param>
     /// <returns>The put, stuck in its durability wait once the stall is entered.</returns>
-    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, ILogger<DurableMutationExecutor> log, CancellationToken cancellationToken)
+    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, IServerLogger<DurableMutationExecutor> log, CancellationToken cancellationToken)
     {
         journal.Writer.Flush.Arm();
         return memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
@@ -459,22 +459,22 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     /// <summary>Maps a caller-visible failure to the gRPC status the transport boundary sends, or <see langword="null" /> when it is no stable contract.</summary>
     /// <param name="error">Failure the caller observed.</param>
     /// <returns>The mapped RPC failure.</returns>
-    private static RpcException? ToTransport(Exception error) => error is SquirixException contract ? contract.ToRpcException() : null;
+    private static ServerCallException? ToTransport(Exception error) => error is SquirixException contract ? contract.ToServerCallException() : null;
 
     /// <summary>Logger double recording the level and the faulted in-flight waiter count of each journal shutdown event.</summary>
     [ThreadSafe]
-    private sealed class LeakRecordingLogger : ILogger<DurableMutationExecutor>
+    private sealed class LeakRecordingLogger : IServerLogger<DurableMutationExecutor>
     {
         private const string FaultedWaitersKey = "FaultedInFlightWaiters";
 
-        private readonly ConcurrentQueue<(int EventId, LogLevel Level, int? FaultedWaiters, Exception? Cause)> _events = new();
+        private readonly ConcurrentQueue<(int EventId, ServerLogLevel Level, int? FaultedWaiters, Exception? Cause)> _events = new();
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             _events.Enqueue((eventId.Id, logLevel, FaultedWaiters(state), exception));
 
         internal Exception? Cause(int eventId)
@@ -488,7 +488,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             return null;
         }
 
-        internal (LogLevel Level, int? FaultedWaiters)? Find(int eventId)
+        internal (ServerLogLevel Level, int? FaultedWaiters)? Find(int eventId)
         {
             foreach (var recorded in _events)
             {

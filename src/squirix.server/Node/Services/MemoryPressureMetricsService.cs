@@ -1,8 +1,8 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 
@@ -13,12 +13,12 @@ namespace Squirix.Server.Node.Services;
 /// so tests and short-lived hosts do not leave stale metrics sources.
 /// </summary>
 [Immutable]
-internal sealed class MemoryPressureMetricsService : IHostedService
+internal sealed class MemoryPressureMetricsService : INodeService
 {
     private readonly MemoryPressureMetrics _metrics;
     private readonly MetricRegistration _registration;
 
-    public MemoryPressureMetricsService(TopologyOptions cluster, IMemoryUsageAccounting accounting, IMemoryPressureStateEvaluator evaluator, MemoryPressureMetrics metrics)
+    internal MemoryPressureMetricsService(TopologyOptions cluster, IMemoryUsageAccounting accounting, IMemoryPressureStateEvaluator evaluator, MemoryPressureMetrics metrics)
     {
         _metrics = metrics;
         _registration = new MetricRegistration(cluster.NodeId, accounting, evaluator);

@@ -2,14 +2,14 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -34,29 +34,28 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
         journalHost.Attach(journal.Journal);
-        using var host = new HostBuilder().ConfigureServices(
-            Bind.To<JournalCoordinatorHost, Action<IServiceCollection>>(
-                journalHost,
-                static stopHost => services => services.AddHostedService(_ => new JournalStopService(stopHost.StopAsync)))).Build();
+        var components = new NodeServices();
+        _ = components.Use<IServerLoggerFactory>(NullLoggerFactory.Instance);
+        _ = components.RunService(_ => new JournalStopService(journalHost.StopAsync));
+        await using var host = ServerApplication.Build(components);
         await host.StartAsync(cancellationToken);
 
         var stop = host.StopAsync(cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(failure);
-        var reported = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var reported = await NodeAsyncAssert.ThrowsOneOfAsync<IOException, AggregateException>(stop, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(reported is AggregateException aggregate ? aggregate.InnerException : reported).IsSameReferenceAs(failure);
         _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);
     }
 
     /// <summary>A journal host that owns no journal has nothing to stop.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task HostWithoutJournalStopsQuietly(CancellationToken cancellationToken)
+    public async Task HostWithoutJournalStopsQuietly()
     {
         await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
         var service = new JournalStopService(journalHost.StopAsync);
 
-        _ = await Assert.That(service.StoppedAsync(cancellationToken).IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(service.DrainAsync().IsCompletedSuccessfully).IsTrue();
     }
 }

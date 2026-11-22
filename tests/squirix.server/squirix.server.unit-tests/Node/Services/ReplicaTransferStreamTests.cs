@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -17,6 +15,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -36,10 +35,12 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task AcceptedReplyRestartsStallBudget(CancellationToken cancellationToken)
     {
-        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var (_, walk, _) = Leader(3, cancellationToken);
         var clock = new TimerSpyClock();
-        var gateway = new ScriptedTransferGateway();
+        var chunks = new List<byte[]>();
+        var gateway = new ScriptedTransferGateway { OnSnapshot = chunk => chunks.Add(chunk.ToArray()) };
         gateway.BusyFor("begin", 4);
+        gateway.BusyFor("snapshot", 1);
         gateway.BusyFor("entries", 4);
         var options = new ReplicaTransferOptions { JournalStallBudget = TimeSpan.FromSeconds(3) };
         var run = new ReplicaTransferStream(gateway, options, Header(), "n1", clock).RunAsync(Snapshot(), walk, cancellationToken);
@@ -48,6 +49,11 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         var result = await run;
 
         _ = await Assert.That(result.Outcome).IsEqualTo(ReplicaTransferOutcome.Transferred);
+        var expected = TransferFixtures.Image();
+        _ = await Assert.That(gateway.Baseline?.SnapshotChecksum).IsEqualTo(TransferFixtures.ChecksumOf(expected));
+        _ = await Assert.That(chunks.Count).IsEqualTo(2);
+        _ = await Assert.That(chunks[0].AsSpan().SequenceEqual(expected)).IsTrue();
+        _ = await Assert.That(chunks[1].AsSpan().SequenceEqual(expected)).IsTrue();
         var total = TimeSpan.Zero;
         foreach (var delay in CollectionsMarshal.AsSpan(delays))
             total += delay;
@@ -60,7 +66,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task BatchesStopAtTheEntryCap(CancellationToken cancellationToken)
     {
-        var (_, walk, clock) = await LeaderAsync(513, cancellationToken);
+        var (_, walk, clock) = Leader(513, cancellationToken);
         var gateway = new ScriptedTransferGateway();
 
         _ = await StreamTo(gateway, clock).RunAsync(Snapshot(), walk, cancellationToken);
@@ -73,9 +79,9 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task BuffersStayUnchangedUntilTheCallReturns(CancellationToken cancellationToken)
     {
-        var (cache, walk, clock) = await LeaderAsync(0, cancellationToken);
+        var (cache, walk, clock) = Leader(0, cancellationToken);
         var deadline = clock.GetUtcNow().UtcDateTime.AddHours(1);
-        await cache.SetAsync(new CacheKey(CacheName, "key-1"), new NodeCacheEntry<object?>("v1", 1, deadline), cancellationToken);
+        cache.Set(new CacheKey(CacheName, "key-1"), new NodeCacheEntry<object?>("v1", 1, deadline), cancellationToken);
         var gateway = new ScriptedTransferGateway { HoldAt = "entries" };
         byte[]? before = null;
         gateway.OnEntries = entries => before = [.. entries.Span[0].Key.Span, .. entries.Span[0].Payload.Span];
@@ -100,7 +106,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Arguments(false)]
     public async Task BusyAnswerEndsStreamEarly(bool higherTerm, CancellationToken cancellationToken)
     {
-        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        var (_, walk, clock) = Leader(1, cancellationToken);
         var gateway = new ScriptedTransferGateway { ReplyTerm = higherTerm ? 5UL : 1UL };
         gateway.BusyFor("wipe", int.MaxValue);
         var paused = 0;
@@ -119,7 +125,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task BusyStepIsResentAfterGrowingDelays(CancellationToken cancellationToken)
     {
-        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var (_, walk, _) = Leader(3, cancellationToken);
         var clock = new TimerSpyClock();
         var gateway = new ScriptedTransferGateway();
         gateway.BusyFor("entries", 5);
@@ -144,7 +150,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task DrainAbortsAndCancellationThrows(CancellationToken cancellationToken)
     {
-        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        var (_, walk, clock) = Leader(1, cancellationToken);
         using var draining = new CancellationTokenSource();
         var drained = new ScriptedTransferGateway { HoldAt = "wipe" };
         var drain = new ReplicaTransferStream(drained, new ReplicaTransferOptions(), Header(), "n1", clock) { Draining = draining.Token }.RunAsync(Snapshot(), walk, cancellationToken);
@@ -178,7 +184,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task DrainDuringBusyWaitAborts(CancellationToken cancellationToken)
     {
-        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var (_, walk, _) = Leader(3, cancellationToken);
         var clock = new TimerSpyClock();
         var gateway = new ScriptedTransferGateway();
         gateway.BusyFor("wipe", int.MaxValue);
@@ -202,7 +208,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task DrainFaultInCallIsAborted(CancellationToken cancellationToken)
     {
-        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        var (_, walk, clock) = Leader(1, cancellationToken);
         using var draining = new CancellationTokenSource();
         var gateway = new ScriptedTransferGateway { HoldAt = "wipe", CancelFailsInTransport = true };
         var run = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Draining = draining.Token }.RunAsync(Snapshot(), walk, cancellationToken);
@@ -223,7 +229,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Arguments(false)]
     public async Task FaultOrTimeoutSendsOneAbort(bool fault, CancellationToken cancellationToken)
     {
-        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        var (_, walk, clock) = Leader(1, cancellationToken);
         var gateway = fault ? new ScriptedTransferGateway { FailAt = "entries" } : new ScriptedTransferGateway { HoldAt = "entries" };
         var options = new ReplicaTransferOptions { StepTimeout = TimeSpan.FromSeconds(5) };
         var run = new ReplicaTransferStream(gateway, options, Header(), "n1", clock).RunAsync(Snapshot(), walk, cancellationToken);
@@ -245,7 +251,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task MessagesFollowTheProtocol(CancellationToken cancellationToken)
     {
-        var (_, walk, clock) = await LeaderAsync(3, cancellationToken);
+        var (_, walk, clock) = Leader(3, cancellationToken);
         var gateway = new ScriptedTransferGateway();
         gateway.SetWipeSteps(2);
         var stream = StreamTo(gateway, clock);
@@ -266,8 +272,8 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task OversizedEntryTravelsAlone(CancellationToken cancellationToken)
     {
-        var (cache, walk, clock) = await LeaderAsync(2, cancellationToken);
-        await cache.SetAsync(new CacheKey(CacheName, "big"), new NodeCacheEntry<object?>(new string('x', ReplicaTransferOptions.MessageBudgetBytes + 1024)), cancellationToken);
+        var (cache, walk, clock) = Leader(2, cancellationToken);
+        cache.Set(new CacheKey(CacheName, "big"), new NodeCacheEntry<object?>(new string('x', ReplicaTransferOptions.MessageBudgetBytes + 1024)), cancellationToken);
         var gateway = new ScriptedTransferGateway();
 
         var result = await StreamTo(gateway, clock).RunAsync(Snapshot(), walk, cancellationToken);
@@ -280,7 +286,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         {
             long bytes = 0;
             foreach (var entry in batch)
-                bytes += ReplicaTransferBatch.SizeOf(entry.CacheName, Encoding.UTF8.GetString(entry.Key.Span), entry.Payload.Length);
+                bytes += ReplicaTransferBatch.SizeOf(entry.CacheName, entry.Key.Length, entry.Payload.Length);
 
             entries += batch.Length;
             if (batch.Length == 1 && bytes > ReplicaTransferOptions.MessageBudgetBytes)
@@ -299,8 +305,10 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-stream-receiver");
         await using var harness = await ReplicaStateHarness.OpenAsync(dir, cancellationToken, new ReplicaTransferOptions { WipeStepKeys = 1 });
-        await harness.SeedAsync(cancellationToken, "stale-1", "stale-2", "other-1");
-        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        harness.Seed(cancellationToken, "stale-1", "stale-2", "other-1");
+        var (cache, walk, _) = Leader(3, cancellationToken);
+        var unicodeKey = new CacheKey(CacheName, "ключ-🌍");
+        cache.Set(unicodeKey, new NodeCacheEntry<object?>("unicode"), cancellationToken);
         var gateway = new ReceiverGateway(harness.Receiver);
         var stream = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", harness.Clock);
 
@@ -310,10 +318,12 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         _ = harness.Registry.TryGetLog(GroupId, out var log);
         var status = await log!.GetStatusAsync(cancellationToken);
         _ = await Assert.That((log.IsComplete, status.LastAppliedIndex)).IsEqualTo((true, TransferFixtures.SnapshotIndex));
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "other-1"), cancellationToken)).IsNotNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "other-1"), cancellationToken)).IsNotNull();
+        var unicodeEntry = harness.Cache.GetEntry(unicodeKey, cancellationToken);
+        _ = await Assert.That(unicodeEntry?.Value).IsEqualTo("unicode");
         for (var i = 0; i < 3; i++)
-            _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, $"key-{i}"), cancellationToken)).IsNotNull();
+            _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, $"key-{i}"), cancellationToken)).IsNotNull();
     }
 
     /// <summary>Any refusal ends the stream with its code and sends no abort; a reply of a higher term ends it as superseded.</summary>
@@ -327,7 +337,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Arguments("stale-term", 5UL, "superseded")]
     public async Task RefusalEndsWithoutAbort(string code, ulong term, string expected, CancellationToken cancellationToken)
     {
-        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        var (_, walk, clock) = Leader(1, cancellationToken);
         var gateway = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = code, ReplyTerm = term };
         List<ReplicaTransferReply> seen = [];
         var stream = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Replies = seen.Add };
@@ -345,7 +355,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     [Test]
     public async Task StallBudgetEndsAsJournalFull(CancellationToken cancellationToken)
     {
-        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var (_, walk, _) = Leader(3, cancellationToken);
         var clock = new TimerSpyClock();
         var gateway = new ScriptedTransferGateway();
         gateway.BusyFor("wipe", int.MaxValue);
@@ -397,12 +407,12 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
 
     private static ReplicaRpcHeader Header() => new(GroupId, TransferFixtures.Fingerprint, 1UL, 1UL, "n2", "n2");
 
-    private static async Task<(PhysicalCache<object?> Cache, ReplicaGroupEntries Walk, FakeTimeProvider Clock)> LeaderAsync(int keys, CancellationToken cancellationToken)
+    private static (PhysicalCache<object?> Cache, ReplicaGroupEntries Walk, FakeTimeProvider Clock) Leader(int keys, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         for (var i = 0; i < keys; i++)
-            await cache.SetAsync(new CacheKey(CacheName, $"key-{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
+            cache.Set(new CacheKey(CacheName, $"key-{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
 
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);

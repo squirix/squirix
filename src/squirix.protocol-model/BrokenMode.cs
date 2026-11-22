@@ -20,4 +20,14 @@ internal enum BrokenMode
 
     /// <summary>Grant a vote to a candidate whose log is longer, comparing the length of the logs before the term of their last entries.</summary>
     LogOrder = 5,
+
+    /// <summary>Send the transfer hint from a leader that is not leaving, so a successor campaigns while the leader still serves.</summary>
+    TransferHint = 6,
+
+    /// <summary>
+    /// Honour a transfer hint whose term the receiver has already moved past, so a replayed hint the successor normally
+    /// ignores starts a second term. This is the stale-hint check removed and nothing else, and its purpose is to be
+    /// caught: a replay test that passes under this mode is not testing replay protection.
+    /// </summary>
+    TransferHintStaleAccept = 7,
 }

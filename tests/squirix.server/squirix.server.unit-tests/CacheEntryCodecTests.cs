@@ -90,6 +90,11 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
     {
         _ = await Assert.That(CacheEntryCodec.TryRead<object?>([], out _, out var bytesRead)).IsFalse();
         _ = await Assert.That(bytesRead).IsEqualTo(0);
+
+        // No expiration, version 1, and the maximum tag count without any tag fields.
+        byte[] truncatedTags = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF];
+        _ = await Assert.That(CacheEntryCodec.TryRead<object?>(truncatedTags, out _, out bytesRead)).IsFalse();
+        _ = await Assert.That(bytesRead).IsEqualTo(0);
     }
 
     /// <summary>Decimal and byte[] values round-trip through the codec.</summary>
@@ -247,8 +252,8 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     private sealed class DecodedCapture
     {
-        public NodeCacheEntry<object?>? Entry { get; set; }
+        internal NodeCacheEntry<object?>? Entry { get; set; }
 
-        public bool ReadOk { get; set; }
+        internal bool ReadOk { get; set; }
     }
 }

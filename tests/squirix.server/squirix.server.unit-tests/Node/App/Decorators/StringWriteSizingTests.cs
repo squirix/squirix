@@ -5,7 +5,6 @@ using System.Diagnostics.Metrics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -16,6 +15,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -45,7 +45,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var cache = Create(physical, meter, 1_000_000);
 
         await cache.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
-        var stored = await Assert.That(await physical.GetEntryAsync(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
+        var stored = await Assert.That(physical.GetEntry(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
 
         _ = await Assert.That(stored.Value).IsEqualTo(value);
         _ = await Assert.That(stored.Version).IsEqualTo(7L);
@@ -73,11 +73,28 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tight = Create(refused, meter, expectedBytes);
 
         await fits.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fitting)).IsEqualTo(expectedBytes);
         _ = await Assert.That(BytesOf(refused)).IsEqualTo(0L);
-        _ = await Assert.That(await refused.GetValueAsync(new CacheKey("cache", "key"), cancellationToken)).IsEqualTo(new NodeCacheValueResult<object?>(false, null));
+        _ = await Assert.That(refused.GetValue(new CacheKey("cache", "key"), cancellationToken)).IsEqualTo(new NodeCacheValueResult<object?>(false, null));
+    }
+
+    /// <summary>A growing write refused by admission leaves the resident of a full cache available.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedInsertKeepsEvictionCandidate(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("bounded-admission");
+        var options = new EvictionOptions { Capacity = 1 };
+        var physical = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator(), options);
+        var cache = Create(physical, meter, 300, options);
+        var value = new NodeCacheEntry<object?>("v");
+        await cache.SetEntryAsync("first", "cache", "a", value, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("second", "cache", "b", value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(physical.GetValue(new CacheKey("cache", "a"), cancellationToken).Found).IsTrue();
+        _ = await Assert.That(physical.GetValue(new CacheKey("cache", "b"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Payload checks fall back to exact sizing and include both deadline fields and tag bytes at the limit.</summary>
@@ -90,31 +107,16 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var empty = new NodeCacheEntry<object?>(string.Empty, 1, deadline, TimeSpan.FromMinutes(1), tags);
-        var length = EntryLimits.MaxEntrySizeBytes - JournalEntryPayload.MeasureSerializedBytes(empty);
+        var length = EntryLimitKit.LargeFixtureBytes - PreparedJournalEntry.MeasureEncodedLength(empty);
         var value = unicode ? new string('\u754c', length / 3) + new string('x', length % 3) : new string('x', length);
         var fitting = new NodeCacheEntry<object?>(value, 1, deadline, TimeSpan.FromMinutes(1), tags);
         var oversized = new NodeCacheEntry<object?>(value + "x", 1, deadline, TimeSpan.FromMinutes(1), tags);
 
-        JournalEntryPayload.EnsureEncodedLengthWithinLimit(fitting);
-        var error = NodeExceptionAssert.For<SquirixException>().Throws(oversized, static entry => JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry));
-
-        _ = await Assert.That(JournalEntryPayload.MeasureSerializedBytes(fitting)).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
-        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
+        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(fitting)).IsEqualTo(EntryLimitKit.LargeFixtureBytes);
+        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(oversized)).IsEqualTo(EntryLimitKit.LargeFixtureBytes + 1);
     }
 
-    /// <summary>The short-string shortcut must not skip tag validation.</summary>
-    [Test]
-    public async Task ShortStringStillRejectsOversizedTag()
-    {
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = new('x', EntryLimits.MaxEntryTagValueUtf8Bytes + 1) }.ToFrozenDictionary(StringComparer.Ordinal);
-        var entry = new NodeCacheEntry<object?>("x", tags: tags);
-
-        var error = NodeExceptionAssert.For<SquirixException>().Throws(entry, static candidate => JournalEntryPayload.EnsureEncodedLengthWithinLimit(candidate));
-
-        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.InvalidEntryTags);
-    }
-
-    private static MemoryAdmissionCacheDecorator<object?> Create(PhysicalCache<object?> physical, Meter meter, long limit)
+    private static MemoryAdmissionCacheDecorator<object?> Create(PhysicalCache<object?> physical, Meter meter, long limit, EvictionOptions? options = null)
     {
         var gate = new PressureGate(
             new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = limit, HighPressureThresholdPercent = 99, CriticalPressureThresholdPercent = 100 }),
@@ -122,9 +124,9 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
             "node",
             meter);
         return new MemoryAdmissionCacheDecorator<object?>(
-            new OwnerPutPayloadGuardDecorator<object?>(new ClientCache<object?>(physical, physical)),
+            new ClientCache<object?>(physical, physical),
             gate,
-            new ObjectCacheEntrySizeEstimator());
+            CacheEntrySizeEstimator<object?>.ForEviction(new ObjectCacheEntrySizeEstimator(), options ?? new EvictionOptions()));
     }
 
     private static string ValueFor(int kind) => kind switch

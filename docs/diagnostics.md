@@ -40,9 +40,10 @@ diagnostics surfaces currently exposed by the node host.
   state; do not treat this boolean as a live rejection latch.
 - `journalDisk` (persistence enabled): journal on-disk size pressure for the configured `JournalMaxTotalBytesMb` cap —
   `state` (`normal` / `high` / `critical`), `maxBytes`, `usedBytes`, `highWaterBytes` (80% soft mark), and
-  `writeRejectionActive`. Soft high-water is observability only; hard-cap oversize durable appends fail with
-  `JOURNAL_DISK_QUOTA` while `/health/ready` stays healthy. See
-  [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
+  `writeRejectionActive`. At the soft mark, ordinary writes that fit under the hard cap can continue. The node
+  can trigger a snapshot and pause incoming replica state transfer. A durable append that would exceed the hard
+  cap fails with `JOURNAL_DISK_QUOTA`. Quota pressure alone does not change `/health/ready`. See
+  [Journal disk quota](operational-runbook.md#journal-disk-quota) for thresholds and operator actions.
 - `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
   `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
 - `replicaGroups` (RF>1): one entry per member group log (a replica group this node belongs to) — `groupId`, `logBytes` (size of the active group log file),
@@ -70,18 +71,18 @@ Readiness behavior (`GET /health/ready`):
 - `journal_maintenance` is **Degraded** while one journal segment I/O call (a write or a flush) has been in progress
   for at least 5 seconds (for example a stalled disk): commits wait until it returns. The check description names the
   operation and how long it has been running; the check returns to **Healthy** once the call completes. A latched
-  failure (**Unhealthy**) takes precedence. The host keeps the default ASP.NET Core status mapping, so a **Degraded**
+  failure (**Unhealthy**) takes precedence. A **Degraded**
   readiness answers HTTP `200` with the body `Degraded` (**Healthy** answers `200` with `Healthy`, **Unhealthy** `503`
   with `Unhealthy`): a probe that checks only the status code does not see it.
 - `ring_agreement` is **Unhealthy** once the node detected a cluster ring mismatch with a peer and refuses cache operations until it is restarted. The check
   description, which names the peer and the side that detected the mismatch, appears in the health-check log entry (repeated at `Error` on each probe), not in the HTTP body. See [clustering.md](clustering.md#ring-agreement).
-- The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail
+- **Normal** and **high** memory pressure do **not** fail
   readiness by themselves.
 - **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on
   `/health/ready/details` (`memoryPressure`) and metrics for visibility. Treat **critical** plus rising
   `rejectedWriteCount` as a capacity incident; see [operational-runbook.md](operational-runbook.md).
-- Journal disk at the hard quota similarly keeps `/health/ready` healthy and surfaces pressure on
-  `/health/ready/details` (`journalDisk`) so operators can reclaim space without a membership flap.
+- Check `journalDisk` on `/health/ready/details` when durable writes fail with `JOURNAL_DISK_QUOTA`. See
+  [Journal disk quota](operational-runbook.md#journal-disk-quota) for cleanup steps.
 
 Privacy and bounds:
 
@@ -99,8 +100,8 @@ Current limitation:
 This route is a readiness/diagnostics payload, not a complete observability surface.
 
 Access control matches `/metrics`: loopback clients may scrape anonymously; remote clients must authenticate with
-the same JWT bearer token used for cache routes when server auth is enabled. `/health`, `/health/live`, and
-`/health/ready` stay anonymous for probes.
+a valid JWT bearer token accepted by the server. A remote unauthenticated request receives `401`, including when JWT
+authentication is not configured. `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
 
 ## Logical operation tracing
 
@@ -127,7 +128,7 @@ An added or found value is classified as `ok`; a concurrent miss is classified a
 Ownership boundaries:
 
 - `TracingCacheDecorator<T>` owns logical cache operation spans.
-- RPC interceptors own transport-level gRPC spans and correlation.
+- RPC interceptors own transport-level spans and correlation.
 - journal and snapshot components own storage-specific spans. Journal spans tag the cache namespace and
   payload sizes, never the raw key.
 - Memory-pressure components own memory-pressure diagnostics.
@@ -169,13 +170,6 @@ The gauge `squirix_replication_idempotency_outcome_bytes` (labels `node`, `group
 idempotency outcomes and the writes in flight are charged against their 48 MiB bound.
 The counter `squirix_replication_idempotency_refusals_total` (labels `node`, `group`) counts the new operations a led group refused
 retryably (`TOO_MANY_REQUESTS`, `replica_idempotency_capacity`) because its idempotency state was full of outcomes younger than the 30-second retry window.
-An RF=1 node reports its node-wide replay store as `squirix_idempotency_records` and `squirix_idempotency_bytes` (label `node`),
-the bytes charged against `SQUIRIX_IDEMPOTENCY_MAX_BYTES`, with `squirix_idempotency_evictions_total` and
-`squirix_idempotency_rejections_total` counting what made room and what was refused.
-The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,
-`1` pre-candidate, `2` candidate, `3` leader whose leader-term entry is not committed yet, `4` leader with authority. Without
-automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as
-follows: `follower` is `0`, `candidate` covers `1`, `2` and `3`, and `leader` is `4`.
 
 The leader of a group also reports its view of the other copies, refreshed by the readiness probe; a node that does not lead
 a group reports no peer series for it:
@@ -197,7 +191,10 @@ writes were grouped, not how many committed.
 The counter `squirix_replication_unknown_commit_total` (labels `operation`, `scope="replication"`) counts the commits that
 ended with an unknown outcome (`COMMIT_OUTCOME_UNKNOWN`) after the local append, by the kind of record: `user_mutation` or
 `expiration`. An expiry run counts once; of a batch of writes, each write whose outcome is unknown counts once. The affected operation may
-still commit; clients must retry it under the same operation identifier.
+still commit. On a replicated deployment, a raw binary client can retry the identical request under the same operation identifier within the
+[documented replay window](api.md). The public SDK does not expose an operation-id parameter: repeating an `ICache<T>`
+mutation creates a new identifier, and `COMMIT_OUTCOME_UNKNOWN` is not automatically retried or failed over.
+Reconcile the outcome with application state before deciding whether to issue another mutation; do not blindly repeat it.
 
 ### State transfer metrics and events
 
@@ -237,7 +234,7 @@ manifest, and storage health metrics remain owned by the storage layer (`Journal
 Backpressure metrics are owned by `Gate` and exposed through the `Squirix` meter as runtime cache-operation
 admission diagnostics. `BackpressureCacheDecorator<T>` applies this policy before logical reads and writes enter memory
 admission, clustered routing, journal append, memory mutation, memory accounting, or idempotency outcome updates.
-gRPC adapters keep transport-specific protection and map runtime backpressure failures to gRPC
+Cache transport adapters keep transport-specific protection and map runtime backpressure failures to
 `ResourceExhausted`; they do not own duplicate logical cache-operation backpressure. Keep these signals separate from
 memory-pressure metrics: backpressure describes request concurrency, queueing, slowdown, and rate-limit pressure, while
 memory pressure describes estimated cache working-set capacity.
@@ -252,13 +249,13 @@ recovery/trusted replay, and internal data-structure correctness, but it is not 
 
 ## Metrics route
 
-When enabled (default), the host exposes a Prometheus-compatible text scrape endpoint on the **primary HTTPS listener**:
+When enabled, the host exposes a Prometheus-compatible text scrape endpoint on the **primary HTTPS listener**:
 
 - `GET /metrics` (default path; configurable)
 
-The scrape surface is a lightweight exporter over the `Squirix` .NET meter. Disable it or change the path through
-`PrometheusMetrics` in `Squirix.settings.json`. See
-[configuration](configuration.md#prometheus-metrics-squirixsettingsjson).
+The endpoint exports measurements from the `Squirix` .NET meter. Start the server with `squirix-server run --metrics`
+and [enable Prometheus export in the settings file](configuration.md#prometheus-metrics-squirixsettingsjson)
+to expose it.
 
 Access control is enforced on every request:
 
@@ -279,8 +276,8 @@ environment where local processes are trusted.
 
 **Mitigations when that assumption does not hold:**
 
-- Disable the HTTP scrape endpoint (`PrometheusMetrics.enabled: false`) and use OpenTelemetry or `MeterListener`
-  exporters with your platform's auth model.
+- Leave `PrometheusMetrics.enabled` set to `false` to disable HTTP scraping. With collection enabled, use
+  OpenTelemetry or `MeterListener` exporters with your platform's auth model.
 - Keep the primary listener on loopback only when the node must not accept remote clients (see
   [server-mode.md](server-mode.md#loopback-development-default-not-production-posture)).
 - Run one squirix node per dedicated VM or container with network policies that limit who can reach the listener.
@@ -308,9 +305,9 @@ other `MeterListener` exporters.
 ## Security
 
 - `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
-- `/health/ready/details` and `/metrics` are served on the primary HTTPS listener only.
+- `/health/ready/details` and `/metrics` are served on the separate HTTPS management listener only.
 - Loopback `/metrics` and `/health/ready/details` scrapes stay anonymous by design (loopback is trusted); remote
-  clients must present a JWT bearer token when server auth is enabled. See
+  clients must authenticate with a valid JWT bearer token; unauthenticated remote requests receive `401`. See
   [Metrics route — Loopback trust](#metrics-loopback-trust) for multi-tenant risk and mitigations.
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.

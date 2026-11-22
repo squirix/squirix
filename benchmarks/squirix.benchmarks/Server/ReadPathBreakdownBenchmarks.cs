@@ -3,19 +3,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
+using Squirix.Benchmarks.Support.Binary;
 using Squirix.Benchmarks.Support.Client;
 using Squirix.Benchmarks.Support.Cluster;
-using Squirix.Benchmarks.Support.Grpc;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Benchmarks.Server;
 
-/// <summary>Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).</summary>
+/// <summary>Layer breakdown for the read path using in-process server hooks and binary transport calls (not public e2e APIs).</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
 public class ReadPathBreakdownBenchmarks : IAsyncDisposable
@@ -31,7 +31,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private TestCluster<ClusterStartOptions>? _cluster;
     private BenchmarkClientLease? _publicClient;
     private ICache<string>? _publicSdk;
-    private BenchmarkRawGrpcCache? _rawGrpc;
+    private BenchmarkRawBinaryCache? _rawBinary;
     private GetValueAsyncRequest? _reusedRequest;
     private BenchmarkNodeReadSurface? _serverPipeline;
 
@@ -47,7 +47,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
         _cluster = await BenchmarkNodeCluster.StartAsync(cancellationToken: CancellationToken.None).ConfigureAwait(false);
         _serverPipeline = BenchmarkNodeReadSurface.ForCache(_cluster.Host(), CacheName);
-        _rawGrpc = BenchmarkRawGrpcCache.Connect(_cluster.Uri(), CacheName);
+        _rawBinary = BenchmarkRawBinaryCache.Connect(_cluster.Uri(), CacheName);
         _clientPool = new ClientPool([new Peer { NodeId = BenchmarkNodeId, Uri = _cluster.Uri() }], static nodeId => new CallPolicy(TimeProvider.System, peer: nodeId), TimeProvider.System);
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _cluster.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
@@ -69,27 +69,27 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
                 static (state, ct) => GetValueViaClientAsync(state.Client, state.CacheName, state.Key, ct),
                 (node.Client, CacheName, Key: _keys[i]),
                 CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(response.Found ? response.Value.StringValue : string.Empty);
+            _consumer.Consume(response.Found ? response.Value!.StringValue : string.Empty);
         }
 
         return;
 
         static async ValueTask<GetValueAsyncResponse> GetValueViaClientAsync(
-            SquirixCacheService.SquirixCacheServiceClient client,
+            BinaryCacheClient client,
             string cacheName,
             string key,
             CancellationToken cancellationToken)
         {
-            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, cancellationToken: cancellationToken).ResponseAsync
+            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, new BinaryCallOptions(DateTime.MaxValue, cancellationToken, cancellationToken))
                                .ConfigureAwait(false);
         }
     }
 
-    /// <summary>Reads through generated gRPC stubs while reusing the request instance, isolating per-call request allocation cost.</summary>
-    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag, reused request instance")]
-    public async Task SquirixGrpcFoundOnlyReusedBatchedAsync()
+    /// <summary>Reads through the binary transport client while reusing the request instance, isolating per-call request allocation cost.</summary>
+    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw binary GetValue found flag, reused request instance")]
+    public async Task SquirixBinaryFoundOnlyReusedBatchedAsync()
     {
-        var cache = _rawGrpc!;
+        var cache = _rawBinary!;
         var request = _reusedRequest!;
         for (var i = 0; i < ReadBatch; i++)
         {
@@ -98,26 +98,26 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         }
     }
 
-    /// <summary>Reads through generated gRPC stubs and consumes only the found flag, avoiding client-side value decoding.</summary>
-    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag only, no SDK decode")]
+    /// <summary>Reads through the binary transport client and consumes only the found flag, avoiding client-side value decoding.</summary>
+    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw binary GetValue found flag only, no SDK decode")]
     public async Task TransportFoundOnlyBatchedAsync()
     {
-        var cache = _rawGrpc!;
+        var cache = _rawBinary!;
         for (var i = 0; i < ReadBatch; i++)
             _consumer.Consume(await cache.GetValueFoundAsync(_keys[i], CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>Reads through generated gRPC stubs only, without the public Squirix client SDK stack.</summary>
-    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC transport + server pipeline, no SDK")]
-    public async Task SquirixGrpcTransportReadBatchedAsync()
+    /// <summary>Reads through the binary transport client only, without the public Squirix client SDK stack.</summary>
+    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw binary transport + server pipeline, no SDK")]
+    public async Task SquirixBinaryTransportReadBatchedAsync()
     {
-        var cache = _rawGrpc!;
+        var cache = _rawBinary!;
         for (var i = 0; i < ReadBatch; i++)
             _consumer.Consume(await cache.GetValueOrDefaultAsync(_keys[i], CancellationToken.None).ConfigureAwait(false) ?? string.Empty);
     }
 
-    /// <summary>Reads through the public Squirix client SDK against the same node used by raw gRPC rows.</summary>
-    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Public SDK GetValue, same node as raw gRPC")]
+    /// <summary>Reads through the public Squirix client SDK against the same node used by raw binary rows.</summary>
+    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Public SDK GetValue, same node as raw binary")]
     public async Task SquirixPublicSdkReadBatchedAsync()
     {
         var cache = _publicSdk!;
@@ -125,7 +125,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             _consumer.Consume((await cache.GetValueAsync(_keys[i], CancellationToken.None).ConfigureAwait(false)).Value ?? string.Empty);
     }
 
-    /// <summary>Reads through the server-side adapter pipeline without HTTP/2 or the public client SDK.</summary>
+    /// <summary>Reads through the server-side adapter pipeline without network I/O or the public client SDK.</summary>
     [Benchmark(Baseline = true, OperationsPerInvoke = ReadBatch, Description = "Server decorator pipeline only, no network")]
     public async Task SquirixServerPipelineReadBatchedAsync()
     {
@@ -137,8 +137,11 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        _rawGrpc?.Dispose();
-        _rawGrpc = null;
+        if (_rawBinary != null)
+        {
+            await _rawBinary.DisposeAsync().ConfigureAwait(false);
+            _rawBinary = null;
+        }
 
         if (_publicClient != null)
         {

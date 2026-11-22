@@ -54,16 +54,21 @@ public static class ProcTempRoot
             && long.TryParse(span[(split + StartTicksPrefix.Length)..], NumberStyles.None, CultureInfo.InvariantCulture, out startTicks);
     }
 
-    /// <summary>Tells whether the process that made a root still runs; a reused process identifier has another start time.</summary>
+    /// <summary>Tells whether a root may still belong to a running process.</summary>
     /// <param name="processId">The identifier of the process that made the root.</param>
     /// <param name="startTicks">The start time of that process, in UTC ticks.</param>
-    /// <returns><see langword="true" /> when that process still runs or start times are not supported.</returns>
+    /// <returns><see langword="true" /> when the root may belong to a running process or its identity cannot be checked.</returns>
     private static bool IsRunning(int processId, long startTicks)
     {
         try
         {
             using var process = Process.GetProcessById(processId);
-            return process.StartTime.ToUniversalTime().Ticks == startTicks;
+
+            // Unix UTC start times use a process-local boot-time estimate, so exact ticks can disagree across processes.
+            // Retaining a stale root after PID reuse is safer than deleting data belonging to a live test process.
+            return !OperatingSystem.IsWindows()
+                ? !process.HasExited
+                : process.StartTime.ToUniversalTime().Ticks == startTicks;
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
         {

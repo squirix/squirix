@@ -1,11 +1,12 @@
 using System;
-using Microsoft.Extensions.Options;
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
 [Immutable]
-internal sealed class MtlsOptionsValidator : IValidateOptions<MtlsOptions>
+internal sealed class MtlsOptionsValidator : ISettingsRule<MtlsOptions>
 {
     private readonly TopologyOptions _cluster;
 
@@ -14,17 +15,17 @@ internal sealed class MtlsOptionsValidator : IValidateOptions<MtlsOptions>
         _cluster = cluster;
     }
 
-    public ValidateOptionsResult Validate(string? name, MtlsOptions options)
+    public IReadOnlyList<string> Check(MtlsOptions options)
     {
         try
         {
             var primaryListenPort = _cluster.Uri.IsAbsoluteUri ? _cluster.Uri.Port : default(int?);
             options.Validate(primaryListenPort, MtlsTopology.RequiresInterNodeMtls(_cluster));
-            return ValidateOptionsResult.Success;
+            return [];
         }
         catch (InvalidOperationException ex)
         {
-            return ValidateOptionsResult.Fail(ex.Message);
+            return [ex.Message];
         }
     }
 }

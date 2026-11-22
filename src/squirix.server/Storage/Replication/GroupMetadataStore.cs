@@ -3,8 +3,8 @@ using System.Buffers;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
@@ -39,17 +39,18 @@ internal sealed class GroupMetadataStore : IDisposable
 
     private readonly IFollowerLogFaultHooks _faults;
     private readonly string _groupId;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly string _path;
     private readonly byte[] _slot = new byte[GroupMetadataSlots.SlotSize];
     private readonly string _tempPath;
     private int _currentSlot;
+    private ulong _durableCommitIndex;
     private long _flushCount;
 
     private SafeFileHandle? _handle;
     private ulong _sequence;
 
-    internal GroupMetadataStore(string path, string tempPath, string groupId, IFollowerLogFaultHooks faults, ILogger log)
+    internal GroupMetadataStore(string path, string tempPath, string groupId, IFollowerLogFaultHooks faults, IServerLogger log)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentException.ThrowIfNullOrEmpty(tempPath);
@@ -65,6 +66,9 @@ internal sealed class GroupMetadataStore : IDisposable
 
     /// <summary>Gets the number of record flushes completed by <see cref="Publish" />, the first publish that creates the file included. Written under the log gate; read cross-thread.</summary>
     internal long FlushCount => Volatile.Read(ref _flushCount);
+
+    /// <summary>Gets the commit index in the last successfully published record.</summary>
+    internal ulong DurableCommitIndex => Volatile.Read(ref _durableCommitIndex);
 
     /// <summary>Gets or sets the mirror copy of the last deferred mirrored publish, or <see langword="null" /> when none is pending.</summary>
     /// <remarks>
@@ -136,6 +140,7 @@ internal sealed class GroupMetadataStore : IDisposable
         OpenHandle();
         _currentSlot = loaded.Slot;
         _sequence = loaded.Sequence;
+        Volatile.Write(ref _durableCommitIndex, loaded.Metadata.CommitIndex);
         return loaded;
     }
 
@@ -164,6 +169,7 @@ internal sealed class GroupMetadataStore : IDisposable
         _ = Interlocked.Increment(ref _flushCount);
         _currentSlot = target;
         _sequence = next;
+        Volatile.Write(ref _durableCommitIndex, meta.CommitIndex);
     }
 
     /// <summary>Durably publishes a record twice, so that both slots hold it.</summary>
@@ -203,11 +209,12 @@ internal sealed class GroupMetadataStore : IDisposable
 
         var result = FileEx.PublishFile(_tempPath, _path, TimeProvider.System);
         if (result.Attempts > 1)
-            ServerLog.DurablePublishRetried(_log, _tempPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
+            ReplicaCommitLog.DurablePublishRetried(_log, _tempPath, result.Attempts, result.Holders ?? FileEx.UnknownHolders);
 
         OpenHandle();
         _currentSlot = 0;
         _sequence = 1UL;
+        Volatile.Write(ref _durableCommitIndex, meta.CommitIndex);
     }
 
     private void OpenHandle()

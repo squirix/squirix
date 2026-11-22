@@ -4,8 +4,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
@@ -13,6 +11,8 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -52,9 +52,9 @@ public sealed class ReplicaCommitBatchRefusalTests : IsolatedStorageTestBase
             await retry.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             foreach (var write in new[] { leader, refused, second })
             {
-                var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-                _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
-                _ = await Assert.That(error.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+                var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, StallTimeout, TimeProvider.System, cancellationToken);
+                _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+                _ = await Assert.That(error.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
             }
 
             _ = await Assert.That(Applied(local)).IsEqualTo("k0");
@@ -89,8 +89,8 @@ public sealed class ReplicaCommitBatchRefusalTests : IsolatedStorageTestBase
         _ = proceed.TrySetResult();
 
         await Task.WhenAll(leader, preparing).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-        _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(queued, StallTimeout, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(refused.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(Applied(local)).IsEqualTo("k1,k2");
         _ = await Assert.That((await GetOwnedLog(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
     }
@@ -120,12 +120,12 @@ public sealed class ReplicaCommitBatchRefusalTests : IsolatedStorageTestBase
 
         var errors = new[]
         {
-            await NodeAsyncAssert.ThrowsAsync<RpcException>(first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken)),
-            await NodeAsyncAssert.ThrowsAsync<RpcException>(second.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken)),
-            await NodeAsyncAssert.ThrowsAsync<RpcException>(third.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken)),
+            await NodeAsyncAssert.ThrowsAsync<ServerCallException>(first, StallTimeout, TimeProvider.System, cancellationToken),
+            await NodeAsyncAssert.ThrowsAsync<ServerCallException>(second, StallTimeout, TimeProvider.System, cancellationToken),
+            await NodeAsyncAssert.ThrowsAsync<ServerCallException>(third, StallTimeout, TimeProvider.System, cancellationToken),
         };
         foreach (var error in errors)
-            _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+            _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
 
         _ = await Assert.That(ReferenceEquals(errors[0], errors[1]) || ReferenceEquals(errors[1], errors[2]) || ReferenceEquals(errors[0], errors[2])).IsFalse();
         _ = await Assert.That(Applied(local)).IsEqualTo(string.Empty);
@@ -177,7 +177,7 @@ public sealed class ReplicaCommitBatchRefusalTests : IsolatedStorageTestBase
 
         foreach (var write in writes)
         {
-            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         }
 
@@ -239,7 +239,7 @@ public sealed class ReplicaCommitBatchRefusalTests : IsolatedStorageTestBase
 
         budgetTime.Advance(SmallBudget);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(expiring.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(expiring, StallTimeout, TimeProvider.System, cancellationToken);
         await Task.WhenAll(leader, behind).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(Applied(local)).IsEqualTo("k1,k3");

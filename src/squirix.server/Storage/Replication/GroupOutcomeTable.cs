@@ -46,13 +46,14 @@ internal sealed class GroupOutcomeTable
     /// <summary>Exports the resolved records for a snapshot.</summary>
     /// <param name="clock">The clock the anchors were read from.</param>
     /// <param name="capturedUtc">The capture time, on the clock the snapshot stamps.</param>
+    /// <param name="lastIncludedIndex">The inclusive log index covered by the snapshot.</param>
     /// <returns>The resolved records, each resolution time restated as the capture time minus its age.</returns>
-    internal List<GroupIdempotencyRecord> ExportResolved(TimeProvider clock, DateTime capturedUtc)
+    internal List<GroupIdempotencyRecord> ExportResolved(TimeProvider clock, DateTime capturedUtc, ulong lastIncludedIndex)
     {
         var result = new List<GroupIdempotencyRecord>();
         foreach (var stored in _records.Values)
         {
-            if (stored.Record.IsResolved)
+            if (stored.Record.IsResolved && stored.Record.LogIndex <= lastIncludedIndex)
                 result.Add(stored.Export(clock, capturedUtc));
         }
 
@@ -64,6 +65,9 @@ internal sealed class GroupOutcomeTable
     /// <returns><see langword="true" /> when an unresolved record is carried at or below <paramref name="index" />.</returns>
     internal bool HasUnresolvedThrough(ulong index)
     {
+        if (PendingBytes == 0 && ExemptPins == 0)
+            return false;
+
         foreach (var stored in _records.Values)
         {
             if (stored.Record.IsUnresolved && stored.Record.LogIndex <= index)
@@ -120,7 +124,7 @@ internal sealed class GroupOutcomeTable
     internal void ReplaceWithSnapshot(
         IReadOnlyList<GroupIdempotencyRecord> records,
         DateTime capturedUtc,
-        HashSet<ulong> retainedLogIndexes,
+        in RetainedLogIndexes retainedLogIndexes,
         GroupOutcomeOrder<GroupOperationKey> order,
         in GroupOutcomeLimits limits)
     {
@@ -132,7 +136,6 @@ internal sealed class GroupOutcomeTable
         }
 
         Clear();
-        order.Clear();
         var anchor = limits.Clock.GetTimestamp();
         for (var i = 0; i < records.Count; i++)
         {
@@ -147,11 +150,7 @@ internal sealed class GroupOutcomeTable
             Put(GroupOperationKey.Of(retained[i].Record), retained[i]);
 
         // The table was rebuilt: order its resolved records afresh, which drops every entry made for the old one.
-        foreach (var stored in _records.Values)
-        {
-            if (stored.Record.IsResolved)
-                order.Add(GroupOperationKey.Of(stored.Record), stored.Sequence, stored.AnchorTimestamp, stored.AgeAtAnchor);
-        }
+        order.Rebuild(ResolvedAnchors());
     }
 
     /// <summary>Removes the record of an identity.</summary>
@@ -172,6 +171,15 @@ internal sealed class GroupOutcomeTable
     /// <param name="stored">The record when one is held.</param>
     /// <returns><see langword="true" /> when a record is held.</returns>
     internal bool TryGetValue(GroupOperationKey key, out GroupStoredOutcome stored) => _records.TryGetValue(key, out stored);
+
+    private IEnumerable<(GroupOperationKey Key, long Sequence, long Anchor, TimeSpan Age)> ResolvedAnchors()
+    {
+        foreach (var stored in _records.Values)
+        {
+            if (stored.Record.IsResolved)
+                yield return (GroupOperationKey.Of(stored.Record), stored.Sequence, stored.AnchorTimestamp, stored.AgeAtAnchor);
+        }
+    }
 
     /// <summary>Removes every record.</summary>
     private void Clear()

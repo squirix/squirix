@@ -81,7 +81,7 @@ public sealed class TracingCacheDecoratorTests
         var cache = new TracingCacheDecorator<string>(innerExpectations.Instance(), "node");
 
         var result = await cache.GetValueAsync("c", "k", cancellationToken);
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(new NodeCacheValueResult<string>(true, "v"));
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);

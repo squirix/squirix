@@ -34,7 +34,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// </para>
 /// <para>
 /// The provisional term one of the group this node owns needs no election: only the owner may lead it, so a complete log that never
-/// left it is led at term one at once; a copy that is not complete neither leads nor campaigns nor votes. The leadership reports a
+/// left it and has no committed history is led at term one at once; a recovered committed owner waits for a new election. A copy that
+/// is not complete neither leads nor campaigns nor votes. The leadership reports a
 /// failure to promote or retire as <see langword="false" />; anything it throws faults the step.
 /// </para>
 /// </remarks>
@@ -42,6 +43,8 @@ internal sealed class ReplicaGroupElection
 {
     private readonly AuthorityDeadline _deadline;
     private readonly ReplicaRpcHeader _header;
+    private readonly string[] _members;
+    private readonly IReplicaVoteGateway _votes;
     private readonly ElectionJitter _jitter;
     private readonly IReplicaLeadership _leadership;
     private readonly IFollowerLog _log;
@@ -88,7 +91,9 @@ internal sealed class ReplicaGroupElection
         _log = log;
         _leadership = leadership;
         _replicaCount = members.Length;
-        _round = new ReplicaVoteRound(votes, [.. members], _selfSlot, state);
+        _members = [.. members];
+        _votes = votes;
+        _round = new ReplicaVoteRound(votes, _members, _selfSlot, state);
         _header = header with { Term = 0, LeaderNodeId = string.Empty };
         _jitter = new ElectionJitter(state.Options.JitterSeed, header.GroupId);
         _deadline = new AuthorityDeadline(state.Clock, state.Options);
@@ -144,6 +149,7 @@ internal sealed class ReplicaGroupElection
         return true switch
         {
             _ when _state.HighestObservedTerm > status.CurrentTerm => await FollowAsync(_state.HighestObservedTerm, cancellationToken).ConfigureAwait(false),
+            _ when _state.Transfers.TakeTransfer(status.CurrentTerm) is { } source => (await CampaignAsync(status, cancellationToken, source).ConfigureAwait(false)) with { TransferSourceTerm = status.CurrentTerm },
             _ when TimeLeft() > TimeSpan.Zero => new ElectionOutcome(ElectionEvent.None, status.CurrentTerm),
             _ => await CampaignAsync(status, cancellationToken).ConfigureAwait(false),
         };
@@ -166,8 +172,9 @@ internal sealed class ReplicaGroupElection
     /// <summary>Campaigns for the next term once the election timeout fired: a pre-vote round, then the vote round.</summary>
     /// <param name="status">The log status read at the start of the step.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="source">The retired leader for this campaign, when triggered by a transfer.</param>
     /// <returns>The outcome of the campaign.</returns>
-    private async Task<ElectionOutcome> CampaignAsync(FollowerLogStatus status, CancellationToken cancellationToken)
+    private async Task<ElectionOutcome> CampaignAsync(FollowerLogStatus status, CancellationToken cancellationToken, string? source = null)
     {
         _state.BecomeFollower(status.CurrentTerm, true);
         var verdict = FailoverActivationGate.CheckElection(
@@ -204,7 +211,7 @@ internal sealed class ReplicaGroupElection
         var term = Math.Max(status.CurrentTerm + 1, 2UL);
         _state.BecomePreCandidate();
         var (granted, highest) = await _round
-            .RunAsync(true, _header with { Term = term }, status.CurrentTerm, (status.LastLogIndex, status.LastLogTerm), cancellationToken)
+            .RunAsync(true, _header with { Term = term, TransferSource = source }, status.CurrentTerm, (status.LastLogIndex, status.LastLogTerm), cancellationToken)
             .ConfigureAwait(false);
         return true switch
         {
@@ -399,7 +406,7 @@ internal sealed class ReplicaGroupElection
         return new ElectionOutcome(retired ? ElectionEvent.SteppedDown : ElectionEvent.RetirePending, term);
     }
 
-    /// <summary>Starts driving the group: the own group still at the provisional term is led at once, every other group is followed.</summary>
+    /// <summary>Starts driving the group: an uncommitted own group may bootstrap at the provisional term; every other group is followed.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the start.</returns>
     private async Task<ElectionOutcome> StartAsync(CancellationToken cancellationToken)
@@ -413,7 +420,9 @@ internal sealed class ReplicaGroupElection
         if (own && ElectionHold.OnStart(in status) is { } held)
             return held;
 
-        if (!own || status.CurrentTerm > 1)
+        // An authorized term-one leader may have replicated entries it lost before local fsync. Reusing its term after restart
+        // could put a different entry at the same index and term. A committed leader-term entry precedes every admitted user write.
+        if (!own || status.CurrentTerm > 1 || status.CommitIndex > 0)
         {
             _started = true;
             _state.BecomeFollower(status.CurrentTerm, false);
@@ -518,5 +527,49 @@ internal sealed class ReplicaGroupElection
             _ when IsMajority(granted) => await LeadAsync(term, cancellationToken).ConfigureAwait(false),
             _ => Lose(ElectionEvent.VoteLost, term),
         };
+    }
+
+    internal static class GracefulStop
+    {
+        internal static async Task StopAndTransferAsync(ReplicaGroupElection election)
+        {
+            var term = election._state.Transfers.StopForTransfer();
+            if (term == 0 || election._replicaCount is not (3 or 5))
+                return;
+
+            var target = SelectSuccessor(election);
+            if (target == null)
+                return;
+
+            using var budget = new CancellationTokenSource(election._state.Options.VoteRpcTimeout, election._state.Clock);
+            try
+            {
+                if (await election._leadership.FenceTransferAsync(election.GroupId, term, budget.Token).ConfigureAwait(false) && election._state.HighestObservedTerm == term)
+                    await election._votes.SendTransferAsync(election._members[target.Value], election._header with { Term = term, LeaderNodeId = election._header.SenderNodeId }, budget.Token).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is OperationCanceledException or Squirix.Transport.Binary.ServerCallException or IOException or System.Net.Http.HttpRequestException or TimeoutException or InvalidOperationException)
+            {
+                // The retired source never names another successor. Ordinary election timers remain armed.
+            }
+        }
+
+        private static int? SelectSuccessor(ReplicaGroupElection election)
+        {
+            int? target = null;
+            ulong freshest = 0;
+            for (var slot = 0; slot < election._members.Length; slot++)
+            {
+                if (slot == election._selfSlot || !election._state.ElectableContacts.CanStand(slot, election._state.Options.ElectionTimeout))
+                    continue;
+
+                if (election._leadership.MatchIndex(election.GroupId, slot) is { } matched && (target == null || matched > freshest))
+                {
+                    target = slot;
+                    freshest = matched;
+                }
+            }
+
+            return target;
+        }
     }
 }

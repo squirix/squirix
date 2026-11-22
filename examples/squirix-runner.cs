@@ -13,10 +13,10 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix;
 using Squirix.Client;
 using Squirix.Server;
+using Squirix.Transport;
 
 var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
@@ -40,9 +40,11 @@ foreach (var arg in argv)
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 var cancellationToken = cts.Token;
 var previousTestRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");
+var previousManagementUri = Environment.GetEnvironmentVariable("SQUIRIX_MANAGEMENT_URI");
 var previousCurrentDirectory = Directory.GetCurrentDirectory();
 var demoRoot = Path.Join(Path.GetTempPath(), $"squirix-runner-{Guid.NewGuid():N}");
 Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", demoRoot);
+Environment.SetEnvironmentVariable("SQUIRIX_MANAGEMENT_URI", "https://127.0.0.1:0");
 
 try
 {
@@ -63,8 +65,6 @@ try
             await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
             await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
 
-            await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics".AsMemory(), CancellationToken.None).ConfigureAwait(false);
-
             if (runLoad)
             {
                 await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.".AsMemory(), CancellationToken.None).ConfigureAwait(false);
@@ -79,6 +79,7 @@ finally
 {
     Directory.SetCurrentDirectory(previousCurrentDirectory);
     Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", previousTestRoot);
+    Environment.SetEnvironmentVariable("SQUIRIX_MANAGEMENT_URI", previousManagementUri);
     TryDeleteDirectory(demoRoot);
 }
 
@@ -162,7 +163,7 @@ static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken canc
                 _ = await cache.RemoveAsync(key, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception ex) when (ex is RpcException or IOException)
+        catch (Exception ex) when (ex is SquirixTransportException or IOException)
         {
             // Demo load ignores transient failures while the runtime is being exercised.
         }

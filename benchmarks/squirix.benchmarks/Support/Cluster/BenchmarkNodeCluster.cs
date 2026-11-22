@@ -22,7 +22,7 @@ internal static class BenchmarkNodeCluster
 
     private static async Task<TestCluster<ClusterStartOptions>> StartAsync(string nodeId, Uri uri, BenchmarkDurabilityMode mode, CancellationToken cancellationToken)
     {
-        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode(nodeId, uri), dir: mode is BenchmarkDurabilityMode.Persistence ? "squirix-bench" : null);
+        var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode(nodeId, uri)], dir: mode is BenchmarkDurabilityMode.Persistence ? "squirix-bench" : null);
 
         try
         {

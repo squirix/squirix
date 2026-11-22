@@ -6,8 +6,6 @@ using System.Diagnostics.Metrics;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -22,9 +20,11 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -76,7 +76,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
 
         long expected = 0;
         await foreach (var (_, entry) in chain.Physical.EnumerateLiveAsync(cancellationToken))
-            expected += JournalEntryPayload.MeasureSerializedBytes(entry);
+            expected += PreparedJournalEntry.MeasureEncodedLength(entry);
 
         _ = await Assert.That(CountOf(chain.Physical)).IsEqualTo(3);
         _ = await Assert.That(BytesOf(chain.Physical)).IsEqualTo(expected);
@@ -95,13 +95,22 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         foreach (var (payload, ticks) in new[]
                  {
                      (withDeadline, 0L), (withDeadline, deadline.Ticks), (withoutDeadline, 0L), (withoutDeadline, deadline.Ticks),
+                     (withDeadline, deadline.AddTicks(1).Ticks),
                      (relative, 0L), (relative, deadline.Ticks), (both, 0L), (both, deadline.Ticks),
                  })
         {
             var isDecoded = JournalEntryPayload.TryDecodeWithDeadline(payload, ticks, out var entry, out var length);
 
             _ = await Assert.That(isDecoded).IsTrue();
-            _ = await Assert.That(length).IsEqualTo(JournalEntryPayload.MeasureSerializedBytes(entry!));
+            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntry.MeasureEncodedLength(entry!));
+            _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc));
+            _ = await Assert.That(entry.Expiration).IsNull();
+            _ = await Assert.That(entry.Version).IsEqualTo(3L);
+            _ = await Assert.That(entry.Tags).IsNotNull();
+            foreach (var tag in Tags())
+                _ = await Assert.That(entry.Tags![tag.Key]).IsEqualTo(tag.Value);
+            var json = (await Assert.That(entry.Value).IsTypeOf<JsonUtf8Value>())!;
+            await SequenceAssert.EqualAsync(JsonValueKit.Create(Tree.GetRawText()).Bytes.ToArray(), json.Bytes.ToArray());
         }
 
         var padded = new byte[withDeadline.Length + 1];
@@ -139,14 +148,14 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             foreach (var record in records)
                 await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
-            var stored = await chain.Physical.GetEntryAsync(new CacheKey(CacheName, "dup"), cancellationToken);
+            var stored = chain.Physical.GetEntry(new CacheKey(CacheName, "dup"), cancellationToken);
             var json = stored!.Value is JsonUtf8Value found ? found : ThrowHelper.Throw<JsonUtf8Value>(new InvalidOperationException("The stored value must be a JSON value."));
             _ = await Assert.That(json.ToJsonElement().GetRawText()).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
             accounted = BytesOf(chain.Physical);
             walked = await WalkedBytesAsync(chain.Physical, estimator, cancellationToken);
         }
 
-        var recovered = await new JournalReplayKit(Dir, _testMeter).RecoverAsync(clock, estimator, cancellationToken);
+        var recovered = await new JournalReplayKit(Dir).RecoverAsync(clock, estimator, cancellationToken);
 
         _ = await Assert.That(accounted).IsEqualTo(walked);
         _ = await Assert.That(BytesOf(recovered)).IsEqualTo(walked);
@@ -181,7 +190,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             count = CountOf(chain.Physical);
         }
 
-        var recovered = await new JournalReplayKit(Dir, _testMeter).RecoverAsync(clock, estimator, cancellationToken);
+        var recovered = await new JournalReplayKit(Dir).RecoverAsync(clock, estimator, cancellationToken);
 
         _ = await Assert.That(count).IsEqualTo(5);
         _ = await Assert.That(accounted).IsEqualTo(walked);
@@ -198,14 +207,50 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         var keyA = new CacheKey(CacheName, "a");
         var keyB = new CacheKey(CacheName, "b");
 
-        await cache.SetAsync(keyA, new NodeCacheEntry<string>("a", 1, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)), cancellationToken, 1000);
+        cache.Set(keyA, new NodeCacheEntry<string>("a", 1, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)), cancellationToken, 1000);
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(1000L);
 
-        _ = await Assert.That(await cache.TryAddAsync(keyB, new NodeCacheEntry<string>("b"), cancellationToken, 20)).IsTrue();
+        _ = await Assert.That(cache.TryAdd(keyB, new NodeCacheEntry<string>("b"), cancellationToken, 20)).IsTrue();
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(1020L);
 
         await cache.InsertRecoveryAsync(keyA, new NodeCacheEntry<string>("c"), cancellationToken, 5);
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(25L);
+    }
+
+    /// <summary>A matching deadline avoids the extra entry allocation required to replace a deadline.</summary>
+    [Test]
+    public async Task MatchingDeadlineAvoidsAllocation()
+    {
+        const int iterations = 256;
+        var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var replacementTicks = deadline.AddTicks(1).Ticks;
+        var payload = JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>("value", 3, deadline));
+        for (var i = 0; i < iterations; i++)
+        {
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, deadline.Ticks, out var matching, out _);
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, replacementTicks, out var replacement, out _);
+            GC.KeepAlive(matching);
+            GC.KeepAlive(replacement);
+        }
+
+        // No await or assertion runs within either same-thread allocation interval.
+        var start = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < iterations; i++)
+        {
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, deadline.Ticks, out var entry, out _);
+            GC.KeepAlive(entry);
+        }
+
+        var matchingBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        start = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < iterations; i++)
+        {
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, replacementTicks, out var entry, out _);
+            GC.KeepAlive(entry);
+        }
+
+        var replacementBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        _ = await Assert.That(matchingBytes).IsLessThan(replacementBytes);
     }
 
     /// <summary>A relative expiration becomes a deadline the known length may not cover, so the entry is measured and the known length is dropped.</summary>
@@ -216,10 +261,10 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         var cache = new PhysicalCache<string>(TimeProvider.System, CreateLengthEstimator());
         var relative = new NodeCacheEntry<string>("v", expiration: TimeSpan.FromMinutes(5));
 
-        await cache.SetAsync(new CacheKey(CacheName, "a"), relative, cancellationToken, 1000);
+        cache.Set(new CacheKey(CacheName, "a"), relative, cancellationToken, 1000);
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(MeasuredBytes);
 
-        _ = await Assert.That(await cache.TryAddAsync(new CacheKey(CacheName, "b"), relative, cancellationToken, 1000)).IsTrue();
+        _ = await Assert.That(cache.TryAdd(new CacheKey(CacheName, "b"), relative, cancellationToken, 1000)).IsTrue();
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(2 * MeasuredBytes);
     }
 
@@ -272,7 +317,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             _ = await Assert.That(CountOf(chain.Physical)).IsEqualTo(4);
         }
 
-        var recovered = await new JournalReplayKit(Dir, _testMeter).RecoverAsync(clock, estimator, cancellationToken);
+        var recovered = await new JournalReplayKit(Dir).RecoverAsync(clock, estimator, cancellationToken);
 
         _ = await Assert.That(accounted).IsEqualTo(walked);
         _ = await Assert.That(BytesOf(recovered)).IsEqualTo(walked);
@@ -301,7 +346,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         {
             var (key, entry) = loaded.Entries[i];
             var length = loaded.EncodedLengths[i];
-            _ = await Assert.That(length).IsEqualTo(JournalEntryPayload.MeasureSerializedBytes(entry));
+            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntry.MeasureEncodedLength(entry));
             await replayed.InsertRecoveryAsync(key, entry, cancellationToken, length);
             expected += estimator.EstimateBytes(key, entry, false);
         }
@@ -315,7 +360,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     public async Task WrongHintFallsBackToMeasuredLength()
     {
         var entry = new NodeCacheEntry<object?>(Tree, 3, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, Tags());
-        var measured = JournalEntryPayload.MeasureSerializedBytes(entry);
+        var measured = PreparedJournalEntry.MeasureEncodedLength(entry);
 
         foreach (var hint in new[] { measured - 5, measured + 5, 1 })
         {
@@ -326,7 +371,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             var isDecoded = JournalEntryPayload.TryDecode<object?>(payload.Memory.Span, out var decoded, out var bytesRead);
             _ = await Assert.That(isDecoded).IsTrue();
             _ = await Assert.That(bytesRead).IsEqualTo(measured);
-            _ = await Assert.That(JournalEntryPayload.MeasureSerializedBytes(decoded!)).IsEqualTo(measured);
+            _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(decoded!)).IsEqualTo(measured);
         }
     }
 
@@ -351,7 +396,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
 
     private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
     {
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
         records.Add(record);
     }

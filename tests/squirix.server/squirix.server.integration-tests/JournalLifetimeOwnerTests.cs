@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -63,7 +62,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
 
         // node-b still runs, so every dispose so far is node-a's: its journal was disposed once, by its owner.
         _ = await Assert.That(disposals.Count).IsEqualTo(1);
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         // The replica group registry disposed every follower log it serves, and each log released its file.
         _ = await Assert.That(AllGroupLogsReleased(dataDir)).IsTrue();
@@ -124,7 +123,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
         /// <summary>Wraps the journal host registration so the host owns a throwing journal from its first resolution.</summary>
         /// <param name="services">The node service collection.</param>
         /// <exception cref="InvalidOperationException">The composition registers no journal host factory.</exception>
-        internal void Configure(IServiceCollection services)
+        internal void Configure(TestServiceCollection services)
         {
             for (var i = services.Count - 1; i >= 0; i--)
             {
@@ -134,7 +133,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
                 if (services[i].ImplementationFactory is not { } factory)
                     throw new InvalidOperationException("the journal host is not registered through a factory.");
 
-                services[i] = ServiceDescriptor.Singleton(typeof(JournalCoordinatorHost), new ThrowingHostFactory(factory, this).Create);
+                services[i] = TestServiceRegistration.Singleton(typeof(JournalCoordinatorHost), new ThrowingHostFactory(factory, this).Create);
                 return;
             }
 
@@ -162,8 +161,6 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
             _ = setups.NextSequence.Gets().Callback(() => journal.NextSequence);
             _ = setups.RecentAppendLatencyMs.Gets().Callback(() => journal.RecentAppendLatencyMs);
             _ = setups.UsedBytes.Gets().Callback(() => journal.UsedBytes);
-            _ = setups.AppendIdempotencyOutcomeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<Action?>(), Arg.Any<CancellationToken>())
-               .Callback(journal.AppendIdempotencyOutcomeAsync);
             _ = setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
                .Callback(journal.AppendPutAsync);
             _ = setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
@@ -187,10 +184,10 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
     [Immutable]
     private sealed class ThrowingHostFactory
     {
-        private readonly Func<IServiceProvider, object> _inner;
+        private readonly Func<IServiceProvider, object?> _inner;
         private readonly ThrowingJournalRegistration _registration;
 
-        internal ThrowingHostFactory(Func<IServiceProvider, object> inner, ThrowingJournalRegistration registration)
+        internal ThrowingHostFactory(Func<IServiceProvider, object?> inner, ThrowingJournalRegistration registration)
         {
             _inner = inner;
             _registration = registration;

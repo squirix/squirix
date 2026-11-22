@@ -107,20 +107,13 @@ internal sealed class ReplicaCommitQuorum
 
         lock (_sync)
         {
-            for (var candidate = lastLogIndex; candidate > currentCommitIndex; candidate--)
-            {
-                var copies = 0;
-                for (var i = 0; i < _matchIndexes.Length; i++)
-                {
-                    if (_eligibility?.CanCountInWriteQuorum(i) != false && _matchIndexes[i] >= candidate)
-                        copies++;
-                }
+            Span<ulong> matches = stackalloc ulong[_matchIndexes.Length];
+            for (var i = 0; i < matches.Length; i++)
+                matches[i] = _eligibility?.CanCountInWriteQuorum(i) != false ? _matchIndexes[i] : 0UL;
 
-                if (copies >= RequiredCopies)
-                    return candidate;
-            }
-
-            return currentCommitIndex;
+            matches.Sort();
+            var majorityIndex = matches[^RequiredCopies];
+            return Math.Max(currentCommitIndex, Math.Min(lastLogIndex, majorityIndex));
         }
     }
 

@@ -5,8 +5,9 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Internal.Cluster.Observability;
+using Squirix.Internal.Cluster.Reliability;
+using Squirix.Transport;
 
 namespace Squirix.Internal;
 
@@ -18,7 +19,7 @@ namespace Squirix.Internal;
 /// Every operation runs under one absolute deadline: only its duration is fixed at construction, the instant is set
 /// when the operation starts. It is shared between the reroute and the per-endpoint transport retries instead of
 /// multiplying retry counters across layers. Its monotonic budget is passed explicitly to the call policy and
-/// outgoing calls, which rebuild the gRPC deadline from the remaining time.
+/// outgoing calls, which rebuild the transport deadline from the remaining time.
 /// </remarks>
 internal sealed class EndpointFailover
 {
@@ -34,8 +35,8 @@ internal sealed class EndpointFailover
     /// <param name="operationDeadline">The finite positive duration each operation may take in total.</param>
     /// <param name="timeProvider">
     /// The clock the operation deadline is computed and counted down on: the call policy measures the budget on its monotonic timestamp,
-    /// and the deadline handed to the gRPC client is rebuilt from that budget and this clock's wall time. Production must pass
-    /// <see cref="TimeProvider.System" />, because gRPC converts the absolute deadline back into a timeout with the system clock.
+    /// and the deadline handed to the transport client is rebuilt from that budget and this clock's wall time. Production must pass
+    /// <see cref="TimeProvider.System" />, because the transport converts the absolute deadline back into a timeout with the system clock.
     /// </param>
     internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId, TimeSpan operationDeadline, TimeProvider timeProvider)
     {
@@ -93,20 +94,20 @@ internal sealed class EndpointFailover
 
                 return result;
             }
-            catch (RpcException ex) when (IsRetryableStaleTerm(ex, rerouted, hasMoreEndpoints))
+            catch (SquirixTransportException ex) when (IsRetryableStaleTerm(ex, rerouted, hasMoreEndpoints))
             {
                 rerouted = true;
                 lastFailure = ex;
             }
-            catch (RpcException ex) when (IsRetryableTransport(ex) && !IsCommitOutcomeUnknown(ex) && hasMoreEndpoints)
+            catch (SquirixTransportException ex) when (IsRetryableTransport(ex) && !CommitOutcomeUnknownDetail.Matches(ex.Status.Detail) && hasMoreEndpoints)
             {
                 lastFailure = ex;
             }
-            catch (HttpRequestException ex) when (hasMoreEndpoints)
+            catch (HttpRequestException ex) when (CanFailOver(ex, hasMoreEndpoints))
             {
                 lastFailure = ex;
             }
-            catch (IOException ex) when (hasMoreEndpoints)
+            catch (IOException ex) when (CanFailOver(ex, hasMoreEndpoints))
             {
                 lastFailure = ex;
             }
@@ -119,41 +120,34 @@ internal sealed class EndpointFailover
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
 
-    /// <summary>
-    /// Determines whether <paramref name="ex" /> reports an ambiguous durable commit outcome that must never
-    /// fail over: the mutation may already be committed on this endpoint, and the next endpoint holds no
-    /// idempotency record that would gate a re-execution.
-    /// </summary>
-    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
-    /// <returns><see langword="true" /> when the status detail is the exact stable ambiguous-commit contract.</returns>
-    private static bool IsCommitOutcomeUnknown(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal);
-
     /// <summary>Determines whether the shared absolute deadline already passed.</summary>
     /// <param name="budget">The single monotonic operation budget.</param>
     /// <returns><see langword="true" /> when the deadline already passed; otherwise <see langword="false" />.</returns>
     private static bool IsExpired(in DeadlineBudget budget) => budget.Remaining <= TimeSpan.Zero;
 
     /// <summary>Determines whether <paramref name="ex" /> authorizes the single stale-term reroute.</summary>
-    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
+    /// <param name="ex">The transport exception from the attempted endpoint.</param>
     /// <param name="rerouted">Whether the single reroute was already consumed.</param>
     /// <param name="hasMoreEndpoints">Whether another endpoint remains to reroute to.</param>
     /// <returns><see langword="true" /> when a stale-term reroute may proceed; otherwise <see langword="false" />.</returns>
-    private static bool IsRetryableStaleTerm(RpcException ex, bool rerouted, bool hasMoreEndpoints) => IsStaleTerm(ex) && !rerouted && hasMoreEndpoints;
+    private static bool IsRetryableStaleTerm(SquirixTransportException ex, bool rerouted, bool hasMoreEndpoints) => IsStaleTerm(ex) && !rerouted && hasMoreEndpoints;
 
     /// <summary>Determines whether <paramref name="ex" /> is a retryable transport failure.</summary>
-    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
+    /// <param name="ex">The transport exception from the attempted endpoint.</param>
     /// <returns><see langword="true" /> for retryable transport status codes; otherwise <see langword="false" />.</returns>
-    private static bool IsRetryableTransport(RpcException ex) => ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.DeadlineExceeded ||
-                                                                 ex.StatusCode == StatusCode.Internal || ex.StatusCode == StatusCode.ResourceExhausted;
+    private static bool IsRetryableTransport(SquirixTransportException ex) => !ex.Status.PayloadTooLarge && ConnectionRejectedException.Map(ex) == null &&
+        ex.StatusCode is CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded or CacheTransportStatusCode.Internal or CacheTransportStatusCode.ResourceExhausted;
+
+    private static bool CanFailOver(Exception exception, bool hasMoreEndpoints) => hasMoreEndpoints && ConnectionRejectedException.Map(exception) == null;
 
     /// <summary>
     /// Determines whether <paramref name="ex" /> reports a stale term from a deposed endpoint.
     /// The detail mirrors the server refusal marker so the client reroutes without referencing the server assembly.
     /// </summary>
-    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
+    /// <param name="ex">The transport exception from the attempted endpoint.</param>
     /// <returns><see langword="true" /> for a stale-term response; otherwise <see langword="false" />.</returns>
-    private static bool IsStaleTerm(RpcException ex) =>
-        ex.StatusCode == StatusCode.FailedPrecondition && string.Equals(ex.Status.Detail, StaleTermDetail, StringComparison.Ordinal);
+    private static bool IsStaleTerm(SquirixTransportException ex) =>
+        ex.StatusCode == CacheTransportStatusCode.FailedPrecondition && string.Equals(ex.Status.Detail, StaleTermDetail, StringComparison.Ordinal);
 
     private static int ResolveActiveIndex(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
@@ -169,14 +163,14 @@ internal sealed class EndpointFailover
     /// <summary>Throws when the shared absolute deadline passed without a captured endpoint failure.</summary>
     /// <param name="budget">The single monotonic operation budget.</param>
     /// <param name="peer">The endpoint the operation would have used, recorded as the metric peer.</param>
-    /// <exception cref="RpcException">Thrown when the deadline passed.</exception>
+    /// <exception cref="SquirixTransportException">Thrown when the deadline passed.</exception>
     private static void ThrowIfExpired(in DeadlineBudget budget, string peer)
     {
         if (!IsExpired(in budget))
             return;
 
-        RpcTimeoutMetrics.TimeoutsTotal.WithLabels(peer, "overall", "deadline_budget").Inc();
-        throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
+        RpcTimeoutMetrics.TimeoutsTotal.Add(peer, "overall", "deadline_budget");
+        throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 
     private int ActiveIndexSnapshot() => Volatile.Read(ref _activeIndex);

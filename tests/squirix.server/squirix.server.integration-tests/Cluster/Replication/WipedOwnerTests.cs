@@ -1,8 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
@@ -31,7 +30,7 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
         await using var cluster = await StartAsync("wiped-owner-elected", true, cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, WipedCluster.OwnerId, WipedCluster.Bound);
 
-        var owner = await cluster.RestartWipedNodeAsync(WipedCluster.OwnerId, null, cancellationToken);
+        var owner = await cluster.RestartWipedNodeAsync(WipedCluster.OwnerId, cancellationToken);
         var (leader, term) = await ledger.LeaderAsync(Others, 0UL, "the other members elect a leader of the group", cancellationToken);
         await CommitAsync(cluster[leader], cancellationToken);
 
@@ -54,7 +53,7 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
         await using var cluster = await StartAsync("wiped-owner-static", false, cancellationToken);
         await WipedCluster.AwaitReadyAsync(cluster, WipedCluster.Nodes, cancellationToken);
 
-        var owner = await cluster.RestartWipedNodeAsync(WipedCluster.OwnerId, null, cancellationToken);
+        var owner = await cluster.RestartWipedNodeAsync(WipedCluster.OwnerId, cancellationToken);
 
         await WipedCluster.AssertRefusesWriteAsync(owner, WipedCluster.OwnerId, cancellationToken);
         await WipedCluster.AssertUnseededAsync(owner, cancellationToken);
@@ -83,7 +82,7 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
     /// <exception cref="InvalidOperationException">The node runs no first start.</exception>
     private static Task FirstStartAsync(ITestNodeHost host)
     {
-        foreach (var service in host.GetRequiredService<IEnumerable<IHostedService>>())
+        foreach (var service in host.GetServices<INodeService>())
         {
             if (service is ReplicaGroupBootstrapService { ExecuteTask: { } start })
                 return start;

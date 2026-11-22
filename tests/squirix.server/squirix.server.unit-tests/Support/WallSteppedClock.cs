@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -12,7 +12,11 @@ internal sealed class WallSteppedClock : FakeTimeProvider
     private long _wallOffsetTicks;
 
     internal WallSteppedClock()
-        : base(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero))
+    {
+    }
+
+    internal WallSteppedClock(DateTimeOffset start)
+        : base(start)
     {
     }
 

@@ -4,23 +4,22 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -59,8 +58,8 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(directCache, in record, cancellationToken);
 
-        var expected = await direct.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
-        var actual = await recovered.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var expected = direct.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
+        var actual = recovered.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(expected).IsNotNull();
         _ = await Assert.That(actual).IsNotNull();
         _ = await Assert.That(actual!.Value).IsEqualTo(expected!.Value);
@@ -75,26 +74,6 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
     {
         _testMeter.Dispose();
         base.DisposeManaged();
-    }
-
-    private static async Task<List<ReplicaLogRecord>> PrepareRecordsAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
-    {
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var cache = new ClientCache<object?>(physical, physical);
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
-        var records = new List<ReplicaLogRecord>();
-        await LeaderAppliesAsync(cache, records, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 3, null, TimeSpan.FromMinutes(10), tags), 1UL), cancellationToken);
-        await LeaderAppliesAsync(cache, records, await factory.PrepareTouchAsync("op-2", CacheName, Key, TimeSpan.FromMinutes(20), 2UL, cancellationToken), cancellationToken);
-        await LeaderAppliesAsync(cache, records, await factory.PrepareUpdateAsync("op-3", CacheName, Key, "v2", 3UL, cancellationToken), cancellationToken);
-        return records;
-    }
-
-    private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
-    {
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
-        await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
-        records.Add(record);
     }
 
     private static async Task ApplyThroughJournalAsync(PersistenceOptions persistence, FakeTimeProvider clock, List<ReplicaLogRecord> records, CancellationToken cancellationToken)
@@ -113,12 +92,33 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             new ClientCache<object?>(physical, physical),
             journal,
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
-            clock);
+            clock,
+            physical.RawReader);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }
 
-    private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
+    private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
+    {
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
+        records.Add(record);
+    }
+
+    private static async Task<List<ReplicaLogRecord>> PrepareRecordsAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
+    {
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
+        var cache = new ClientCache<object?>(physical, physical);
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
+        var records = new List<ReplicaLogRecord>();
+        await LeaderAppliesAsync(cache, records, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 3, null, TimeSpan.FromMinutes(10), tags), 1UL), cancellationToken);
+        await LeaderAppliesAsync(cache, records, await factory.PrepareTouchAsync("op-2", CacheName, Key, TimeSpan.FromMinutes(20), 2UL, cancellationToken), cancellationToken);
+        await LeaderAppliesAsync(cache, records, await factory.PrepareUpdateAsync("op-3", CacheName, Key, "v2", 3UL, cancellationToken), cancellationToken);
+        return records;
+    }
+
+    private static async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
     {
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
@@ -127,7 +127,6 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             StoreFactory.CreateReader(),
             clock);
         await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);

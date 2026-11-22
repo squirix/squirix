@@ -1,13 +1,12 @@
 using System;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
@@ -21,26 +20,34 @@ public sealed class ServerStartRetryTests
     public async Task StartRetriesOnSameDataDirectory(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-start-retry");
-        using var blocker = new TcpListener(IPAddress.Loopback, 0);
-        blocker.Start();
-        var uri = new Uri($"https://localhost:{IPEndPoint.Parse(blocker.LocalEndpoint.ToString()!).Port}");
 
-        var configure = Bind.To<(Uri Uri, TempDirectory Dir), Action<SquirixServerOptions>>(
-            (uri, dir),
-            static shared => options =>
-            {
-                options.Uri = shared.Uri;
-                options.UsePersistence(shared.Dir);
-            });
+        // Reserve the primary port and the default management port at primary + 2.
+        var ports = ListenPortPool.IntegrationTests.HoldPorts(3);
+        try
+        {
+            var configure = Bind.To<(Uri Uri, TempDirectory Dir), Action<SquirixServerOptions>>(
+                (ports[0].HttpUri, dir),
+                static shared => options =>
+                {
+                    options.Uri = shared.Uri;
+                    options.UsePersistence(shared.Dir);
+                });
 
-        WriteEmptySegment(Path.Join(dir.ToString(), $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"));
+            WriteEmptySegment(Path.Join(dir.ToString(), $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"));
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(SquirixServer.StartAsync(configure, cancellationToken).AsTask());
-        blocker.Stop();
-        await JournalSegmentLeaseWait.WaitForReleasedAsync(dir, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(SquirixServer.StartAsync(configure, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            ports[0].Dispose();
+            await JournalSegmentLeaseWait.WaitForReleasedAsync(dir, cancellationToken);
 
-        var server = await SquirixServer.StartAsync(configure, cancellationToken);
-        await server.DisposeAsync();
+            ports[2].Dispose();
+            var server = await SquirixServer.StartAsync(configure, cancellationToken);
+            await server.DisposeAsync();
+        }
+        finally
+        {
+            foreach (var port in ports)
+                port.Return();
+        }
     }
 
     private static void WriteEmptySegment(string path)

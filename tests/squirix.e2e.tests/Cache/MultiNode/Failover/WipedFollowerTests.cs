@@ -4,7 +4,6 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -19,7 +18,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// A follower that restarts on an empty data directory holds unseeded copies until the leaders repair them (#1126): clients keep reading and
 /// writing through the other members meanwhile, and the node reports ready again once every copy is repaired.
 /// </summary>
-public sealed class WipedFollowerTests : EndToEndTestBase
+public sealed class WipedFollowerTests
 {
     private const string CacheName = "wiped-follower";
 
@@ -48,13 +47,12 @@ public sealed class WipedFollowerTests : EndToEndTestBase
         await Eventually.SucceedsAsync((Cache: cache, Key: key), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), FailoverSteps.Bound, attempts, cancellationToken);
         var read = await Eventually.SucceedsAsync((Cache: cache, Key: key), static (s, token) => s.Cache.GetValueAsync(s.Key, token), FailoverSteps.Bound, attempts, cancellationToken);
         await cluster.Cluster[follower].WaitUntilValueAsync(
-            static async (host, token) => (await host.ReplicaGroupsAsync(token)).Status == HealthStatus.Healthy,
+            static (host, token) => host.ReplicaGroupsReadyAsync(token),
             FailoverSteps.Bound,
-            TimeProvider.System,
             cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();
         using var invoker = new HttpMessageInvoker(handler, false);
-        using var readiness = new HttpRequestMessage(HttpMethod.Get, new Uri(cluster.GetUri(follower), "/health/ready"));
+        using var readiness = new HttpRequestMessage(HttpMethod.Get, new Uri(cluster.GetManagementUri(follower), "/health/ready"));
         using var ready = await invoker.SendAsync(readiness, cancellationToken);
 
         _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(Eventually.Dump(attempts));

@@ -1,8 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -14,7 +12,8 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
-using Squirix.Transport.Grpc.Mappers;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -31,6 +30,8 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// of a node with authority: a client write reaches the new leader of a group only through leader routing, which this release does not
 /// have yet. Reads under quorum reads go through the replicated cache of a node over its local chain, fenced by a read index.
 /// </remarks>
+// Each case starts several real nodes and needs predictable election scheduling on CI runners.
+[NotInParallel]
 [ExecutionPriority(Priority.High)]
 public sealed class PartitionSafetyTests : NodeIntegrationTestBase
 {
@@ -76,11 +77,11 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         var (next, nextTerm) = await ledger.LeaderAsync(Without(Three, former), formerTerm, "the majority elects a leader", cancellationToken);
         await ledger.UntilAsync(() => !HasAuthority(cluster[former]), "the cut-off leader loses its authority", cancellationToken);
         var formerLast = (await Log(cluster[former]).GetStatusAsync(cancellationToken)).LastLogIndex;
-        var refused = NodeExceptionAssert.For<RpcException>().Throws(Committers(cluster[former]), key, static (committers, k) => _ = committers.ForKey(Scope, k));
+        var refused = NodeExceptionAssert.For<ServerCallException>().Throws(Committers(cluster[former]), key, static (committers, k) => _ = committers.ForKey(Scope, k));
         await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, key, cancellationToken);
 
         _ = await Assert.That(nextTerm).IsGreaterThan(formerTerm);
-        _ = await Assert.That(IsDefinitePreAppendRefusal(refused)).IsTrue().Because($"the cut-off leader refuses before any append, got {refused.StatusCode}: {refused.Status.Detail}");
+        _ = await Assert.That(IsDefinitePreAppendRefusal(refused)).IsTrue().Because($"the cut-off leader refuses before any append, got {refused.StatusCode}: {refused.Message}");
         _ = await Assert.That((await Log(cluster[former]).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(formerLast);
     }
 
@@ -99,11 +100,11 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         var key = cluster[former].FindKeyOwnedBy(Scope, Group);
 
         await fabric.IsolateAsync(former);
-        var cutOff = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken));
+        var cutOff = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var (next, _) = await ledger.LeaderAsync(Without(Three, former), formerTerm, "the majority elects a leader", cancellationToken);
         await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, key, cancellationToken);
         await ledger.UntilAsync(() => !HasAuthority(cluster[former]), "the cut-off leader loses its authority", cancellationToken);
-        var deposed = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken));
+        var deposed = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(FencedReads.Fenced(cluster[former]).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var current = (await Log(cluster[next]).GetStatusAsync(cancellationToken)).CommitIndex;
         var stale = await StatusAsync(cluster[former], cancellationToken);
         var read = LeaderAuthorityGate.CheckRead(
@@ -119,11 +120,11 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         _ = await Assert.That(stale.Role).IsNotEqualTo(ReplicaElectionRole.AuthorizedLeader);
 
         // Right after the cut the leader may still hold authority, so its round goes unconfirmed, or it may have lost it already.
-        _ = await Assert.That(cutOff.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(cutOff.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(
-            string.Equals(cutOff.Status.Detail, ServerOpContract.ReadQuorumUnconfirmedDetail, StringComparison.Ordinal) ||
-            string.Equals(cutOff.Status.Detail, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal)).IsTrue();
-        _ = await Assert.That((deposed.StatusCode, deposed.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+            string.Equals(cutOff.Message, ServerOpContract.ReadQuorumUnconfirmedDetail, StringComparison.Ordinal) ||
+            string.Equals(cutOff.Message, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That((deposed.StatusCode, deposed.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     /// <summary>
@@ -354,18 +355,18 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// </summary>
     /// <param name="refused">The refusal.</param>
     /// <returns><see langword="true" /> for one of the three pre-append refusals.</returns>
-    private static bool IsDefinitePreAppendRefusal(RpcException refused) => (refused.StatusCode, refused.Status.Detail) switch
+    private static bool IsDefinitePreAppendRefusal(ServerCallException refused) => (refused.StatusCode, refused.Message) switch
     {
-        (StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail) => true,
-        (StatusCode.FailedPrecondition, GrpcStaleOwnerMarkers.StaleTermErrorCodeValue) => true,
-        (StatusCode.FailedPrecondition, _) => string.Equals(refused.Trailers.GetValue(GrpcStaleOwnerMarkers.ErrorCodeMetadataKey), "stale-owner", StringComparison.Ordinal),
+        (FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail) => true,
+        (FrameStatus.FailedPrecondition, StaleOwnerMarkers.StaleTermErrorCodeValue) => true,
+        (FrameStatus.FailedPrecondition, _) => string.Equals(refused.FindTrailer(StaleOwnerMarkers.ErrorCodeMetadataKey), "stale-owner", StringComparison.Ordinal),
         _ => false,
     };
 
     private static IFollowerLog Log(ITestNodeHost host) =>
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var log) ? log : throw new InvalidOperationException($"The group log {Group} is not open.");
 
-    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<IServiceCollection>? configure = null) => new()
+    private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, int replicaCount = 3, Action<TestServiceCollection>? configure = null) => new()
     {
         ReplicaCount = replicaCount,
         UsePersistence = true,

@@ -14,7 +14,7 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// <para>
 /// Each write is taken from the head of the queue and prepared at the next consecutive log index. A batch holds each cache key and each operation
-/// identity once, and no identity the group already retains: a prepare reads only its own key and the clock, so entries of distinct keys decide the same as if
+/// identity once, and no identity the group already retains. A bounded factory commits one request at a time. An unbounded prepare reads only its own key and the clock, so entries of distinct keys decide the same as if
 /// they were committed one by one. The write that would repeat a key or an identity ends the batch and stays queued, as does one that would no longer fit
 /// the payload bytes or the idempotency capacity. A write whose identity is retained is committed alone, where the coordinator answers a retry from the record.
 /// </para>
@@ -34,7 +34,7 @@ internal sealed class ReplicaCommitBatchFormer
     private int _chargedRecords;
     private HashSet<(string Scope, string Key)>? _keys;
     private HashSet<(string Scope, string OperationId)>? _operations;
-    private List<ReplicaCommitRequest>? _taken;
+    private List<ReplicaCommitRequestBase>? _taken;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitBatchFormer" /> class.</summary>
     /// <param name="committer">The committer of the group, whose commit gate the caller holds.</param>
@@ -56,16 +56,16 @@ internal sealed class ReplicaCommitBatchFormer
     }
 
     /// <summary>Gets the writes of the batch with their prepared mutations, in log order.</summary>
-    internal List<(ReplicaCommitRequest Request, PreparedReplicaMutation Mutation)> Entries { get; } = [];
+    internal List<(ReplicaCommitRequestBase Request, PreparedReplicaMutation Mutation)> Entries { get; } = [];
 
     /// <summary>Gets the writes the former took from the queue behind the leader, so the caller can decide the ones a fault leaves open.</summary>
-    internal IReadOnlyList<ReplicaCommitRequest> Taken => _taken ?? [];
+    internal IReadOnlyList<ReplicaCommitRequestBase> TakenRequests => _taken ?? [];
 
     /// <summary>Takes the queued writes into the batch of the leader.</summary>
     /// <param name="self">The leading write, already taken, which opens the batch.</param>
     /// <param name="cancellationToken">The commit budget token.</param>
     /// <returns>An asynchronous operation.</returns>
-    internal async Task FormAsync(ReplicaCommitRequest self, CancellationToken cancellationToken)
+    internal async Task FormAsync(ReplicaCommitRequestBase self, CancellationToken cancellationToken)
     {
         var firstIndex = _committer.PeekNextIndex();
         var candidate = self;
@@ -100,7 +100,7 @@ internal sealed class ReplicaCommitBatchFormer
     /// <summary>Takes the head of the queue into the batch, unless the batch is full or the head repeats a key or an identity of it.</summary>
     /// <param name="candidate">The head of the queue.</param>
     /// <returns>Whether the head is taken, ends the batch, or was canceled meanwhile.</returns>
-    private Admission Admit(ReplicaCommitRequest candidate)
+    private Admission Admit(ReplicaCommitRequestBase candidate)
     {
         if (Entries.Count >= ReplicaGroupCommitterBatches.MaxBatchEntries || _bytes >= ReplicaGroupCommitterBatches.MaxBatchBytes)
             return Admission.Stop;
@@ -121,12 +121,20 @@ internal sealed class ReplicaCommitBatchFormer
     /// <param name="index">The log index of the write in the batch.</param>
     /// <param name="cancellationToken">The commit budget token.</param>
     /// <returns><see langword="true" /> when the batch can take another write.</returns>
-    private async Task<bool> DecideAsync(ReplicaCommitRequest candidate, bool queued, ulong index, CancellationToken cancellationToken)
+    private async Task<bool> DecideAsync(ReplicaCommitRequestBase candidate, bool queued, ulong index, CancellationToken cancellationToken)
     {
         var retained = _log != null && _log.Idempotency.Lookup(candidate.Scope, candidate.OperationId, [], out _) != GroupIdempotencyLookup.Miss;
         if (retained && Entries.Count > 0)
         {
             Return(candidate);
+            return false;
+        }
+
+        if (retained && candidate.ReplayBeforePrepare && _committer.TryReplayRetained(candidate))
+        {
+            if (queued)
+                _committer.Combiner.RemoveHead(candidate);
+
             return false;
         }
 
@@ -140,7 +148,8 @@ internal sealed class ReplicaCommitBatchFormer
                 return false;
             }
 
-            more = more && !retained && FitsAnother();
+            // An insertion can affect a second key. Finish applying it before preparing another bounded write.
+            more = more && !retained && _factory.SelectCapacityVictim == null && FitsAnother();
         }
 
         if (queued)
@@ -163,7 +172,7 @@ internal sealed class ReplicaCommitBatchFormer
     /// <param name="cancellationToken">The commit budget token.</param>
     /// <returns>The mutation, or <see langword="null" /> when the write is refused, and whether the budget ended the batch.</returns>
     [SuppressMessage("Design", "CA1031", Justification = "A fault of the prepare is recorded as the failure of that write alone, whose caller rethrows it.")]
-    private async Task<(PreparedReplicaMutation? Mutation, bool Ended)> PrepareAsync(ReplicaCommitRequest candidate, ulong index, CancellationToken cancellationToken)
+    private async Task<(PreparedReplicaMutation? Mutation, bool Ended)> PrepareAsync(ReplicaCommitRequestBase candidate, ulong index, CancellationToken cancellationToken)
     {
         try
         {
@@ -190,7 +199,7 @@ internal sealed class ReplicaCommitBatchFormer
 
     /// <summary>Hands a taken write back to the head of the queue; a disposal that took it from the queue meanwhile leaves its decision here.</summary>
     /// <param name="candidate">The write, which is the last one taken.</param>
-    private void Return(ReplicaCommitRequest candidate)
+    private void Return(ReplicaCommitRequestBase candidate)
     {
         _taken!.RemoveAt(_taken.Count - 1);
         if (!_committer.Combiner.Restore(candidate))
@@ -200,27 +209,24 @@ internal sealed class ReplicaCommitBatchFormer
     /// <summary>Tells whether the batch already holds the cache key or the operation identity of a write.</summary>
     /// <param name="candidate">The write.</param>
     /// <returns><see langword="true" /> when the write repeats either.</returns>
-    private bool RepeatsEntry(ReplicaCommitRequest candidate)
+    private bool RepeatsEntry(ReplicaCommitRequestBase candidate)
     {
         // A batch of one entry compares directly; the sets exist only once a second write joined.
-        if (_keys == null || _operations == null)
-        {
-            if (Entries.Count == 0)
-                return false;
+        if (_keys != null && _operations != null)
+            return _keys.Contains((candidate.Scope, candidate.Key)) || _operations.Contains((candidate.Scope, candidate.OperationId));
+        if (Entries.Count == 0)
+            return false;
 
-            var only = Entries[0].Request;
-            return string.Equals(candidate.Scope, only.Scope, StringComparison.Ordinal)
-                   && (string.Equals(candidate.Key, only.Key, StringComparison.Ordinal) || string.Equals(candidate.OperationId, only.OperationId, StringComparison.Ordinal));
-        }
-
-        return _keys.Contains((candidate.Scope, candidate.Key)) || _operations.Contains((candidate.Scope, candidate.OperationId));
+        var only = Entries[0].Request;
+        return string.Equals(candidate.Scope, only.Scope, StringComparison.Ordinal)
+               && (string.Equals(candidate.Key, only.Key, StringComparison.Ordinal) || string.Equals(candidate.OperationId, only.OperationId, StringComparison.Ordinal));
     }
 
     /// <summary>Adds a prepared write to the batch, unless it would not fit.</summary>
     /// <param name="candidate">The write.</param>
     /// <param name="mutation">Its prepared mutation.</param>
     /// <returns><see langword="true" /> when added; the first write of a batch is always added.</returns>
-    private bool TryAdd(ReplicaCommitRequest candidate, PreparedReplicaMutation mutation)
+    private bool TryAdd(ReplicaCommitRequestBase candidate, PreparedReplicaMutation mutation)
     {
         var charge = ChargeOf(mutation);
         var payloadBytes = mutation.CanonicalPayload.Length;
@@ -243,12 +249,10 @@ internal sealed class ReplicaCommitBatchFormer
         }
 
         _bytes += payloadBytes;
-        if (charge > 0)
-        {
-            _chargedRecords++;
-            _chargedBytes += charge;
-        }
-
+        if (charge <= 0)
+            return true;
+        _chargedRecords++;
+        _chargedBytes += charge;
         return true;
     }
 }

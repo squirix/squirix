@@ -66,7 +66,7 @@ internal sealed class ClusterLeaderProbe<TOptions>
 
         var term = HighestTerm(groupId);
         await ledger.HoldsAsync(
-            () => ledger.Observe() == leader && HighestTerm(groupId) == term,
+            observed => observed == leader && HighestTerm(groupId) == term,
             watch,
             $"group {groupId} keeps leader {leader.NodeId} in term {leader.Term} and no node sees a term above {term}",
             cancellationToken);

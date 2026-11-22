@@ -9,7 +9,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>SDK requests started immediately after a leader loss complete through the surviving entry node without application retries.</summary>
-public sealed class LeaderRecoveryRequestTests : EndToEndTestBase
+public sealed class LeaderRecoveryRequestTests
 {
     private const string CacheName = "leader-recovery-requests";
     private const string Group = "nodeA";

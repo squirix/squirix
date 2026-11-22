@@ -1,11 +1,7 @@
 using System;
-using System.Collections.Frozen;
-using System.Collections.Generic;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -14,94 +10,64 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>Protects the canonical bytes stored for replicated mutation outcomes.</summary>
+/// <summary>Protects fixed-size mutation outcomes and rejects response-bearing older data.</summary>
 public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
 {
-    /// <summary>Both flags keep their canonical byte and little-endian length for empty and multi-byte lengths.</summary>
-    /// <param name="applied">Whether the mutation applied.</param>
-    /// <param name="length">Previous payload length.</param>
+    /// <summary>A successful remove keeps no part of the deleted value.</summary>
+    /// <param name="length">Deleted payload size.</param>
     [Test]
-    [Arguments(false, 0)]
-    [Arguments(true, 0)]
-    [Arguments(false, 257)]
-    [Arguments(true, 257)]
-    [Arguments(false, 65536)]
-    [Arguments(true, 65536)]
-    public async Task EncodeKeepsCanonicalLayout(bool applied, int length)
-    {
-        var previous = new byte[length];
-        previous.AsSpan().Fill(0xA5);
-        var expected = CanonicalOutcome(applied, previous);
-
-        var encoded = ReplicaOutcomeCodec.Encode(applied, previous);
-
-        await SequenceAssert.EqualAsync<byte>(expected, encoded);
-        _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(encoded, out var decodedApplied, out var decodedPrevious)).IsTrue();
-        _ = await Assert.That(decodedApplied).IsEqualTo(applied);
-        await SequenceAssert.EqualAsync<byte>(previous, decodedPrevious.ToArray());
-    }
-
-    /// <summary>Encoding a memory slice copies only that slice and owns the resulting payload.</summary>
-    [Test]
-    public async Task EncodeOwnsPreviousSlice()
-    {
-        byte[] source = [99, 1, 2, 3, 99];
-        var encoded = ReplicaOutcomeCodec.Encode(true, source.AsMemory(1, 3));
-        source.AsSpan().Clear();
-
-        await SequenceAssert.EqualAsync<byte>([1, 3, 0, 0, 0, 1, 2, 3], encoded);
-    }
-
-    /// <summary>Removing a live entry preserves the protobuf bytes, including null values, Unicode, tags, version and deadline.</summary>
-    /// <param name="valueLength">Value length, or negative for a stored null.</param>
-    [Test]
-    [Arguments(-1)]
     [Arguments(0)]
-    [Arguments(257)]
     [Arguments(65536)]
-    public async Task RemoveKeepsCanonicalEntry(int valueLength)
+    [Arguments(4190208)]
+    public async Task RemoveRetainsOnlyBoolean(int length)
     {
         var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tag"] = "значение" }.ToFrozenDictionary(StringComparer.Ordinal);
-        var entry = new NodeCacheEntry<object?>(valueLength < 0 ? null : new string('я', valueLength), 123, now.AddHours(1), tags: tags);
-        var expected = CanonicalOutcome(true, entry.MapToProto().ToByteArray());
+        var entry = new NodeCacheEntry<object?>(new byte[length], 123, now.AddHours(1));
 
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
-        var decoded = await ReplicaOutcomeCodec.DecodeRemoveAsync(decision.Outcome);
 
-        await SequenceAssert.EqualAsync<byte>(expected, decision.Outcome);
-        _ = await Assert.That(decoded.Removed).IsTrue();
-        _ = await Assert.That(decoded.Value).IsEqualTo(entry.Value);
+        await SequenceAssert.EqualMemoryAsync(new byte[] { 1, 0, 0, 0, 0 }, decision.Outcome);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(decision.Outcome)).IsTrue();
+        _ = await Assert.That(decision.Entry).IsNull();
+        _ = await Assert.That(decision.ExpiresUtcTicks).IsEqualTo(0L);
     }
 
-    /// <summary>Absent and expired entries keep the canonical unsuccessful remove outcome.</summary>
+    /// <summary>Absent and expired entries report false without retaining a value.</summary>
     /// <param name="expired">Whether a stored entry has expired.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task MissingRemoveKeepsCanonicalLayout(bool expired)
+    public async Task MissingRemoveRetainsOnlyBoolean(bool expired)
     {
         var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var entry = expired ? new NodeCacheEntry<object?>("old", 1, now) : null;
+        var entry = expired ? new NodeCacheEntry<object?>(new byte[65536], 1, now) : null;
 
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
-        var decoded = await ReplicaOutcomeCodec.DecodeRemoveAsync(decision.Outcome);
 
-        await SequenceAssert.EqualAsync<byte>([0, 0, 0, 0, 0], decision.Outcome);
-        _ = await Assert.That(decoded.Removed).IsFalse();
-        _ = await Assert.That(decoded.Value).IsNull();
+        await SequenceAssert.EqualMemoryAsync(new byte[5], decision.Outcome);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(decision.Outcome)).IsFalse();
     }
 
-    private static byte[] CanonicalOutcome(bool applied, byte[] previous)
+    /// <summary>Noncanonical flags, truncated data and payload-bearing outcomes fail closed.</summary>
+    /// <param name="kind">Malformed encoding.</param>
+    [Test]
+    [Arguments("truncated")]
+    [Arguments("flag")]
+    [Arguments("length")]
+    [Arguments("payload")]
+    public async Task RejectsMalformedOrPayloadBearingOutcome(string kind)
     {
-        byte[] header =
-        [
-            Convert.ToByte(applied),
-            Convert.ToByte(previous.Length & 255),
-            Convert.ToByte((previous.Length >> 8) & 255),
-            Convert.ToByte((previous.Length >> 16) & 255),
-            Convert.ToByte((previous.Length >> 24) & 255),
-        ];
-        return [.. header, .. previous];
+        byte[] payload = kind switch
+        {
+            "truncated" => [1, 0],
+            "flag" => [2, 0, 0, 0, 0],
+            "length" => [1, 1, 0, 0, 0],
+            "payload" => [1, 1, 0, 0, 0, 42],
+            _ => [],
+        };
+
+        _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(payload, out _, out _)).IsFalse();
+        var failure = NodeExceptionAssert.For<InvalidOperationException>().Throws(payload, static value => _ = ReplicaOutcomeCodec.DecodeApplied(value));
+        _ = await Assert.That(failure.Message).IsEqualTo("Committed outcome payload is malformed.");
     }
 }

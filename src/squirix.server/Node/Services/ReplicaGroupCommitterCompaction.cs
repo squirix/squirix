@@ -13,6 +13,39 @@ internal static class ReplicaGroupCommitterCompaction
 {
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Compacts the owned group log through its commit index once it reaches a threshold and nothing still needs its entries.</summary>
+        /// <param name="policy">The compaction thresholds.</param>
+        /// <param name="durability">The node cache journal whose frames the applies appended.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> changes the log.</returns>
+        /// <remarks>
+        /// The durable applied boundary is captured under the commit gate. The file is prepared outside both gates so newer writes
+        /// can finish. Publication checks the same tenure and captured boundary before preserving the latest WAL tail.
+        /// </remarks>
+        internal async Task<ReplicaLogCompactionOutcome> CompactOwnedLogAsync(
+            ReplicaLogCompactionPolicy policy,
+            IJournalDurabilityCoordinator durability,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(durability);
+            committer.ThrowIfDisposed();
+            if (!committer.Registry.TryGetLog(committer.GroupId, out var log))
+                return ReplicaLogCompactionOutcome.NotReady;
+
+            var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
+            if (!policy.IsReachedBy(in retention))
+                return ReplicaLogCompactionOutcome.BelowThreshold;
+
+            // Past the retention limit a follower that is not ready, or stayed behind the commit index while the write majority holds without
+            // it, no longer holds the log: it is repaired by catch-up or a state transfer on return.
+            var pastLimit = policy.IsPastRetentionLimit(in retention);
+            var eligibility = committer.Registry.EligibilityFor(committer.GroupId);
+            var (outcome, capture, coordinator) = await committer.CaptureWithRetriesAsync(log, eligibility, pastLimit, durability, cancellationToken).ConfigureAwait(false);
+            return capture is { } plan && coordinator is { } capturedCoordinator
+                ? await committer.PrepareAndFinishAsync(log, capturedCoordinator, eligibility, pastLimit, plan, cancellationToken).ConfigureAwait(false)
+                : outcome;
+        }
+
         /// <summary>Persists the in-memory applied index of the owned group log once the cache journal holds every applied entry durably.</summary>
         /// <param name="durability">The node cache journal whose frames the applies appended.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
@@ -34,67 +67,7 @@ internal static class ReplicaGroupCommitterCompaction
             await committer.Applier.FlushAsync(log, durability, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>Compacts the owned group log through its commit index once it reaches a threshold and nothing still needs its entries.</summary>
-        /// <param name="policy">The compaction thresholds.</param>
-        /// <param name="durability">The node cache journal whose frames the applies appended.</param>
-        /// <param name="cancellationToken">Cancellation token.</param>
-        /// <returns>The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> changes the log.</returns>
-        /// <remarks>
-        /// The thresholds, and advisorily the followers, are checked without the commit gate. Everything else is one step under it: no
-        /// write can append, commit, or apply between the checks and the compaction, so a steady write load cannot keep moving the commit
-        /// index past the applied one. A write arriving meanwhile waits for the step and then appends after the compacted log.
-        /// </remarks>
-        internal async Task<ReplicaLogCompactionOutcome> CompactOwnedLogAsync(
-            ReplicaLogCompactionPolicy policy,
-            IJournalDurabilityCoordinator durability,
-            CancellationToken cancellationToken)
-        {
-            ArgumentNullException.ThrowIfNull(durability);
-            committer.ThrowIfDisposed();
-            if (!committer.Registry.TryGetLog(committer.GroupId, out var log))
-                return ReplicaLogCompactionOutcome.NotReady;
-
-            var retention = await log.GetRetentionAsync(cancellationToken).ConfigureAwait(false);
-            if (!policy.IsReachedBy(in retention))
-                return ReplicaLogCompactionOutcome.BelowThreshold;
-
-            // Past the retention limit a follower that is not ready, or stayed behind the commit index while the write majority holds without
-            // it, no longer holds the log: it is repaired by catch-up or a state transfer on return.
-            var pastLimit = policy.IsPastRetentionLimit(in retention);
-
-            // An advisory check first, without the gate: a follower that is down or lagging then refuses the step without holding the
-            // gate for the whole follower wait on every pass. The decisive check runs again under the gate. The wait budget bounds only these
-            // waits: once the gate is held, the compaction runs to its end, so a budget never cancels a durable rewrite of the log.
-            var eligibility = committer.Registry.EligibilityFor(committer.GroupId);
-            using var budget = new CancellationTokenSource(committer.CompactionWaitBudget, committer.BudgetTimeProvider);
-            using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
-            AsyncLockHolder guard;
-            var leaveBehind = ReplicaLogCompactionStep.NoSlots;
-            try
-            {
-                if (committer.ReadCoordinator() is { } running)
-                {
-                    var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-                    var (refusal, advised) = await ReplicaLogCompactionStep.AdviseFollowersAsync(running, eligibility, pastLimit, observed.CommitIndex, committer.Clock, waiting.Token).ConfigureAwait(false);
-                    if (refusal is { } refused)
-                        return refused;
-
-                    leaveBehind = advised;
-                }
-
-                guard = await committer.Gate.LockAsync(waiting.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                return ReplicaLogCompactionOutcome.Busy;
-            }
-
-            using var held = guard;
-            committer.ThrowIfDisposed();
-            return await committer.CompactHeldAsync(log, (eligibility, pastLimit, leaveBehind), durability, cancellationToken).ConfigureAwait(false);
-        }
-
-        /// <summary>Runs the compaction step once the commit gate is held and nothing keeps the log.</summary>
+        /// <summary>Captures the compaction boundary once the commit gate is held and nothing keeps the log.</summary>
         /// <param name="log">The owned group log.</param>
         /// <param name="slots">The participation state of the owned group slots, whether the log reached its retention limit, and the ready follower slots that may be left behind.</param>
         /// <param name="durability">The node cache journal whose frames the applies appended.</param>
@@ -104,18 +77,129 @@ internal static class ReplicaGroupCommitterCompaction
         /// A state transfer pins the log from its capture to its end, so every entry above the transferred index and the term at it stay.
         /// An elected leader compacts only once its leader-term entry is committed: the authority check reads the term of that entry.
         /// </remarks>
-        private async Task<ReplicaLogCompactionOutcome> CompactHeldAsync(
+        private async Task<(ReplicaLogCompactionOutcome Outcome, GroupSnapshotCompaction? Capture, ReplicaCommitCoordinator? Coordinator)> CaptureHeldAsync(
             IFollowerLog log,
             (ReplicaEligibility Eligibility, bool PastLimit, int LeaveBehind) slots,
             IJournalDurabilityCoordinator durability,
             CancellationToken cancellationToken)
         {
-            return (committer.TransferPin.IsHeld, committer.IsStarted ? committer.Coordinator : null, committer.Election == null || committer.Tenure is { Authorized: true }) switch
+            if (committer.TransferPin.IsHeld)
+                return (ReplicaLogCompactionOutcome.FollowerNotReady, null, null);
+            if (!committer.IsStarted || committer.Coordinator is not { } coordinator || committer is { Election: not null, Tenure: not { Authorized: true } })
+                return (ReplicaLogCompactionOutcome.NotReady, null, null);
+
+            GroupSnapshotCompaction? capture = null;
+            var outcome = await ReplicaLogCompactionStep.RunAsync(log, coordinator, slots, committer.Applier.AppliedIndex, durability, CaptureAsync, cancellationToken)
+                                                        .ConfigureAwait(false);
+            return (outcome, capture, coordinator);
+
+            async Task<GroupCompactionOutcome> CaptureAsync(ulong index, CancellationToken token)
             {
-                (true, _, _) => ReplicaLogCompactionOutcome.FollowerNotReady,
-                (false, { } coordinator, true) => await ReplicaLogCompactionStep.RunAsync(log, coordinator, slots, committer.Applier.AppliedIndex, durability, committer.Clock, cancellationToken).ConfigureAwait(false),
-                _ => ReplicaLogCompactionOutcome.NotReady,
-            };
+                var (captured, boundary) = await log.CaptureCompactionAsync(index, token).ConfigureAwait(false);
+                capture = boundary;
+                return captured;
+            }
+        }
+
+        private async Task<(ReplicaLogCompactionOutcome Outcome, GroupSnapshotCompaction? Capture, ReplicaCommitCoordinator? Coordinator)> CaptureWithRetriesAsync(
+            IFollowerLog log,
+            ReplicaEligibility eligibility,
+            bool pastLimit,
+            IJournalDurabilityCoordinator durability,
+            CancellationToken cancellationToken)
+        {
+            // An advisory check first, without the gate: a follower that is down or lagging then refuses the step without holding the
+            // gate for the follower wait. The decisive check under the gate does not wait for followers.
+            using var budget = new CancellationTokenSource(committer.CompactionWaitBudget, committer.BudgetTimeProvider);
+            using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
+            const int maxAttempts = 3;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                AsyncLockHolder guard;
+                var leaveBehind = ReplicaLogCompactionStep.NoSlots;
+                try
+                {
+                    if (attempt > 1)
+                        await Task.Delay(TimeSpan.FromMilliseconds(5), committer.Clock, waiting.Token).ConfigureAwait(false);
+
+                    if (committer.ReadCoordinator() is { } running)
+                    {
+                        var observed = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+                        var (refusal, advised) = await ReplicaLogCompactionStep
+                                                      .AdviseFollowersAsync(running, eligibility, pastLimit, observed.CommitIndex, committer.Clock, waiting.Token)
+                                                      .ConfigureAwait(false);
+                        if (refusal is { } refused)
+                            return (refused, null, null);
+
+                        leaveBehind = advised;
+                    }
+
+                    guard = await committer.Gate.LockAsync(waiting.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    return (ReplicaLogCompactionOutcome.Busy, null, null);
+                }
+
+                using (guard)
+                {
+                    committer.ThrowIfDisposed();
+                    var result = await committer.CaptureHeldAsync(log, (eligibility, pastLimit, leaveBehind), durability, cancellationToken).ConfigureAwait(false);
+                    if (result.Outcome != ReplicaLogCompactionOutcome.FollowerBehind)
+                        return result;
+                }
+            }
+
+            return (ReplicaLogCompactionOutcome.FollowerBehind, null, null);
+        }
+
+        private async Task<ReplicaLogCompactionOutcome> PrepareAndFinishAsync(
+            IFollowerLog log,
+            ReplicaCommitCoordinator coordinator,
+            ReplicaEligibility eligibility,
+            bool pastLimit,
+            GroupSnapshotCompaction capture,
+            CancellationToken cancellationToken)
+        {
+            GroupSnapshotCheckpointStore.PreparedSnapshot? prepared;
+            try
+            {
+                prepared = await log.PrepareCompactionAsync(capture, cancellationToken).ConfigureAwait(false);
+            }
+            catch (GroupSnapshotTooLargeException)
+            {
+                return ReplicaLogCompactionOutcome.SnapshotTooLarge;
+            }
+
+            using var generation = prepared;
+            if (generation == null)
+                return ReplicaLogCompactionOutcome.NotReady;
+
+            using var budget = new CancellationTokenSource(committer.CompactionWaitBudget, committer.BudgetTimeProvider);
+            using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
+            AsyncLockHolder guard;
+            try
+            {
+                guard = await committer.Gate.LockAsync(waiting.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                return ReplicaLogCompactionOutcome.Busy;
+            }
+
+            using (guard)
+            {
+                committer.ThrowIfDisposed();
+                var canPublish = committer.IsStarted && ReferenceEquals(coordinator, committer.Coordinator) &&
+                                 (committer.Election == null || committer.Tenure is { Authorized: true });
+                return (committer.TransferPin.IsHeld, canPublish) switch
+                {
+                    (true, _) => ReplicaLogCompactionOutcome.FollowerNotReady,
+                    (false, true) => await ReplicaLogCompactionStep.FinishAsync(log, coordinator, eligibility, pastLimit, capture, generation, cancellationToken)
+                                                                   .ConfigureAwait(false),
+                    _ => ReplicaLogCompactionOutcome.NotReady,
+                };
+            }
         }
     }
 }

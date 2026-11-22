@@ -1,0 +1,84 @@
+using System;
+using System.Diagnostics.Metrics;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
+using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.UnitTests.Support;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.UnitTests.Adapters.Wire;
+
+/// <summary>A hosted write through the production decorator chain waits for one flush, and a remove removes the entry after durability.</summary>
+[Immutable]
+public sealed class FusedWriteChainTests : IsolatedStorageTestBase
+{
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
+
+    private readonly Meter _testMeter = new("test-fused-write-chain");
+
+    /// <summary>A set of an absent key through memory admission and payload preparation flushes once and produces a plain mutation frame.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SetThroughHostChainFlushesOnce(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var harness = new FusedWriteHarness(Dir, journal, null, CreateChain);
+        var request = FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a");
+
+        var flushesBefore = harness.FlushCount;
+        _ = await harness.Adapter.Mutations.SetEntryAsync(request, CancellationToken.None);
+        var flushes = harness.FlushCount - flushesBefore;
+        await journal.ShutdownAsync();
+        var frames = harness.ReadFrames(cancellationToken);
+
+        _ = await Assert.That(flushes).IsEqualTo(1);
+        _ = await Assert.That(frames).Count().IsEqualTo(1);
+        _ = await Assert.That(frames[0].Operation).IsEqualTo(JournalOperationKind.Put);
+    }
+
+    /// <summary>A remove of an entry that is live when it is prepared and expires while its flush is parked leaves it absent in memory and after recovery.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveExpiringWhileParkedRecoversAbsent(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var harness = new FusedWriteHarness(Dir, journal);
+        _ = await harness.Adapter.Mutations.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a", ttl: TimeSpan.FromSeconds(1)), CancellationToken.None);
+        journal.Writer.Flush.Arm();
+
+        var remove = harness.Adapter.Mutations.RemoveAsync(FusedWriteHarness.Remove(FusedWriteHarness.OpId(2)), CancellationToken.None);
+        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        harness.Clock.Advance(TimeSpan.FromSeconds(2));
+        journal.Writer.Flush.Release();
+        _ = await remove.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await journal.ShutdownAsync();
+        var memory = await harness.RecoverAsync(cancellationToken);
+
+        _ = await Assert.That(harness.Physical.GetEntry(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
+        _ = await Assert.That(memory.GetEntry(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged()
+    {
+        _testMeter.Dispose();
+        base.DisposeManaged();
+    }
+
+    private MemoryAdmissionCacheDecorator<object?> CreateChain(JournalLoggingCacheDecorator<object?> journal)
+    {
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var estimator = new CacheEntrySizeEstimator<object?>();
+        var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
+        var gate = new PressureGate(new StateEvaluator(options), accounting, "node-a", _testMeter);
+        return new MemoryAdmissionCacheDecorator<object?>(new JournalPayloadPrepareCacheDecorator<object?>(journal), gate, estimator);
+    }
+}

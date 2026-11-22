@@ -17,12 +17,15 @@ internal static class JournalEntryExpirationMaterializer
     /// <returns>The entry itself when it has no relative expiration; otherwise a copy with only the absolute deadline.</returns>
     internal static NodeCacheEntry<T> ForDurableWrite<T>(NodeCacheEntry<T> entry, DateTime utcNow)
     {
+        if (entry.RawValue is DistributedCacheWrite write)
+            return write.Materialize<T>(utcNow);
+
         if (entry.Expiration is not { } relative)
             return PinAbsoluteOnly(entry);
 
         var relativeDeadline = utcNow.SaturatedAdd(relative);
         var effective = entry.ExpiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
-        return new NodeCacheEntry<T>(entry.Value, entry.Version, PinToJournalPrecision(effective), tags: entry.Tags);
+        return new NodeCacheEntry<T>(entry.RawValue, entry.Version, PinToJournalPrecision(effective), tags: entry.Tags);
     }
 
     /// <summary>
@@ -73,7 +76,7 @@ internal static class JournalEntryExpirationMaterializer
         var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
         var relativeDeadline = time.SaturatedAdd(relative);
         var effective = entry.ExpiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
-        return new NodeCacheEntry<T>(entry.Value, entry.Version, effective, tags: entry.Tags);
+        return new NodeCacheEntry<T>(entry.RawValue, entry.Version, effective, tags: entry.Tags);
     }
 
     /// <summary>Decides whether a journaled entry is expired at <paramref name="utcNow" />, the server clock of the node replaying it.</summary>
@@ -103,6 +106,6 @@ internal static class JournalEntryExpirationMaterializer
     private static NodeCacheEntry<T> PinAbsoluteOnly<T>(NodeCacheEntry<T> entry)
     {
         var pinned = PinToJournalPrecision(entry.ExpiresUtc);
-        return pinned == entry.ExpiresUtc ? entry : new NodeCacheEntry<T>(entry.Value, entry.Version, pinned, tags: entry.Tags);
+        return pinned == entry.ExpiresUtc ? entry : new NodeCacheEntry<T>(entry.RawValue, entry.Version, pinned, tags: entry.Tags);
     }
 }

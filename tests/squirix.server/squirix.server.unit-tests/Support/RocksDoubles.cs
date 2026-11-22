@@ -32,8 +32,9 @@ internal static class RocksDoubles
 
     /// <summary>Creates a journal event loop host over a fresh pending-append registry, and the state its callbacks record.</summary>
     /// <param name="queuedAppends">The queued-append counter the journal thread decrements, or <see langword="null" /> to ignore decrements.</param>
+    /// <param name="checkFailure">Optional observer of the event loop's failure check.</param>
     /// <returns>The host mock and the recorded state.</returns>
-    internal static EventLoopHostDouble CreateEventLoopHost(MutableInt32? queuedAppends = null)
+    internal static EventLoopHostDouble CreateEventLoopHost(MutableInt32? queuedAppends = null, Action? checkFailure = null)
     {
         var state = new EventLoopHostState { QueuedAppends = queuedAppends };
         var expectations = new IJournalEventLoopHostCreateExpectations();
@@ -43,6 +44,9 @@ internal static class RocksDoubles
         _ = expectations.Setups.DecrementQueuedAppends().Callback(state.DecrementQueuedAppends);
         _ = expectations.Setups.FailPipeline(Arg.Any<Exception>()).Callback(state.RecordPipelineFailure);
         _ = expectations.Setups.PublishRoll(Arg.Any<int>()).Callback(_ => state.RecordRollPublished());
+        if (checkFailure != null)
+            _ = expectations.Setups.ThrowIfJournalThreadFailed().Callback(checkFailure);
+
         return new EventLoopHostDouble(expectations.Instance(), state);
     }
 

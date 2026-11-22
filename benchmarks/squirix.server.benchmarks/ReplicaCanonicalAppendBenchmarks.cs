@@ -1,6 +1,6 @@
 using System;
 using BenchmarkDotNet.Attributes;
-using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 
@@ -17,7 +17,7 @@ public class ReplicaCanonicalAppendBenchmarks
 
     private AppendReplicaEntriesRequest _request = new();
     private ReplicaRpcHeader _header;
-    private ReplicationEnvelopeHeader _envelopeHeader = new();
+    private EnvelopeHeader _envelopeHeader = new();
     private PreparedReplicaMutation[] _mutations = [];
 
     /// <summary>Gets or sets the number of records in the run.</summary>
@@ -29,7 +29,7 @@ public class ReplicaCanonicalAppendBenchmarks
     public void Setup()
     {
         _header = new ReplicaRpcHeader("n1", TopologyFingerprint, 1, 1, "n1", "n1");
-        _envelopeHeader = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, GroupId = "n1", Term = 1, LeaderNodeId = "n1", SenderNodeId = "n1" };
+        _envelopeHeader = new EnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, GroupId = "n1", Term = 1, LeaderNodeId = "n1", SenderNodeId = "n1" };
         _mutations = new PreparedReplicaMutation[Count];
         for (var i = 0; i < _mutations.Length; i++)
         {

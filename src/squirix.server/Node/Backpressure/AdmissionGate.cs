@@ -17,7 +17,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private readonly ConcurrentDictionary<string, ClientState> _clients = new(StringComparer.Ordinal);
     private readonly BackpressureMetrics _metrics;
     private readonly RateLimiter? _nodeRateLimiter;
-    private readonly IDisposable _observerRegistration;
+    private readonly IDisposable? _observerRegistration;
     private readonly AdmissionOptions _options;
 
     /// <summary>The one client entry all callers share while no per-client limit is set, so admission keeps no per-client state.</summary>
@@ -40,7 +40,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _options.Validate();
 
         // Registered before the semaphore is created, so a refused registration leaves nothing to dispose.
-        _observerRegistration = _metrics.RegisterObservers(() => InFlight, () => QueueDepth, () => TrackedClients);
+        if (_metrics.Enabled)
+            _observerRegistration = _metrics.RegisterObservers(() => InFlight, () => QueueDepth, () => TrackedClients);
         _slots = new AsyncSemaphore(_options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst, _timeProvider);
         _sharedClient = _options.HasPerClientLimits ? null : new ClientState(_options, _timeProvider, false);
@@ -50,7 +51,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     /// <summary>Gets the number of admitted requests holding a slot.</summary>
     internal int InFlight => Volatile.Read(ref _inFlight);
 
-    /// <summary>Gets the number of requests waiting in the node queue.</summary>
+    internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
+    /// <summary>Gets the number of requests waiting for slowdown or a node slot.</summary>
     internal int QueueDepth => Volatile.Read(ref _queueDepth);
 
     /// <summary>Gets the number of per-client entries the gate currently tracks.</summary>
@@ -58,25 +61,12 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
     {
-        ThrowIfDisposed();
-        ArgumentException.ThrowIfNullOrWhiteSpace(transport);
-        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-        ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
-
-        var disabledResult = BypassWhenDisabled(transport, operation);
-        if (disabledResult != null)
-            return disabledResult.Value;
-
-        cancellationToken.ThrowIfCancellationRequested();
-        if (_sharedClient == null)
-            _sweeper.SweepIfDue();
-
-        if (string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal))
-            return AcquireForwarded(transport, operation);
+        var immediateResult = ResolveImmediateAdmission(transport, operation, clientId, cancellationToken);
+        if (immediateResult != null)
+            return immediateResult.Value;
 
         var client = ResolveClient(clientId);
 
-        // The client entry is created above, so every exit that does not hand it to the slot or queue step gives it back if it is idle.
         var handedOver = false;
         try
         {
@@ -89,20 +79,17 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             if (queueFullReject != null)
                 return queueFullReject.Value;
 
-            if (inFlight >= _options.SlowdownThreshold)
-                await ApplySlowdownAsync(transport, operation, inFlight, cancellationToken).ConfigureAwait(false);
-
             var clientConcurrencyReject = RejectByPerClientConcurrencyIfLimited(transport, operation, clientId, ref client);
             if (clientConcurrencyReject != null)
                 return clientConcurrencyReject.Value;
 
             handedOver = true;
-            return await AcquireFromSlotOrQueueAsync(transport, operation, clientId, client, cancellationToken).ConfigureAwait(false);
+            return await AcquireFromSlotOrQueueAsync(transport, operation, clientId, client, inFlight, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             if (!handedOver)
-                RemoveIdleClient(clientId, client);
+                CleanupClient(clientId, client);
         }
     }
 
@@ -111,41 +98,80 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _observerRegistration.Dispose();
+        _observerRegistration?.Dispose();
         _slots.Dispose();
         _sweeper.Dispose();
     }
 
     internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
 
+    private (Decision Decision, Lease Lease)? ResolveImmediateAdmission(string transport, string operation, string clientId, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(transport);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
+
+        if (InboundAdmissionScope.IsAdmitted(this))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return (Decision.Accepted(), Lease.Empty);
+        }
+
+        if (!_options.Enabled)
+        {
+            _metrics.AddBypass(transport, operation);
+            return (Decision.Accepted(), Lease.Empty);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_sharedClient == null)
+            _sweeper.SweepIfDue();
+
+        return string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal)
+            ? AcquireForwarded(transport, operation)
+            : null;
+    }
+
     private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(
         string transport,
         string operation,
         string clientId,
         ClientState client,
+        int inFlight,
         CancellationToken cancellationToken)
     {
         // The per-client reservation taken before this step is handed over to the lease on admission and undone on every other exit.
         var admitted = false;
+        var queueReserved = false;
         try
         {
+            if (inFlight >= _options.SlowdownThreshold && _options.MaxSlowdownDelay > TimeSpan.Zero && _options.MaxQueue > 0)
+            {
+                if (!TryReserveQueue(transport, operation))
+                    return (Decision.Rejected(QueueFullReason), Lease.Empty);
+
+                queueReserved = true;
+                await ApplySlowdownAsync(transport, operation, inFlight, cancellationToken).ConfigureAwait(false);
+            }
+
             if (_slots.TryAcquire())
             {
                 admitted = true;
                 return (Decision.Accepted(), AcquireLease(clientId, client));
             }
 
-            var queued = await WaitInQueueAsync(transport, operation, clientId, client, cancellationToken).ConfigureAwait(false);
+            var queued = await WaitInQueueAsync(transport, operation, clientId, client, queueReserved, cancellationToken).ConfigureAwait(false);
             admitted = queued.Decision.IsAccepted;
             return queued;
         }
         finally
         {
-            if (!admitted && client.IsPerClient)
-            {
-                _ = Interlocked.Decrement(ref client.InFlightRef);
-                RemoveIdleClient(clientId, client);
-            }
+            if (queueReserved)
+                _ = AdjustQueueDepth(-1);
+
+            if (!admitted)
+                CleanupClient(clientId, client, client.IsPerClient);
         }
     }
 
@@ -205,15 +231,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         _metrics.AddSlowdown(transport, operation);
         await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
-    }
-
-    private (Decision Decision, Lease Lease)? BypassWhenDisabled(string transport, string operation)
-    {
-        if (_options.Enabled)
-            return null;
-
-        _metrics.AddBypass(transport, operation);
-        return (Decision.Accepted(), Lease.Empty);
     }
 
     private (Decision Decision, Lease Lease)? RejectByRateLimitsIfLimited(string transport, string operation, ClientState client)
@@ -297,11 +314,14 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             _ = Interlocked.Decrement(ref client.InFlightRef);
 
         _slots.Release();
-        RemoveIdleClient(clientId, client);
+        CleanupClient(clientId, client);
     }
 
-    private void RemoveIdleClient(string clientId, ClientState client)
+    private void CleanupClient(string clientId, ClientState client, bool releaseReservation = false)
     {
+        if (releaseReservation)
+            _ = Interlocked.Decrement(ref client.InFlightRef);
+
         if (_sharedClient != null || !client.IsPerClient || client.QueueDepth != 0 || client.HasRecentActivity == true || !client.TryRetire())
             return;
 
@@ -311,24 +331,30 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private ClientState ResolveClient(string clientId) =>
         _sharedClient ?? _clients.GetOrAdd(clientId, static (_, gate) => gate._sweeper.CreateClient(gate._options, gate._timeProvider), this);
 
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+    private int AdjustQueueDepth(int adjustment) => Interlocked.Add(ref _queueDepth, adjustment);
+
+    private bool TryReserveQueue(string transport, string operation)
+    {
+        if (AdjustQueueDepth(1) <= _options.MaxQueue)
+            return true;
+
+        _ = AdjustQueueDepth(-1);
+        _metrics.AddReject(transport, operation, QueueFullReason);
+        return false;
+    }
 
     private async ValueTask<(Decision Decision, Lease Lease)> WaitInQueueAsync(
         string transport,
         string operation,
         string clientId,
         ClientState client,
+        bool queueReserved,
         CancellationToken cancellationToken)
     {
-        var queued = Interlocked.Increment(ref _queueDepth);
-        if (queued > _options.MaxQueue)
-        {
-            _ = Interlocked.Decrement(ref _queueDepth);
-            _metrics.AddReject(transport, operation, QueueFullReason);
+        if (!queueReserved && !TryReserveQueue(transport, operation))
             return (Decision.Rejected(QueueFullReason), Lease.Empty);
-        }
 
-        var started = Stopwatch.GetTimestamp();
+        var started = _metrics.Enabled ? Stopwatch.GetTimestamp() : 0;
         try
         {
             // The timeout runs on the gate time provider, like the slowdown delay, so tests can drive it with a fake clock.
@@ -361,8 +387,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                 return (Decision.Rejected("gate_disposed"), Lease.Empty);
             }
 
-            var queueWait = Stopwatch.GetElapsedTime(started);
-            _metrics.RecordQueueWait(queueWait, transport, operation);
+            if (_metrics.Enabled)
+                _metrics.RecordQueueWait(Stopwatch.GetElapsedTime(started), transport, operation);
             return (Decision.Accepted(), AcquireLease(clientId, client));
         }
         catch (OperationCanceledException)
@@ -372,7 +398,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         }
         finally
         {
-            _ = Interlocked.Decrement(ref _queueDepth);
+            if (!queueReserved)
+                _ = AdjustQueueDepth(-1);
         }
     }
 

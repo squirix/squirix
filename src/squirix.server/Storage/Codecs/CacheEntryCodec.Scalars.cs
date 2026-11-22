@@ -18,13 +18,12 @@ internal static partial class CacheEntryCodec
         {
             null => 1,
             bool => 2,
+            StoredText text => 5 + text.Bytes.Length,
             string s => 1 + 4 + Encoding.UTF8.GetByteCount(s),
             byte[] bytes => 1 + 4 + bytes.Length,
             sbyte or byte or short or ushort or int or uint or long => 1 + 8,
             float or double => 1 + 8,
-            decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
-            JsonUtf8Value json => 1 + 4 + json.Length,
-            _ => ComputeLength(NodeCacheEntry<object?>.NormalizeValue(value)),
+            _ => ComputeDecimalOrStructuredLength(value),
         };
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
@@ -35,26 +34,28 @@ internal static partial class CacheEntryCodec
                 return true;
             }
 
+            if (value is StoredText text && typeof(T) != typeof(object))
+                value = text.Decode();
             if (value is not T ok)
                 return TryCoerceNumericOrJson(value, out result);
             result = ok;
             return true;
         }
 
-        internal static bool TryReadInternal(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadInternal<T>(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
             return !source.IsEmpty && source[0] switch
             {
                 ValueKind.Null => CacheEntryValueReadCodec.TryReadNullValue(out value, out bytesRead),
-                ValueKind.Bool => CacheEntryValueReadCodec.TryReadBoolValue(source, out value, out bytesRead),
-                ValueKind.String => CacheEntryValueReadCodec.TryReadStringValue(source, out value, out bytesRead),
-                ValueKind.Bytes => CacheEntryValueReadCodec.TryReadBytesValue(source, out value, out bytesRead),
-                ValueKind.Int64 => CacheEntryValueReadCodec.TryReadInt64Value(source, out value, out bytesRead),
-                ValueKind.Double => CacheEntryValueReadCodec.TryReadDoubleValue(source, out value, out bytesRead),
-                ValueKind.Decimal => CacheEntryValueReadCodec.TryReadDecimalValue(source, out value, out bytesRead),
-                ValueKind.Json => CacheEntryValueReadCodec.TryReadJsonValue(source, out value, out bytesRead),
+                ValueKind.Bool => CacheEntryValueReadCodec.TryReadBoolValue(source, materialize, out value, out bytesRead),
+                ValueKind.String => CacheEntryValueReadCodec.TryReadStringValue<T>(source, materialize, out value, out bytesRead),
+                ValueKind.Bytes => CacheEntryValueReadCodec.TryReadBytesValue(source, materialize, out value, out bytesRead),
+                ValueKind.Int64 => CacheEntryValueReadCodec.TryReadInt64Value(source, materialize, out value, out bytesRead),
+                ValueKind.Double => CacheEntryValueReadCodec.TryReadDoubleValue(source, materialize, out value, out bytesRead),
+                ValueKind.Decimal => CacheEntryValueReadCodec.TryReadDecimalValue(source, materialize, out value, out bytesRead),
+                ValueKind.Json => CacheEntryValueReadCodec.TryReadJsonValue(source, materialize, out value, out bytesRead),
                 _ => false,
             };
         }
@@ -63,10 +64,23 @@ internal static partial class CacheEntryCodec
         {
             null => CacheEntryValueWriteCodec.WriteNull(destination),
             bool b => CacheEntryValueWriteCodec.WriteBool(b, destination),
+            StoredText text => CacheEntryValueWriteCodec.WriteText(text, destination),
             string s => CacheEntryValueWriteCodec.WriteString(s, destination),
             byte[] bytes => CacheEntryValueWriteCodec.WriteBytes(bytes, destination),
             sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
             float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
+            _ => WriteDecimalOrStructuredValue(value, destination),
+        };
+
+        private static int ComputeDecimalOrStructuredLength(object value) => value switch
+        {
+            decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
+            JsonUtf8Value json => 1 + 4 + json.Length,
+            _ => ComputeLength(NodeCacheEntry<object?>.NormalizeValue(value)),
+        };
+
+        private static int WriteDecimalOrStructuredValue(object value, Span<byte> destination) => value switch
+        {
             decimal m => CacheEntryValueWriteCodec.WriteDecimal(m, destination),
             JsonUtf8Value json => CacheEntryValueWriteCodec.WriteJson(json, destination),
             _ => WriteInternal(NodeCacheEntry<object?>.NormalizeValue(value), destination),
@@ -154,70 +168,75 @@ internal static partial class CacheEntryCodec
     /// <summary>Read-side value decoding helpers for <see cref="CacheEntryCodec" />.</summary>
     private static class CacheEntryValueReadCodec
     {
-        internal static bool TryReadBoolValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadBoolValue(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
             if (source.Length < 2)
                 return false;
 
-            value = source[1] != 0;
+            if (materialize)
+                value = source[1] != 0;
             bytesRead = 2;
             return true;
         }
 
-        internal static bool TryReadBytesValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadBytesValue(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
             if (!TagEncoding.TryReadUtf32Prefixed(source[1..], out var rawBytes, out var rawBytesRead))
                 return false;
 
-            value = BufferEx.CopyToOwned(rawBytes);
+            if (materialize)
+                value = BufferEx.CopyToOwned(rawBytes);
             bytesRead = 1 + rawBytesRead;
             return true;
         }
 
-        internal static bool TryReadDecimalValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadDecimalValue(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
-            if (!TagEncoding.TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
+            if (!TagEncoding.TryReadUtf8Prefixed(source[1..], true, out var decimalText, out var decimalBytesRead))
                 return false;
 
             if (!decimal.TryParse(decimalText, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
                 return false;
 
-            value = decimalValue;
+            if (materialize)
+                value = decimalValue;
             bytesRead = 1 + decimalBytesRead;
             return true;
         }
 
-        internal static bool TryReadDoubleValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadDoubleValue(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
             if (source.Length < 1 + 8)
                 return false;
 
-            value = BinaryPrimitives.ReadDoubleLittleEndian(source[1..]);
+            if (materialize)
+                value = BinaryPrimitives.ReadDoubleLittleEndian(source[1..]);
             bytesRead = 1 + 8;
             return true;
         }
 
-        internal static bool TryReadInt64Value(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadInt64Value(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
             if (source.Length < 1 + 8)
                 return false;
 
-            value = BinaryPrimitives.ReadInt64LittleEndian(source[1..]);
+            if (materialize)
+                value = BinaryPrimitives.ReadInt64LittleEndian(source[1..]);
             bytesRead = 1 + 8;
             return true;
         }
 
-        internal static bool TryReadJsonValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadJsonValue(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -225,10 +244,18 @@ internal static partial class CacheEntryCodec
                 return false;
 
             // The source is a pooled or windowed buffer that is overwritten once the caller moves on, so the value copies the bytes.
-            if (!JsonUtf8Value.TryCreateCopy(json, out var jsonValue))
-                return false;
+            if (materialize)
+            {
+                if (!JsonUtf8Value.TryCreateCopy(json, out var jsonValue))
+                    return false;
 
-            value = jsonValue;
+                value = jsonValue;
+            }
+            else if (!JsonUtf8Validator.IsValid(json))
+            {
+                return false;
+            }
+
             bytesRead = 1 + jsonBytesRead;
             return true;
         }
@@ -240,14 +267,20 @@ internal static partial class CacheEntryCodec
             return true;
         }
 
-        internal static bool TryReadStringValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadStringValue<T>(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
             if (!TagEncoding.TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
                 return false;
 
-            value = Encoding.UTF8.GetString(stringBytes);
+            if (materialize)
+            {
+                value = typeof(T) == typeof(object) && System.Text.Unicode.Utf8.IsValid(stringBytes)
+                    ? new StoredText(Squirix.Transport.Wire.Codec.WireReader.CopyBytes(stringBytes))
+                    : Encoding.UTF8.GetString(stringBytes);
+            }
+
             bytesRead = 1 + stringBytesRead;
             return true;
         }
@@ -300,6 +333,12 @@ internal static partial class CacheEntryCodec
         {
             destination[0] = ValueKind.Null;
             return 1;
+        }
+
+        internal static int WriteText(StoredText text, Span<byte> destination)
+        {
+            destination[0] = ValueKind.String;
+            return 1 + TagEncoding.WriteUtf32Prefixed(text.Bytes, destination[1..]);
         }
 
         internal static int WriteString(string value, Span<byte> destination)

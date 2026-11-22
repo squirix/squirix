@@ -10,12 +10,12 @@ namespace Squirix.Server.Cluster.Replication;
 /// Every entry was locally appended by an earlier process whose commit reported an unknown outcome or none at all, so a
 /// majority may or may not hold it. The coordinator retains the entries and their idempotency pins until a recorded
 /// majority covers them; an index is committable by counting replicas only once a current-term entry reaches it
-/// (<see cref="ElectionCommitRule.HasCurrentTermEntryThrough" />).
+/// (<see cref="CommitBoundary" />).
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaRecoveredTail
 {
-    private readonly ulong _currentTerm;
+    private readonly ulong? _firstCurrentTermIndex;
     private readonly IReadOnlyList<FollowerLogEntry> _entries;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaRecoveredTail" /> class.</summary>
@@ -37,11 +37,14 @@ internal sealed class ReplicaRecoveredTail
             if (i > 0 && entries[i].LogIndex != entries[i - 1].LogIndex + 1)
                 throw new ArgumentException("Recovered tail entries must be contiguous.", nameof(entries));
 
-            mutations[i] = rebuilder.Rebuild(entries[i]);
+            var entry = entries[i];
+            if (entry.Term == currentTerm && (_firstCurrentTermIndex is not { } first || entry.LogIndex < first))
+                _firstCurrentTermIndex = entry.LogIndex;
+
+            mutations[i] = rebuilder.Rebuild(entry);
         }
 
         _entries = entries;
-        _currentTerm = currentTerm;
         Mutations = mutations;
     }
 
@@ -54,11 +57,6 @@ internal sealed class ReplicaRecoveredTail
     /// <summary>Gets the prepared form of every recovered entry, in index order, with the outcome payloads of their records.</summary>
     internal IReadOnlyList<PreparedReplicaMutation> Mutations { get; }
 
-    /// <summary>Determines whether a majority-backed index may be committed under the current-term rule.</summary>
-    /// <param name="index">Commit candidate index.</param>
-    /// <returns>
-    /// <see langword="true" /> when a current-term entry reaches <paramref name="index" />; always <see langword="true" /> above the
-    /// recovered tail, whose entries this leader appends in its current term.
-    /// </returns>
-    internal bool CanCommitThrough(ulong index) => index > LastIndex || ElectionCommitRule.HasCurrentTermEntryThrough(_entries, _currentTerm, index);
+    /// <summary>Gets the commit rule without retaining recovered entries or their payloads.</summary>
+    internal ReplicaRecoveredCommitBoundary CommitBoundary => new(LastIndex, _firstCurrentTermIndex);
 }

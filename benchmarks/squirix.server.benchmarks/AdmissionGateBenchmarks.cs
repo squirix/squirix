@@ -13,9 +13,9 @@ namespace Squirix.Server.Benchmarks;
 [MemoryDiagnoser]
 public class AdmissionGateBenchmarks
 {
-    private const string Transport = "grpc";
+    private const string Transport = "binary";
     private const string Operation = "get";
-    private const string ClientId = "grpc:client";
+    private const string ClientId = "binary:client";
     private const int OperationsPerInvoke = 10_000;
     private AdmissionGate? _gate;
     private Meter? _meter;

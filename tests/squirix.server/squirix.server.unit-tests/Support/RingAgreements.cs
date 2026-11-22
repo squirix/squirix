@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
+using Squirix.Server.TestKit.Logging;
 
 namespace Squirix.Server.UnitTests.Support;
 

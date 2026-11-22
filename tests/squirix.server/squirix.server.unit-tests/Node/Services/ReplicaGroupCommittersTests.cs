@@ -1,14 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -54,11 +54,11 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
         var gateway = new ScriptedGateway();
         await using var committers = LeadTwo(registry, (gateway, gateway), new StubCache(), TimeProvider.System);
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(committers, static led => _ = led.ForKey(CacheName, "c"));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(committers, static led => _ = led.ForKey(CacheName, "c"));
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'n3', not current node 'n1'.");
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.Message).IsEqualTo("Key is owned by 'n3', not current node 'n1'.");
         foreach (var group in Groups)
             _ = await Assert.That((await KeysAsync(registry, group, cancellationToken)).Count).IsEqualTo(0);
         _ = await Assert.That(gateway.Appends.Count).IsEqualTo(0);
@@ -110,10 +110,10 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
 
         await committers.DisposeAsync();
 
-        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken));
-        var second = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var second = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((first.StatusCode, first.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
-        _ = await Assert.That((second.StatusCode, second.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((first.StatusCode, first.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((second.StatusCode, second.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 }

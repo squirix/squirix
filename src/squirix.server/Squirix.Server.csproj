@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework Condition="'$(SquirixPackAllFrameworks)' != 'true'">$(SquirixTargetFramework)</TargetFramework>
+        <TargetFrameworks Condition="'$(SquirixPackAllFrameworks)' == 'true'">net10.0;net11.0</TargetFrameworks>
         <Nullable>enable</Nullable>
         <Version>$(SquirixPackageVersion)</Version>
         <PackageVersion>$(SquirixPackageVersion)</PackageVersion>
@@ -8,11 +9,11 @@
         <RootNamespace>Squirix.Server</RootNamespace>
         <PackageId>squirix.server</PackageId>
         <Authors>Squirix Team</Authors>
-        <Description>Server runtime for Squirix — consistent-hash routing, durable journal, snapshots, compaction, recovery, REST/gRPC hosting, health endpoints, Prometheus metrics, and OpenTelemetry journal tracing. Early preview.</Description>
+        <Description>Server runtime for Squirix — consistent-hash routing, durable journal, snapshots, compaction, recovery, native TLS client and peer listeners, health endpoints, Prometheus metrics, and OpenTelemetry journal tracing. Early preview.</Description>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
         <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
-        <PackageTags>dotnet;cache;distributed-cache;csharp;grpc;server;durability;journal;snapshot;opentelemetry</PackageTags>
-        <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
+        <PackageTags>dotnet;cache;distributed-cache;csharp;tls;server;durability;journal;snapshot;opentelemetry</PackageTags>
+        <PackageReleaseNotes>Squirix 0.2.0-preview.1 uses the native server and updates the client packages. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.2.0-preview.1.md</PackageReleaseNotes>
         <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
@@ -25,31 +26,42 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Protobuf Include="..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto" GrpcServices="Server;Client" ProtoRoot="..\shared\Squirix\Transport\Grpc\Protos" Access="Internal"/>
-        <Protobuf Include="Adapters\Grpc\Replication\SquirixReplication.proto" GrpcServices="Server;Client" ProtoRoot="Adapters\Grpc\Replication" Access="Internal"/>
-    </ItemGroup>
-
-    <ItemGroup>
-        <PackageReference Include="Google.Protobuf"/>
-        <PackageReference Include="Grpc.AspNetCore"/>
-        <PackageReference Include="Grpc.Tools" PrivateAssets="All"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"/>
     </ItemGroup>
 
     <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+        <AdditionalFiles Include="BannedSymbols.txt"/>
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcAttemptTimeout.cs" Link="Adapters\Grpc\RpcAttemptTimeout.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\TimedCancellation.cs" Link="Adapters\Grpc\TimedCancellation.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\CacheValueWire.cs" Link="Adapters\Grpc\CacheValueWire.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireDuration.cs" Link="Adapters\Grpc\WireDuration.cs"/>
-        <Compile Include="..\shared\Squirix\Transport\Grpc\WireTimestamp.cs" Link="Adapters\Grpc\WireTimestamp.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheMessages.g.cs" Link="Transport\Wire\CacheMessages.g.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheWritePayload.cs" Link="Transport\Wire\CacheWritePayload.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\GetDistributedAsyncResponse.cs" Link="Transport\Wire\GetDistributedAsyncResponse.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\GetValueAsyncResponse.cs" Link="Transport\Wire\GetValueAsyncResponse.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\BinaryTracedRequest.cs" Link="Transport\Wire\BinaryTracedRequest.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireMessage.cs" Link="Transport\Wire\Codec\WireMessage.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireTraceParent.cs" Link="Transport\Wire\Codec\WireTraceParent.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireDecoder.cs" Link="Transport\Wire\Codec\WireDecoder.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\IWireParser.cs" Link="Transport\Wire\Codec\IWireParser.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireParser.cs" Link="Transport\Wire\Codec\WireParser.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireReader.cs" Link="Transport\Wire\Codec\WireReader.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\TextPayloadReader.cs" Link="Transport\Wire\Codec\TextPayloadReader.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireWriter.cs" Link="Transport\Wire\Codec\WireWriter.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireSegments.cs" Link="Transport\Wire\Codec\WireSegments.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\FrameStatus.cs" Link="Transport\Binary\FrameStatus.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Binary\ServerCallException.cs" Link="Transport\Binary\ServerCallException.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\ConnectionAuthenticationProtocol.cs" Link="Adapters\Wire\ConnectionAuthenticationProtocol.cs"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Mappers\StaleOwnerMarkers.cs" Link="Adapters\Wire\Mappers\StaleOwnerMarkers.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcAttemptTimeout.cs" Link="Adapters\Wire\RpcAttemptTimeout.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\RpcOperationIdentity.cs" Link="Adapters\Wire\RpcOperationIdentity.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\TimedCancellation.cs" Link="Adapters\Wire\TimedCancellation.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\CacheValueWire.cs" Link="Adapters\Wire\CacheValueWire.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>
+
 </Project>

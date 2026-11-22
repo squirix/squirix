@@ -29,7 +29,7 @@ internal static class Program
 
         if (args.Length > 0 && string.Equals(args[0], "entry-memory", StringComparison.Ordinal))
         {
-            await EntryMemoryMeasurement.RunAsync(args[1..]).ConfigureAwait(false);
+            EntryMemoryMeasurement.Run(args[1..]);
             return;
         }
 

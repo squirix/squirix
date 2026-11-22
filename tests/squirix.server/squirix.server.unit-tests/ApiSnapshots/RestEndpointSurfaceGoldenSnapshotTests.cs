@@ -1,25 +1,16 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Routing;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
-using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>Golden snapshot for the REST endpoint surface exposed by <c language="csharp">MapSquirixServerAsync</c>.</summary>
+/// <summary>Golden snapshot for the native management probe routes.</summary>
 [Immutable]
 public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
@@ -28,132 +19,10 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     [Test]
     public async Task MatchesProductionRestEndpointSurface(CancellationToken cancellationToken)
     {
-        var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
+        var actual = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var route in NativeManagementEndpoint.Probes)
+            _ = actual.Add($"GET {route}");
         var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
-        _ = await Assert.That(File.Exists(path)).IsTrue();
-
-        var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, cancellationToken);
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i];
-            if (line.Length == 0)
-                continue;
-
-            _ = expected.Add(line);
-        }
-
-        if (actual.SetEquals(expected))
-            return;
-
-        var unexpected = CollectSetDifference(actual, expected);
-        var missing = CollectSetDifference(expected, actual);
-
-        var sb = new StringBuilder();
-        _ = sb.AppendLine("Golden REST endpoint surface mismatch. Update ApiSnapshots/SquirixRestEndpointSurface.golden.txt if the change is intentional.");
-        for (var i = 0; i < unexpected.Count; i++)
-            _ = sb.Append("  + ").AppendLine(unexpected[i]);
-
-        for (var i = 0; i < missing.Count; i++)
-            _ = sb.Append("  - ").AppendLine(missing[i]);
-
-        Assert.Fail(sb.ToString());
-    }
-
-    private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
-    {
-        var result = new List<string>();
-        foreach (var item in left)
-        {
-            if (!right.Contains(item))
-                result.Add(item);
-        }
-
-        result.Sort(StringComparer.Ordinal);
-        return result;
-    }
-
-    /// <summary>Collects HTTP route patterns exposed by the production Squirix server mapping pipeline.</summary>
-    private static class RestEndpointSurfaceCollector
-    {
-        /// <summary>Builds a production-like host and returns sorted REST route identities (method + path).</summary>
-        /// <returns>Sorted REST route identities for the mapped server surface.</returns>
-        internal static async Task<List<string>> CollectProductionRestRoutesAsync()
-        {
-            await using var app = await BuildProductionHostAsync();
-            _ = await app.MapSquirixServerAsync(CancellationToken.None);
-            return CollectRestRoutes(app);
-        }
-
-        private static void AppendHttpMethods(RouteEndpoint route, string pattern, List<string> routes)
-        {
-            var methods = route.Metadata.GetMetadata<HttpMethodMetadata>();
-            if (methods == null || methods.HttpMethods.Count == 0)
-            {
-                // Health probes often omit explicit HttpMethodMetadata; treat them as GET for the golden.
-                if (pattern.StartsWith("/health", StringComparison.Ordinal))
-                    routes.Add($"GET {pattern}");
-
-                return;
-            }
-
-            var httpMethods = new List<string>(methods.HttpMethods);
-            httpMethods.Sort(StringComparer.Ordinal);
-            for (var methodIndex = 0; methodIndex < httpMethods.Count; methodIndex++)
-                routes.Add($"{httpMethods[methodIndex]} {pattern}");
-        }
-
-        private static void AppendRouteEndpoint(Endpoint endpoint, List<string> routes)
-        {
-            if (endpoint is not RouteEndpoint route)
-                return;
-
-            // gRPC endpoints are covered by a separate contract surface and must not dilute REST goldens.
-            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() != null)
-                return;
-
-            var pattern = route.RoutePattern.RawText ?? "/";
-            if (pattern.Contains("grpcunimplemented", StringComparison.Ordinal))
-                return;
-
-            AppendHttpMethods(route, pattern, routes);
-        }
-
-        private static async Task<WebApplication> BuildProductionHostAsync()
-        {
-            var builder = WebApplication.CreateBuilder(
-                new WebApplicationOptions
-                {
-                    EnvironmentName = "Production",
-                });
-
-            _ = await builder.AddSquirixServerAsync(
-                static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
-                loadDiscoveredSettings: false,
-                cancellationToken: CancellationToken.None);
-
-            return builder.Build();
-        }
-
-        /// <summary>
-        /// Collects REST route identities (<c language="csharp">METHOD /pattern</c>) from the host endpoint data sources,
-        /// excluding gRPC methods and unimplemented placeholders.
-        /// </summary>
-        /// <param name="app">Built web application exposing endpoint route data.</param>
-        /// <returns>Sorted list of REST route identities for golden comparison.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when <paramref name="app" /> does not expose endpoint data sources.</exception>
-        private static List<string> CollectRestRoutes(WebApplication app)
-        {
-            if (app is not IEndpointRouteBuilder routeBuilder)
-                throw new InvalidOperationException("Web application does not expose endpoint data sources.");
-
-            var routes = new List<string>();
-            foreach (var source in routeBuilder.DataSources)
-                for (var index = 0; index < source.Endpoints.Count; index++)
-                    AppendRouteEndpoint(source.Endpoints[index], routes);
-
-            routes.Sort(StringComparer.Ordinal);
-            return routes;
-        }
+        await GoldenSnapshotAssert.MatchesAsync(actual, path, cancellationToken);
     }
 }

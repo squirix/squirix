@@ -2,11 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -16,6 +14,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -77,14 +76,14 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
             journal.StallProbe.IoFinished();
         }
 
-        _ = await Assert.That(recorderA.Find(JournalWaitCanceledWhileStalledEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(recorderA.Find(JournalWaitCanceledWhileStalledEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(recorderB.Find(JournalWaitCanceledWhileStalledEventId)).IsNull();
     }
 
     private static async Task AssertRepairLoggedOnlyForAsync(RecordingLoggerProvider recorder, string ownPath, string otherPath)
     {
         var logged = recorder.Find(TornTailTruncatedEventId);
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(logged?.Category).IsEqualTo(typeof(JournalCoordinatorHost).FullName);
         _ = await Assert.That(logged?.Message).Contains(ownPath, StringComparison.Ordinal);
         foreach (var entry in recorder.Snapshot())
@@ -120,7 +119,7 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
 
         await cluster.StopNodeAsync(nodeId);
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16 };
+        var persistence = new PersistenceOptions { DataDir = node.DataDir };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         var path = PathKit.Combine(node.DataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");

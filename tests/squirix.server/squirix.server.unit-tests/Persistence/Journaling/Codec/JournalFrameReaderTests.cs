@@ -236,40 +236,40 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
 
     private sealed class OrderedFramesCapture
     {
-        public long FirstExpectedOffset { get; set; }
+        internal long FirstExpectedOffset { get; set; }
 
-        public string? FirstKey { get; set; }
+        internal string? FirstKey { get; set; }
 
-        public long FirstNextOffset { get; set; }
+        internal long FirstNextOffset { get; set; }
 
-        public JournalFrameReadStatus FirstStatus { get; set; }
+        internal JournalFrameReadStatus FirstStatus { get; set; }
 
-        public long SecondExpectedOffset { get; set; }
+        internal long SecondExpectedOffset { get; set; }
 
-        public string? SecondKey { get; set; }
+        internal string? SecondKey { get; set; }
 
-        public long SecondNextOffset { get; set; }
+        internal long SecondNextOffset { get; set; }
 
-        public JournalFrameReadStatus SecondStatus { get; set; }
+        internal JournalFrameReadStatus SecondStatus { get; set; }
     }
 
     private sealed class SingleFrameCapture
     {
-        public long ExpectedOffset { get; set; }
+        internal long ExpectedOffset { get; set; }
 
-        public int ExpectedPayloadLength { get; set; }
+        internal int ExpectedPayloadLength { get; set; }
 
-        public long NextOffset { get; set; }
+        internal long NextOffset { get; set; }
 
-        public int PayloadLength { get; set; }
+        internal int PayloadLength { get; set; }
 
-        public bool PayloadMatches { get; set; }
+        internal bool PayloadMatches { get; set; }
 
-        public JournalFrameReadStatus Status { get; set; }
+        internal JournalFrameReadStatus Status { get; set; }
     }
 
     private sealed class StatusCapture
     {
-        public JournalFrameReadStatus Status { get; set; }
+        internal JournalFrameReadStatus Status { get; set; }
     }
 }

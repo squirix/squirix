@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Threading;
@@ -24,7 +24,7 @@ internal static class JournalCoordinatorFactory
         State manifest,
         Ledger store,
         AsyncManualResetEvent gate,
-        ILoggerFactory loggerFactory,
+        IServerLoggerFactory loggerFactory,
         TimeProvider timeProvider,
         out IReadOnlyList<JournalRepair> repairs)
     {

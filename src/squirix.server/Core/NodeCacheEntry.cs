@@ -55,7 +55,7 @@ public sealed class NodeCacheEntry<T>
     public FrozenDictionary<string, string>? Tags { get; }
 
     /// <summary>Gets the value to store. May be <see langword="null" />.</summary>
-    public required T? Value { get; init; }
+    public required T? Value { get => StoredText.Unpack(RawValue); init => RawValue = value; }
 
     /// <summary>
     /// Gets the monotonic entry version used by extension packages for optimistic concurrency.
@@ -74,6 +74,8 @@ public sealed class NodeCacheEntry<T>
         }
     }
 
+    internal T? RawValue { get; private init; }
+
     /// <summary>Normalizes a value to a form the durable codecs store directly.</summary>
     /// <param name="value">The value to normalize.</param>
     /// <returns>The value itself when it is a primitive or already a JSON value, a primitive for a scalar JSON element, otherwise its JSON bytes.</returns>
@@ -81,22 +83,27 @@ public sealed class NodeCacheEntry<T>
     {
         return value switch
         {
-            null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonUtf8Value => value,
+            null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal => value,
             _ => NormalizeStructured(value),
         };
     }
 
-    internal object? Normalize() => NormalizeValue(Value);
+    internal object? Normalize() => NormalizeValue(RawValue);
 
-    /// <summary>Normalizes a JSON element or an object that is not a primitive.</summary>
+    /// <summary>Normalizes a non-primitive cache value.</summary>
     /// <param name="value">The value.</param>
-    /// <returns>A primitive or the JSON bytes for a JSON element, otherwise the JSON bytes of the object.</returns>
+    /// <returns>The value in a form the durable codecs can write.</returns>
     /// <remarks>
     /// An object is serialized through <see cref="object" /> so STJ resolves the runtime type, not the declared entry type <typeparamref name="T" />;
     /// otherwise base/interface-declared entries lose derived properties before persistence.
     /// </remarks>
-    private static object? NormalizeStructured(T value) =>
-        value is JsonElement element ? NormalizeElement(element) : ServerJsonSerializer.SerializeToJsonValue<object?>(value);
+    private static object? NormalizeStructured(T value) => value switch
+    {
+        JsonUtf8Value or StoredText => value,
+        JsonElement element => NormalizeElement(element),
+        DistributedCacheWrite write => write.Envelope,
+        _ => ServerJsonSerializer.SerializeToJsonValue<object?>(value),
+    };
 
     private static object? NormalizeElement(JsonElement element) => element.ValueKind switch
     {

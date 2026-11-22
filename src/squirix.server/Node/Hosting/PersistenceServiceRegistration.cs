@@ -2,14 +2,12 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -24,19 +22,19 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class PersistenceServiceRegistration
 {
-    private static readonly string[] ReadyHealthCheckTags = ["ready"];
-
-    internal static IServiceCollection AddPersistenceServices(this IServiceCollection services, PersistenceOptions options, Meter meter, bool waitForRecovery)
+    internal static NodeServices AddPersistenceServices(this NodeServices services, PersistenceOptions options, bool waitForRecovery, bool metricsEnabled = false)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _ = services.AddSingleton(options);
-
-        var failureMetrics = new ManifestRetentionFailureMetrics(meter);
+        _ = services.Use(options);
 
         // The runtime is created without I/O so the container owns it from the first resolve; OpenPersistenceAsync opens it after the host is built.
-        _ = services.AddSingleton(sp => new PersistenceRuntime(options, failureMetrics, sp.GetRequiredService<ILoggerFactory>(), ResolveClock(sp)));
+        _ = services.Own(sp => new PersistenceRuntime(
+            options,
+            new ManifestRetentionFailureMetrics(sp.Find<Meter>()),
+            sp.Require<IServerLoggerFactory>(),
+            ResolveClock(sp)));
 
-        RegisterPersistenceHostedServices(services, waitForRecovery);
+        RegisterPersistenceHostedServices(services, waitForRecovery, metricsEnabled);
         RegisterPersistenceRuntime(services);
 
         return services;
@@ -54,131 +52,134 @@ internal static class PersistenceServiceRegistration
     internal static async Task OpenPersistenceAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(services);
-        var runtime = services.GetRequiredService<PersistenceRuntime>();
+        var runtime = services.Require<PersistenceRuntime>();
         await runtime.OpenAsync(cancellationToken).ConfigureAwait(false);
-        _ = services.GetRequiredService<JournalCoordinatorHost>();
+        _ = services.Require<JournalCoordinatorHost>();
     }
 
-    private static void RegisterPersistenceHostedServices(IServiceCollection services, bool blockOnStart)
+    private static void RegisterPersistenceHostedServices(NodeServices services, bool blockOnStart, bool metricsEnabled)
     {
         var recoveryOptions = new RecoveryOptions
         {
             BlockOnStart = blockOnStart,
         };
-        _ = services.AddSingleton(recoveryOptions);
+        _ = services.Use(recoveryOptions);
 
-        _ = services.AddHostedService(static sp => new RecoveryService<object?>(
-            sp.GetRequiredService<RecoveryOptions>(),
-            sp.GetRequiredService<ILogger<RecoveryService<object?>>>(),
+        _ = services.RunService(static sp => new RecoveryService<object?>(
+            sp.Require<RecoveryOptions>(),
+            sp.Require<IServerLoggerFactory>().CreateLogger<RecoveryService<object?>>(),
             new RecoveryDependencies<object?>(
-                sp.GetRequiredService<PersistenceOptions>(),
-                sp.GetRequiredService<Ledger>(),
-                sp.GetRequiredService<ILocalCacheRecovery<object?>>(),
-                sp.GetRequiredService<AsyncManualResetEvent>(),
-                sp.GetRequiredService<RpcMutationIdempotencyStore>(),
-                sp.GetRequiredService<ISnapshotReader>(),
+                sp.Require<PersistenceOptions>(),
+                sp.Require<Ledger>(),
+                sp.Require<ILocalCacheRecovery<object?>>(),
+                sp.Require<AsyncManualResetEvent>(),
+                sp.Require<ISnapshotReader>(),
                 ResolveClock(sp))
             {
-                Expiry = sp.GetRequiredService<CacheExpiryAuthority>(),
+                Expiry = sp.Require<CacheExpiryAuthority>(),
             },
-            sp.GetService<IHostApplicationLifetime>()));
+            sp.Find<INodeLifetime>()));
 
-        _ = services.AddSingleton(static sp =>
+        _ = services.Own(static sp =>
         {
-            var service = ActivatorUtilities.CreateInstance<SnapshotTriggerService<object?>>(sp);
-            sp.GetRequiredService<OpenTelemetrySnapshotTelemetry>().ObserveConsecutiveFailures(sp.GetRequiredService<TopologyOptions>().NodeId, () => service.CurrentFailure?.ConsecutiveFailures ?? 0);
+            var service = new SnapshotTriggerService(
+                sp.Require<IServerLoggerFactory>().CreateLogger<SnapshotTriggerService>(),
+                sp.Require<Coordinator>(),
+                sp.Require<IJournalCoordinator>(),
+                sp.Require<TimeProvider>());
+            sp.Require<OpenTelemetrySnapshotTelemetry>().ObserveConsecutiveFailures(sp.Require<TopologyOptions>().NodeId, () => service.CurrentFailure?.ConsecutiveFailures ?? 0);
             return service;
         });
-        _ = services.AddSingleton<ISnapshotReadinessStatus>(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
-        _ = services.AddHostedService(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
+        _ = services.Own<ISnapshotReadinessStatus>(static sp => sp.Require<SnapshotTriggerService>());
+        _ = services.RunService(static sp => sp.Require<SnapshotTriggerService>());
 
-        _ = services.AddHostedService<JournalMetricsExporterService>();
+        if (metricsEnabled)
+        {
+            _ = services.RunService(static sp => new JournalMetricsExporterService(
+                sp.Require<PersistenceOptions>(),
+                sp.Require<TopologyOptions>(),
+                sp.Require<IServerLoggerFactory>().CreateLogger<JournalMetricsExporterService>(),
+                sp.Require<Meter>()));
+        }
 
         // Stops the journal once every other hosted service has stopped, so their final appends reach it.
-        _ = services.AddHostedService(static sp => new JournalStopService(sp.GetRequiredService<JournalCoordinatorHost>().StopAsync));
+        _ = services.RunService(static sp => new JournalStopService(sp.Require<JournalCoordinatorHost>().StopAsync));
     }
 
-    private static void RegisterPersistenceRuntime(IServiceCollection services)
+    private static void RegisterPersistenceRuntime(NodeServices services)
     {
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Retention);
-        _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(static sp => sp.GetRequiredService<PersistenceRuntime>().Retention);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Ledger);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Gate);
+        _ = services.Own(static sp => sp.Require<PersistenceRuntime>().Retention);
+        _ = services.Own<IRetentionCleanupReadinessStatus>(static sp => sp.Require<PersistenceRuntime>().Retention);
+        _ = services.Own(static sp => sp.Require<PersistenceRuntime>().Ledger);
+        _ = services.Own(static sp => sp.Require<PersistenceRuntime>().Gate);
 
         // The journal publishes manifest rolls to the ledger until its thread is joined, so the ledger must be disposed after the
         // host. The container disposes in reverse order of creation, tracking a service when its factory returns, so resolving the
         // ledger inside this factory tracks it before the host whatever resolves the host first.
-        _ = services.AddSingleton(static sp =>
+        _ = services.Own(static sp =>
         {
-            _ = sp.GetRequiredService<Ledger>();
-            return sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator;
+            _ = sp.Require<Ledger>();
+            return sp.Require<PersistenceRuntime>().JournalCoordinator;
         });
 
         // The journal host is the only owner of the journal lifetime. The container disposes every disposable a factory
         // returns, so no other registration may hand out the raw journal: each goes through the decorator, which does not
         // dispose it. Otherwise, one of them would dispose the journal before the host and abort the container on its failure.
-        _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalCoordinatorDecorator(
-            sp.GetRequiredService<JournalCoordinatorHost>().Coordinator,
-            sp.GetRequiredService<IJournalOperationTracer>()));
+        _ = services.Own<IJournalCoordinator>(static sp => new TracingJournalCoordinatorDecorator(
+            sp.Require<JournalCoordinatorHost>().Coordinator,
+            sp.Require<IJournalOperationTracer>()));
 
-        _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<IJournalCoordinator>());
+        _ = services.Own<IJournalMetrics>(static sp => sp.Require<IJournalCoordinator>());
 
         RegisterRuntimeHealthChecks(services);
 
-        _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
-        _ = services.AddSingleton(static sp => new OpenTelemetrySnapshotTelemetry(sp.GetRequiredService<Meter>()));
-        _ = services.AddSingleton<ISnapshotTelemetry>(static sp => sp.GetRequiredService<OpenTelemetrySnapshotTelemetry>());
+        _ = services.Own<IJournalOperationTracer>(static _ => new OpenTelemetryJournalOperationTracer());
+        _ = services.Own(static sp => new OpenTelemetrySnapshotTelemetry(sp.Find<Meter>()));
+        _ = services.Own<ISnapshotTelemetry>(static sp => sp.Require<OpenTelemetrySnapshotTelemetry>());
 
-        _ = services.AddSingleton(static sp =>
+        _ = services.Own(static sp =>
         {
-            var options = sp.GetRequiredService<PersistenceOptions>();
+            var options = sp.Require<PersistenceOptions>();
             return StoreFactory.CreateWriter(options);
         });
-        _ = services.AddSingleton(static _ => StoreFactory.CreateReader());
+        _ = services.Own(static _ => StoreFactory.CreateReader());
 
-        _ = services.AddSingleton(static sp => new Coordinator(
-            sp.GetRequiredService<TriggerOptions>(),
-            sp.GetRequiredService<IJournalMetrics>(),
+        _ = services.Own(static sp => new Coordinator(
+            sp.Require<TriggerOptions>(),
+            sp.Require<IJournalMetrics>(),
             new CoordinatorDependencies(
-                sp.GetRequiredService<ISnapshotEntryCapture>(),
-                sp.GetRequiredService<ISnapshotWriter>(),
-                sp.GetRequiredService<Ledger>(),
-                sp.GetRequiredService<IIdempotencySnapshotExporter>(),
-                sp.GetRequiredService<TopologyOptions>().NodeId,
-                sp.GetRequiredService<ISnapshotTelemetry>()),
+                sp.Require<ISnapshotEntryCapture>(),
+                sp.Require<ISnapshotWriter>(),
+                sp.Require<Ledger>(),
+                sp.Require<TopologyOptions>().NodeId,
+                sp.Require<ISnapshotTelemetry>()),
             ResolveClock(sp)));
     }
 
-    private static void RegisterRuntimeHealthChecks(IServiceCollection services)
+    private static void RegisterRuntimeHealthChecks(NodeServices services)
     {
-        var journalRecovery = new HealthCheckRegistration(
+        var journalRecovery = new ReadinessCheck(
             "journal_recovery",
-            static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<AsyncManualResetEvent>()),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
+            static sp => new JournalRecoveryReadinessHealthCheck(sp.Require<AsyncManualResetEvent>()));
 
-        var journalMaintenance = new HealthCheckRegistration(
+        var journalMaintenance = new ReadinessCheck(
             "journal_maintenance",
             static sp => new JournalMaintenanceReadinessHealthCheck(
-                sp.GetRequiredService<IJournalCoordinator>(),
-                sp.GetRequiredService<ISnapshotReadinessStatus>(),
-                FindStallProbe(sp.GetRequiredService<JournalCoordinatorHost>().Coordinator),
-                sp.GetRequiredService<PersistenceOptions>().JournalStallDegradedThreshold,
-                ResolveClock(sp)),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
-        var storageRetentionCleanup = new HealthCheckRegistration(
+                sp.Require<IJournalCoordinator>(),
+                sp.Require<ISnapshotReadinessStatus>(),
+                FindStallProbe(sp.Require<JournalCoordinatorHost>().Coordinator),
+                sp.Require<PersistenceOptions>().JournalStallDegradedThreshold,
+                ResolveClock(sp)));
+        var storageRetentionCleanup = new ReadinessCheck(
             "storage_retention_cleanup",
-            static sp => new RetentionCleanupReadinessCheck(sp.GetRequiredService<IRetentionCleanupReadinessStatus>()),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
-        _ = services.AddHealthChecks().Add(journalRecovery).Add(journalMaintenance).Add(storageRetentionCleanup);
+            static sp => new RetentionCleanupReadinessCheck(sp.Require<IRetentionCleanupReadinessStatus>()));
+        _ = services.Use(journalRecovery).Use(journalMaintenance).Use(storageRetentionCleanup);
     }
 
     /// <summary>Resolves the server clock.</summary>
     /// <param name="sp">The service provider.</param>
     /// <returns>The clock the persistence components measure time with.</returns>
-    private static TimeProvider ResolveClock(IServiceProvider sp) => sp.GetRequiredService<TimeProvider>();
+    private static TimeProvider ResolveClock(IServiceProvider sp) => sp.Require<TimeProvider>();
 
     /// <summary>Finds the segment I/O stall probe of the owned journal; a coordinator without one reports no stall.</summary>
     /// <param name="coordinator">The journal coordinator owned by the host.</param>
@@ -192,7 +193,7 @@ internal static class PersistenceServiceRegistration
         private int _disposed;
         private int _opened;
 
-        internal PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, ILoggerFactory loggerFactory, TimeProvider timeProvider)
+        internal PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, IServerLoggerFactory loggerFactory, TimeProvider timeProvider)
         {
             ArgumentNullException.ThrowIfNull(loggerFactory);
             _options = options;

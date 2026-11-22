@@ -4,19 +4,19 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -117,7 +117,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(AppendTimedOutEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(AppendTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(AppendTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(AppendTimedOutEventId)).Contains("term 1");
         _ = await Assert.That((log.Count(ApplyTimedOutEventId), log.Count(AuthorityTimedOutEventId), log.Count(SteppedDownEventId))).IsEqualTo((0, 0, 0));
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
@@ -145,7 +145,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(ApplyTimedOutEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(ApplyTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(ApplyTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(ApplyTimedOutEventId)).Contains("term 1");
         _ = await Assert.That((log.Count(AuthorityTimedOutEventId), log.Count(SteppedDownEventId))).IsEqualTo((0, 0));
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
@@ -173,7 +173,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(AuthorityTimedOutEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(AuthorityTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(AuthorityTimedOutEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(AuthorityTimedOutEventId)).Contains("term 1");
         _ = await Assert.That(log.Count(SteppedDownEventId)).IsEqualTo(0);
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
@@ -208,7 +208,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(log.Count(ApplyBlockedEventId)).IsEqualTo(2);
-        _ = await Assert.That(log.Find(ApplyBlockedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Find(ApplyBlockedEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(log.FindMessage(ApplyBlockedEventId)).Contains("group n2 ");
     }
 

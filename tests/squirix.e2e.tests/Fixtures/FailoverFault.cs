@@ -15,7 +15,7 @@ internal static class FailoverFault
     /// <summary>The value of a register the readers must see before the fault starts, so the fault hits a running workload.</summary>
     private const long Progress = 5;
 
-    /// <summary>The writes, and the reads, each register runs after the recovery probe succeeded, so the workload covers the recovered group.</summary>
+    /// <summary>The writes and reads each register runs after recovery and any required election observation.</summary>
     private const int TailOperations = 10;
 
     /// <summary>Tells whether a history holds an acknowledged write and a successful read that both started at or after a point in time.</summary>
@@ -76,6 +76,9 @@ internal static class FailoverFault
             var acked = ledger.Observe();
             var stoppedWhileAcked = !scene.Cluster.Cluster.TryGetNode(fault.NodeId, out _);
             scene.Timeline.Mark($"a write and a read through {clientNodes[0]} succeed under {acked.NodeId} in term {acked.Term}");
+            if (string.Equals(fault.NodeId, scene.Timeline.Baseline.NodeId, StringComparison.Ordinal))
+                await ledger.UntilAsync(() => scene.Timeline.TimestampOf(FailoverPhase.NewLeader) != null, "the timeline sees the new leader", cancellationToken);
+
             recovered.SetResult();
             await running;
             await safety;

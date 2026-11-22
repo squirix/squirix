@@ -3,14 +3,15 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -98,7 +99,7 @@ internal static class ReplicaOwnerTestKit
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache(), NullLogger<ReplicaGroupCommitter>.Instance);
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger<ReplicaGroupCommitter> log) =>
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, IServerLogger<ReplicaGroupCommitter> log) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
             Clock = TimeProvider.System,
@@ -150,7 +151,7 @@ internal static class ReplicaOwnerTestKit
         IReplicaRpcGateway gateway,
         ILogicalNamespacedCache<object?> cache,
         TimeProvider clock,
-        ILogger<ReplicaGroupCommitter> log,
+        IServerLogger<ReplicaGroupCommitter> log,
         (TimeProvider Clock, TimeSpan Budget) shutdown) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), log)
         {
@@ -448,7 +449,7 @@ internal static class ReplicaOwnerTestKit
 
     /// <summary>In-memory local cache double that records the key of every applied write, in order.</summary>
     /// <remarks>A stateful fake: the leader reads a key back before deciding a conditional add, so the double has to hold what it wrote, which a Rocks mock without state cannot model.</remarks>
-    internal sealed class StubCache : ILogicalNamespacedCache<object?>
+    internal sealed class StubCache : ILogicalNamespacedCache<object?>, ILocalCacheRawReader<object?>
     {
         private readonly ConcurrentDictionary<string, NodeCacheEntry<object?>> _entries = new(StringComparer.Ordinal);
 
@@ -457,14 +458,17 @@ internal static class ReplicaOwnerTestKit
         /// <summary>Gets or sets a hook that runs after every applied write.</summary>
         internal Action? OnApplied { get; set; }
 
+        public NodeCacheEntry<object?>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
+            _entries.TryGetValue(key.Key, out var entry) ? entry : null;
+
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_entries.TryGetValue(key, out var entry) ? entry : null);
 
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
 
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(false);
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 

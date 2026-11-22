@@ -4,9 +4,9 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Squirix.Server.Composition;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -25,11 +25,11 @@ namespace Squirix.Server.Node.Services;
 /// other. A group the election hands this node gets its loop when its leadership starts, and the loop ends with the leadership. A loop
 /// that faults stops the others, and the service ends with its fault once they have ended. It runs on the host lifetime and stops with it.
 /// </remarks>
-internal sealed class ReplicaGroupReadinessService : BackgroundService
+internal sealed class ReplicaGroupReadinessService : NodeWorkerBase
 {
     private readonly ReplicaCatchUpMetrics? _catchUpMetrics;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly ILogger<ReplicaGroupReadinessService> _log;
+    private readonly IServerLogger<ReplicaGroupReadinessService> _log;
     private readonly TimeProvider _timeProvider;
     private readonly ReplicaStateTransfers? _transfers;
 
@@ -41,7 +41,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
     /// <param name="transfers">Repairs a follower the log cannot catch up by sending it the state of the group; none are sent when <see langword="null" />.</param>
     internal ReplicaGroupReadinessService(
         ReplicaGroupCommitters committers,
-        ILogger<ReplicaGroupReadinessService> log,
+        IServerLogger<ReplicaGroupReadinessService> log,
         TimeProvider timeProvider,
         ReplicaCatchUpMetrics? catchUpMetrics = null,
         ReplicaStateTransfers? transfers = null)
@@ -151,7 +151,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
             {
                 loops.Add(arrival);
                 var ended = await Task.WhenAny(loops).ConfigureAwait(false);
-                _ = loops.Remove(arrival);
+                loops.RemoveAt(loops.Count - 1);
                 if (ended != arrival)
                 {
                     // A loop that ended with its leadership completes normally; one that faulted ends the watch with its fault.
@@ -194,7 +194,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
         {
             // The same predicate as the verification: retryable faults are retried on the next pass, anything else faults the service.
-            ServerLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
+            ReplicaBootstrapLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
             return false;
         }
     }
@@ -204,16 +204,16 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         switch (outcome)
         {
             case ReplicaVerification.AllReady:
-                ServerLog.ReplicaVerificationComplete(_log, groupId);
+                ReplicaBootstrapLog.ReplicaVerificationComplete(_log, groupId);
                 break;
             case ReplicaVerification.Pending:
-                ServerLog.ReplicaVerificationPending(_log, groupId);
+                ReplicaBootstrapLog.ReplicaVerificationPending(_log, groupId);
                 break;
             case ReplicaVerification.Blocked:
-                ServerLog.ReplicaVerificationBlocked(_log, groupId);
+                ReplicaBootstrapLog.ReplicaVerificationBlocked(_log, groupId);
                 break;
             case ReplicaVerification.Unseeded:
-                ServerLog.ReplicaVerificationUnseeded(_log, groupId);
+                ReplicaBootstrapLog.ReplicaVerificationUnseeded(_log, groupId);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported verification state.");
@@ -233,9 +233,9 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
             // Storage, full-journal or commit-gate faults are retried like unreachable peers; unexpected exceptions still fault
             // the service so the host fails fast instead of silently running without a verified quorum. A full journal or refused memory
             // would otherwise leave the group unverified without a trace at the default level, so it is warned about when the fault changes.
-            ServerLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
+            ReplicaBootstrapLog.ReplicaVerificationRetry(_log, committer.GroupId, exception);
             if (exception is JournalCapacityExceededException or ResourceExhaustedException && fault.Value != exception.GetType())
-                ServerLog.ReplicaVerificationRefused(_log, committer.GroupId, exception);
+                ReplicaBootstrapLog.ReplicaVerificationRefused(_log, committer.GroupId, exception);
 
             fault.Value = exception.GetType();
             return ReplicaVerification.Pending;

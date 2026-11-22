@@ -16,10 +16,7 @@ internal sealed class JournalWriteBatchBuffer
     private readonly int _capacityBytes;
     private readonly List<JournalWorkItem> _pending = [];
 
-    /// <summary>
-    /// Allocated lazily on first staging and doubled on demand up to the configured capacity, so idle coordinators
-    /// (and the many created in tests) do not each hold a multi-megabyte buffer. Never shrinks.
-    /// </summary>
+    /// <summary>Allocated when a batch first needs to combine two frames, then doubled on demand up to the configured capacity.</summary>
     private byte[]? _buffer;
 
     internal JournalWriteBatchBuffer(int capacityBytes = DefaultCapacityBytes)
@@ -30,9 +27,12 @@ internal sealed class JournalWriteBatchBuffer
         _capacityBytes = capacityBytes;
     }
 
-    internal ReadOnlySpan<byte> ActiveSpan => _buffer == null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
+    /// <summary>Gets the bytes for the synchronous write. A single frame stays owned by the pending append registry.</summary>
+    internal ReadOnlySpan<byte> ActiveSpan => _pending.Count == 1
+        ? _pending[0].FrameBytes.AsSpan(0, StagedByteLength)
+        : _buffer.AsSpan(0, StagedByteLength);
 
-    /// <summary>Gets the current backing array length, or zero before the first staged append.</summary>
+    /// <summary>Gets the allocated coalescing array length, or zero before the first multi-frame batch.</summary>
     internal int AllocatedLength => _buffer?.Length ?? 0;
 
     internal bool IsEmpty => StagedByteLength == 0;
@@ -50,24 +50,29 @@ internal sealed class JournalWriteBatchBuffer
     internal bool TryStageAppend(in JournalWorkItem item)
     {
         var frameLength = item.FrameLength;
-        if (frameLength <= 0 || StagedByteLength + frameLength > _capacityBytes)
+        if (frameLength <= 0 || frameLength > _capacityBytes - StagedByteLength)
             return false;
 
-        var frameBytes = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.");
-        var buffer = EnsureCapacity(StagedByteLength + frameLength);
-        frameBytes.AsSpan(0, frameLength).CopyTo(buffer.AsSpan(StagedByteLength));
+        var frame = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.").AsSpan(0, frameLength);
+        if (!IsEmpty)
+        {
+            var buffer = GetOrAllocateBuffer(StagedByteLength + frameLength);
+            if (_pending.Count == 1 || buffer != _buffer)
+                ActiveSpan.CopyTo(buffer);
+
+            frame.CopyTo(buffer.AsSpan(StagedByteLength));
+            _buffer = buffer;
+        }
+
         _pending.Add(item);
         StagedByteLength += frameLength;
         return true;
     }
 
-    /// <summary>
-    /// Returns a backing array of at least <paramref name="requiredBytes" /> bytes, never above the configured capacity. The array
-    /// is replaced only after the new one is allocated, so an allocation failure leaves the state unchanged.
-    /// </summary>
+    /// <summary>Returns the existing array or allocates a larger one without changing the staged batch.</summary>
     /// <param name="requiredBytes">Minimum number of bytes the backing array must hold.</param>
     /// <returns>The backing array to stage into.</returns>
-    private byte[] EnsureCapacity(int requiredBytes)
+    private byte[] GetOrAllocateBuffer(int requiredBytes)
     {
         var current = _buffer;
         if (current != null && current.Length >= requiredBytes)
@@ -79,10 +84,6 @@ internal sealed class JournalWriteBatchBuffer
         else
             doubled = current.Length > _capacityBytes / 2 ? _capacityBytes : current.Length * 2;
 
-        _buffer = new byte[Math.Max(doubled, requiredBytes)];
-        if (current != null && StagedByteLength > 0)
-            current.AsSpan(0, StagedByteLength).CopyTo(_buffer);
-
-        return _buffer;
+        return new byte[Math.Max(doubled, requiredBytes)];
     }
 }

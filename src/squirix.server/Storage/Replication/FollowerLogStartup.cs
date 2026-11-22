@@ -75,8 +75,10 @@ internal static class FollowerLogStartup
 
     private static void CreateFirstLog(FollowerLogJournal journal, IFollowerLogContext owner)
     {
-        owner.Durability.Create(journal.Paths.GetLogSlotPath(0), 1UL);
-        journal.UseLog(0, 1UL);
+        var (_, latest) = GroupSnapshotPointers.ReadWalGenerations(journal.Snapshot.SnapshotPath, 0UL);
+        var generation = checked(latest + 1UL);
+        owner.Durability.Create(journal.Paths.GetLogSlotPath(0), generation);
+        journal.UseLog(0, generation);
         owner.LogLength = GroupLogSlots.HeaderSize;
     }
 

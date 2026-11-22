@@ -19,6 +19,8 @@ public static class Program
         ["read-index"] = BrokenMode.ReadIndex,
         ["repair-ceiling"] = BrokenMode.RepairCeiling,
         ["log-order"] = BrokenMode.LogOrder,
+        ["transfer-hint"] = BrokenMode.TransferHint,
+        ["transfer-hint-stale"] = BrokenMode.TransferHintStaleAccept,
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Runs the explorer CLI.</summary>
@@ -40,7 +42,7 @@ public static class Program
 
     private static BrokenMode ParseBroken(string value)
     {
-        const string message = "Expected none|vote|current-term-commit|read-index|repair-ceiling|log-order.";
+        const string message = "Expected none|vote|current-term-commit|read-index|repair-ceiling|log-order|transfer-hint.";
         return BrokenModeMap.TryGetValue(value, out var mode) ? mode : throw new ArgumentOutOfRangeException(nameof(value), value, message);
     }
 
@@ -140,7 +142,7 @@ public static class Program
 
     private static Task WriteHelpAsync()
     {
-        var help = "Squirix.ProtocolModel — Raft-equivalent safety explorer\n  --profile full|small\n  --output <dir>\n" + "  --broken vote|current-term-commit|read-index|repair-ceiling|log-order|none\n" +
+        var help = "Squirix.ProtocolModel — Raft-equivalent safety explorer\n  --profile full|small|transfer\n  --output <dir>\n" + "  --broken vote|current-term-commit|read-index|repair-ceiling|log-order|transfer-hint|transfer-hint-stale|none\n" +
                    $"modelVersionHash={ExploreRunner.ModelVersionHash}\nculture={CultureInfo.InvariantCulture.Name}\n";
         return Console.Out.WriteAsync(help.AsMemory(), CancellationToken.None);
     }

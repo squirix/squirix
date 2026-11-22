@@ -14,23 +14,28 @@ namespace Squirix.Server.Cluster;
 [Immutable]
 internal sealed class RingFingerprint
 {
-    private const int FormatVersion = 1;
+    internal const int DigestBytes = 32;
+    private const int FormatVersion = 2;
 
-    private RingFingerprint(string value)
+    private RingFingerprint(byte[] digest)
     {
-        Value = value;
+        Digest = digest;
+        Value = Convert.ToHexString(digest);
     }
 
     /// <summary>Gets the digest as 64 uppercase hex characters.</summary>
     internal string Value { get; }
 
+    /// <summary>Gets the digest bytes used in native peer frames.</summary>
+    internal ReadOnlyMemory<byte> Digest { get; }
+
     /// <summary>Computes the fingerprint of a ring configuration.</summary>
     /// <param name="clusterId">Cluster identifier.</param>
     /// <param name="nodeIds">Configured peer node identifiers; order and duplicates are ignored.</param>
     /// <param name="virtualNodes">Virtual nodes per physical node.</param>
+    /// <param name="valueLimitBytes">The maximum serialized value admitted by this node.</param>
     /// <returns>The ring fingerprint.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the digest cannot be materialized.</exception>
-    internal static RingFingerprint Create(string clusterId, ReadOnlySpan<string> nodeIds, int virtualNodes)
+    internal static RingFingerprint Create(string clusterId, ReadOnlySpan<string> nodeIds, int virtualNodes, int valueLimitBytes = 0)
     {
         ArgumentNullException.ThrowIfNull(clusterId);
 
@@ -41,14 +46,12 @@ internal sealed class RingFingerprint
         AppendInt32(hasher, FormatVersion);
         AppendString(hasher, clusterId);
         AppendInt32(hasher, virtualNodes);
+        AppendInt32(hasher, valueLimitBytes);
         AppendInt32(hasher, distinct.Length);
         for (var i = 0; i < distinct.Length; i++)
             AppendString(hasher, distinct[i]);
 
-        Span<byte> digest = stackalloc byte[32];
-        return hasher.TryGetHashAndReset(digest, out var written) && written == digest.Length
-            ? new RingFingerprint(Convert.ToHexString(digest))
-            : throw new InvalidOperationException("Failed to compute ring fingerprint digest.");
+        return new RingFingerprint(hasher.GetHashAndReset());
     }
 
     private static void AppendInt32(IncrementalHash hasher, int value)

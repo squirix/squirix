@@ -2,10 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -51,7 +51,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false, recorder), cancellationToken);
 
         var logged = recorder.Find(HeaderRestoredEventId);
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(logged?.Message).Contains(path, StringComparison.Ordinal);
         await AssertEntriesReadableAsync(restarted, cancellationToken);
         await restarted.ShutdownAsync();
@@ -79,7 +79,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false, recorder), cancellationToken);
 
         var logged = recorder.Find(TornTailTruncatedEventId);
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Warning);
         _ = await Assert.That(logged?.Message).Contains(path, StringComparison.Ordinal);
         await AssertEntriesReadableAsync(restarted, cancellationToken);
         await restarted.ShutdownAsync();
@@ -103,7 +103,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         damaged[JournalFraming.FileHeaderSize + JournalFraming.FrameHeaderSize] ^= 0xFF;
         await File.WriteAllBytesAsync(path, damaged, cancellationToken);
 
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException, ITestNodeHost>(cluster.StartNodeAsync("node-a", Options(scope, false, null), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException, ITestNodeHost>(cluster.StartNodeAsync("node-a", Options(scope, false, null), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).Contains(path, StringComparison.Ordinal);
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
@@ -114,7 +114,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
     private static async Task<string> ActiveSegmentPathAsync(string dataDir, CancellationToken cancellationToken)
     {
         await JournalSegmentLeaseWait.WaitForReleasedAsync(dataDir, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16 };
+        var persistence = new PersistenceOptions { DataDir = dataDir };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         return PathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");

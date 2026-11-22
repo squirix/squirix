@@ -7,7 +7,7 @@ Journal segments use the `.jsqx` extension with a fixed file header and length-p
 | Offset | Size | Value        |
 |--------|------|--------------|
 | 0      | 4    | ASCII `SJRN` |
-| 4      | 1    | `4`          |
+| 4      | 1    | `5`          |
 
 ## Frame layout (little-endian)
 
@@ -42,18 +42,21 @@ u32 payloadLen       // per opcode, see below
 | 5      | RemoveWithMutationOperationId | mutation prefix only                                    |
 | 6      | IdempotencyStarted            | structured write-ahead idempotency intent               |
 
-The mutation prefix of opcodes 4 and 5 is `u16 operationIdLen`, the operation id (UTF-8), `u16 fingerprintLen`, the request fingerprint
-(UTF-8; `0` when none). A cache-entry frame written for an idempotent RPC carries it as the write-ahead intent, so recovery rebuilds the
-started record with the fingerprint. A frame applied from a replica group entry carries no prefix: the group log is its durable source.
+New records use opcodes 1 and 2. Recovery reads older opcodes 3 through 6. The mutation prefix of opcodes 4
+and 5 is `u16 operationIdLen`, the UTF-8 operation ID, `u16 fingerprintLen`, and the UTF-8 fingerprint. Recovery
+applies the cache mutation from those frames and skips the historical outcome and intent records.
 
 ## Cache-entry frames
 
 Every cache-entry frame is either a Put of the complete resulting entry (value, version, tags, and the absolute expiration deadline at
-whole-millisecond precision or none) or a Remove. A touch, an expiration removal or an update of an entry journals a Put of the entry it
+whole-millisecond precision or none) or a Remove. A touch, clearing an entry's TTL with `RemoveExpirationAsync`, or updating an entry journals a Put of the entry it
 decided, so no frame depends on how an earlier frame replayed.
 
-Replay keeps, for each key, the state of its last frame, and drops the key only when the deadline of that final entry has passed. Snapshot
-plus tail recovery gives the same state for any cut of the journal.
+Replay applies frames in order. A `Remove` deletes the key regardless of its expiration deadline. With local-clock
+expiration (replication factor 1), an expired `Put` also removes the key, superseding any earlier value. With
+replicated expiration, recovery preserves the entry even after its deadline. The leader removes it through a
+replicated mutation. Recovering from a snapshot and replaying the remaining frames follows the same rules as
+replaying the journal.
 
 ## File format version
 

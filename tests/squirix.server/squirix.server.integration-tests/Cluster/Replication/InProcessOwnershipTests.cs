@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
@@ -9,6 +8,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -34,14 +34,13 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         _ = node.GetRequiredService<ReplicaGroupRegistry>().TryGetLog("node-a", out var log);
         var before = await log!.GetStatusAsync(cancellationToken);
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
-        var pipeline = node.GetRequiredService<ISquirixServerEntryCachePipeline<object?>>();
+        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<object?>>();
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var after = await log.GetStatusAsync(cancellationToken);
 
-        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That(after.LastLogIndex).IsEqualTo(before.LastLogIndex);
         _ = await Assert.That(after.LastAppliedIndex).IsEqualTo(before.LastAppliedIndex);
     }
@@ -54,16 +53,15 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
         var node = cluster["node-a"];
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
-        var pipeline = node.GetRequiredService<ISquirixServerEntryCachePipeline<object?>>();
+        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<object?>>();
 
-        var read = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(pipeline.GetValueAsync(CacheName, key, cancellationToken));
-        var write = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken));
+        var read = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<object?>>(pipeline.GetValueAsync(CacheName, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var write = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(read.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(read.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
-        _ = await Assert.That(write.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
-        _ = await Assert.That(write.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(read.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(read.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
+        _ = await Assert.That(write.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
+        _ = await Assert.That(write.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
     }
 
     private static IntegrationStartOptions Options(string scope) => new() { ReplicaCount = 3, UsePersistence = true, CleanTestDir = true, ExtraScope = scope };

@@ -1,10 +1,13 @@
-using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Mappers;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
@@ -19,24 +22,19 @@ public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
         ServerOpContract.MemoryPressure(),
         SquirixErrorCode.MemoryPressure,
         "MEMORY_PRESSURE",
-        ResourceExhaustedException.StableDetail,
-        static () => new ResourceExhaustedException().ToRpcException());
+        ResourceExhaustedException.StableDetail);
 
-    /// <summary>Verifies REST JSON matches canonical error shape for memory pressure.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <summary>Checks the status, error code trailer and detail received by a binary client.</summary>
     [Test]
-    public async Task PressureRestPayloadUsesStableFields(CancellationToken cancellationToken)
+    public async Task BinaryPayloadUsesStableFields()
     {
-        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(ServerOpContract.MemoryPressure().ToHttpResult(), cancellationToken);
-        using (payload)
-        {
-            await ErrorContractTestKit.AssertErrorJsonPayloadAsync(
-                payload,
-                status,
-                StatusCodes.Status429TooManyRequests,
-                "MemoryPressure",
-                "MEMORY_PRESSURE",
-                ResourceExhaustedException.StableDetail);
-        }
+        var contract = ServerOpContract.MemoryPressure();
+        var response = BinaryResponse.FromError(contract);
+        var error = await Assert.That(response.Payload).IsTypeOf<BinaryCallError>();
+        _ = await Assert.That(response.Status).IsEqualTo(FrameStatus.ResourceExhausted);
+        _ = await Assert.That(error!.Detail).IsEqualTo(ResourceExhaustedException.StableDetail);
+        _ = await Assert.That(error.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That(error.Trailers[0].Key).IsEqualTo(StaleOwnerMarkers.ErrorCodeMetadataKey);
+        _ = await Assert.That(error.Trailers[0].Text).IsEqualTo("MEMORY_PRESSURE");
     }
 }

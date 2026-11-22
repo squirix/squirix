@@ -67,51 +67,76 @@ internal static class SafetyChecker
         _ = sb.Append("]}");
     }
 
-    private static SafetyViolation? CheckCommittedSurvives(ClusterState state)
-    {
-        var conflict = CheckStateMachineSafety(state);
-        if (conflict != null)
-            return conflict;
+    private static SafetyViolation? CheckCommittedSurvives(ClusterState state) =>
+        CheckStateMachineSafety(state) ?? CheckLeaderCompleteness(state);
 
-        var committed = CollectCommitted(state);
-        return CheckLeaderCompleteness(state, committed);
-    }
-
+    /// <summary>Checks that no term has had two distinct leaders elected, whether or not both still hold the role.</summary>
+    /// <param name="state">The state to check.</param>
+    /// <returns>The violation, or <see langword="null" /> when every term has had one leader.</returns>
+    /// <remarks>
+    /// Election safety is a property of what happened, not of what is currently true: reading the current roles checks
+    /// that no two nodes are leaders at once, which misses the two-in-one-term case whenever the earlier leader has
+    /// retired, because retiring makes it a follower and keeps its term. The evidence is therefore read from the
+    /// recorded elections, which a leader's retirement does not remove.
+    /// </remarks>
     private static SafetyViolation? CheckElectionSafety(ClusterState state)
     {
+        var elected = state.ElectedLeaders;
+        for (var i = 1; i < elected.Count; i++)
+        {
+            var previous = elected[i - 1];
+            var current = elected[i];
+            if (current.Term < previous.Term)
+                return CheckUnorderedElections(state);
+
+            if (current.Term == previous.Term && current.NodeId != previous.NodeId)
+                return ElectionConflict(state, current.Term, previous.NodeId, current.NodeId);
+        }
+
+        return null;
+    }
+
+    private static SafetyViolation? CheckUnorderedElections(ClusterState state)
+    {
+        var elected = state.ElectedLeaders;
         var leadersByTerm = new Dictionary<int, int>();
+        for (var i = 0; i < elected.Count; i++)
+        {
+            var election = elected[i];
+            if (!leadersByTerm.TryGetValue(election.Term, out var other))
+            {
+                leadersByTerm[election.Term] = election.NodeId;
+                continue;
+            }
+
+            if (other == election.NodeId)
+                continue;
+
+            return ElectionConflict(state, election.Term, other, election.NodeId);
+        }
+
+        return null;
+    }
+
+    private static SafetyViolation ElectionConflict(ClusterState state, int term, int first, int second)
+    {
+        var detail = "Two leaders in term " + term.ToString(CultureInfo.InvariantCulture) + ": " + first.ToString(CultureInfo.InvariantCulture) + " and " +
+                     second.ToString(CultureInfo.InvariantCulture);
+        return new SafetyViolation("ElectionSafety", detail, state.Fingerprint(false));
+    }
+
+    private static SafetyViolation? CheckLeaderCompleteness(ClusterState state)
+    {
         for (var i = 0; i < state.Nodes.Count; i++)
         {
             var node = state.Nodes[i];
             if (node.Role != NodeRole.Leader)
                 continue;
 
-            if (leadersByTerm.TryGetValue(node.CurrentTerm, out var other))
-            {
-                var detail = "Two leaders in term " + node.CurrentTerm.ToString(CultureInfo.InvariantCulture) + ": " + other.ToString(CultureInfo.InvariantCulture) + " and " +
-                             node.Id.ToString(CultureInfo.InvariantCulture);
-                return new SafetyViolation("ElectionSafety", detail, state.Fingerprint(false));
-            }
-
-            leadersByTerm[node.CurrentTerm] = node.Id;
-        }
-
-        return null;
-    }
-
-    private static SafetyViolation? CheckLeaderCompleteness(ClusterState state, Dictionary<int, int> committed)
-    {
-        var maxTerm = MaxTerm(state);
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            var node = state.Nodes[i];
-            if (node.Role != NodeRole.Leader || node.CurrentTerm != maxTerm)
+            if (!FindMissingCommittedEntry(node, state.CommittedEntries, out var missing))
                 continue;
-
-            if (!FindMissingCommittedEntry(node, committed, out var missing))
-                continue;
-            var detail = "Leader " + node.Id.ToString(CultureInfo.InvariantCulture) + " missing committed entry " + missing.Value.ToString(CultureInfo.InvariantCulture) + "@" +
-                         missing.Key.ToString(CultureInfo.InvariantCulture);
+            var detail = "Leader " + node.Id.ToString(CultureInfo.InvariantCulture) + " missing committed entry " + missing.EntryTerm.ToString(CultureInfo.InvariantCulture) + "@" +
+                         missing.Index.ToString(CultureInfo.InvariantCulture);
             return new SafetyViolation("LeaderCompleteness", detail, state.Fingerprint(false));
         }
 
@@ -145,11 +170,10 @@ internal static class SafetyChecker
         var majority = (state.Nodes.Count / 2) + 1;
         var quorumUnconfirmed = VoteMask.CountGranted(node.ReadAcks) < majority;
         var notApplied = node.AppliedIndex < node.ReadIndex;
-        var fingerprint = state.Fingerprint(false);
         return (quorumUnconfirmed, notApplied) switch
         {
-            (true, _) => new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", fingerprint),
-            (false, true) => new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", fingerprint),
+            (true, _) => new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", state.Fingerprint(false)),
+            (false, true) => new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", state.Fingerprint(false)),
             (false, false) => null,
         };
     }
@@ -167,27 +191,6 @@ internal static class SafetyChecker
         }
 
         return null;
-    }
-
-    private static Dictionary<int, int> CollectCommitted(ClusterState state)
-    {
-        // An entry is committed when any node's commitIndex covers it; the term comes from that node's log.
-        // A node's commitIndex rises only through its own leader commit rule (a majority stored an entry of its
-        // current term) or a leader's repair, so a single commitIndex is already a commit decision.
-        // StateMachineSafety, checked first, keeps all nodes that cover an index in agreement on its term.
-        var committed = new Dictionary<int, int>();
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            var node = state.Nodes[i];
-            for (var j = 0; j < node.LogEntries.Count; j++)
-            {
-                var entry = node.LogEntries[j];
-                if (entry.Index <= node.CommitIndex)
-                    committed[entry.Index] = entry.Term;
-            }
-        }
-
-        return committed;
     }
 
     private static bool ContainsEntry(IReadOnlyList<LogEntry> log, int index, int term)
@@ -212,14 +215,18 @@ internal static class SafetyChecker
         return null;
     }
 
-    private static bool FindMissingCommittedEntry(NodeState node, Dictionary<int, int> committed, out KeyValuePair<int, int> missing)
+    private static bool FindMissingCommittedEntry(NodeState node, IReadOnlyList<ModelCommitDecision> committed, out ModelCommitDecision missing)
     {
-        foreach (var pair in committed)
+        for (var i = 0; i < committed.Count; i++)
         {
-            if (ContainsEntry(node.LogEntries, pair.Key, pair.Value))
+            var entry = committed[i];
+
+            // Entry term and decision term differ when a later leader commits an earlier-term prefix.
+            // Only decisions made by this leadership term or earlier constrain the leader.
+            if (entry.CommitTerm > node.CurrentTerm || ContainsEntry(node.LogEntries, entry.Index, entry.EntryTerm))
                 continue;
 
-            missing = pair;
+            missing = entry;
             return true;
         }
 
@@ -248,18 +255,6 @@ internal static class SafetyChecker
         }
 
         return maxIndex;
-    }
-
-    private static int MaxTerm(ClusterState state)
-    {
-        var maxTerm = 0;
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            if (state.Nodes[i].CurrentTerm > maxTerm)
-                maxTerm = state.Nodes[i].CurrentTerm;
-        }
-
-        return maxTerm;
     }
 
     private static bool TryFindConflictingTerm(ClusterState state, int index)

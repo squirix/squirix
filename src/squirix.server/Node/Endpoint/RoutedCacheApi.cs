@@ -25,9 +25,12 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken) => _namespaced.GetEntryAsync(_cacheName, key, cancellationToken);
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string key, CancellationToken cancellationToken) =>
+        _namespaced.GetValueWithDeadlineAsync(_cacheName, key, cancellationToken);
+
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken) => _namespaced.GetValueAsync(_cacheName, key, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string key, CancellationToken cancellationToken) =>
+    public ValueTask<bool> RemoveAsync(string operationId, string key, CancellationToken cancellationToken) =>
         _namespaced.RemoveAsync(operationId, _cacheName, key, cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string key, CancellationToken cancellationToken) =>

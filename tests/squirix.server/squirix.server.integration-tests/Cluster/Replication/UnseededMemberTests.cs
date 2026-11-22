@@ -28,34 +28,31 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
     private static readonly string[] Survivors = [WipedCluster.OwnerId, OtherFollower];
 
     /// <summary>
-    /// A follower restarted on an empty disk is repaired by the owner without an operator: its copy ends complete at the owner's term with its
-    /// vote for the owner, holds the value written before the loss, and takes the writes that follow.
+    /// Two members of three wiped: the group has no leader and refuses writes, the surviving copy stays complete, and the wiped copies stay unseeded
+    /// and refuse votes, since no member that kept its copy is left to give the term ceiling.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WipedFollowerIsRepaired(CancellationToken cancellationToken)
+    public async Task TwoWipedMembersLeaveNoLeader(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartAsync("unseeded-repaired", cancellationToken);
-        var owner = cluster[WipedCluster.OwnerId];
-        var key = owner.FindKeyOwnedBy(WipedCluster.CacheName, WipedCluster.OwnerId);
-        var cache = owner.GetCache<object?>(WipedCluster.CacheName);
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "before", Version = 1 }, cancellationToken);
+        await using var cluster = await StartAsync("unseeded-two-wiped", cancellationToken);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, WipedCluster.OwnerId, WipedCluster.Bound);
 
-        var wiped = await cluster.RestartWipedNodeAsync(Follower, null, cancellationToken);
-        var copy = await WipedCluster.AwaitRepairedCopyAsync(wiped, WipedCluster.OwnerId, WipedCluster.OwnerId, cancellationToken);
-        var leader = await WipedCluster.Log(owner, WipedCluster.OwnerId).GetStatusAsync(cancellationToken);
-        var local = wiped.GetRequiredService<PhysicalCache<object?>>();
-        var cacheKey = new CacheKey(WipedCluster.CacheName, key);
-        var repaired = (await local.GetValueAsync(cacheKey, cancellationToken)).Value;
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "after", Version = 2 }, cancellationToken);
+        // Both are wiped before either comes back, so the owner never reads a term ceiling from a member that kept its copy.
+        await cluster.WipeNodeAsync(OtherFollower);
+        await cluster.WipeNodeAsync(Follower);
+        var second = await cluster.StartWipedNodeAsync(OtherFollower, cancellationToken);
+        var third = await cluster.StartWipedNodeAsync(Follower, cancellationToken);
+        await ledger.UntilAsync(() => ledger.Observe().Term == 0UL, "the owner loses authority without a majority", cancellationToken);
+        await ledger.HoldsAsync(static observed => observed.Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads a group of two unseeded copies", cancellationToken);
 
-        _ = await Assert.That(copy.CurrentTerm).IsEqualTo(leader.CurrentTerm);
-        _ = await Assert.That(repaired).IsEqualTo("before");
-        await (Local: local, Key: cacheKey).WaitUntilValueAsync(
-            static async (state, token) => string.Equals((await state.Local.GetValueAsync(state.Key, token)).Value as string, "after", StringComparison.Ordinal),
-            WipedCluster.Bound,
-            TimeProvider.System,
-            cancellationToken);
+        await WipedCluster.AssertRefusesWriteAsync(cluster[WipedCluster.OwnerId], WipedCluster.OwnerId, cancellationToken);
+        await WipedCluster.AssertCompleteCopyAsync(cluster[WipedCluster.OwnerId], WipedCluster.OwnerId, cancellationToken);
+        await WipedCluster.AssertUnseededCopyAsync(second, WipedCluster.OwnerId, cancellationToken);
+        await WipedCluster.AssertUnseededCopyAsync(third, WipedCluster.OwnerId, cancellationToken);
+        await WipedCluster.AssertUnseededAsync(second, cancellationToken);
+        await WipedCluster.AssertUnseededAsync(third, cancellationToken);
+        await AssertVoteRefusedAsync(cluster[WipedCluster.OwnerId], cancellationToken);
     }
 
     /// <summary>
@@ -71,9 +68,9 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, WipedCluster.OwnerId, WipedCluster.Bound);
         await cluster.WipeNodeAsync(Follower);
         await cluster.StopNodeAsync(WipedCluster.OwnerId);
-        var wiped = await cluster.StartWipedNodeAsync(Follower, null, cancellationToken);
+        var wiped = await cluster.StartWipedNodeAsync(Follower, cancellationToken);
 
-        await ledger.HoldsAsync(() => ledger.Observe().Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads the group without the vote of the unseeded copy", cancellationToken);
+        await ledger.HoldsAsync(static observed => observed.Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads the group without the vote of the unseeded copy", cancellationToken);
         _ = await cluster.StartNodeAsync(WipedCluster.OwnerId, WipedCluster.Options(scope, true, null, false), cancellationToken);
         var (leader, term) = await ledger.LeaderAsync(Survivors, 0UL, "the returned owner and its peer elect a leader", cancellationToken);
 
@@ -83,31 +80,33 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
     }
 
     /// <summary>
-    /// Two members of three wiped: the group has no leader and refuses writes, the surviving copy stays complete, and the wiped copies stay unseeded
-    /// and refuse votes, since no member that kept its copy is left to give the term ceiling.
+    /// A follower restarted on an empty disk is repaired by the owner without an operator: its copy ends complete at the owner's term with its
+    /// vote for the owner, holds the value written before the loss, and takes the writes that follow.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task TwoWipedMembersLeaveNoLeader(CancellationToken cancellationToken)
+    public async Task WipedFollowerIsRepaired(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartAsync("unseeded-two-wiped", cancellationToken);
-        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, WipedCluster.OwnerId, WipedCluster.Bound);
+        await using var cluster = await StartAsync("unseeded-repaired", cancellationToken);
+        var owner = cluster[WipedCluster.OwnerId];
+        var key = owner.FindKeyOwnedBy(WipedCluster.CacheName, WipedCluster.OwnerId);
+        var cache = owner.GetCache<object?>(WipedCluster.CacheName);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "before", Version = 1 }, cancellationToken);
 
-        // Both are wiped before either comes back, so the owner never reads a term ceiling from a member that kept its copy.
-        await cluster.WipeNodeAsync(OtherFollower);
-        await cluster.WipeNodeAsync(Follower);
-        var second = await cluster.StartWipedNodeAsync(OtherFollower, null, cancellationToken);
-        var third = await cluster.StartWipedNodeAsync(Follower, null, cancellationToken);
-        await ledger.UntilAsync(() => ledger.Observe().Term == 0UL, "the owner loses authority without a majority", cancellationToken);
-        await ledger.HoldsAsync(() => ledger.Observe().Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads a group of two unseeded copies", cancellationToken);
+        var wiped = await cluster.RestartWipedNodeAsync(Follower, cancellationToken);
+        var copy = await WipedCluster.AwaitRepairedCopyAsync(wiped, WipedCluster.OwnerId, WipedCluster.OwnerId, cancellationToken);
+        var leader = await WipedCluster.Log(owner, WipedCluster.OwnerId).GetStatusAsync(cancellationToken);
+        var local = wiped.GetRequiredService<PhysicalCache<object?>>();
+        var cacheKey = new CacheKey(WipedCluster.CacheName, key);
+        var repaired = local.GetValue(cacheKey, cancellationToken).Value;
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "after", Version = 2 }, cancellationToken);
 
-        await WipedCluster.AssertRefusesWriteAsync(cluster[WipedCluster.OwnerId], WipedCluster.OwnerId, cancellationToken);
-        await WipedCluster.AssertCompleteCopyAsync(cluster[WipedCluster.OwnerId], WipedCluster.OwnerId, cancellationToken);
-        await WipedCluster.AssertUnseededCopyAsync(second, WipedCluster.OwnerId, cancellationToken);
-        await WipedCluster.AssertUnseededCopyAsync(third, WipedCluster.OwnerId, cancellationToken);
-        await WipedCluster.AssertUnseededAsync(second, cancellationToken);
-        await WipedCluster.AssertUnseededAsync(third, cancellationToken);
-        await AssertVoteRefusedAsync(cluster[WipedCluster.OwnerId], cancellationToken);
+        _ = await Assert.That(copy.CurrentTerm).IsEqualTo(leader.CurrentTerm);
+        _ = await Assert.That(repaired).IsEqualTo("before");
+        await (Local: local, Key: cacheKey).WaitUntilValueAsync(
+            static (state, token) => ValueTask.FromResult(string.Equals(state.Local.GetValue(state.Key, token).Value as string, "after", StringComparison.Ordinal)),
+            WipedCluster.Bound,
+            cancellationToken);
     }
 
     /// <summary>Sends a pre-vote and a vote of the leader of the group to the unseeded copy of the follower.</summary>

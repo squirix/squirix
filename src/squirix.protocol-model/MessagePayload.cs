@@ -60,4 +60,13 @@ internal readonly record struct MessagePayload(
     internal static MessagePayload VoteResponse(int from, int to, int term, bool grant) => new(
         new MessageRoute(MsgKind.VoteResponse, from, to, term),
         new MessageExtras(0, 0, grant, 0, 0));
+
+    /// <summary>Builds the hint a retiring leader sends to one successor.</summary>
+    /// <param name="from">The leaving leader.</param>
+    /// <param name="to">The named successor.</param>
+    /// <param name="term">The term of the leaving leader; the successor campaigns in the term after it.</param>
+    /// <returns>The payload.</returns>
+    internal static MessagePayload TransferHint(int from, int to, int term) => new(
+        new MessageRoute(MsgKind.TransferHint, from, to, term),
+        new MessageExtras(0, 0, false, 0, 0));
 }

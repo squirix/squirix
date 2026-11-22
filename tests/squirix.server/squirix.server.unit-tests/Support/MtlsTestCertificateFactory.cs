@@ -13,24 +13,32 @@ internal static class MtlsTestCertificateFactory
 
     internal static async Task<MtlsTestCertificateBundle> CreateAsync(bool rsaNodeKey, CancellationToken cancellationToken)
     {
-        using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var caRequest = new CertificateRequest("CN=Squirix Cluster Test CA", caKey, HashAlgorithmName.SHA256);
-        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-        var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
-        var notAfter = notBefore.AddDays(30);
-        var ca = caRequest.CreateSelfSigned(notBefore, notAfter);
+        var ca = CreateAuthority();
 
-        var nodeCertificate = CreatePeerCertificate(ca, "node-a", rsaKey: rsaNodeKey);
+        X509Certificate2? nodeCertificate = null;
         try
         {
+            nodeCertificate = CreatePeerCertificate(ca, "node-a", rsaKey: rsaNodeKey);
             var bundle = await MtlsTestCertificateBundle.CreateAsync(ca, nodeCertificate, cancellationToken);
+            ca = null;
             nodeCertificate = null;
             return bundle;
         }
         finally
         {
             nodeCertificate?.Dispose();
+            ca?.Dispose();
         }
+    }
+
+    internal static X509Certificate2 CreateAuthority()
+    {
+        using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var caRequest = new CertificateRequest("CN=Squirix Cluster Test CA", caKey, HashAlgorithmName.SHA256);
+        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
+        var notAfter = notBefore.AddDays(30);
+        return caRequest.CreateSelfSigned(notBefore, notAfter);
     }
 
     internal static X509Certificate2 CreateAuthorityWithPurposes(string subject, string[] purposes)

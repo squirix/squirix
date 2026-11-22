@@ -4,23 +4,22 @@ using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -85,9 +84,6 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         base.DisposeManaged();
     }
 
-    private static string TextOf(NodeCacheEntry<object?>? entry) =>
-        entry?.Value is JsonUtf8Value json ? Encoding.UTF8.GetString(json.Bytes.Span) : "<not a JSON value>";
-
     private static async Task ApplyThroughJournalAsync(PersistenceOptions persistence, FakeTimeProvider clock, ReplicaLogRecord record, CancellationToken cancellationToken)
     {
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -104,9 +100,28 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
             new ClientCache<object?>(physical, physical),
             journal,
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
-            clock);
+            clock,
+            physical.RawReader);
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }
+
+    private static async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
+        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
+        var dependencies = new RecoveryDependencies<object?>(
+            persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            StoreFactory.CreateReader(),
+            clock);
+        await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
+        return cache;
+    }
+
+    private static string TextOf(NodeCacheEntry<object?>? entry) =>
+        entry?.Value is JsonUtf8Value json ? Encoding.UTF8.GetString(json.Bytes.Span) : "<not a JSON value>";
 
     private async Task<(string Leader, string Follower, string Recovered)> ApplyEverywhereAsync(JsonUtf8Value value, CancellationToken cancellationToken)
     {
@@ -115,8 +130,8 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         var leader = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         var leaderCache = new ClientCache<object?>(leader, leader);
         var factory = new ReplicaMutationFactory(leaderCache, "g1", 1UL, clock, NullLogger.Instance);
-        var prepared = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>(value, 1), 1UL);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        var prepared = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>(value), 1UL);
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(leaderCache, in record, cancellationToken);
 
         var follower = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
@@ -127,24 +142,8 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         var recovered = await RecoverAsync(persistence, clock, cancellationToken);
 
         return (
-            TextOf(await leader.RawReader.GetEntryRawAsync(key, cancellationToken)),
-            TextOf(await follower.RawReader.GetEntryRawAsync(key, cancellationToken)),
-            TextOf(await recovered.RawReader.GetEntryRawAsync(key, cancellationToken)));
-    }
-
-    private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
-    {
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
-        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var dependencies = new RecoveryDependencies<object?>(
-            persistence,
-            manifestStore,
-            cache,
-            new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
-            StoreFactory.CreateReader(),
-            clock);
-        await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
-        return cache;
+            TextOf(leader.RawReader.GetEntryRaw(key, cancellationToken)),
+            TextOf(follower.RawReader.GetEntryRaw(key, cancellationToken)),
+            TextOf(recovered.RawReader.GetEntryRaw(key, cancellationToken)));
     }
 }

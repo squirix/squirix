@@ -27,7 +27,7 @@ public sealed class AsyncLockOwnershipTests : ServerUnitTestBase
         var waiter = asyncLock.LockAsync(cancellationToken);
 
         await cancel.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(canceled);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(canceled, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsTrue();
         _ = await Assert.That(waiter.IsCompleted).IsFalse();
 

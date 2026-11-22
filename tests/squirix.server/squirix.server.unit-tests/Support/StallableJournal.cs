@@ -2,15 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -20,12 +20,12 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class StallableJournal : IAsyncDisposable
 {
     private readonly string _dataDir;
-    private readonly ILoggerFactory _loggerFactory;
+    private readonly IServerLoggerFactory _loggerFactory;
     private int _disposed;
     private int _journalDisposed;
     private int _writerDisposed;
 
-    private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal, ILoggerFactory loggerFactory)
+    private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal, IServerLoggerFactory loggerFactory)
     {
         _dataDir = dataDir;
         _loggerFactory = loggerFactory;
@@ -143,7 +143,7 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="log">Logger of the journal coordinator.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, ILogger log, CancellationToken cancellationToken) =>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, IServerLogger log, CancellationToken cancellationToken) =>
         CreateAsync(dataDir, groupCommit, shutdownBudget, shutdownBudget, log, cancellationToken);
 
     /// <summary>Creates a journal whose stop gives up on a stuck journal thread after <paramref name="shutdownBudget" />, then grants a grace join of <paramref name="graceJoinFloor" />.</summary>
@@ -159,7 +159,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         bool groupCommit,
         TimeSpan shutdownBudget,
         TimeSpan graceJoinFloor,
-        ILogger log,
+        IServerLogger log,
         CancellationToken cancellationToken) => CreateAsync(dataDir, groupCommit, shutdownBudget, graceJoinFloor, TimeSpan.FromSeconds(1), log, cancellationToken);
 
     /// <summary>Creates a journal with explicit shutdown budget, grace join floor, and stage floor.</summary>
@@ -177,7 +177,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         TimeSpan shutdownBudget,
         TimeSpan graceJoinFloor,
         TimeSpan stageFloor,
-        ILogger log,
+        IServerLogger log,
         CancellationToken cancellationToken) => CreateCoreAsync(
         dataDir,
         groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
@@ -303,7 +303,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         string dataDir,
         TimeSpan groupCommitMaxWait,
         int groupCommitMaxBatch,
-        (TimeSpan Budget, TimeSpan GraceFloor, TimeSpan StageFloor, ILogger Log)? shutdown,
+        (TimeSpan Budget, TimeSpan GraceFloor, TimeSpan StageFloor, IServerLogger Log)? shutdown,
         (int TotalMb, int SegmentMb, int SegmentCount) limits,
         TimeProvider clock,
         CancellationToken cancellationToken)
@@ -319,7 +319,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         };
         var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var writer = new StallableJournalSegmentWriter();
-        ILoggerFactory loggerFactory = shutdown is { } logged ? new FixedLoggerFactory(logged.Log) : NullLoggerFactory.Instance;
+        IServerLoggerFactory loggerFactory = shutdown is { } logged ? new FixedLoggerFactory(logged.Log) : NullLoggerFactory.Instance;
         try
         {
             var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);

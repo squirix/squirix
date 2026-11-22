@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -21,8 +21,8 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     private readonly GroupComposition _composition;
     private readonly ulong _generation;
     private readonly string[] _groupIds;
-    private readonly ILogger<ReplicaGroupRegistry> _log;
-    private readonly ILoggerFactory _loggerFactory;
+    private readonly IServerLogger<ReplicaGroupRegistry> _log;
+    private readonly IServerLoggerFactory _loggerFactory;
     private readonly FollowerLogOptions _options;
     private readonly string _root;
     private readonly int _replicaCount;
@@ -47,7 +47,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         int replicaCount,
         ReadOnlyMemory<byte> fingerprint,
         ulong generation,
-        ILoggerFactory loggerFactory,
+        IServerLoggerFactory loggerFactory,
         FollowerLogOptions options)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
@@ -279,7 +279,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         for (var i = 0; i < tail.Count; i++)
         {
             var entry = tail[i];
-            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
+            if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
             {
                 ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, "its record cannot be read");
                 continue;

@@ -78,12 +78,14 @@ public sealed class TaskCompletionSourceExtensionsTests
     {
         var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var faulted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        faulted.SetException(new IOException("earlier"));
+        var failure = new IOException("earlier");
+        faulted.SetException(failure);
         List<TaskCompletionSource> sources = [pending, faulted];
 
         sources.CompleteAll();
 
         _ = await Assert.That(pending.Task.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(faulted.Task.IsFaulted).IsTrue();
+        _ = await Assert.That(faulted.Task.Exception?.InnerException).IsSameReferenceAs(failure);
     }
 }

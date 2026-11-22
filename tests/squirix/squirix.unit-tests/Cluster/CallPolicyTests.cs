@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Concurrent;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Internal.Cluster.Transport;
+using Squirix.Testing;
 using Squirix.TestKit;
+using Squirix.Transport;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -22,14 +26,15 @@ public sealed class CallPolicyTests
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
     /// <summary>Rejects new calls after BeginDrain.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BeginDrainRejectsNewCallsAsync()
+    public async Task BeginDrainRejectsNewCallsAsync(CancellationToken cancellationToken)
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
         policy.BeginDrain();
 
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None));
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        var ex = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(CacheTransportStatusCode.Unavailable);
     }
 
     /// <summary>
@@ -103,6 +108,7 @@ public sealed class CallPolicyTests
         await disposal.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         _ = await Assert.That(result).IsEqualTo(7);
         _ = await Assert.That(waitedForCall).IsEqualTo(disposeWhileActive);
+        return;
 
         static Task<int> StartCallAsync(CallPolicy policy, TaskCompletionSource entered, TaskCompletionSource release)
         {
@@ -119,8 +125,9 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>The operation budget expires on its own clock, with no real delay.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BudgetExpiresOnBudgetClock()
+    public async Task BudgetExpiresOnBudgetClock(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-budget-clock");
@@ -131,10 +138,10 @@ public sealed class CallPolicyTests
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var ex = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
     }
 
     /// <summary>The deadline handed to gRPC is the remaining budget from the current time of the budget clock.</summary>
@@ -162,8 +169,9 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AttemptTimeoutRunsOnPolicyClock()
+    public async Task AttemptTimeoutRunsOnPolicyClock(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-attempt-clock");
@@ -173,17 +181,18 @@ public sealed class CallPolicyTests
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        _ = await AsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        _ = await AsyncAssert.ThrowsAnyAsync<SquirixTransportException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
     }
 
     /// <summary>The operation budget and attempt timeout keep their own clocks and failure causes across suspension.</summary>
     /// <param name="expireBudget">Whether the overall budget expires before the attempt clock advances.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task IndependentClocksKeepTimeoutCause(bool expireBudget)
+    public async Task IndependentClocksKeepTimeoutCause(bool expireBudget, CancellationToken cancellationToken)
     {
         var initial = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var attemptClock = new FakeTimeProvider(initial);
@@ -200,15 +209,16 @@ public sealed class CallPolicyTests
         else
             attemptClock.Advance(TimeSpan.FromHours(1));
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(pending).IsTrue();
-        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.StatusCode).IsEqualTo(CacheTransportStatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(expireBudget ? "Request deadline exceeded." : "All attempts timed out.");
     }
 
     /// <summary>Concurrent calls on one policy expire on their own operation clocks.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ConcurrentBudgetsExpireIndependently()
+    public async Task ConcurrentBudgetsExpireIndependently(CancellationToken cancellationToken)
     {
         var initial = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var firstClock = new FakeTimeProvider(initial);
@@ -223,14 +233,15 @@ public sealed class CallPolicyTests
         await Task.WhenAll(firstEntered.Task, secondEntered.Task).WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
 
         firstClock.Advance(TimeSpan.FromHours(1));
-        var firstError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(first.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var firstError = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(first), Bound, TimeProvider.System, cancellationToken);
         var secondPending = !second.IsCompleted;
         secondClock.Advance(TimeSpan.FromHours(2));
-        var secondError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(second.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var secondError = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(new ValueTask<int>(second), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(firstError.Status.Detail).IsEqualTo("Request deadline exceeded.");
         _ = await Assert.That(secondPending).IsTrue();
         _ = await Assert.That(secondError.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        return;
 
         static Task<int> StartBudgetCallAsync(CallPolicy policy, TaskCompletionSource entered, in DeadlineBudget budget)
         {
@@ -239,48 +250,81 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>Stops on non-retryable Rpc status.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ExecuteAsyncStopsNonRetryableRpcAsync()
+    public async Task ExecuteAsyncStopsNonRetryableRpcAsync(CancellationToken cancellationToken)
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
         var box = new IntBox();
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(
+        var ex = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(
             policy.ExecuteAsync(
                 static (counter, cancellationToken) =>
                 {
                     _ = cancellationToken;
                     _ = counter.Increment();
-                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.InvalidArgument, "bad")));
+                    return ValueTask.FromException<int>(new SquirixTransportException(new CallStatus(CacheTransportStatusCode.InvalidArgument, "bad")));
                 },
                 box,
-                CancellationToken.None));
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+                CancellationToken.None),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(CacheTransportStatusCode.InvalidArgument);
         _ = await Assert.That(box.Count).IsEqualTo(1);
     }
 
-    /// <summary>Retries Unavailable RpcException.</summary>
+    /// <summary>Retries a transient failure and returns the second attempt's result.</summary>
+    /// <param name="status">The gRPC status, or null to inject an HTTP transport error.</param>
+    /// <param name="reason">The expected retry metric label.</param>
     [Test]
-    public async Task ExecuteRetriesUnavailableRpcAsync()
+    [Arguments(CacheTransportStatusCode.Unavailable, "unavailable")]
+    [Arguments(CacheTransportStatusCode.Internal, "internal")]
+    [Arguments(CacheTransportStatusCode.ResourceExhausted, "resource_exhausted")]
+    [Arguments(CacheTransportStatusCode.Cancelled, "canceled")]
+    [Arguments(CacheTransportStatusCode.DeadlineExceeded, "deadline_exceeded")]
+    [Arguments(null, "http_request")]
+    public async Task RetriesTransientFailureAsync(CacheTransportStatusCode? status, string reason)
     {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
+        using var sink = new MeasurementSink(MeterRegistry.Meter);
+        var peer = $"c-transient-{Guid.NewGuid():N}";
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: peer);
         var box = new IntBox();
+        Exception error = status is { } code ? new SquirixTransportException(new CallStatus(code, "transient")) : new HttpRequestException("down");
         var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
-            },
-            box,
+            static (state, _) => state.Counter.Increment() == 1 ? ValueTask.FromException<int>(state.Error) : new ValueTask<int>(8),
+            (Counter: box, Error: error),
             CancellationToken.None);
 
         _ = await Assert.That(value).IsEqualTo(8);
         _ = await Assert.That(box.Count).IsEqualTo(2);
+        _ = await Assert.That(sink.HasEvent("squirix_call_policy_retries_total", ("peer", peer), ("reason", reason))).IsTrue();
+    }
+
+    /// <summary>A payload limit rejection remains terminal even though temporary resource exhaustion is retryable.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PayloadLimitRejectionIsNotRetried(CancellationToken cancellationToken)
+    {
+        var error = new BinaryCallError { Detail = "Payload size limit is 33554432 bytes." };
+        error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = Frames.ErrorCodeTrailer, Text = Frames.PayloadTooLargeCode });
+        var rpc = BinaryClientProtocol.ParseReply(SetAsyncResponse.Parser, Unsafe.BitCast<FrameStatus, int>(FrameStatus.ResourceExhausted), error.ToByteArray());
+        var box = new IntBox();
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero);
+        var call = policy.ExecuteAsync(
+            static (state, _) => state.Count.Increment() == 1 ? ValueTask.FromException<int>(state.Failure!) : ValueTask.FromResult(42),
+            (Count: box, rpc.Failure),
+            cancellationToken);
+
+        var failure = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(call, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.ResourceExhausted);
+        _ = await Assert.That(failure.Message).IsEqualTo(error.Detail);
+        _ = await Assert.That(box.Count).IsEqualTo(1);
     }
 
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task QueuedCallRejectedOnDrainAsync()
+    public async Task QueuedCallRejectedOnDrainAsync(CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(5);
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
@@ -309,57 +353,17 @@ public sealed class CallPolicyTests
 
         _ = await Assert.That(queuedPending).IsTrue();
         _ = await Assert.That(await first).IsEqualTo(1);
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued);
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
-    }
-
-    /// <summary>Retries DeadlineExceeded RpcException.</summary>
-    [Test]
-    public async Task RetriesDeadlineExceededRpcAsync()
-    {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
-            },
-            box,
-            CancellationToken.None);
-
-        _ = await Assert.That(value).IsEqualTo(4);
-        _ = await Assert.That(box.Count).IsEqualTo(2);
-    }
-
-    /// <summary>Retries HttpRequestException then succeeds.</summary>
-    [Test]
-    public async Task RetriesHttpRequestExceptionAsync()
-    {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n == 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(3);
-            },
-            box,
-            CancellationToken.None);
-
-        _ = await Assert.That(value).IsEqualTo(3);
-        _ = await Assert.That(box.Count).IsEqualTo(2);
+        var ex = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(CacheTransportStatusCode.Unavailable);
     }
 
     /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StopsHttpWhenMaxAttemptsIsOneAsync()
+    public async Task StopsHttpWhenMaxAttemptsIsOneAsync(CancellationToken cancellationToken)
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
-        _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
-            policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
+        _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static async Task HammerExecuteUntilDisposedAsync(
@@ -376,7 +380,7 @@ public sealed class CallPolicyTests
             {
                 _ = await policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None);
             }
-            catch (Exception ex) when (ex is RpcException or OperationCanceledException)
+            catch (Exception ex) when (ex is SquirixTransportException or OperationCanceledException)
             {
                 return; // Drain rejection or shutdown cancellation - legitimate outcome.
             }

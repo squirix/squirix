@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -108,7 +109,7 @@ public sealed class IncompleteCopyBallotTests : ServerUnitTestBase
             _ = await Assert.That((afterBegin.Granted, afterBegin.CurrentTerm)).IsEqualTo((true, 3UL));
 
             faults.FailSlotWrite(1);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(3UL), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(3UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using var reopened = StateInstallScenario.NewLog(dir);

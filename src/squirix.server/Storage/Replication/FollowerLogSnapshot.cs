@@ -1,30 +1,99 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Snapshot creation, installation, and compaction for a follower log.</summary>
 internal static class FollowerLogSnapshot
 {
-    /// <summary>Publishes a snapshot, failing the readiness of the log when the store cannot tell whether the new snapshot became durable.</summary>
-    /// <param name="journal">The paired in-memory journal state.</param>
-    /// <param name="owner">The owning log, whose readiness fails.</param>
-    /// <param name="snapshot">The snapshot to publish.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the snapshot is durably published.</returns>
-    /// <remarks>
-    /// A snapshot too large, or a cancellation, leaves the previous snapshot in force and is rethrown as is. Any other failure may have left the new
-    /// snapshot durable while the in-memory baseline trails it, so the log is never surfaced as ready afterwards.
-    /// </remarks>
-    internal static async Task PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken)
+    internal static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
     {
+        if (!journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location))
+            return BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
+
+        // The two adjacent ulong arguments are LastIncludedIndex and CommitIndex, in declaration order; both
+        // equal the snapshot boundary for a freshly created snapshot.
+        var outcomes = owner.Idempotency.ExportResolved(out var capturedUtc, lastIncludedIndex);
+        return new GroupSnapshot(
+            owner.GroupId,
+            owner.Meta.TopologyFingerprint,
+            owner.Meta.ConfigurationGeneration,
+            location.Term,
+            lastIncludedIndex,
+            lastIncludedIndex,
+            outcomes,
+            capturedUtc);
+    }
+
+    /// <summary>Captures the durable prefix and its offsets while the log gate is held.</summary>
+    /// <param name="journal">The group journal.</param>
+    /// <param name="owner">The owning log.</param>
+    /// <param name="index">The durable applied index.</param>
+    /// <returns>The capture or a refusal.</returns>
+    internal static (GroupCompactionOutcome Outcome, GroupSnapshotCompaction? Capture) CaptureCompaction(FollowerLogJournal journal, IFollowerLogContext owner, ulong index)
+    {
+        var eligible = index != 0UL && index == owner.Meta.LastAppliedIndex && index <= owner.Meta.CommitIndex && index <= owner.LastLogIndex &&
+                       index >= journal.SnapshotBaseline.LastIncludedIndex;
+        if (!eligible)
+            return (GroupCompactionOutcome.NotReady, null);
+
+        if (owner.Idempotency.HasUnresolvedThrough(index))
+            return (GroupCompactionOutcome.UnresolvedOutcome, null);
+
+        var previous = journal.SnapshotBaseline.LastIncludedIndex;
+        var start = owner.LogLength;
+        if (previous < owner.LastLogIndex)
+        {
+            if (!journal.TryGetEntryOffset(previous + 1UL, out var first))
+                return (GroupCompactionOutcome.NotReady, null);
+
+            start = first.Offset;
+        }
+
+        var afterSnapshot = index == owner.LastLogIndex ? owner.LogLength : journal.EntryOffsets[index + 1UL].Offset;
+        var removedBytes = start - GroupLogSlots.HeaderSize;
+        var snapshot = BuildSnapshot(journal, owner, index) with
+        {
+            WalPosition = (journal.LogGeneration, afterSnapshot, removedBytes > 0 ? afterSnapshot - removedBytes : 0L,
+                index > previous ? journal.EntryOffsets[index].Offset - removedBytes : 0L, 0UL),
+        };
+
+        return (GroupCompactionOutcome.Compacted, new GroupSnapshotCompaction(snapshot, previous, start, owner.Meta.CurrentTerm));
+    }
+
+    /// <summary>Publishes a prepared generation and preserves the current tail, including frames appended during preparation.</summary>
+    /// <param name="journal">The group journal.</param>
+    /// <param name="owner">The owning log.</param>
+    /// <param name="capture">The captured durable boundary.</param>
+    /// <param name="prepared">The verified generation for that boundary.</param>
+    /// <param name="cancellationToken">The cancellation token before publication.</param>
+    /// <returns>The compaction outcome.</returns>
+    internal static async Task<GroupCompactionOutcome> CompactPreparedAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        GroupSnapshotCompaction capture,
+        GroupSnapshotCheckpointStore.PreparedSnapshot prepared,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = prepared.Snapshot;
+        if (capture.CurrentTerm != owner.Meta.CurrentTerm || capture.PreviousIndex != journal.SnapshotBaseline.LastIncludedIndex ||
+            snapshot.WalPosition.Generation != journal.LogGeneration || RefuseCompactionSnapshot(owner, journal, in snapshot) != null ||
+            !HasPreparedWal(journal, in capture, prepared.Pointer.Generation))
+            return GroupCompactionOutcome.NotReady;
+
+        if (owner.Idempotency.HasUnresolvedThrough(snapshot.LastIncludedIndex))
+            return GroupCompactionOutcome.UnresolvedOutcome;
+
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            return journal.Snapshot.TryPublishPrepared(prepared)
+                ? await CompleteCompactionAsync(journal, owner, capture, snapshot, CancellationToken.None, prepared.Pointer.Generation).ConfigureAwait(false)
+                : GroupCompactionOutcome.NotReady;
         }
-        catch (Exception ex) when (ex is not (GroupSnapshotTooLargeException or OperationCanceledException))
+        catch
         {
             owner.Readiness = FollowerLogReadiness.Failed;
             throw;
@@ -44,39 +113,82 @@ internal static class FollowerLogSnapshot
     /// index, committed or not, stays in the log as the retained tail, which must hold every index through the last one. The snapshot
     /// is published before the compaction core rewrites the log, so a crash between the two recovers from the snapshot plus the old log.
     /// </remarks>
-    internal static async Task<GroupCompactionOutcome> CompactThroughAsync(
-        FollowerLogJournal journal,
-        IFollowerLogContext owner,
-        ulong index,
-        CancellationToken cancellationToken)
+    internal static async Task<GroupCompactionOutcome> CompactThroughAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong index, CancellationToken cancellationToken)
     {
-        var eligible = index != 0UL && index == owner.Meta.LastAppliedIndex && index <= owner.Meta.CommitIndex && index <= owner.LastLogIndex &&
-                       index >= journal.SnapshotBaseline.LastIncludedIndex;
-        if (!eligible)
-            return GroupCompactionOutcome.NotReady;
+        var (outcome, capture) = CaptureCompaction(journal, owner, index);
+        if (capture is not { } plan)
+            return outcome;
 
-        if (owner.Idempotency.HasUnresolvedThrough(index))
-            return GroupCompactionOutcome.UnresolvedOutcome;
-
-        // A retained tail missing an index cannot be rewritten without leaving a gap, so it is refused before the snapshot is published.
-        var tail = CollectRetainedTail(journal, index);
-        if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - index)
-            return GroupCompactionOutcome.NotReady;
-
-        var snapshot = BuildSnapshot(journal, owner, index);
-
+        GroupSnapshot? verified;
         try
         {
-            await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken).ConfigureAwait(false);
+            verified = await PublishOrFailReadinessAsync(journal, owner, plan.Snapshot, cancellationToken, plan.PreviousIndex).ConfigureAwait(false);
         }
         catch (GroupSnapshotTooLargeException)
         {
             return GroupCompactionOutcome.SnapshotTooLarge;
         }
 
-        owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
-        var compacted = await CompactAsync(journal, owner, cancellationToken).ConfigureAwait(false);
-        return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
+        return await CompleteCompactionAsync(journal, owner, plan, verified, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        AsyncLock gate,
+        GroupSnapshotCompaction capture,
+        CancellationToken cancellationToken)
+    {
+        var prepared = await journal.Snapshot.PrepareAsync(capture.Snapshot, capture.PreviousIndex, cancellationToken).ConfigureAwait(false);
+        if (prepared == null || capture.RetainedOffset == GroupLogSlots.HeaderSize)
+            return prepared;
+
+        try
+        {
+            if (await StageCompactionWalAsync(journal, owner, gate, capture, prepared.Pointer.Generation, cancellationToken).ConfigureAwait(false))
+                return prepared;
+        }
+        catch
+        {
+            prepared.Dispose();
+            throw;
+        }
+
+        prepared.Dispose();
+        return null;
+    }
+
+    /// <summary>Publishes a snapshot, failing the readiness of the log when the store cannot tell whether the new snapshot became durable.</summary>
+    /// <param name="journal">The paired in-memory journal state.</param>
+    /// <param name="owner">The owning log, whose readiness fails.</param>
+    /// <param name="snapshot">The snapshot to publish.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="previousIndex">The expected fallback boundary for local compaction, or null for installation.</param>
+    /// <returns>The verified snapshot when available.</returns>
+    /// <remarks>
+    /// A snapshot too large, or a cancellation, leaves the previous snapshot in force and is rethrown as is. Any other failure may have left the new
+    /// snapshot durable while the in-memory baseline trails it, so the log is never surfaced as ready afterwards.
+    /// </remarks>
+    internal static async Task<GroupSnapshot?> PublishOrFailReadinessAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        GroupSnapshot snapshot,
+        CancellationToken cancellationToken,
+        ulong? previousIndex = null)
+    {
+        try
+        {
+            if (previousIndex != null)
+                return await journal.Snapshot.PublishVerifiedAsync(snapshot, cancellationToken, previousIndex).ConfigureAwait(false);
+
+            await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex) when (ex is not (GroupSnapshotTooLargeException or OperationCanceledException))
+        {
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw;
+        }
     }
 
     /// <summary>
@@ -95,32 +207,13 @@ internal static class FollowerLogSnapshot
             : null;
     }
 
-    internal static GroupSnapshot BuildSnapshot(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
-    {
-        if (!journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location))
-            return BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
-
-        // The two adjacent ulong arguments are LastIncludedIndex and CommitIndex, in declaration order; both
-        // equal the snapshot boundary for a freshly created snapshot.
-        var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
-        return new GroupSnapshot(
-            owner.GroupId,
-            owner.Meta.TopologyFingerprint,
-            owner.Meta.ConfigurationGeneration,
-            location.Term,
-            lastIncludedIndex,
-            lastIncludedIndex,
-            outcomes,
-            capturedUtc);
-    }
-
     private static GroupSnapshot BuildSnapshotFromBaseline(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
     {
         // The covered index may be the snapshot base itself, whose frame was already compacted away.
         if (journal.SnapshotBaseline.LastIncludedIndex == 0UL || lastIncludedIndex != journal.SnapshotBaseline.LastIncludedIndex)
             throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot from a missing index '{lastIncludedIndex}'.");
 
-        var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
+        var outcomes = owner.Idempotency.ExportResolved(out var capturedUtc, lastIncludedIndex);
         return new GroupSnapshot(
             owner.GroupId,
             owner.Meta.TopologyFingerprint,
@@ -132,37 +225,18 @@ internal static class FollowerLogSnapshot
             capturedUtc);
     }
 
-    /// <summary>Extracts the journal indexes carried by the retained tail entries.</summary>
-    /// <param name="tail">The retained tail entries.</param>
-    /// <returns>The journal indexes of the retained tail.</returns>
-    private static List<ulong> CollectRetainedLogIndexes(List<FollowerLogEntry> tail)
+    private static async Task<GroupCompactionResult> CompactAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        (long Offset, ulong FirstIndex) retained,
+        GroupSnapshot? verified,
+        Guid preparedWal,
+        CancellationToken cancellationToken)
     {
-        var retainedLogIndexes = new List<ulong>(tail.Count);
-        for (var i = 0; i < tail.Count; i++)
-            retainedLogIndexes.Add(tail[i].LogIndex);
-
-        return retainedLogIndexes;
-    }
-
-    private static List<FollowerLogEntry> CollectRetainedTail(FollowerLogJournal journal, ulong boundaryIndex)
-    {
-        var tail = new List<FollowerLogEntry>();
-
-        foreach (var pair in journal.Entries)
-        {
-            if (pair.Key > boundaryIndex)
-                tail.Add(pair.Value);
-        }
-
-        return tail;
-    }
-
-    private static async Task<GroupCompactionResult> CompactAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
-    {
-        if (!journal.Snapshot.SnapshotExists)
+        if (verified == null && !journal.Snapshot.SnapshotExists)
             return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
-        var snapshot = await journal.Snapshot.ReadPublishedAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = verified ?? await journal.Snapshot.ReadPublishedAsync(cancellationToken).ConfigureAwait(false);
         if (snapshot == null)
             return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
@@ -171,33 +245,52 @@ internal static class FollowerLogSnapshot
             return new GroupCompactionResult(false, null, refusal);
 
         var included = snapshotValue.LastIncludedIndex;
-        var tail = CollectRetainedTail(journal, included);
 
-        // Every frame above the boundary must be rewritten: a missing index would leave a gap, committed entries included, that
-        // recovery refuses. Nothing durable changed yet beyond the published snapshot, which recovers on its own.
-        if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - included)
-            return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
+        journal.AdvanceBaseline(new SnapshotBaseline(included, snapshotValue.LastIncludedTerm));
+        var removedBytes = retained.Offset - GroupLogSlots.HeaderSize;
+        await RetainWalAsync(journal, owner, retained, removedBytes, snapshotValue, preparedWal, cancellationToken).ConfigureAwait(false);
 
-        var retainedLogIndexes = CollectRetainedLogIndexes(tail);
-        var (length, offsets) = await ReplaceRewrittenTailAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
-        ReindexTail(journal, tail, offsets);
-
-        owner.LastLogIndex = tail.Count == 0 ? included : tail[^1].LogIndex;
-        owner.LogLength = length;
-
-        // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
-        journal.AdvanceBaseline(new SnapshotBaseline(snapshotValue.LastIncludedIndex, snapshotValue.LastIncludedTerm));
-
-        RestoreCompactionIdempotency(owner, in snapshotValue, retainedLogIndexes);
+        RestoreCompactionIdempotency(owner, in snapshotValue);
         return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
     }
 
+    private static async Task<GroupCompactionOutcome> CompleteCompactionAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        GroupSnapshotCompaction capture,
+        GroupSnapshot? verified,
+        CancellationToken cancellationToken,
+        Guid preparedWal = default)
+    {
+        var snapshot = capture.Snapshot;
+        owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
+        var compacted = await CompactAsync(journal, owner, (capture.RetainedOffset, capture.PreviousIndex + 1UL), verified, preparedWal, cancellationToken).ConfigureAwait(false);
+        return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
+    }
+
+    private static bool HasPreparedWal(FollowerLogJournal journal, in GroupSnapshotCompaction capture, Guid snapshot) => capture.RetainedOffset == GroupLogSlots.HeaderSize ||
+        (journal.PreparedWal.Snapshot == snapshot && journal.PreparedWal.Copy is { IsCompletedSuccessfully: true });
+
     private static string? RefuseCompactionSnapshot(IFollowerLogContext owner, FollowerLogJournal journal, in GroupSnapshot snapshot)
     {
-        return RefuseWatermarkMismatch(owner, snapshot.LastIncludedIndex)
-            ?? RefuseIdentityMismatch(owner, in snapshot)
-            ?? RefuseTermMismatch(journal, snapshot.LastIncludedIndex, in snapshot);
+        return RefuseWatermarkMismatch(owner, snapshot.LastIncludedIndex) ??
+               RefuseIdentityMismatch(owner, in snapshot) ?? RefuseTermMismatch(journal, snapshot.LastIncludedIndex, in snapshot);
     }
+
+    /// <summary>
+    /// Validate the published snapshot's identity and topology against the durable local state before any
+    /// destructive rewrite. A snapshot that diverges from the replica must not be used to truncate the durable
+    /// prefix; the suffix must instead survive as a replicable tail.
+    /// </summary>
+    /// <param name="owner">The local follower log context.</param>
+    /// <param name="snapshot">The published snapshot to validate.</param>
+    /// <returns>A refusal reason if the identity or topology differs, otherwise <see langword="null" />.</returns>
+    private static string? RefuseIdentityMismatch(IFollowerLogContext owner, in GroupSnapshot snapshot) => !string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal)
+        ? FollowerLogRefusal.NotMember
+        : SnapshotTopologyMismatch(owner, in snapshot);
+
+    private static string? RefuseTermMismatch(FollowerLogJournal journal, ulong included, in GroupSnapshot snapshot) =>
+        journal.EntryOffsets.TryGetValue(included, out var boundary) && boundary.Term != snapshot.LastIncludedTerm ? FollowerLogRefusal.LogMismatch : null;
 
     private static string? RefuseWatermarkMismatch(IFollowerLogContext owner, ulong included)
     {
@@ -211,41 +304,7 @@ internal static class FollowerLogSnapshot
             : null;
     }
 
-    private static string? RefuseIdentityMismatch(IFollowerLogContext owner, in GroupSnapshot snapshot)
-    {
-        // Validate the published snapshot's identity and topology against the durable local state before any
-        // destructive rewrite. A snapshot that diverges from the replica must not be used to truncate the durable
-        // prefix; the suffix must instead survive as a replicable tail.
-        return !string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal)
-            ? FollowerLogRefusal.NotMember
-            : SnapshotTopologyMismatch(owner, in snapshot);
-    }
-
-    private static string? RefuseTermMismatch(FollowerLogJournal journal, ulong included, in GroupSnapshot snapshot)
-    {
-        return journal.EntryOffsets.TryGetValue(included, out var boundary) && boundary.Term != snapshot.LastIncludedTerm
-            ? FollowerLogRefusal.LogMismatch
-            : null;
-    }
-
-    private static async Task<(int Length, List<long> Offsets)> ReplaceRewrittenTailAsync(
-        FollowerLogJournal journal,
-        IFollowerLogContext owner,
-        List<FollowerLogEntry> tail,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            owner.Readiness = FollowerLogReadiness.Failed;
-            throw;
-        }
-    }
-
-    private static void RestoreCompactionIdempotency(IFollowerLogContext owner, in GroupSnapshot snapshot, List<ulong> retainedLogIndexes)
+    private static void RestoreCompactionIdempotency(IFollowerLogContext owner, in GroupSnapshot snapshot)
     {
         // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
         // record at or below the included index has lost its durable journal frame and must be released, while records
@@ -253,7 +312,7 @@ internal static class FollowerLogSnapshot
         // so outcomes recorded while the snapshot was published cannot fail the log here.
         try
         {
-            owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes);
+            owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, snapshot.LastIncludedIndex, owner.LastLogIndex);
         }
         catch
         {
@@ -264,22 +323,60 @@ internal static class FollowerLogSnapshot
         }
     }
 
-    private static List<GroupIdempotencyRecord> ExportCoveredOutcomes(IFollowerLogContext owner, ulong lastIncludedIndex, out DateTime capturedUtc)
+    private static async Task RetainWalAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        (long Offset, ulong FirstIndex) retained,
+        long removedBytes,
+        GroupSnapshot snapshot,
+        Guid preparedWal,
+        CancellationToken cancellationToken)
     {
-        var outcomes = new List<GroupIdempotencyRecord>();
-        foreach (var record in owner.Idempotency.ExportResolved(out capturedUtc))
+        try
         {
-            if (record.LogIndex <= lastIncludedIndex)
-                outcomes.Add(record);
-        }
+            if (removedBytes == 0)
+            {
+                owner.Faults.OnFlushed();
+                return;
+            }
 
-        return outcomes;
+            var staged = preparedWal == Guid.Empty ? default : (snapshot.WalPosition.Offset, snapshot.LastIncludedIndex);
+            owner.LogLength = await FollowerLogDurable.ReplaceLogAsync(
+                journal,
+                owner,
+                (retained.Offset, owner.LogLength, retained.FirstIndex, owner.LastLogIndex),
+                snapshot.WalPosition.RewrittenGeneration,
+                cancellationToken,
+                staged).ConfigureAwait(false);
+            journal.ShiftOffsets(removedBytes);
+        }
+        catch
+        {
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw;
+        }
     }
 
-    private static void ReindexTail(FollowerLogJournal journal, List<FollowerLogEntry> tail, List<long> offsets)
+    private static async Task<bool> StageCompactionWalAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        AsyncLock gate,
+        GroupSnapshotCompaction capture,
+        Guid snapshot,
+        CancellationToken cancellationToken)
     {
-        journal.ClearEntries();
-        for (var i = 0; i < tail.Count; i++)
-            journal.AddEntry(tail[i], offsets[i], tail[i].Term);
+        Task copy;
+        using (await gate.LockAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (owner.Refuses || owner.Meta.CurrentTerm != capture.CurrentTerm || journal.LogGeneration != capture.Snapshot.WalPosition.Generation ||
+                journal.SnapshotBaseline.LastIncludedIndex != capture.PreviousIndex || journal.PreparedWal.Copy is { IsCompleted: false })
+                return false;
+
+            copy = FollowerLogDurable.StageWalAsync(journal, owner.Durability, in capture, cancellationToken);
+            journal.PreparedWal = (snapshot, copy);
+        }
+
+        await copy.ConfigureAwait(false);
+        return true;
     }
 }

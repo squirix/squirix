@@ -1,7 +1,6 @@
 using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
@@ -104,8 +103,7 @@ public sealed class PressureGateTests
         if (rejections != null)
             _ = accounting.Setups.RecordAdmissionRejection().Callback(() => rejections.Value++);
 
-        var options = Options.Create(
-            new PressureOptions { MaxEstimatedCacheBytes = 1000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        return new PressureGate(new StateEvaluator(options.Value), accounting.Instance(), "node-a", meter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = 1000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        return new PressureGate(new StateEvaluator(options), accounting.Instance(), "node-a", meter);
     }
 }

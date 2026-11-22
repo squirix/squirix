@@ -2,15 +2,15 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -62,8 +62,8 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
             clock.Advance(ShutdownBudget);
             await dispose.WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued);
-            _ = await Assert.That((logger.Count(LeakedOnShutdownEventId), logger.Find(LeakedOnShutdownEventId)?.Level)).IsEqualTo((1, LogLevel.Error));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That((logger.Count(LeakedOnShutdownEventId), logger.Find(LeakedOnShutdownEventId)?.Level)).IsEqualTo((1, ServerLogLevel.Error));
         }
         finally
         {
@@ -94,7 +94,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         var vote = log.RequestVoteAsync(new ElectionVoteRequest("node-c", VoteTerm + 1UL, 0UL, 0UL), canceling.Token);
         await Task.Delay(StillWaiting, TimeProvider.System, cancellationToken);
         await canceling.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
         var observe = log.ObserveTermAsync(VoteTerm + 2UL, cancellationToken);
@@ -213,7 +213,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
             _ = await Assert.That(observe.IsCompleted).IsFalse();
             mirror.Release();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(observe);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(observe, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             var status = await log.GetStatusAsync(cancellationToken);
             _ = await Assert.That((log.Readiness, status.CurrentTerm, status.VotedFor)).IsEqualTo((FollowerLogReadiness.Failed, VoteTerm, "node-b"));
@@ -393,7 +393,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
     private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks) =>
         OpenLog(dir, hooks, NullLogger<FollowerLog>.Instance, new FakeTimeProvider());
 
-    private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, TimeProvider shutdownClock) =>
+    private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks, IServerLogger<FollowerLog> logger, TimeProvider shutdownClock) =>
         new(
             dir,
             GroupId,

@@ -109,14 +109,14 @@ internal sealed class RetentionWorker : IWorkPoolItem
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
 
-            ServerLog.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
+            StorageLog.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
         }
 
         private static void ReportRetentionDeleteFailure(RetentionContext context, string artifactKind, string path)
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
-            ServerLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
+            StorageLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
         private static bool TryCleanupObsoleteJournalSegments(RetentionContext context, State manifest, out int deletedSegments, out long deletedBytes)
@@ -133,14 +133,11 @@ internal sealed class RetentionWorker : IWorkPoolItem
                     return false;
 
                 var failed = false;
-                foreach (var segment in JournalReader.EnumerateSegments(context.DataDir, 1))
+                foreach (var path in JournalReader.EnumerateObsoleteSegmentPaths(context.DataDir, replayFromSegment))
                 {
-                    if (segment.Index >= replayFromSegment)
-                        continue;
-
                     // Read before the delete; a segment below the replay floor is closed, so its length is the bytes it counted.
-                    var length = ReadLengthOrZero(segment.Path);
-                    if (TryDeleteRetentionArtifact(context, segment.Path, ManifestRetentionArtifactKind.JournalSegment))
+                    var length = ReadLengthOrZero(path);
+                    if (TryDeleteRetentionArtifact(context, path, ManifestRetentionArtifactKind.JournalSegment))
                     {
                         failed = true;
                         continue;

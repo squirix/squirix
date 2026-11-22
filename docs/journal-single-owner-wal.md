@@ -84,9 +84,8 @@ active segment only after manifest success.
 - Reasoning about durability reduces to one thread plus a bounded queue.
 - Group commit timer and write batching live in the journal event loop (no `Task.Delay` on the flush
   path).
-- Manifest roll is eventually consistent on disk immediately after roll; recovery still scans on-disk
-  segment indices when manifest lags. The journal thread creates the next segment before publishing the
-  manifest and activates it only after manifest success, but does not block on manifest disk I/O.
+- During recovery, the next segment can be left over from an interrupted roll. After torn-tail repair, startup
+  fails if any segment beyond the one named by the manifest still contains frames.
 - Violating any invariant (e.g. shared `FileStream`, second writer thread) requires an explicit design
   change and doc update.
 

@@ -3,9 +3,9 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -22,25 +22,25 @@ namespace Squirix.Server.Node.Services;
 /// drains the requests in flight: a led group stops heartbeating and loses its authority at once, so its followers elect a new leader
 /// while this node finishes those requests (#1092).
 /// </remarks>
-internal sealed class ReplicaElectionService : BackgroundService
+internal sealed class ReplicaElectionService : NodeWorkerBase
 {
     /// <summary>The log of each election event that names only its group and term.</summary>
-    private static readonly FrozenDictionary<ElectionEvent, Action<ILogger, string, ulong>> TermEventLogs = new Dictionary<ElectionEvent, Action<ILogger, string, ulong>>
+    private static readonly FrozenDictionary<ElectionEvent, Action<IServerLogger, string, ulong>> TermEventLogs = new Dictionary<ElectionEvent, Action<IServerLogger, string, ulong>>
     {
-        [ElectionEvent.PreVoteLost] = ServerLog.ReplicaElectionPreVoteLost,
-        [ElectionEvent.VoteLost] = ServerLog.ReplicaElectionVoteLost,
-        [ElectionEvent.Elected] = ServerLog.ReplicaElectionElected,
-        [ElectionEvent.Authorized] = ServerLog.ReplicaElectionAuthorized,
-        [ElectionEvent.PromotionPending] = ServerLog.ReplicaElectionPromotionPending,
-        [ElectionEvent.RetirePending] = ServerLog.ReplicaElectionRetirePending,
-        [ElectionEvent.TermObserved] = ServerLog.ReplicaElectionTermObserved,
-        [ElectionEvent.TermNotDurable] = ServerLog.ReplicaElectionTermNotDurable,
+        [ElectionEvent.PreVoteLost] = ReplicaElectionLog.ReplicaElectionPreVoteLost,
+        [ElectionEvent.VoteLost] = ReplicaElectionLog.ReplicaElectionVoteLost,
+        [ElectionEvent.Elected] = ReplicaElectionLog.ReplicaElectionElected,
+        [ElectionEvent.Authorized] = ReplicaElectionLog.ReplicaElectionAuthorized,
+        [ElectionEvent.PromotionPending] = ReplicaElectionLog.ReplicaElectionPromotionPending,
+        [ElectionEvent.RetirePending] = ReplicaElectionLog.ReplicaElectionRetirePending,
+        [ElectionEvent.TermObserved] = ReplicaElectionLog.ReplicaElectionTermObserved,
+        [ElectionEvent.TermNotDurable] = ReplicaElectionLog.ReplicaElectionTermNotDurable,
     }.ToFrozenDictionary();
 
     private readonly ReplicaRpcHeader _header;
     private readonly IReplicaLeadership _leadership;
     private readonly IReplicaGroupLocator _locator;
-    private readonly ILogger<ReplicaElectionService> _log;
+    private readonly IServerLogger<ReplicaElectionService> _log;
     private readonly ReplicaGroupRegistry _registry;
     private readonly IReplicaVoteGateway _votes;
 
@@ -57,7 +57,7 @@ internal sealed class ReplicaElectionService : BackgroundService
         IReplicaVoteGateway votes,
         IReplicaLeadership leadership,
         (ReadOnlyMemory<byte> Fingerprint, ulong Generation, string SelfId) identity,
-        ILogger<ReplicaElectionService> log)
+        IServerLogger<ReplicaElectionService> log)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(locator);
@@ -90,12 +90,12 @@ internal sealed class ReplicaElectionService : BackgroundService
             if (_registry.TryGetLog(groupIds[i], out var log))
                 loops.Add(DriveAsync(CreateElection(groupIds[i], log), stopping.Token));
             else
-                ServerLog.ReplicaElectionNoLog(_log, groupIds[i]);
+                ReplicaElectionLog.ReplicaElectionNoLog(_log, groupIds[i]);
         }
 
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
         if (stoppingToken.IsCancellationRequested || HostStopping.IsCancellationRequested)
-            ServerLog.ReplicaElectionStopped(_log);
+            ReplicaElectionLog.ReplicaElectionStopped(_log);
     }
 
     /// <summary>Returns the stable name of a denial for the election log.</summary>
@@ -160,7 +160,10 @@ internal sealed class ReplicaElectionService : BackgroundService
         }
         finally
         {
-            election.Stop();
+            if (HostStopping.IsCancellationRequested && LeadershipTransfer.Enabled)
+                await ReplicaGroupElection.GracefulStop.StopAndTransferAsync(election).ConfigureAwait(false);
+            else
+                election.Stop();
         }
     }
 
@@ -170,37 +173,37 @@ internal sealed class ReplicaElectionService : BackgroundService
     /// <exception cref="ArgumentOutOfRangeException">The event is not one of the election events.</exception>
     private void Report(string groupId, in ElectionOutcome outcome)
     {
+        if (outcome.TransferSourceTerm != 0)
+            ReplicaElectionLog.TransferProcessed(_log, groupId, outcome.TransferSourceTerm);
+
         if (TermEventLogs.TryGetValue(outcome.Event, out var log))
         {
             log(_log, groupId, outcome.Term);
             return;
         }
 
-        if (outcome is { Event: ElectionEvent.Denied, Denial: FailoverDenial.ApplyBlocked })
-        {
-            ServerLog.ReplicaElectionApplyBlocked(_log, groupId, outcome.Term);
-        }
-        else if (outcome.Event == ElectionEvent.Denied)
-        {
-            var denial = DenialName(outcome.Denial);
-            ServerLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
-        }
+        if (outcome.Event == ElectionEvent.Denied)
+            ReportDenied(groupId, in outcome);
         else if (outcome.Event == ElectionEvent.SteppedDown)
-        {
             ReportSteppedDown(groupId, in outcome);
-        }
         else if (outcome.Event == ElectionEvent.ApplyTimedOut)
-        {
-            ServerLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
-        }
+            ReplicaElectionLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
         else if (outcome.Event == ElectionEvent.AppendTimedOut)
-        {
-            ServerLog.ReplicaElectionAppendTimedOut(_log, groupId, outcome.Term, outcome.Waited);
-        }
+            ReplicaElectionLog.ReplicaElectionAppendTimedOut(_log, groupId, outcome.Term, outcome.Waited);
         else if (outcome.Event != ElectionEvent.None)
-        {
             throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Event, "Unsupported election event.");
+    }
+
+    private void ReportDenied(string groupId, in ElectionOutcome outcome)
+    {
+        if (outcome.Denial == FailoverDenial.ApplyBlocked)
+        {
+            ReplicaElectionLog.ReplicaElectionApplyBlocked(_log, groupId, outcome.Term);
+            return;
         }
+
+        var denial = DenialName(outcome.Denial);
+        ReplicaElectionLog.ReplicaElectionDenied(_log, groupId, outcome.Term, denial);
     }
 
     /// <summary>Logs a step-down: a leadership that got no authority within its deadline names how long it waited.</summary>
@@ -209,8 +212,8 @@ internal sealed class ReplicaElectionService : BackgroundService
     private void ReportSteppedDown(string groupId, in ElectionOutcome outcome)
     {
         if (outcome.Waited > TimeSpan.Zero)
-            ServerLog.ReplicaElectionAuthorityTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+            ReplicaElectionLog.ReplicaElectionAuthorityTimedOut(_log, groupId, outcome.Term, outcome.Waited);
         else
-            ServerLog.ReplicaElectionSteppedDown(_log, groupId, outcome.Term);
+            ReplicaElectionLog.ReplicaElectionSteppedDown(_log, groupId, outcome.Term);
     }
 }

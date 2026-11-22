@@ -11,7 +11,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>Verifies ephemeral nodes do not restore cache state across restart.</summary>
 [Immutable]
-public sealed class EphemeralRestartTests : EndToEndTestBase
+public sealed class EphemeralRestartTests
 {
     /// <summary>Ensures a restarted ephemeral node does not restore previously written values.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

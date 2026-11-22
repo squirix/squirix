@@ -2,9 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
@@ -30,7 +30,7 @@ internal static class StateInstallScenario
         _ = await source.AppendAsync(FollowerFoundationScenario.Append("leader", 2UL, 1UL, "b"), cancellationToken);
         _ = await source.AppendAsync(FollowerFoundationScenario.Append("leader", 3UL, 1UL, "c"), cancellationToken);
         _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
+        _ = source.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(SnapshotIndex, cancellationToken);
         return await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, SnapshotIndex, cancellationToken);
     }

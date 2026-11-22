@@ -22,7 +22,7 @@ internal static class SnapshotCodec
     /// <summary>Maximum accepted snapshot record body length; prevents a corrupt record header from allocating multiple GB for the scratch buffer.</summary>
     internal const int MaxRecordBodyLength = 1024 * 1024 * 1024;
 
-    internal const byte Version = 2;
+    internal const byte Version = 3;
 
     /// <summary>Byte size of the UInt16 length prefix framing every UTF-8 string in the snapshot format.</summary>
     private const int Utf8LengthPrefixSize = sizeof(ushort);
@@ -60,7 +60,16 @@ internal static class SnapshotCodec
         BinaryPrimitives.WriteUInt32LittleEndian(record[(RecordHeaderSize + bodyLength)..], crc);
     }
 
-    internal static bool TryReadEntryBody(ReadOnlySpan<byte> body, out CacheKey key, out NodeCacheEntry<object?>? entry, out int? encodedLength)
+    /// <summary>Decodes the key and entry body; a valid expired entry succeeds with a null entry when a cutoff is supplied.</summary>
+    /// <typeparam name="T">The requested cache value type.</typeparam>
+    /// <param name="body">The snapshot entry record body.</param>
+    /// <param name="key">The decoded key.</param>
+    /// <param name="entry">The decoded entry, or null for invalid or expired input.</param>
+    /// <param name="encodedLength">The exact entry length when the body holds no trailing bytes.</param>
+    /// <param name="expiredAsOf">The inclusive expiry cutoff, or null to retain all entries.</param>
+    /// <exception cref="InvalidDataException">The entry is valid but its value cannot be read as the requested type.</exception>
+    /// <returns>Whether the body is valid; a valid expired entry is not materialized.</returns>
+    internal static bool TryReadEntryBody<T>(ReadOnlySpan<byte> body, out CacheKey key, out NodeCacheEntry<T>? entry, out int? encodedLength, DateTime? expiredAsOf = null)
     {
         key = default;
         entry = null;
@@ -72,8 +81,13 @@ internal static class SnapshotCodec
             return false;
 
         var entryBytes = body[(namespaceBytes + keyBytes)..];
-        if (!CacheEntryCodec.TryRead<object?>(entryBytes, out var parsedEntry, out var bytesRead))
-            return false;
+        if (!CacheEntryCodec.TryRead<T>(entryBytes, out var parsedEntry, out var bytesRead, expiredAsOf))
+        {
+            // Distinguish a valid entry of a different type from a corrupt record.
+            return typeof(T) != typeof(object) && CacheEntryCodec.IsWellFormed(entryBytes)
+                ? throw new InvalidDataException("Binary snapshot entry payload could not be read.")
+                : false;
+        }
 
         key = new CacheKey(PersistedCacheNamespace.Normalize(cacheNamespace), cacheKey);
         entry = parsedEntry;
@@ -126,16 +140,19 @@ internal static class SnapshotCodec
             throw new UnsupportedSnapshotVersionException($"Unsupported binary snapshot version: {source[Magic.Length]}; only version {Version} is supported.");
     }
 
-    /// <summary>Encodes an entry body into a destination sized from <see cref="ComputeEntryBodyLength" />.</summary>
+    /// <summary>Encodes an entry body into a destination sized from <see cref="ComputeEntryBodyLength" />, without measuring the entry again.</summary>
     /// <param name="key">The entry key.</param>
     /// <param name="entry">The entry to encode.</param>
     /// <param name="destination">The span receiving exactly the computed body length.</param>
+    /// <exception cref="InvalidOperationException">The body does not encode to its measured length.</exception>
     internal static void WriteEntryBody(CacheKey key, NodeCacheEntry<object?> entry, Span<byte> destination)
     {
         var offset = 0;
         offset += WriteUtf8Prefixed(key.Namespace, destination[offset..]);
         offset += WriteUtf8Prefixed(key.Key, destination[offset..]);
-        CacheEntryCodec.Write(entry, destination[offset..]);
+        offset += CacheEntryCodec.WriteMeasured(entry, destination[offset..]);
+        if (offset != destination.Length)
+            throw new InvalidOperationException("The snapshot entry encoded to a length other than the measured one.");
     }
 
     internal static void WriteFileHeader(Span<byte> destination)

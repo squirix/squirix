@@ -2,14 +2,14 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -38,7 +38,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         var budget = new RerouteBudget(new DateTimeOffset(deadlineUtc, TimeSpan.Zero), TimeProvider.System);
         using var scope = ServerRpcDeadlineContext.Push(deadlineUtc, TimeProvider.System);
 
-        var transportRemaining = ServerRpcDeadlineContext.GetRemainingBudget();
+        var transportRemaining = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
         _ = await Assert.That(transportRemaining).IsNotNull();
         var rerouteRemaining = budget.GetRemaining();
         _ = await Assert.That(rerouteRemaining > TimeSpan.Zero).IsTrue();
@@ -59,7 +59,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         var expiredBudget = new RerouteBudget(DateTimeOffset.UtcNow.AddSeconds(-1), TimeProvider.System);
         _ = await Assert.That(expiredBudget.HasExpired()).IsTrue();
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(
             policy.ExecuteAsync(
                 attempts,
                 static (counter, _) =>
@@ -67,8 +67,11 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
                     var attempt = counter.Increment();
                     return ValueTask.FromResult(attempt);
                 },
-                cancellationToken));
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
         _ = await Assert.That(attempts.Count).IsEqualTo(0);
     }
 
@@ -89,7 +92,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
             static (counter, _) =>
             {
                 var attempt = counter.Increment();
-                return attempt == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
+                return attempt == 1 ? ValueTask.FromException<int>(new ServerCallException(FrameStatus.Unavailable, "down")) : new ValueTask<int>(9);
             },
             cancellationToken);
 
@@ -107,15 +110,15 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task WallStepLeavesPushedBudget()
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock();
         using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
 
         clock.StepWallClock(TimeSpan.FromHours(2));
-        var afterStep = ServerRpcDeadlineContext.GetRemainingBudget();
+        var afterStep = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
         clock.Advance(TimeSpan.FromMinutes(10));
 
         _ = await Assert.That(afterStep).IsEqualTo(TimeSpan.FromHours(1));
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromMinutes(50));
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromMinutes(50));
     }
 
     /// <summary>The operation budget expires on the clock its deadline was pushed with, with no real delay.</summary>
@@ -123,7 +126,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task BudgetExpiresOnPushClock(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock();
         await using var policy = CreatePolicy(clock, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-clock");
         using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -133,10 +136,10 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         clock.StepWallClock(TimeSpan.FromHours(2));
         var pendingAfterStep = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pendingAfterStep).IsTrue();
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
     }
 
     /// <summary>The budget counts down on the clock its deadline was pushed with, even when the policy runs on another clock.</summary>
@@ -144,7 +147,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task BudgetFollowsPushClock(CancellationToken cancellationToken)
     {
-        var pushClock = new SteppedWallClock();
+        var pushClock = new WallSteppedClock();
         await using var policy = CreatePolicy(TimeProvider.System, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-push-clock");
         using var scope = ServerRpcDeadlineContext.Push(pushClock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), pushClock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -152,9 +155,9 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         pushClock.Advance(TimeSpan.FromHours(1));
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
     }
 
     /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
@@ -162,7 +165,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     [Test]
     public async Task AttemptTimeoutRunsOnPolicyClock(CancellationToken cancellationToken)
     {
-        var clock = new SteppedWallClock();
+        var clock = new WallSteppedClock();
         await using var policy = CreatePolicy(clock, new CallPolicyTimeouts(TimeSpan.FromHours(1), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "attempt-clock");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -170,7 +173,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
     }
@@ -197,26 +200,6 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         maxConcurrentPerPeer,
         peer,
         timeouts ?? new CallPolicyTimeouts());
-
-    /// <summary>A fake clock whose wall time can step while its monotonic timestamp moves forward only.</summary>
-    [ThreadSafe]
-    private sealed class SteppedWallClock : FakeTimeProvider
-    {
-        private long _wallOffsetTicks;
-
-        internal SteppedWallClock()
-            : base(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero))
-        {
-        }
-
-        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
-
-        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
-        /// <returns>The monotonic timestamp.</returns>
-        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
-
-        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
-    }
 
     private sealed class InvocationCounter
     {

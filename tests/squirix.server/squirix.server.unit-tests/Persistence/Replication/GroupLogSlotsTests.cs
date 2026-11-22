@@ -70,16 +70,19 @@ public sealed class GroupLogSlotsTests : ServerUnitTestBase
     }
 
     /// <summary>A sound header of another format version is refused rather than skipped.</summary>
+    /// <param name="version">The unsupported format version.</param>
     [Test]
-    public async Task SelectRefusesOtherVersion()
+    [Arguments(1)]
+    [Arguments(2)]
+    public async Task SelectRefusesOtherVersion(int version)
     {
         var other = WithFrames(Header(1UL));
-        other[VersionOffset] = 2;
+        other[VersionOffset] = byte.CreateChecked(version);
         BinaryPrimitives.WriteUInt32LittleEndian(other.AsSpan(GroupLogSlots.HeaderSize - sizeof(uint)), Crc32C.Compute(other.AsSpan(0, GroupLogSlots.HeaderSize - sizeof(uint))));
 
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(other, WithFrames(Header(2UL)), static (first, second) => Select(first, second));
 
-        _ = await Assert.That(ex.Message).Contains("version 2", StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains($"version {version}", StringComparison.Ordinal);
     }
 
     /// <summary>Generation 0 is never written, so a header carrying it is torn.</summary>

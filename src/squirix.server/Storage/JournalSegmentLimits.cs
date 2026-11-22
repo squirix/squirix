@@ -1,4 +1,5 @@
 using Squirix.Server.Core;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Storage;
 
@@ -30,7 +31,7 @@ internal static class JournalSegmentLimits
     /// legitimate journal record payload. The on-disk length field is a signed 32-bit integer, so a stored
     /// value larger than this can never be a real frame and is treated as a corrupt header.
     /// </remarks>
-    internal const int MaxFramePayloadBytes = 512 * 1024 * 1024;
+    internal const int MaxFramePayloadBytes = Frames.MaxExtendedBodyBytes + MaxFrameOverheadBytes;
 
     /// <summary>Default maximum number of journal segments; a write that would exceed it is refused.</summary>
     internal const int DefaultMaxSegmentCount = 32;
@@ -42,16 +43,14 @@ internal static class JournalSegmentLimits
     /// </remarks>
     internal const int MaxFrameOverheadBytes = 512 * 1024;
 
-    /// <summary>The smallest segment, in megabytes, that holds the largest journal frame the server writes.</summary>
-    /// <remarks>
-    /// A frame never spans segments. The largest variable part of a frame is an entry (at most <see cref="EntryLimits.MaxEntrySizeBytes" />)
-    /// or a recorded reply, which is at most <see cref="EntryLimits.GrpcMaxSendMessageSizeBytes" /> since a larger one cannot reach the
-    /// client; a segment also starts with a 5-byte file header.
-    /// </remarks>
-    internal const int MinSegmentMb = (SegmentFileHeaderBytes + EntryLimits.GrpcMaxSendMessageSizeBytes + MaxFrameOverheadBytes + BytesPerMb - 1) / BytesPerMb;
+    /// <summary>Minimum capacity for a journal opened without server admission settings.</summary>
+    internal const int MinSegmentMb = (SegmentFileHeaderBytes + EntryLimits.MaxSendMessageSizeBytes + MaxFrameOverheadBytes + BytesPerMb - 1) / BytesPerMb;
 
     private const int BytesPerMb = 1024 * 1024;
 
     /// <summary>The magic and version that open every segment file.</summary>
     private const int SegmentFileHeaderBytes = 5;
+
+    internal static int MinimumSegmentMb(int valueLimit) =>
+        (SegmentFileHeaderBytes + valueLimit + Frames.MaxEnvelopeBytes + MaxFrameOverheadBytes + BytesPerMb - 1) / BytesPerMb;
 }

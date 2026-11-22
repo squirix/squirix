@@ -1,0 +1,110 @@
+name: Nightly Performance
+
+on:
+    schedule:
+        # 03:00 Asia/Krasnoyarsk (UTC+7).
+        - cron: '0 20 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    MSBuildEnableWorkloadResolver: false
+
+jobs:
+    performance-guard:
+        name: Nightly Performance Guard (Ubuntu / Net10.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+                    fetch-depth: 0
+
+            -   name: Setup .NET
+                uses: ./.github/actions/setup-sdk
+                with:
+                    net10-runtime: "true"
+
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
+
+            -   name: Test Performance Guard
+                run: python3 -m unittest discover -s tools/ci -p test_performance_guard.py -v
+
+            -   name: Compare Hot Paths With Pinned Sources
+                run: python3 tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
+
+            -   name: Upload Performance Comparison
+                if: always()
+                uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+                with:
+                    name: performance-guard
+                    retention-days: 7
+                    path: |
+                        ${{ runner.temp }}/performance-guard/reports/**/results/**
+                        ${{ runner.temp }}/performance-guard/logs/**
+                        ${{ runner.temp }}/performance-guard/run.json
+                        ${{ runner.temp }}/performance-guard/summary.md
+                    if-no-files-found: warn
+
+    graceful-failover:
+        runs-on: ubuntu-latest
+        timeout-minutes: 150
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+                  persist-credentials: false
+
+            - name: Setup .NET
+              uses: ./.github/actions/setup-sdk
+              with:
+                  net10-runtime: 'true'
+
+            - name: Ensure dev HTTPS certificate
+              run: bash tools/ci/ensure-dev-https-cert.sh
+
+            - name: Measure client recovery after repeated leader stops
+              env:
+                  SQUIRIX_EVIDENCE_DIR: ${{ runner.temp }}/failover-evidence
+              run: |
+                  for mode in timer successor broadcast lost; do
+                    export SQUIRIX_EXPERIMENTAL_LEADERSHIP_TRANSFER=1 SQUIRIX_TEST_BROADCAST_HINT=0 SQUIRIX_TEST_DROP_HINT=0
+                    if [[ "$mode" == timer ]]; then export SQUIRIX_EXPERIMENTAL_LEADERSHIP_TRANSFER=0; fi
+                    if [[ "$mode" == broadcast ]]; then export SQUIRIX_TEST_BROADCAST_HINT=1; fi
+                    if [[ "$mode" == lost ]]; then export SQUIRIX_TEST_DROP_HINT=1; fi
+                    export SQUIRIX_EVIDENCE_DIR="$RUNNER_TEMP/failover-evidence/mode-$mode"
+                    dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj -c Release \
+                      --treenode-filter '/*/*/LeaderStopSeriesTests/*' --minimum-expected-tests 2 --zero-tests-policy strict
+                    test -s "$SQUIRIX_EVIDENCE_DIR/failover-leader-stop-series.json"
+                    test -s "$SQUIRIX_EVIDENCE_DIR/failover-leader-stop-series-rf5.json"
+                  done
+                  python3 tools/ci/report-leader-transfer.py "$RUNNER_TEMP/failover-evidence" > "$RUNNER_TEMP/failover-evidence/summary.md"
+                  cat "$RUNNER_TEMP/failover-evidence/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload recovery samples
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: graceful-failover
+                  path: |
+                      ${{ runner.temp }}/failover-evidence/**/*.json
+                      ${{ runner.temp }}/failover-evidence/summary.md
+                  if-no-files-found: error

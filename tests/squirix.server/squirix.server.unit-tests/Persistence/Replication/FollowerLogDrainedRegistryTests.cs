@@ -2,11 +2,11 @@ using System;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -33,7 +33,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
         {
             DrainRegistry(log);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
             _ = await Assert.That(logger.Count(AppendUnconfirmedEventId)).IsEqualTo(0);
@@ -58,7 +58,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
                 0UL,
                 ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 2UL, Encoding.UTF8.GetBytes("a"))));
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(request, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         }
@@ -86,7 +86,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
                 0UL,
                 ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("c"))));
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(conflicting, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(conflicting, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That(logger.Count(TruncateUnconfirmedEventId)).IsEqualTo(1);
@@ -113,7 +113,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
             new EventRecordingLogger(),
             cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static void DrainRegistry(FollowerLog log)
@@ -140,7 +140,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(expected);
     }
 
-    private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, ILogger<FollowerLog> logger, CancellationToken cancellationToken)
+    private async Task<FollowerLog> OpenLogAsync(FollowerLogOptions options, IServerLogger<FollowerLog> logger, CancellationToken cancellationToken)
     {
         var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), logger, options);
         try

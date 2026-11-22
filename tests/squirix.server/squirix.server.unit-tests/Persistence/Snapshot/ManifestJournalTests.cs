@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -57,7 +57,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         await using var journal = new SnapshotCutJournal(1, 1);
 
         using (new ExclusiveRangeLock(Path.Join(Dir, "man-current"), SlotFormat.FileSize))
-            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(SnapshotOnceAsync(store, journal, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(SnapshotOnceAsync(store, journal, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(store.PublishFailure).IsNotNull();
         _ = await Assert.That(journal.FailedWith).IsSameReferenceAs(store.PublishFailure);
@@ -195,9 +195,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
         _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                                .ReturnValue(default);
-        var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
-        _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
-        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", NoOpSnapshotTelemetry.Instance);
+        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, "test-node", NoOpSnapshotTelemetry.Instance);
         _ = await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 

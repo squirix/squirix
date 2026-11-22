@@ -2,16 +2,16 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -35,7 +35,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
         _ = groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>
@@ -75,6 +75,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default);
         _ = await Assert.That(flushGate.WaitForFlushEntered(TimeSpan.FromSeconds(5))).IsTrue();
+        var pending = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
         await firstCts.CancelAsync();
         flushGate.ReleaseFlush();
@@ -89,6 +90,10 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(second.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(third.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(fourth.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(pending.IsCompleted).IsFalse();
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await pending;
 
         var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
@@ -291,7 +296,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 32,
         };
         var flushCounter = new AtomicCounter();
-        var time = new SteppedWallClock();
+        var time = new WallSteppedClock();
         var groupCommit = new JournalDurabilityGroupCommit(flushCounter.IncrementAction, static () => { }, static _ => { }, options, time);
 
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
@@ -422,14 +427,49 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         {
             await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
             var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
-            journal.FailJournalPipeline(new IOException("journal device lost"));
+            var failure = new IOException("journal device lost");
+            journal.FailJournalPipeline(failure);
             await durability.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
-            _ = await Assert.That(durability.IsFaulted).IsTrue();
+            var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(durability, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         }
         finally
         {
             await journal.DisposeAsync();
         }
+    }
+
+    /// <summary>Canceling a moved last waiter preserves the surviving waiter and a subsequent batch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelMovedWaiterPreservesBatch(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        var flushes = new AtomicCounter();
+        var options = new PersistenceOptions { JournalGroupCommitMaxBatch = 3, JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5) };
+        var group = CreateGroupCommit(flushes.IncrementAction, options, time);
+        using var firstCancel = new CancellationTokenSource();
+        using var lastCancel = new CancellationTokenSource();
+        var first = AsSingleUseTaskAsync(group.AwaitCommitAsync(firstCancel.Token));
+        var survivor = AsSingleUseTaskAsync(group.AwaitCommitAsync(cancellationToken));
+        var last = AsSingleUseTaskAsync(group.AwaitCommitAsync(lastCancel.Token));
+        await firstCancel.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAsync<TaskCanceledException>(first, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        await lastCancel.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAsync<TaskCanceledException>(last, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        group.DrainDueBatchesOnJournalThread();
+        _ = await Assert.That((survivor.IsCompleted, flushes.Value)).IsEqualTo((false, 0));
+        time.Advance(options.JournalGroupCommitMaxWait);
+        group.DrainDueBatchesOnJournalThread();
+        await survivor;
+        _ = await Assert.That(flushes.Value).IsEqualTo(1);
+
+        var next = AsSingleUseTaskAsync(group.AwaitCommitAsync(cancellationToken));
+        _ = await Assert.That(next.IsCompleted).IsFalse();
+        time.Advance(options.JournalGroupCommitMaxWait);
+        group.DrainDueBatchesOnJournalThread();
+        await next;
+        _ = await Assert.That(flushes.Value).IsEqualTo(2);
     }
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
@@ -450,21 +490,6 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         internal int Value => Volatile.Read(ref _value);
 
         private void Increment() => _ = Interlocked.Increment(ref _value);
-    }
-
-    /// <summary>A fake clock whose wall time can step backward while its monotonic timestamp keeps moving forward only.</summary>
-    [ThreadSafe]
-    private sealed class SteppedWallClock : FakeTimeProvider
-    {
-        private long _wallOffsetTicks;
-
-        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
-
-        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
-        /// <returns>The monotonic timestamp.</returns>
-        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
-
-        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
     }
 
     /// <summary>Stands in for the pipeline failure hook: like the real one it faults the in-flight batch through the group commit, and records how many acks were still pending.</summary>

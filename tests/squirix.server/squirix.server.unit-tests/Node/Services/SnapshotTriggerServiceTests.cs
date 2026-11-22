@@ -4,8 +4,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -15,7 +13,9 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -260,7 +260,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         private readonly Ledger _ledger;
         private readonly WriterState _writer;
 
-        private Harness(Ledger ledger, SnapshotCutJournal journal, FakeTimeProvider clock, SnapshotTriggerService<object?> service, WriterState writer)
+        private Harness(Ledger ledger, SnapshotCutJournal journal, FakeTimeProvider clock, SnapshotTriggerService service, WriterState writer)
         {
             _ledger = ledger;
             Journal = journal;
@@ -273,7 +273,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
 
         internal SnapshotCutJournal Journal { get; }
 
-        internal SnapshotTriggerService<object?> Service { get; }
+        internal SnapshotTriggerService Service { get; }
 
         internal bool Succeeded => _writer.Succeeded;
 
@@ -294,8 +294,6 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
             _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                                    .ReturnValue(default);
-            var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
-            _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
             var writerExpectations = new ISnapshotWriterCreateExpectations();
             _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
             _ = writerExpectations.Setups.WriteAsync(
@@ -306,9 +304,9 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             var coordinator = new Coordinator(
                 options,
                 journal,
-                new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, exporterExpectations.Instance(), "test-node", NoOpSnapshotTelemetry.Instance),
+                new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, "test-node", NoOpSnapshotTelemetry.Instance),
                 clock);
-            var service = new SnapshotTriggerService<object?>(NullLogger<SnapshotTriggerService<object?>>.Instance, coordinator, journal, clock);
+            var service = new SnapshotTriggerService(NullLogger<SnapshotTriggerService>.Instance, coordinator, journal, clock);
             return new Harness(ledger, journal, clock, service, writer);
         }
 
@@ -331,7 +329,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
     [Mutable]
     private sealed class MutableStatus
     {
-        public SnapshotFailure? Failure
+        internal SnapshotFailure? Failure
         {
             get => Volatile.Read(ref field);
             set => Volatile.Write(ref field, value);

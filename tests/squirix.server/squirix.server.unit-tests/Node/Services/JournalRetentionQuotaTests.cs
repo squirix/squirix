@@ -35,36 +35,12 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-retention-quota";
 
-    /// <summary>
-    /// A node at its journal quota is admitted again once a snapshot lets retention delete the covered segments, with no append in between to
-    /// trigger the counter read, and the counters never fall below what is on disk.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RetentionFreesQuotaWithoutAppend(CancellationToken cancellationToken)
-    {
-        var kit = new JournalReplayKit(Dir, _testMeter, journalMaxTotalBytesMb: QuotaMb);
-        await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken);
-        var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
-        _ = await FillUntilRefusedAsync(session, cancellationToken);
-        var usedAtQuota = session.Journal.UsedBytes;
-        var replayFrom = coordinator.CurrentSegmentIndex;
-        _ = await Assert.That(replayFrom).IsGreaterThan(1);
-
-        await PublishSnapshotAsync(session, kit, replayFrom, coordinator.NextSequence, cancellationToken);
-        await coordinator.WaitUntilAsync(j => j.UsedBytes < usedAtQuota - (FillValueLength * 2L), Bound, TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(session.Journal.UsedBytes).IsGreaterThanOrEqualTo(OnDiskBytes());
-        _ = await Assert.That(JournalReadPath.EnumerateSegments(Dir, 1).Length).IsEqualTo(1);
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "after-retention", new NodeCacheEntry<string>("v"), cancellationToken);
-    }
-
     /// <summary>After retention deleted the covered segments a restart recovers the snapshot and the tail that follows it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RestartAfterRetentionRecoversTail(CancellationToken cancellationToken)
     {
-        var kit = new JournalReplayKit(Dir, _testMeter, journalMaxTotalBytesMb: QuotaMb);
+        var kit = new JournalReplayKit(Dir, journalMaxTotalBytesMb: QuotaMb);
         await using (var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken))
         {
             var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
@@ -78,9 +54,33 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
 
         var recovered = await kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        _ = await Assert.That((await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "snap-0"), cancellationToken))?.Value).IsNotNull();
-        _ = await Assert.That((await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "tail"), cancellationToken))?.Value).IsEqualTo("tail-value");
-        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(JournalReplayKit.CacheName, "fill-0"), cancellationToken)).IsNull();
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(JournalReplayKit.CacheName, "snap-0"), cancellationToken)?.Value).IsNotNull();
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(JournalReplayKit.CacheName, "tail"), cancellationToken)?.Value).IsEqualTo("tail-value");
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(JournalReplayKit.CacheName, "fill-0"), cancellationToken)).IsNull();
+    }
+
+    /// <summary>
+    /// A node at its journal quota is admitted again once a snapshot lets retention delete the covered segments, with no append in between to
+    /// trigger the counter read, and the counters never fall below what is on disk.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetentionFreesQuotaWithoutAppend(CancellationToken cancellationToken)
+    {
+        var kit = new JournalReplayKit(Dir, journalMaxTotalBytesMb: QuotaMb);
+        await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken);
+        var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
+        _ = await FillUntilRefusedAsync(session, cancellationToken);
+        var usedAtQuota = session.Journal.UsedBytes;
+        var replayFrom = coordinator.CurrentSegmentIndex;
+        _ = await Assert.That(replayFrom).IsGreaterThan(1);
+
+        await PublishSnapshotAsync(session, kit, replayFrom, coordinator.NextSequence, cancellationToken);
+        await coordinator.WaitUntilAsync(j => j.UsedBytes < usedAtQuota - (FillValueLength * 2L), Bound, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(session.Journal.UsedBytes).IsGreaterThanOrEqualTo(OnDiskBytes());
+        _ = await Assert.That(JournalReadPath.EnumerateSegments(Dir, 1).Length).IsEqualTo(1);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "after-retention", new NodeCacheEntry<string>("v"), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -108,15 +108,6 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
         throw new InvalidOperationException("the journal quota never refused a write.");
     }
 
-    private static Task PublishSnapshotAsync(JournalReplayKit.Session session, JournalReplayKit kit, int replayFromSegment, ulong nextSequence, CancellationToken cancellationToken)
-    {
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
-        {
-            (new CacheKey(JournalReplayKit.CacheName, "snap-0"), new NodeCacheEntry<object?> { Value = "snapshot-value" }),
-        };
-        return PublishAsync(session.ManifestStore, kit, items, replayFromSegment, nextSequence, cancellationToken);
-    }
-
     private static async Task PublishAsync(
         Ledger ledger,
         JournalReplayKit kit,
@@ -140,6 +131,15 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
                 },
             },
             cancellationToken);
+    }
+
+    private static Task PublishSnapshotAsync(JournalReplayKit.Session session, JournalReplayKit kit, int replayFromSegment, ulong nextSequence, CancellationToken cancellationToken)
+    {
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (new CacheKey(JournalReplayKit.CacheName, "snap-0"), new NodeCacheEntry<object?> { Value = "snapshot-value" }),
+        };
+        return PublishAsync(session.ManifestStore, kit, items, replayFromSegment, nextSequence, cancellationToken);
     }
 
     private long OnDiskBytes()

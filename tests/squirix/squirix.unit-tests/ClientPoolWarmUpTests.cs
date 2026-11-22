@@ -1,11 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
+using Squirix.Testing;
 using Squirix.TestKit;
+using Squirix.Transport;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -33,8 +34,16 @@ public sealed class ClientPoolWarmUpTests
         var warmUp = pool.WarmUpAsync(cancellationToken).AsTask();
         await AdvanceUntilCompletedAsync(clock, warmUp);
 
-        var exception = await AsyncAssert.ThrowsAsync<InvalidOperationException, string>(new ValueTask<string>(warmUp.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
-        _ = await Assert.That(exception.Message).Contains("Failed to connect to endpoint", StringComparison.Ordinal);
+        try
+        {
+            var exception = await AsyncAssert.ThrowsAsync<InvalidOperationException, string>(new ValueTask<string>(warmUp), Bound, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(exception.Message).Contains("Failed to connect to endpoint", StringComparison.Ordinal);
+        }
+        catch (SquirixTransportException exception)
+        {
+            // The socket can report that the endpoint is unavailable before the fake deadline cancels the attempt.
+            _ = await Assert.That(exception.StatusCode).IsEqualTo(CacheTransportStatusCode.Unavailable);
+        }
     }
 
     private static ClientPool CreatePool(Uri uri, FakeTimeProvider clock)
@@ -53,7 +62,7 @@ public sealed class ClientPoolWarmUpTests
 
     private static async Task AdvanceUntilCompletedAsync(FakeTimeProvider clock, Task operation)
     {
-        // The real-time pause only paces the polling and the guard only bounds a hang; the outcome is decided by the fake clock.
+        // The real-time guard bounds a hang while the fake clock drives the retry budget.
         var guard = TimeProvider.System.GetTimestamp();
         while (!operation.IsCompleted && TimeProvider.System.GetElapsedTime(guard) < Bound)
         {

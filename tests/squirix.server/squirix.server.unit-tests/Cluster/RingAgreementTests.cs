@@ -1,12 +1,12 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -52,7 +52,7 @@ public sealed class RingAgreementTests : ServerUnitTestBase
     {
         var agreement = Create(new EventRecordingLogger());
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(agreement, static a => a.EnsureInboundAgreement(null, "n2"));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(agreement, static a => a.EnsureInboundAgreement(null, "n2"));
 
         _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsTrue();
         _ = await Assert.That(agreement.IsFenced).IsTrue();
@@ -67,13 +67,30 @@ public sealed class RingAgreementTests : ServerUnitTestBase
         var agreement = Create(log);
         var other = RingFingerprint.Create("cluster", ["n1", "n2", "n3"], 128).Value;
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws((agreement, other), static s => s.agreement.EnsureInboundAgreement(s.other, "n2"));
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws((agreement, other), static s => s.agreement.EnsureInboundAgreement(s.other, "n2"));
 
         _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsTrue();
         _ = await Assert.That(agreement.IsFenced).IsTrue();
         _ = await Assert.That(agreement.FirstMismatch).IsEqualTo(new RingMismatchReport("n2", RingMismatchDirection.Inbound, other));
         _ = await Assert.That(log.Count(MismatchLoggedEventId)).IsEqualTo(1);
-        _ = await Assert.That(log.Find(MismatchLoggedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(MismatchLoggedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
+    }
+
+    /// <summary>Matching binary digests pass and mismatches retain their hex diagnostic.</summary>
+    [Test]
+    public async Task BinaryFingerprintKeepsRingFenceSemantics()
+    {
+        var local = LocalFingerprint();
+        var other = RingFingerprint.Create("cluster", ["n1", "n2", "n3"], 128);
+        var agreement = Create(new EventRecordingLogger());
+        agreement.EnsureInboundDigestAgreement(local.Digest.Span, "n2");
+        _ = await Assert.That(agreement.IsFenced).IsFalse();
+
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws((agreement, other), static state =>
+            state.agreement.EnsureInboundDigestAgreement(state.other.Digest.Span, "n2"));
+
+        _ = await Assert.That(RingMismatchFailure.IsMismatch(failure)).IsTrue();
+        _ = await Assert.That(agreement.FirstMismatch).IsEqualTo(new RingMismatchReport("n2", RingMismatchDirection.Inbound, other.Value));
     }
 
     /// <summary>An outbound mismatch fences the node with an unknown peer fingerprint.</summary>
@@ -96,7 +113,7 @@ public sealed class RingAgreementTests : ServerUnitTestBase
         agreement.ReportOutboundMismatch("n2");
 
         agreement.EnsureInboundAgreement(LocalValue, "n3");
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(agreement, static a => a.EnsureNotFenced());
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(agreement, static a => a.EnsureNotFenced());
 
         _ = await Assert.That(agreement.IsFenced).IsTrue();
         _ = await Assert.That(RingMismatchFailure.IsRefusal(failure)).IsTrue();

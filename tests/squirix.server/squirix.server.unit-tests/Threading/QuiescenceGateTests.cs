@@ -114,7 +114,7 @@ public sealed class QuiescenceGateTests : ServerUnitTestBase
 
         await waitCancellation.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait.AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait.AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(gate.TryEnter()).IsFalse();
         gate.Open();
     }

@@ -60,8 +60,8 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
     private async Task AssertBlockedUntilReplayAsync(ITestNodeHost node, RecoveryReplayDelaySignal replayDelay, CancellationToken cancellationToken)
     {
-        _ = await Assert.That(await GetReadyStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
-        _ = await Assert.That(await GetLiveStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
+        _ = await Assert.That(await GetReadyStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+        _ = await Assert.That(await GetLiveStatusCodeAsync(node.ManagementUri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
 
         var cache = GetCache(node);
         var beforeReplay = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, cancellationToken);
@@ -76,7 +76,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
         replayDelay.Release();
         await writeTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        await node.Uri.WaitUntilValueAsync(async (uri, token) => await GetReadyStatusCodeAsync(uri, token) == HttpStatusCode.OK, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        await node.ManagementUri.WaitUntilValueAsync(async (uri, token) => await GetReadyStatusCodeAsync(uri, token) == HttpStatusCode.OK, TimeSpan.FromSeconds(10), cancellationToken);
     }
 
     private async Task<HttpStatusCode> GetLiveStatusCodeAsync(Uri uri, CancellationToken cancellationToken)

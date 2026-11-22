@@ -2,12 +2,12 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -46,7 +46,7 @@ public sealed class ReplicaGroupApplierTests : ServerUnitTestBase
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(3UL);
         _ = await Assert.That(events.Count(ReseededEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(ReseededEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(events.Find(ReseededEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
         await SequenceAssert.EqualAsync(["k1", "k2"], cache.Applied.ToArray(), StringComparer.Ordinal);
     }
 
@@ -77,7 +77,7 @@ public sealed class ReplicaGroupApplierTests : ServerUnitTestBase
         using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var canceled = applier.WaitAppliedAsync(1UL, source.Token);
         await source.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(canceled);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(canceled, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var later = applier.WaitAppliedAsync(1UL, cancellationToken);
         applier.ResetTo(1UL);
@@ -148,7 +148,7 @@ public sealed class ReplicaGroupApplierTests : ServerUnitTestBase
         var cache = new StubCache();
         var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1");
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.CatchUpAsync(log, 0UL, 5UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(applier.CatchUpAsync(log, 0UL, 5UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(3UL);
         await SequenceAssert.EqualAsync(["k1", "k2", "k3"], cache.Applied.ToArray(), StringComparer.Ordinal);

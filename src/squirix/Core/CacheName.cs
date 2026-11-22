@@ -22,13 +22,8 @@ internal sealed record CacheName
     internal static CacheName ParsePublic(string? name, string parameterName = "cacheName")
     {
         var validated = CacheNameValidator.Validate(name, parameterName);
-        return new CacheName(NormalizeUnvalidated(validated));
+        return new CacheName(validated);
     }
-
-    /// <summary>Maps null, empty, or whitespace-only names to <see cref="CacheNames.DefaultNamespace" /> without applying public validation.</summary>
-    /// <param name="cacheName">Logical name from an already-validated pipeline segment or trusted persistence.</param>
-    /// <returns>The canonical cache name string for routing.</returns>
-    private static string NormalizeUnvalidated(string? cacheName) => string.IsNullOrWhiteSpace(cacheName) ? CacheNames.DefaultNamespace : cacheName;
 
     private static class CacheNameValidator
     {

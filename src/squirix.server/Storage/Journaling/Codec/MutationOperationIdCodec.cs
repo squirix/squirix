@@ -14,12 +14,13 @@ internal static class MutationOperationIdCodec
     /// <summary>Decodes the prefix: the operation id, then the request fingerprint (empty when the stamp carries none).</summary>
     /// <param name="payload">The mutation payload starting at the prefix.</param>
     /// <param name="fingerprint">The decoded fingerprint, or <see langword="null" /> when the prefix carries none.</param>
+    /// <param name="prefixLength">The number of bytes consumed by both prefix fields.</param>
     /// <returns>The decoded operation id.</returns>
     /// <exception cref="InvalidDataException">The prefix is truncated or not valid UTF-8.</exception>
-    internal static string DecodeMutationOperationId(ReadOnlySpan<byte> payload, out string? fingerprint)
+    internal static string DecodeMutationOperationId(ReadOnlySpan<byte> payload, out string? fingerprint, out int prefixLength)
     {
         var operationId = DecodeField(payload, 0, "operation id", out var next);
-        var fingerprintValue = DecodeField(payload, next, "fingerprint", out _);
+        var fingerprintValue = DecodeField(payload, next, "fingerprint", out prefixLength);
         fingerprint = fingerprintValue.Length == 0 ? null : fingerprintValue;
         return operationId;
     }
@@ -31,18 +32,6 @@ internal static class MutationOperationIdCodec
 
         offset = EncodeField(operationId, context.OperationIdLength, destination, offset);
         return EncodeField(fingerprint ?? string.Empty, context.FingerprintLength, destination, offset);
-    }
-
-    internal static int EncodeMutationOperationIdPrefixLength(string? operationId, string? fingerprint)
-    {
-        if (operationId == null)
-            return 0;
-
-        var count = Encoding.UTF8.GetByteCount(operationId);
-        var fingerprintCount = fingerprint == null ? 0 : Encoding.UTF8.GetByteCount(fingerprint);
-        return count > ushort.MaxValue || fingerprintCount > ushort.MaxValue
-            ? throw new InvalidDataException("Mutation operation id or fingerprint exceeds maximum encoded length.")
-            : 2 + count + 2 + fingerprintCount;
     }
 
     private static string DecodeField(ReadOnlySpan<byte> payload, int offset, string name, out int next)

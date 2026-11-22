@@ -7,6 +7,12 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaMutationKinds
 {
+    /// <summary>Reads an adapter value and records any renewal and its canonical response.</summary>
+    internal const string DistributedGet = "distributed-get";
+
+    /// <summary>Renews an adapter value without retaining the value in its outcome.</summary>
+    internal const string DistributedRefresh = "distributed-refresh";
+
     /// <summary>Removes a key whose deadline the leader found passed: the tombstone every replica applies before a read may miss.</summary>
     internal const string Expire = "expire";
 

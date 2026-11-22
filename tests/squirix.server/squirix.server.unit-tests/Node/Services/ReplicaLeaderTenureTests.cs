@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -28,7 +28,7 @@ public sealed class ReplicaLeaderTenureTests : ServerUnitTestBase
         using var tenure = new ReplicaLeaderTenure(Term, new ReplicaDriverLease());
         var log = NotReadyLog(true);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(AppendNoopAsync(tenure, log, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(AppendNoopAsync(tenure, log, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(tenure.NoopIndex).IsEqualTo(0UL);
     }
@@ -41,7 +41,7 @@ public sealed class ReplicaLeaderTenureTests : ServerUnitTestBase
         using var tenure = new ReplicaLeaderTenure(Term, new ReplicaDriverLease());
         var log = NotReadyLog(false);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendNoopAsync(tenure, log, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendNoopAsync(tenure, log, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(tenure.NoopIndex).IsEqualTo(0UL);
     }

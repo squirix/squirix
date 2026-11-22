@@ -55,8 +55,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         var bigPayload = Convert.ToInt32(MaxBytes - usedBeforeBacklog - BacklogPayload);
         var bigFrame = FrameLength("big", bigPayload);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-            journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[bigPayload], cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[bigPayload], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         journal.Writer.Write.Release();
         await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
         var usedAfterBacklog = journal.Journal.UsedBytes;
@@ -118,8 +117,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         await using (var first = await StallableJournal.CreateAsync(Dir, false, 1, cancellationToken))
         {
             await AppendDurablyAsync(first, "a", SmallPayload, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-                first.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[MaxBytes + 1024L], cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(first.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[MaxBytes + 1024L], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             watermark = await first.Journal.ExecuteSnapshotCutAsync(
                 0,
                 static (_, sequence, _) => ValueTask.FromResult(sequence),
@@ -154,8 +152,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
             cancellationToken);
         await AppendDurablyAsync(journal, "a", SmallPayload, cancellationToken);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-            journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[MaxBytes + 1024L], cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[MaxBytes + 1024L], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await AppendDurablyAsync(journal, "b", SmallPayload, cancellationToken);
         var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
@@ -253,7 +250,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var oversized = journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("big"), new byte[MaxBytes + 1024L], cancellationToken).AsTask();
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(oversized.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(oversized, StallTimeout, TimeProvider.System, cancellationToken);
         var queued = journal.Journal.QueuedAppendsCounter.Value;
         var pendingCount = journal.Journal.PendingAppends.PendingCount;
         journal.Writer.Write.Release();
@@ -315,8 +312,7 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
     /// <returns>Whether the journal pipeline failed meanwhile.</returns>
     private static async Task<bool> RefuseRollThenFitAsync(StallableJournal journal, CancellationToken cancellationToken)
     {
-        var refused = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-            journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("roll"), new byte[(2 * FillPayload) + 1024], cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("roll"), new byte[(2 * FillPayload) + 1024], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.Message).Contains("segment count");
         await AppendDurablyAsync(journal, "fits", FillPayload, cancellationToken);
         return journal.Journal.GetJournalThreadFailure() != null;

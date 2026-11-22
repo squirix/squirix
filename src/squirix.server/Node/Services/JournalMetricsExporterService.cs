@@ -5,9 +5,9 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
@@ -21,13 +21,13 @@ namespace Squirix.Server.Node.Services;
 /// The actual filesystem scan is done on a background interval, and the gauges
 /// simply return the latest cached values to keep scrapes cheap.
 /// </summary>
-internal sealed class JournalMetricsExporterService : BackgroundService
+internal sealed class JournalMetricsExporterService : NodeWorkerBase
 {
     private const string JournalSegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
 
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
 
-    private readonly ILogger<JournalMetricsExporterService> _log;
+    private readonly IServerLogger<JournalMetricsExporterService> _log;
 
     private readonly string _nodeId;
     private readonly PersistenceOptions _opt;
@@ -36,10 +36,10 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
     private long _sizeBytes;
 
-    public JournalMetricsExporterService(
+    internal JournalMetricsExporterService(
         PersistenceOptions opt,
         TopologyOptions cluster,
-        ILogger<JournalMetricsExporterService> log,
+        IServerLogger<JournalMetricsExporterService> log,
         Meter meter)
     {
         _opt = opt;
@@ -113,12 +113,12 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             catch (IOException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
-                ServerLog.JournalMetricFileProbeFailed(_log, ex, f);
+                DiagnosticsLog.JournalMetricFileProbeFailed(_log, ex, f);
             }
             catch (UnauthorizedAccessException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
-                ServerLog.JournalMetricFileProbeFailed(_log, ex, f);
+                DiagnosticsLog.JournalMetricFileProbeFailed(_log, ex, f);
             }
         }
 

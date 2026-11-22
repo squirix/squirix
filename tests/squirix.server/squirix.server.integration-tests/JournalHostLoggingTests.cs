@@ -5,7 +5,6 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
@@ -13,6 +12,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -91,7 +91,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
 
             await ledger.WriteAsync(current, cancellationToken);
 
-            _ = await recorder.WhenLoggedAsync(ManifestRetentionCleanupFailedEventId, cancellationToken);
+            await recorder.WhenLoggedAsync(ManifestRetentionCleanupFailedEventId, cancellationToken);
         }
         finally
         {
@@ -129,7 +129,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         using var held = File.OpenHandle(stalePath, FileMode.Open, FileAccess.Read, FileShare.None);
         _ = await WithSnapshotAsync(ledger, 2, cancellationToken);
 
-        _ = await recorder.WhenLoggedAsync(ManifestRetentionDeleteFailedEventId, cancellationToken);
+        await recorder.WhenLoggedAsync(ManifestRetentionDeleteFailedEventId, cancellationToken);
 
         _ = await Assert.That(recorder.Find(ManifestRetentionDeleteFailedEventId)?.Category).IsEqualTo(typeof(Ledger).FullName);
     }

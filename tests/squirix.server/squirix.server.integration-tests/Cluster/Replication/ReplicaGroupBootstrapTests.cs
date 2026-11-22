@@ -122,7 +122,6 @@ public sealed class ReplicaGroupBootstrapTests : NodeIntegrationTestBase
                 return true;
             },
             Bound,
-            TimeProvider.System,
             cancellationToken);
 
     private static async Task WriteAndReadAsync(ITestNodeHost owner, CancellationToken cancellationToken)

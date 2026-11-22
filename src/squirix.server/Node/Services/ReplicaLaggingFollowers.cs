@@ -1,7 +1,7 @@
 using System;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -17,7 +17,7 @@ internal sealed class ReplicaLaggingFollowers
 {
     private readonly ReplicaEligibility _eligibility;
     private readonly string _groupId;
-    private readonly ILogger _log;
+    private readonly IServerLogger _log;
     private readonly ReplicaRepairQueue _repairs;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaLaggingFollowers" /> class.</summary>
@@ -25,7 +25,7 @@ internal sealed class ReplicaLaggingFollowers
     /// <param name="eligibility">Participation gates of the owned group.</param>
     /// <param name="repairs">The queue the readiness service repairs demoted followers from.</param>
     /// <param name="log">Logger for the demotions.</param>
-    internal ReplicaLaggingFollowers(string groupId, ReplicaEligibility eligibility, ReplicaRepairQueue repairs, ILogger log)
+    internal ReplicaLaggingFollowers(string groupId, ReplicaEligibility eligibility, ReplicaRepairQueue repairs, IServerLogger log)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         ArgumentNullException.ThrowIfNull(eligibility);
@@ -46,7 +46,7 @@ internal sealed class ReplicaLaggingFollowers
         if (!_eligibility.TryDemote(replicaIndex, logIndex))
             return;
 
-        ServerLog.ReplicaFollowerDemoted(_log, _groupId, nodeId, logIndex);
+        ReplicaFollowerLog.ReplicaFollowerDemoted(_log, _groupId, nodeId, logIndex);
         _repairs.Enqueue(replicaIndex);
     }
 }

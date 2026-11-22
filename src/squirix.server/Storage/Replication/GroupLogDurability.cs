@@ -11,8 +11,8 @@ namespace Squirix.Server.Storage.Replication;
 /// <remarks>
 /// Methods are synchronous and intended to be invoked from a background durability worker. Writes are buffered and made durable by
 /// <see cref="Flush" />, which calls <see cref="RandomAccess.FlushToDisk" /> on every platform; write-through would add a synchronous
-/// device write before each flush, and Windows honors it only on SCSI/FC devices. Calls are serialized by the owning log gate, which is held
-/// across each awaited durability work item; the instance is not safe for concurrent use.
+/// device write before each flush, and Windows honors it only on SCSI/FC devices. The owning log gate serializes access to the live handle.
+/// Background preparation only uses the inactive slot and is drained before any rewrite, reopen, or shutdown can reuse its files.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
 {
@@ -46,7 +46,12 @@ internal sealed class GroupLogDurability : IDisposable
     /// <summary>Opens a generation file that is not the live log and empties it, flushing the empty file and its directory entry.</summary>
     /// <param name="path">The generation file path.</param>
     /// <returns>The handle of the emptied file.</returns>
-    internal static SafeFileHandle OpenStandby(string path) => OpenStandby(path, true);
+    internal static SafeFileHandle OpenStandby(string path) => OpenStandby(path, true, FileShare.Read, CancellationToken.None);
+
+    /// <summary>Reopens a standby file whose unsealed frames were prepared by this log.</summary>
+    /// <param name="path">The standby file path.</param>
+    /// <returns>The handle of the prepared file.</returns>
+    internal static SafeFileHandle ReopenStandby(string path) => FileEx.OpenPrivate(path, FileMode.Open, FileAccess.ReadWrite);
 
     /// <summary>Writes the header of <paramref name="generation" /> at the start of a file whose frames are already flushed, then flushes it.</summary>
     /// <param name="handle">The handle of the generation file.</param>
@@ -113,7 +118,7 @@ internal sealed class GroupLogDurability : IDisposable
         }
         catch
         {
-            _knownLength = UnknownLength;
+            ForgetKnownLength();
             throw;
         }
 
@@ -129,34 +134,22 @@ internal sealed class GroupLogDurability : IDisposable
         Reset();
         var handle = OpenHandle(path);
         _ = Swap(handle);
-        RandomAccess.SetLength(handle, length);
-        RandomAccess.FlushToDisk(handle);
-        _knownLength = length;
+        Resize(handle, length, true);
     }
 
     /// <summary>Like <see cref="OpenStandby(string)" />, but flushes the directory entry only the first time this instance opens <paramref name="path" />.</summary>
     /// <param name="path">The generation file path.</param>
     /// <returns>The handle of the emptied file.</returns>
     /// <remarks>The generation files are rewritten on every compaction; their entries do not change after the first flush in this process.</remarks>
-    internal SafeFileHandle OpenStandbyOnce(string path)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        bool flushEntry;
-        lock (_flushedEntriesGate)
-            flushEntry = _flushedEntries.Add(path);
+    internal SafeFileHandle OpenStandbyOnce(string path) => OpenStandbyOnce(path, FileShare.Read, CancellationToken.None);
 
-        try
-        {
-            return OpenStandby(path, flushEntry);
-        }
-        catch when (flushEntry)
-        {
-            lock (_flushedEntriesGate)
-                _ = _flushedEntries.Remove(path);
-
-            throw;
-        }
-    }
+    /// <summary>Opens and empties the standby file for background preparation.</summary>
+    /// <param name="path">The standby file path.</param>
+    /// <param name="cancellationToken">The token checked before truncating the file.</param>
+    /// <returns>The handle of the emptied file.</returns>
+    /// <remarks>An exclusive handle keeps a reopened log away from an I/O worker that exceeded its shutdown budget.</remarks>
+    internal SafeFileHandle OpenStandbyForPreparation(string path, CancellationToken cancellationToken) =>
+        OpenStandbyOnce(path, FileShare.None, cancellationToken);
 
     /// <summary>Truncates the log to <paramref name="length" /> bytes.</summary>
     /// <param name="length">The new log length in bytes.</param>
@@ -164,9 +157,7 @@ internal sealed class GroupLogDurability : IDisposable
     internal void Truncate(long length)
     {
         var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
-        _knownLength = UnknownLength;
-        RandomAccess.SetLength(handle, length);
-        _knownLength = length;
+        Resize(handle, length, false);
     }
 
     /// <summary>Writes bytes at <paramref name="fileOffset" /> and sizes the file to exactly <paramref name="fileOffset" /> plus the data length.</summary>
@@ -180,7 +171,7 @@ internal sealed class GroupLogDurability : IDisposable
         var appendsAtKnownEnd = _knownLength == fileOffset;
 
         // Any failure below leaves the file length unknown until a later write sizes it again.
-        _knownLength = UnknownLength;
+        ForgetKnownLength();
         RandomAccess.Write(handle, data.Span, fileOffset);
 
         // A failed appending can leave valid frames beyond the in-memory logical end; sizing the file to the
@@ -197,12 +188,17 @@ internal sealed class GroupLogDurability : IDisposable
 
     private static SafeFileHandle OpenHandle(string path) => FileEx.OpenPrivate(path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
 
-    private static SafeFileHandle OpenStandby(string path, bool flushEntry)
+    private static SafeFileHandle OpenStandby(
+        string path,
+        bool flushEntry,
+        FileShare share,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        var handle = OpenHandle(path);
+        var handle = FileEx.OpenPrivate(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, share);
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             RandomAccess.SetLength(handle, 0);
             RandomAccess.FlushToDisk(handle);
             if (flushEntry)
@@ -216,6 +212,38 @@ internal sealed class GroupLogDurability : IDisposable
         }
     }
 
+    private SafeFileHandle OpenStandbyOnce(string path, FileShare share, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        bool flushEntry;
+        lock (_flushedEntriesGate)
+            flushEntry = _flushedEntries.Add(path);
+
+        try
+        {
+            return OpenStandby(path, flushEntry, share, cancellationToken);
+        }
+        catch when (flushEntry)
+        {
+            lock (_flushedEntriesGate)
+                _ = _flushedEntries.Remove(path);
+
+            throw;
+        }
+    }
+
+    private void Resize(SafeFileHandle handle, long length, bool flush)
+    {
+        ForgetKnownLength();
+        RandomAccess.SetLength(handle, length);
+        if (flush)
+            RandomAccess.FlushToDisk(handle);
+
+        _knownLength = length;
+    }
+
+    private void ForgetKnownLength() => _knownLength = UnknownLength;
+
     private void Reset() => Swap(null)?.Dispose();
 
     /// <summary>Replaces the live handle; the only place that assigns it.</summary>
@@ -225,7 +253,7 @@ internal sealed class GroupLogDurability : IDisposable
     {
         var previous = _handle;
         _handle = next;
-        _knownLength = UnknownLength;
+        ForgetKnownLength();
         return previous;
     }
 }

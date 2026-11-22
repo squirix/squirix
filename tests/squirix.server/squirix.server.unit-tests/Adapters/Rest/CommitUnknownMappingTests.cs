@@ -1,13 +1,12 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.AspNetCore.Http;
-using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -42,28 +41,22 @@ public sealed class CommitUnknownMappingTests : ServerUnitTestBase
     [Test]
     public async Task GrpcUsesUnavailableAndStableCode()
     {
-        _ = await Assert.That(SquirixErrorMapper.ToGrpcStatusCode(SquirixErrorCode.CommitOutcomeUnknown)).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(SquirixErrorMapper.ToFrameStatus(SquirixErrorCode.CommitOutcomeUnknown)).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(SquirixErrorMapper.ToPublicCode(SquirixErrorCode.CommitOutcomeUnknown)).IsEqualTo(StableCode);
     }
 
-    /// <summary>Projects commit unknown to service unavailable with the same stable symbolic code.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <summary>Checks the status, error code trailer and detail received by a binary client.</summary>
     [Test]
-    public async Task RestUsesServiceUnavailableAndStableCode(CancellationToken cancellationToken)
+    public async Task BinaryPayloadUsesStableFields()
     {
         var contract = ServerOpContract.CommitOutcomeUnknown();
-        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(contract.ToHttpResult(), cancellationToken);
-        using (payload)
-        {
-            var response = payload.RootElement.Deserialize(RestJsonSerializerContext.Default.ErrorResponse);
-
-            _ = await Assert.That(status).IsEqualTo(StatusCodes.Status503ServiceUnavailable);
-            _ = await Assert.That(response).IsNotNull();
-            _ = await Assert.That(contract.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-            _ = await Assert.That(response.Code).IsEqualTo(StableCode);
-            _ = await Assert.That(response.Error).IsEqualTo(contract.Error);
-            _ = await Assert.That(response.Detail).IsEqualTo(contract.Detail);
-        }
+        var response = BinaryResponse.FromError(contract);
+        var error = await Assert.That(response.Payload).IsTypeOf<BinaryCallError>();
+        _ = await Assert.That(response.Status).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(error!.Detail).IsEqualTo(contract.Detail);
+        _ = await Assert.That(error.Trailers.Count).IsEqualTo(1);
+        _ = await Assert.That(error.Trailers[0].Key).IsEqualTo(StaleOwnerMarkers.ErrorCodeMetadataKey);
+        _ = await Assert.That(error.Trailers[0].Text).IsEqualTo(StableCode);
     }
 
     private static async Task AssertNumericValueAsync(int expected, SquirixErrorCode code) => _ = await Assert.That(Unsafe.As<SquirixErrorCode, int>(ref code)).IsEqualTo(expected);

@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
 
 namespace Squirix.Server.Node.Services;
 
@@ -13,7 +13,7 @@ namespace Squirix.Server.Node.Services;
 /// run concurrently, so a lifecycle service that must append does so in its stop phase.
 /// </summary>
 [Immutable]
-internal sealed class JournalStopService : IHostedLifecycleService
+internal sealed class JournalStopService : INodeService
 {
     private readonly Func<ValueTask> _stopJournal;
 
@@ -29,21 +29,11 @@ internal sealed class JournalStopService : IHostedLifecycleService
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <inheritdoc />
-    public Task StartedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-    /// <inheritdoc />
-    public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-    /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    /// <inheritdoc />
-    public Task StoppedAsync(CancellationToken cancellationToken) =>
+    internal Task DrainAsync() =>
 
         // The host token is ignored on purpose: the journal's own budget and stage floors bound the stop, and giving up early would only
         // move the drain into disposal. A failure propagates so the host reports it.
         _stopJournal().AsTask();
-
-    /// <inheritdoc />
-    public Task StoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

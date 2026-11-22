@@ -58,11 +58,12 @@ internal static class BlackBoxCluster
 
     private static NodeHostStartOptions CreateNodeHostOptions(BlackBoxStartOptions options, MtlsOptions? mtlsOptions, MtlsCertificate? mtlsMaterial) => new()
     {
-        ConfigureLogging = TestHostLogging.Configure,
-        ConfigureGrpc = options.ConfigureGrpc,
         ServicesConfigure = options.ServicesConfigure,
         BackpressureOptions = options.BackpressureOptions?.ToServerOptions(),
         MemoryPressureOptions = options.MemoryPressureOptions?.ToServerOptions(),
+        ManagementUri = options.ManagementUri,
+        MetricsEnabled = options.MetricsEnabled,
+        PrometheusMetricsEnabled = options.PrometheusMetricsEnabled,
         SecurityOptions = (options.Security ?? UnauthenticatedSecurity).ToServerOptions(),
         MtlsOptions = mtlsOptions,
         Certificate = mtlsMaterial,

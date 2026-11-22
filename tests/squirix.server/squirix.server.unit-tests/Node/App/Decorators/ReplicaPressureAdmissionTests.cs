@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -49,7 +48,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         var accounting = CreateAccounting();
         var cache = Create(inner.Instance(), accounting, static (_, _) => true, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.ReplicaPressureReason), ("operation", AdmissionOperations.Set))).IsTrue();
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
@@ -70,7 +69,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
             null);
 
         await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, "pressured", Large, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, "pressured", Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A write passes while no member reports pressure, and a host that replicates nothing has no lookup.</summary>
@@ -96,12 +95,12 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     public async Task RemoveIsAdmittedWhileMemberPressured(CancellationToken cancellationToken)
     {
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.RemoveAsync("op-1", CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(new CacheRemoveResult<string>(true, "v")));
+        _ = inner.Setups.RemoveAsync("op-1", CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
         var cache = Create(inner.Instance(), CreateAccounting(), static (_, _) => true, null);
 
         var removed = await cache.RemoveAsync("op-1", CacheName, Key, cancellationToken);
 
-        _ = await Assert.That(removed.Removed).IsTrue();
+        _ = await Assert.That(removed).IsTrue();
     }
 
     /// <summary>A write that shrinks the entry passes while a member is pressured.</summary>
@@ -146,7 +145,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         var cache = Create(inner.Instance(), CreateAccounting(), static (_, _) => true, null, 1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.EstimatedLimitReason))).IsTrue();
         _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.ReplicaPressureReason))).IsFalse();
@@ -161,9 +160,8 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         Func<string, string, string, bool>? hasRecordedOutcome,
         long maxEstimatedCacheBytes = 10_000_000_000)
     {
-        var options = Options.Create(
-            new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, Self, _testMeter);
+        var options = new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
+        var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome, null, null, hasMemberPressure);
     }
 }

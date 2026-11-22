@@ -1,12 +1,11 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -18,7 +17,7 @@ internal static class FencedReads
     /// <returns>The fenced cache.</returns>
     internal static ReplicatedCache Fenced(ITestNodeHost host) =>
         new(
-            host.Services.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
+            host.Services.GetRequiredService<OwnerLocalCache>().Value,
             host.GetRequiredService<ReplicaGroupCommitters>(),
             true);
 
@@ -41,7 +40,7 @@ internal static class FencedReads
                     state.Read.Value = (await state.Cache.GetEntryAsync(state.CacheName, state.Key, token))?.Value as string;
                     return true;
                 }
-                catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable)
+                catch (ServerCallException exception) when (exception.StatusCode is FrameStatus.Unavailable)
                 {
                     return false;
                 }

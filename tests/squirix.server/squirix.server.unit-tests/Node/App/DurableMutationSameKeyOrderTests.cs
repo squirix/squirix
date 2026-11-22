@@ -1,12 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
-using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -138,7 +137,7 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var second = memory.PutAsync(executor, journal.Journal, "k", "second", waiterCancellation.Token);
             await waiterCancellation.CancelAsync();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(second.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(second, StallTimeout, TimeProvider.System, cancellationToken);
             journal.Writer.Flush.Release();
             _ = await first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         }
@@ -174,10 +173,10 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
         bool successorAllocated;
         try
         {
-            var first = StartPutInScopeAsync(memory, executor, journal, "op-1", cancellationToken);
+            var first = memory.PutAsync(executor, journal.Journal, "k", cancellationToken);
             await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var allocatedBefore = journal.Journal.NextSequence;
-            var second = StartPutInScopeAsync(memory, executor, journal, "op-2", cancellationToken);
+            var second = memory.PutAsync(executor, journal.Journal, "k", cancellationToken);
             pendingDuringStall = await PendingProbe.StaysPendingAsync(second);
             successorAllocated = journal.Journal.NextSequence != allocatedBefore;
             journal.Writer.Write.Release();
@@ -193,19 +192,9 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
 
         _ = await Assert.That(pendingDuringStall).IsTrue();
         _ = await Assert.That(successorAllocated).IsFalse();
-        _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(StallableJournal.Describe([$"{KeyK}#op-1", $"{KeyK}#op-2", KeyW]));
+        _ = await Assert.That(journal.ReadStampedPuts(cancellationToken)).IsEqualTo(StallableJournal.Describe([KeyK, KeyK, KeyW]));
         _ = await Assert.That(memory.Snapshot).IsEqualTo(KeyK);
         _ = await Assert.That(journal.Journal.InFlightApplyGate.HasPending).IsFalse();
-    }
-
-    private static Task<int> StartPutInScopeAsync(AppliedKeys memory, DurableMutationExecutor executor, StallableJournal journal, string operationId, CancellationToken cancellationToken)
-    {
-        // The executor is an async method, so it never throws synchronously and the scope is always deactivated.
-        var scope = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(scope, operationId, "fingerprint");
-        var put = memory.PutAsync(executor, journal.Journal, "k", cancellationToken);
-        RpcMutationIdempotencyExecutionAmbient.Deactivate(scope);
-        return put;
     }
 
     /// <summary>Creates a journal whose segment header and a first frame are already durable, so later stalls catch only the frames under test.</summary>

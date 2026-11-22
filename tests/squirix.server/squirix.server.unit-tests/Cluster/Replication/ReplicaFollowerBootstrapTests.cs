@@ -3,13 +3,13 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -182,7 +182,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
         Volatile.Write(ref armed, true);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
         var preVote = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 6UL, 0UL, 0UL), cancellationToken);

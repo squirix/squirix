@@ -4,16 +4,16 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>Maps transport-level <see cref="RpcException" /> failures from clustered remote calls where a stable normalization exists.</summary>
+/// <summary>Maps transport-level <see cref="ServerCallException" /> failures from clustered remote calls where a stable normalization exists.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
 internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCache<T>
@@ -31,12 +31,17 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         new ReadKeyArgs(cacheName, key),
         cancellationToken);
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct) => inner.GetValueWithDeadlineAsync(args.CacheName, args.Key, ct),
+        new ReadKeyArgs(cacheName, key),
+        cancellationToken);
+
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
         static (inner, args, ct) => inner.GetValueAsync(args.CacheName, args.Key, ct),
         new ReadKeyArgs(cacheName, key),
         cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
         static (inner, args, ct) => inner.RemoveAsync(args.OperationId, args.CacheName, args.Key, ct),
         new MutationKeyArgs(operationId, cacheName, key),
         cancellationToken);
@@ -82,7 +87,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         {
             await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
         }
-        catch (RpcException ex)
+        catch (ServerCallException ex)
         {
             DomainTransportErrorMapper.Map(ex, cancellationToken);
         }
@@ -98,7 +103,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         {
             return await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
         }
-        catch (RpcException ex)
+        catch (ServerCallException ex)
         {
             DomainTransportErrorMapper.Map(ex, cancellationToken);
             return default;
@@ -106,7 +111,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
     }
 
     /// <summary>
-    /// Normalizes selected transport-level <see cref="RpcException" /> failures from the logical cache pipeline
+    /// Normalizes selected transport-level <see cref="ServerCallException" /> failures from the logical cache pipeline
     /// (for example mapping caller cancellation to <see cref="OperationCanceledException" />, counter increment
     /// overflow to <see cref="OverflowException" /> when the server uses the stable overflow contract detail,
     /// increment counter type mismatch to <see cref="InvalidOperationException" /> for the stable type-mismatch detail,
@@ -114,11 +119,11 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///     This mapper intentionally does not convert <see cref="StatusCode.Unknown" />,
+    ///     This mapper intentionally does not convert <see cref="FrameStatus.Unknown" />,
     ///     and does not treat ambiguous outcomes as success.
     ///     </para>
     ///     <para>
-    ///     Use <see cref="Map" /> instead of catching and rethrowing <see cref="RpcException" /> manually so original stacks
+    ///     Use <see cref="Map" /> instead of catching and rethrowing <see cref="ServerCallException" /> manually so original stacks
     ///     are preserved via <see cref="ExceptionDispatchInfo" /> when no domain wrapper applies.
     ///     </para>
     /// </remarks>
@@ -129,11 +134,11 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         /// <param name="cancellationToken">The caller cancellation token for the logical operation.</param>
         /// <remarks>
         ///     <para>
-        ///     When a stable domain exception is introduced for a specific <see cref="RpcException" />, throw it with
+        ///     When a stable domain exception is introduced for a specific <see cref="ServerCallException" />, throw it with
         ///     <paramref name="ex" /> as <see cref="Exception.InnerException" /> so the original fault context is preserved.
         ///     </para>
         ///     <para>
-        ///     When no mapping applies, the original <see cref="RpcException" /> is rethrown with its stack trace preserved.
+        ///     When no mapping applies, the original <see cref="ServerCallException" /> is rethrown with its stack trace preserved.
         ///     </para>
         /// </remarks>
         /// <exception cref="OperationCanceledException">When <paramref name="ex" /> represents caller cancellation.</exception>
@@ -142,9 +147,9 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         /// When <paramref name="ex" /> represents the stable increment type-mismatch contract or the stable insert explicit-version precondition
         /// contract.
         /// </exception>
-        /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
+        /// <exception cref="ServerCallException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
         [DoesNotReturn]
-        internal static void Map(RpcException ex, CancellationToken cancellationToken)
+        internal static void Map(ServerCallException ex, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(ex);
 
@@ -156,53 +161,53 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         }
 
         [DoesNotReturn]
-        private static void RethrowOriginal(RpcException ex) => ExceptionDispatchInfo.Capture(ex).Throw();
+        private static void RethrowOriginal(ServerCallException ex) => ExceptionDispatchInfo.Capture(ex).Throw();
 
-        private static void ThrowIfCallerCancellation(RpcException ex, CancellationToken cancellationToken)
+        private static void ThrowIfCallerCancellation(ServerCallException ex, CancellationToken cancellationToken)
         {
-            if (ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, cancellationToken))
+            if (ServerCancelClassifier.IsCallerCancellation(ex, cancellationToken))
                 cancellationToken.ThrowIfCancellationRequested();
         }
 
-        private static void ThrowIfFailedPreconditionContract(RpcException ex)
+        private static void ThrowIfFailedPreconditionContract(ServerCallException ex)
         {
-            if (ex.StatusCode != StatusCode.FailedPrecondition)
+            if (ex.StatusCode != FrameStatus.FailedPrecondition)
                 return;
 
-            if (ServerOpContractClassifier.TryGetFailedPreconditionMessage(ex.Status.Detail, out var message))
+            if (ServerOpContractClassifier.TryGetFailedPreconditionMessage(ex.Message, out var message))
                 throw new InvalidOperationException(message, ex);
 
-            if (ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
-                throw new ServerOpIdMismatchException(ex.Status.Detail, ex);
+            if (ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(ex.Message))
+                throw new ServerOpIdMismatchException(ex.Message, ex);
         }
 
-        private static void ThrowIfInvalidArgumentContract(RpcException ex)
+        private static void ThrowIfInvalidArgumentContract(ServerCallException ex)
         {
-            if (ex.StatusCode != StatusCode.InvalidArgument)
+            if (ex.StatusCode != FrameStatus.InvalidArgument)
                 return;
 
-            if (ServerOpContract.IsOperationIdRequiredMessage(ex.Status.Detail))
+            if (ServerOpContract.IsOperationIdRequiredMessage(ex.Message))
                 throw ServerOpContract.OperationIdRequired();
 
-            if (ServerOpContract.IsOperationIdInvalidFormatMessage(ex.Status.Detail))
+            if (ServerOpContract.IsOperationIdInvalidFormatMessage(ex.Message))
                 throw ServerOpContract.OperationIdInvalidFormat();
 
-            if (ServerOpContract.IsOperationIdTooLongMessage(ex.Status.Detail))
+            if (ServerOpContract.IsOperationIdTooLongMessage(ex.Message))
                 throw ServerOpContract.OperationIdTooLong();
 
-            throw new ArgumentException(ex.Status.Detail, nameof(ex), ex);
+            throw new ArgumentException(ex.Message, nameof(ex), ex);
         }
 
-        private static void ThrowIfPayloadTooLargeContract(RpcException ex)
+        private static void ThrowIfPayloadTooLargeContract(ServerCallException ex)
         {
-            if (ex.StatusCode != StatusCode.ResourceExhausted)
+            if (ex.StatusCode != FrameStatus.ResourceExhausted)
                 return;
 
-            var detail = ex.Status.Detail;
+            var detail = ex.Message;
             if (!detail.StartsWith("Payload size limit is ", StringComparison.Ordinal))
                 return;
 
-            throw ServerOpContract.PayloadTooLarge();
+            throw new SquirixException(SquirixErrorCode.PayloadTooLarge, "PayloadTooLarge", detail);
         }
     }
 }

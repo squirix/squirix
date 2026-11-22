@@ -1,10 +1,9 @@
 using System;
 using System.Collections.Frozen;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.E2ETests.Fixtures;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -13,7 +12,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage that the client operation deadline reaches the server and is shared by forwarded calls.</summary>
-public sealed class OperationDeadlineE2ETests : EndToEndTestBase
+public sealed class OperationDeadlineE2ETests
 {
     private static readonly TimeSpan OperationDeadline = TimeSpan.FromSeconds(15);
 
@@ -26,7 +25,7 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
     [Test]
     public async Task ForwardedCallSharesClientDeadline(CancellationToken cancellationToken)
     {
-        var probes = CreateProbes("nodeA", "nodeB");
+        var probes = new ProbeSet("nodeA", "nodeB");
         var options = new MultiNodeStartOptions { ServicesConfigure = probes.Configure };
         await using var cluster = await HostedCluster.StartTwoNodeAsync(options, nameof(ForwardedCallSharesClientDeadline), cancellationToken: cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "nodeB", "deadline-forward");
@@ -34,8 +33,8 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
         var cache = await cluster.GetCacheAsync<string>("default", "nodeA", cancellationToken);
         await cache.SetAsync(key, "value", cancellationToken: cancellationToken);
 
-        var atEntry = Last(probes["nodeA"]);
-        var atOwner = Last(probes["nodeB"]);
+        var atEntry = probes["nodeA"].LastBudget;
+        var atOwner = probes["nodeB"].LastBudget;
         _ = await Assert.That(atEntry).IsNotNull();
         _ = await Assert.That(atOwner).IsNotNull();
         _ = await Assert.That(atOwner.GetValueOrDefault() > TimeSpan.Zero).IsTrue();
@@ -48,7 +47,7 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
     [Test]
     public async Task ServerReceivesClientDeadline(CancellationToken cancellationToken)
     {
-        var probes = CreateProbes("nodeA");
+        var probes = new ProbeSet("nodeA");
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
             nameof(ServerReceivesClientDeadline),
             timeProvider: TimeProvider.System,
@@ -58,25 +57,10 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
         var cache = await cluster.GetCacheAsync<string>("default", "nodeA", cancellationToken);
         await cache.SetAsync("deadline-key", "value", cancellationToken: cancellationToken);
 
-        var budget = Last(probes["nodeA"]);
+        var budget = probes["nodeA"].LastBudget;
         _ = await Assert.That(budget).IsNotNull();
         _ = await Assert.That(budget.GetValueOrDefault() > TimeSpan.Zero).IsTrue();
         _ = await Assert.That(budget.GetValueOrDefault() <= OperationDeadline).IsTrue();
-    }
-
-    private static ProbeSet CreateProbes(params string[] nodeIds)
-    {
-        var probes = new Dictionary<string, DeadlineBudgetProbe>(StringComparer.Ordinal);
-        for (var i = 0; i < nodeIds.Length; i++)
-            probes[nodeIds[i]] = new DeadlineBudgetProbe();
-
-        return new ProbeSet(probes);
-    }
-
-    private static TimeSpan? Last(DeadlineBudgetProbe probe)
-    {
-        var budgets = probe.Snapshot();
-        return budgets.Length == 0 ? null : budgets[^1];
     }
 
     /// <summary>Returns <paramref name="budget" /> as the gRPC client sends it: whole milliseconds rounded up to three significant figures.</summary>
@@ -96,13 +80,13 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
     {
         private readonly FrozenDictionary<string, DeadlineBudgetProbe> _probes;
 
-        internal ProbeSet(Dictionary<string, DeadlineBudgetProbe> probes)
+        internal ProbeSet(params string[] nodeIds)
         {
-            _probes = probes.ToFrozenDictionary(StringComparer.Ordinal);
+            _probes = nodeIds.ToFrozenDictionary(static nodeId => nodeId, static _ => new DeadlineBudgetProbe(), StringComparer.Ordinal);
         }
 
         internal DeadlineBudgetProbe this[string nodeId] => _probes[nodeId];
 
-        internal void Configure(string nodeId, IServiceCollection services) => _probes[nodeId].Register(services);
+        internal void Configure(string nodeId, TestServiceCollection services) => _probes[nodeId].Register(services);
     }
 }

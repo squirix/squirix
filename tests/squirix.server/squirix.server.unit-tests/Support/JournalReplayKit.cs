@@ -1,15 +1,11 @@
 using System;
-using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -18,8 +14,10 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 
@@ -42,16 +40,13 @@ internal sealed class JournalReplayKit
     /// <summary>The instant every write clock starts from, far from real time.</summary>
     internal static readonly DateTimeOffset WriteEpoch = new(2000, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
-    private readonly Meter _meter;
-
-    internal JournalReplayKit(string dir, Meter meter, bool groupCommit = false, int journalMaxTotalBytesMb = 0)
+    internal JournalReplayKit(string dir, bool groupCommit = false, int journalMaxTotalBytesMb = 0, int journalMaxSegmentMb = 1)
     {
-        _meter = meter;
         Dir = dir;
         Persistence = new PersistenceOptions
         {
             DataDir = dir,
-            JournalMaxSegmentMb = 1,
+            JournalMaxSegmentMb = journalMaxSegmentMb,
             JournalMaxTotalBytesMb = journalMaxTotalBytesMb,
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : TimeSpan.Zero,
         };
@@ -63,6 +58,10 @@ internal sealed class JournalReplayKit
     /// <summary>Gets the data directory.</summary>
     private string Dir { get; }
 
+    /// <summary>Creates a restart clock at <see cref="WriteEpoch" />: a write clock started at a negative offset restarts that much later.</summary>
+    /// <returns>The clock.</returns>
+    internal static FakeTimeProvider CreateRestartClock() => new(WriteEpoch);
+
     /// <summary>Creates a write clock relative to <see cref="WriteEpoch" />, aligned to the whole millisecond the journal stores deadlines at.</summary>
     /// <param name="startOffset">The offset from <see cref="WriteEpoch" />.</param>
     /// <param name="extraTicks">Ticks added after the alignment, to start off the millisecond boundary.</param>
@@ -72,10 +71,6 @@ internal sealed class JournalReplayKit
         var now = WriteEpoch.Add(startOffset);
         return new FakeTimeProvider(now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond) + extraTicks));
     }
-
-    /// <summary>Creates a restart clock at <see cref="WriteEpoch" />: a write clock started at a negative offset restarts that much later.</summary>
-    /// <returns>The clock.</returns>
-    internal static FakeTimeProvider CreateRestartClock() => new(WriteEpoch);
 
     /// <summary>Counts the records in the journal.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -125,7 +120,7 @@ internal sealed class JournalReplayKit
         using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
         while (records.MoveNext())
         {
-            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry))
+            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry, out _))
                 last = entry;
         }
 
@@ -153,7 +148,6 @@ internal sealed class JournalReplayKit
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter), TimeProvider.System),
             StoreFactory.CreateReader(),
             clock)
         {
@@ -178,7 +172,6 @@ internal sealed class JournalReplayKit
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter), TimeProvider.System),
             StoreFactory.CreateReader(),
             clock);
         await new RecoveryService<T>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<T>>.Instance, dependencies).StartAsync(cancellationToken);
@@ -218,7 +211,7 @@ internal sealed class JournalReplayKit
         var writeStart = clock.GetUtcNow().UtcDateTime;
         await mutate(session.Cache, clock, cancellationToken);
         clock.Advance(readAfter);
-        return (writeStart, await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken));
+        return (writeStart, session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken));
     }
 
     /// <summary>Writes an entry with a one-hour deadline, cuts a snapshot that holds it, then runs the tail mutation after the cut.</summary>
@@ -238,7 +231,7 @@ internal sealed class JournalReplayKit
         var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
         var writeStart = clock.GetUtcNow().UtcDateTime;
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: ttl), cancellationToken);
-        var snapshotted = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var snapshotted = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(snapshotted).IsNotNull();
 
         var cut = (session.ManifestStore, Writer: StoreFactory.CreateWriter(Persistence), Entry: snapshotted!, Coordinator: coordinator, WriteStart: writeStart);

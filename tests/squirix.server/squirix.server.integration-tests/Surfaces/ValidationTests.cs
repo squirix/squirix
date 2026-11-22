@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
@@ -25,7 +24,7 @@ public sealed class ValidationTests : ServerSurfaceTestBase
         };
 
         var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<BlackBoxStartOptions>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("SlowdownThreshold", StringComparison.Ordinal);
     }
@@ -43,7 +42,7 @@ public sealed class ValidationTests : ServerSurfaceTestBase
         };
 
         var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { MemoryPressureOptions = invalid }, cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<BlackBoxStartOptions>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("HighPressureThresholdPercent", StringComparison.Ordinal);
     }

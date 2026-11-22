@@ -7,6 +7,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -201,7 +202,7 @@ public sealed class JournalSegmentRollCapacityTests
         var notRefused = 0;
         for (var scenario = 0; scenario < ScenarioCount; scenario++)
         {
-            var backlog = new int[random.NextInt(0, 64)];
+            var backlog = new int[random.Next(0, 65)];
             var pendingBytes = 0L;
             for (var i = 0; i < backlog.Length; i++)
             {
@@ -210,8 +211,8 @@ public sealed class JournalSegmentRollCapacityTests
             }
 
             var frame = NextFrame(random, scenario % 3);
-            var active = random.NextLong(JournalFraming.FileHeaderSize, Segment);
-            var rollTargetCounted = random.NextInt(0, 2) == 0;
+            long active = random.Next(JournalFraming.FileHeaderSize, checked(Convert.ToInt32(Segment) + 1));
+            var rollTargetCounted = random.Next(0, 3) == 0;
             var rolls = SimulateRolls(active, backlog, frame, out var frameRolls);
             if (!frameRolls)
                 continue;
@@ -274,8 +275,8 @@ public sealed class JournalSegmentRollCapacityTests
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb });
 
         // A put of the largest entry and a reply at the gRPC limit, each with the most overhead a frame carries.
-        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.MaxEntrySizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
-        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.GrpcMaxSendMessageSizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
+        policy.EnsureFitsEmptySegmentOrThrow(EntryLimitKit.LargeFixtureBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
+        policy.EnsureFitsEmptySegmentOrThrow(EntryLimits.MaxSendMessageSizeBytes + JournalSegmentLimits.MaxFrameOverheadBytes);
         var whole = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
             policy,
             static value => value.EnsureFitsEmptySegmentOrThrow(JournalSegmentLimits.MinSegmentMb * OneMegabyte));
@@ -297,9 +298,9 @@ public sealed class JournalSegmentRollCapacityTests
     /// <returns>The frame length.</returns>
     private static int NextFrame(SplitMix64 random, int profile) => profile switch
     {
-        0 => random.NextInt(1, 4096),
-        1 => random.NextInt(Convert.ToInt32(Usable / 4L), Convert.ToInt32(Usable)),
-        _ => random.NextInt(0, 1) == 0 ? random.NextInt(1, 64) : random.NextInt(Convert.ToInt32(Usable / 2L) + 1, Convert.ToInt32(Usable / 2L) + 4096),
+        0 => random.Next(1, 4097),
+        1 => random.Next(Convert.ToInt32(Usable / 4L), Convert.ToInt32(Usable) + 1),
+        _ => random.Next(0, 2) == 0 ? random.Next(1, 65) : random.Next(Convert.ToInt32(Usable / 2L) + 1, Convert.ToInt32(Usable / 2L) + 4097),
     };
 
     /// <summary>Runs the journal thread's next-fit roll rule: roll when the active length plus the frame exceeds the segment size, and a new segment starts at the file header.</summary>
@@ -324,41 +325,5 @@ public sealed class JournalSegmentRollCapacityTests
 
         frameRolls = active + frame > Segment;
         return frameRolls ? added + 1L : added;
-    }
-
-    /// <summary>Deterministic SplitMix64 generator, so the simulation replays the same scenarios on every run.</summary>
-    [Mutable]
-    private sealed class SplitMix64
-    {
-        private ulong _state;
-
-        internal SplitMix64(ulong seed)
-        {
-            _state = seed;
-        }
-
-        /// <summary>Draws an integer in the inclusive range.</summary>
-        /// <param name="min">Smallest value.</param>
-        /// <param name="max">Largest value.</param>
-        /// <returns>The drawn value.</returns>
-        internal int NextInt(int min, int max) => Convert.ToInt32(NextLong(min, max));
-
-        /// <summary>Draws a long integer in the inclusive range.</summary>
-        /// <param name="min">Smallest value.</param>
-        /// <param name="max">Largest value.</param>
-        /// <returns>The drawn value.</returns>
-        internal long NextLong(long min, long max) => min + Convert.ToInt64(Next() % Convert.ToUInt64(max - min + 1L));
-
-        private ulong Next()
-        {
-            unchecked
-            {
-                _state += 0x9E3779B97F4A7C15UL;
-                var z = _state;
-                z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
-                z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
-                return z ^ (z >> 31);
-            }
-        }
     }
 }

@@ -1,10 +1,10 @@
 using System;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -22,17 +22,17 @@ public sealed class RoutingRefreshTests : ServerUnitTestBase
         var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
         var budget = new RerouteBudget(deadline, TimeProvider.System);
 
-        var first = new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm));
+        var first = new ServerCallException(FrameStatus.FailedPrecondition, RefusalCodes.StaleTerm);
         _ = await Assert.That(StaleTermClassifier.Classify(first)).IsEqualTo(StaleTermVerdict.Stale);
         _ = await Assert.That(budget.TryConsumeReroute()).IsTrue();
 
-        var second = new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm));
+        var second = new ServerCallException(FrameStatus.FailedPrecondition, RefusalCodes.StaleTerm);
         _ = await Assert.That(StaleTermClassifier.Classify(second)).IsEqualTo(StaleTermVerdict.Stale);
         _ = await Assert.That(budget.TryConsumeReroute()).IsFalse();
 
-        _ = await Assert.That(StaleTermClassifier.Classify(StatusCode.FailedPrecondition, "other-detail")).IsEqualTo(StaleTermVerdict.Current);
-        _ = await Assert.That(StaleTermClassifier.Classify(StatusCode.Unavailable, RefusalCodes.StaleTerm)).IsEqualTo(StaleTermVerdict.Current);
-        _ = await Assert.That(StaleTermClassifier.Classify(StatusCode.OK, RefusalCodes.StaleTerm)).IsEqualTo(StaleTermVerdict.Current);
+        _ = await Assert.That(StaleTermClassifier.Classify(FrameStatus.FailedPrecondition, "other-detail")).IsEqualTo(StaleTermVerdict.Current);
+        _ = await Assert.That(StaleTermClassifier.Classify(FrameStatus.Unavailable, RefusalCodes.StaleTerm)).IsEqualTo(StaleTermVerdict.Current);
+        _ = await Assert.That(StaleTermClassifier.Classify(FrameStatus.Ok, RefusalCodes.StaleTerm)).IsEqualTo(StaleTermVerdict.Current);
     }
 
     /// <summary>A budget built from the remaining time of an operation expires with it; one without a deadline never expires.</summary>

@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -30,9 +30,9 @@ public sealed class RingAgreementHealthCheckTests
     [Test]
     public async Task ReportsHealthyWithoutMismatch()
     {
-        var result = await new RingAgreementHealthCheck(CreateAgreement()).CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+        var result = await new RingAgreementHealthCheck(CreateAgreement()).CheckHealthAsync(CancellationToken.None);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Healthy);
     }
 
     /// <summary>Reports unhealthy and names the peer and direction once fenced.</summary>
@@ -42,9 +42,9 @@ public sealed class RingAgreementHealthCheckTests
         var agreement = CreateAgreement();
         agreement.ReportOutboundMismatch("n2");
 
-        var result = await new RingAgreementHealthCheck(agreement).CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+        var result = await new RingAgreementHealthCheck(agreement).CheckHealthAsync(CancellationToken.None);
 
-        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Status).IsEqualTo(ReadinessStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("'n2'", StringComparison.Ordinal);
         _ = await Assert.That(result.Description).Contains("outbound", StringComparison.Ordinal);
     }

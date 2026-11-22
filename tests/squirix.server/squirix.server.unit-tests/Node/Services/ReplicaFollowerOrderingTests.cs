@@ -3,10 +3,10 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -145,7 +145,7 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
             // term would end the leadership instead, and a failure after the frames were handed to the storage would latch the log.
             hooks.FailNextFrameScheduling(new ObjectDisposedException("Injected frame scheduling failure."));
             var failing = committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(failing.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(failing, HangGuard, TimeProvider.System, cancellationToken);
 
             var restarting = committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
             gateway.Release();

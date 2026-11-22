@@ -2,8 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -11,8 +9,10 @@ using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -39,7 +39,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-journal-expiry-replay";
 
-    private JournalReplayKit Kit => new(Dir, _testMeter);
+    private JournalReplayKit Kit => new(Dir);
 
     /// <summary>A relative-TTL add replays with its write-time deadline, not one re-anchored to the restart clock.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -79,7 +79,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(new FakeTimeProvider(Restart), CacheExpiryAuthority.CommittedRecords, cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry?.Value).IsEqualTo("later");
         _ = await Assert.That(entry?.ExpiresUtc).IsEqualTo(deadline);
     }
@@ -94,7 +94,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         var restart = new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero));
         var recovered = await Kit.RecoverAsync(restart, CacheExpiryAuthority.CommittedRecords, cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry?.ExpiresUtc).IsEqualTo(writeStart.Add(Ttl));
     }
 
@@ -124,7 +124,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(new FakeTimeProvider(Restart), cancellationToken);
 
-        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>A put record whose deadline already passed is skipped on replay instead of failing recovery.</summary>
@@ -150,7 +150,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
 
         var recovered = await Kit.RecoverAsync(new FakeTimeProvider(Restart), cancellationToken);
 
-        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>Replay judges a journaled deadline on the server clock: live before it on that clock, skipped after it.</summary>
@@ -165,49 +165,11 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
             cancellationToken);
 
         var live = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(written.WriteStart.AddMinutes(1), TimeSpan.Zero)), cancellationToken);
-        var liveEntry = await live.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var liveEntry = live.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         var expired = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(PastTtl), TimeSpan.Zero)), cancellationToken);
 
         _ = await Assert.That(liveEntry?.ExpiresUtc).IsEqualTo(written.WriteStart.Add(Ttl));
-        _ = await Assert.That(await expired.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
-    }
-
-    /// <summary>The local sweep drops an expired entry from memory without a journal frame, and the key stays absent after a restart.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A task that completes when the test has run.</returns>
-    [Test]
-    public async Task SweptEntryStaysAbsentAfterRestart(CancellationToken cancellationToken)
-    {
-        var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
-        var writeStart = clock.GetUtcNow().UtcDateTime;
-        await using (var session = await Kit.OpenAsync(clock, cancellationToken))
-        {
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), cancellationToken);
-            clock.Advance(PastTtl);
-
-            _ = await Assert.That(session.Physical.ExpiredKeys.RemoveExpired()).IsEqualTo(1);
-            ILocalCacheStats stats = session.Physical;
-            _ = await Assert.That(stats.EntryCount).IsEqualTo(0);
-        }
-
-        _ = await Assert.That(Kit.CountJournalRecords(cancellationToken)).IsEqualTo(1);
-        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero)), cancellationToken);
-        _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
-    }
-
-    /// <summary>A snapshot load judges a captured deadline on the server clock of the restart, not on the wall clock of the host.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SnapshotLoadJudgesExpiryOnServerClock(CancellationToken cancellationToken)
-    {
-        var writeStart = await Kit.WriteSnapshotThenTailAsync(TimeSpan.Zero, Ttl, static (_, _) => ValueTask.CompletedTask, cancellationToken);
-
-        var live = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.AddMinutes(1), TimeSpan.Zero)), cancellationToken);
-        var liveEntry = await live.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
-        var expired = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero)), cancellationToken);
-
-        _ = await Assert.That(liveEntry?.ExpiresUtc).IsEqualTo(writeStart.Add(Ttl));
-        _ = await Assert.That(await expired.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+        _ = await Assert.That(expired.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>A relative-TTL set replays with its write-time deadline, not one re-anchored to the restart clock.</summary>
@@ -245,10 +207,48 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         var restartClock = new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(PastTtl), TimeSpan.Zero));
         var recovered = await Kit.RecoverAsync(restartClock, cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.Value).IsEqualTo("v2");
         _ = await Assert.That(entry.ExpiresUtc).IsNull();
+    }
+
+    /// <summary>A snapshot load judges a captured deadline on the server clock of the restart, not on the wall clock of the host.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotLoadJudgesExpiryOnServerClock(CancellationToken cancellationToken)
+    {
+        var writeStart = await Kit.WriteSnapshotThenTailAsync(TimeSpan.Zero, Ttl, static (_, _) => ValueTask.CompletedTask, cancellationToken);
+
+        var live = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.AddMinutes(1), TimeSpan.Zero)), cancellationToken);
+        var liveEntry = live.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
+        var expired = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero)), cancellationToken);
+
+        _ = await Assert.That(liveEntry?.ExpiresUtc).IsEqualTo(writeStart.Add(Ttl));
+        _ = await Assert.That(expired.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+    }
+
+    /// <summary>The local sweep drops an expired entry from memory without a journal frame, and the key stays absent after a restart.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task SweptEntryStaysAbsentAfterRestart(CancellationToken cancellationToken)
+    {
+        var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
+        var writeStart = clock.GetUtcNow().UtcDateTime;
+        await using (var session = await Kit.OpenAsync(clock, cancellationToken))
+        {
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), cancellationToken);
+            clock.Advance(PastTtl);
+
+            _ = await Assert.That(session.Physical.ExpiredKeys.RemoveExpired()).IsEqualTo(1);
+            ILocalCacheStats stats = session.Physical;
+            _ = await Assert.That(stats.EntryCount).IsEqualTo(0);
+        }
+
+        _ = await Assert.That(Kit.CountJournalRecords(cancellationToken)).IsEqualTo(1);
+        var recovered = await Kit.RecoverAsync(new FakeTimeProvider(new DateTimeOffset(writeStart.Add(PastTtl), TimeSpan.Zero)), cancellationToken);
+        _ = await Assert.That(recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>A touch replays with its write-time deadline, not one re-anchored to the restart clock.</summary>
@@ -301,7 +301,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         var restartClock = new FakeTimeProvider(new DateTimeOffset(written.WriteStart.Add(Downtime), TimeSpan.Zero));
         var recovered = await Kit.RecoverAsync(restartClock, cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(deadline);
     }

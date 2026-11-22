@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -12,6 +10,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -42,8 +41,6 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
             Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
             Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
-        var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
-        _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
         var coordinator = new Coordinator(
             opt,
             journal,
@@ -51,12 +48,9 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 captureExpectations.Instance(),
                 writerExpectations.Instance(),
                 store,
-                exporterExpectations.Instance(),
                 "test-node",
                 NoOpSnapshotTelemetry.Instance),
             TimeProvider.System);
-        var published = new StrongBox<int>(0);
-        coordinator.SnapshotCompleted += (_, _) => Interlocked.Increment(ref published.Value);
 
         // A start gate releases every caller at once so all of them evaluate the shared trigger
         // state before the single-flight CAS admits a winner.
@@ -64,28 +58,28 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
         var tasks = StartSnapshotCallers(coordinator, journal, gate, 16, cancellationToken);
 
         gate.Set();
-        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var results = await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(Volatile.Read(ref published.Value)).IsEqualTo(1);
+        _ = await Assert.That(Array.FindAll(results, static published => published).Length).IsEqualTo(1);
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot?.Index).IsEqualTo(1);
     }
 
-    private static async Task RunGatedSnapshotAsync(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, CancellationToken cancellationToken)
+    private static async Task<bool> RunGatedSnapshotAsync(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, CancellationToken cancellationToken)
     {
         _ = gate.Wait(TimeSpan.FromSeconds(5), cancellationToken);
-        _ = await coordinator.SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
+        return await coordinator.SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 
-    private static Task[] StartSnapshotCallers(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, int count, CancellationToken cancellationToken)
+    private static Task<bool>[] StartSnapshotCallers(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, int count, CancellationToken cancellationToken)
     {
-        var tasks = new Task[count];
+        var tasks = new Task<bool>[count];
         for (var i = 0; i < tasks.Length; i++)
             tasks[i] = StartCallerAsync();
 
         return tasks;
 
-        Task StartCallerAsync()
+        Task<bool> StartCallerAsync()
         {
             return Task.Factory.StartNew(
                 () => RunGatedSnapshotAsync(coordinator, journal, gate, cancellationToken),

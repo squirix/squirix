@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -70,7 +70,7 @@ public sealed class LedgerDisposeTests : IsolatedStorageTestBase
             probe.Release();
         }
 
-        _ = await Assert.That(log.Find(ManifestPublisherLeakedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(log.Find(ManifestPublisherLeakedEventId)?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(await refused.Task.WaitAsync(cancellationToken)).IsTypeOf<ObjectDisposedException>();
     }
 

@@ -11,27 +11,22 @@ internal sealed class CoordinatorDependencies
         ISnapshotEntryCapture entryCapture,
         ISnapshotWriter snapWriter,
         Ledger manifestStore,
-        IIdempotencySnapshotExporter idempotency,
         string nodeId,
         ISnapshotTelemetry telemetry)
     {
         ArgumentNullException.ThrowIfNull(entryCapture);
         ArgumentNullException.ThrowIfNull(snapWriter);
         ArgumentNullException.ThrowIfNull(manifestStore);
-        ArgumentNullException.ThrowIfNull(idempotency);
         ArgumentNullException.ThrowIfNull(nodeId);
         ArgumentNullException.ThrowIfNull(telemetry);
         EntryCapture = entryCapture;
         SnapWriter = snapWriter;
         Ledger = manifestStore;
-        Idempotency = idempotency;
         NodeId = nodeId;
         Telemetry = telemetry;
     }
 
     internal ISnapshotEntryCapture EntryCapture { get; }
-
-    internal IIdempotencySnapshotExporter Idempotency { get; }
 
     internal Ledger Ledger { get; }
 

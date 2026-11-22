@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -82,7 +82,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
         await journal.Journal.AppendPutUnderGateAsync(key, Payload, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
         var writerDisposedWhileStalled = journal.Writer.DisposeCount;
         journal.Writer.Flush.Release();
         await journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -110,7 +110,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         var parked = journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("parked"), Payload, cancellationToken).AsTask();
         await WaitUntilAsync(() => journal.Journal.PendingAppends.PendingCount > RingCapacity + 1, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
         var writerDisposedOnFullRing = journal.Writer.DisposeCount;
         var timedOutStages = log.Count(QuiescenceTimedOutEventId) + log.Count(MarkerTimedOutEventId);
         journal.Writer.Write.Release();
@@ -168,7 +168,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
 
         var stop = journal.Journal.StopAsync().AsTask();
         var dispose = journal.Journal.DisposeAsync().AsTask();
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(stop, StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.Release();
         await dispose.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
@@ -209,11 +209,11 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
 
         await journal.Journal.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var logged = log.Find(StopFailedOnDisposeEventId);
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.Journal.StopAsync().AsTask(), StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.Release();
         await journal.Journal.StopAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(logged?.Level).IsEqualTo(ServerLogLevel.Error);
         _ = await Assert.That(logged?.Cause).IsTypeOf<TimeoutException>();
         _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);
     }
@@ -258,7 +258,7 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
 
     /// <summary>Records every entry and signals the first one with a watched event id.</summary>
     [ThreadSafe]
-    private sealed class SignalingLogger : ILogger
+    private sealed class SignalingLogger : IServerLogger
     {
         private readonly TaskCompletionSource _signaled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly int _watchedEventId;
@@ -281,9 +281,9 @@ public sealed class JournalStopTests : IsolatedStorageTestBase
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             Recorded.Log(logLevel, eventId, state, exception, formatter);
             if (eventId.Id != _watchedEventId)

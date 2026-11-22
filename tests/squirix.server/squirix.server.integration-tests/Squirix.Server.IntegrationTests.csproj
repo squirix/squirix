@@ -5,12 +5,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Grpc.Net.Client"/>
-        <PackageReference Include="Google.Protobuf"/>
         <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
         <PackageReference Include="Microsoft.IdentityModel.Tokens"/>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
     </ItemGroup>
 
     <ItemGroup>

@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -28,7 +27,7 @@ internal static class JournalRecoveryScan
     internal static ulong DetermineNextSequence(State manifest, PersistenceOptions options)
     {
         var next = ResolveBaselineNextSequence(manifest);
-        var (firstAvailableSegment, lastAvailableSegment) = ProbeAvailableSegments(options.DataDir);
+        var (firstAvailableSegment, lastAvailableSegment) = JournalReader.GetSegmentRange(options.DataDir);
         var manifestCurrentJournal = manifest.CurrentJournal > 0 ? manifest.CurrentJournal : 1;
         ThrowIfJournalOnlyTopologyDisjoint(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
@@ -139,7 +138,7 @@ internal static class JournalRecoveryScan
 
         var firstFrame = JournalFrameReader.ReadNext(handle, JournalFraming.FileHeaderSize, length, out var rentedBuffer, out _);
         if (rentedBuffer != null)
-            ArrayPool<byte>.Shared.ReturnCleared(rentedBuffer);
+            PayloadBuffer.Release(rentedBuffer);
 
         return firstFrame.Status == JournalFrameReadStatus.Success
             ? HeaderState.Damaged
@@ -241,21 +240,6 @@ internal static class JournalRecoveryScan
                     throw new InvalidOperationException($"Unsupported frame read status {read.Status}.");
             }
         }
-    }
-
-    private static (int FirstAvailableSegment, int LastAvailableSegment) ProbeAvailableSegments(string dataDir)
-    {
-        var firstAvailableSegment = 0;
-        var lastAvailableSegment = 0;
-        foreach (var segment in JournalReadPath.EnumerateSegments(dataDir, 1))
-        {
-            if (firstAvailableSegment == 0)
-                firstAvailableSegment = segment.Index;
-
-            lastAvailableSegment = segment.Index;
-        }
-
-        return (firstAvailableSegment, lastAvailableSegment);
     }
 
     private static void RepairTornTailIfNeeded(IJournalSegmentWriter writer, string path, ref List<JournalRepair>? repairs)

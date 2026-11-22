@@ -3,39 +3,40 @@ using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using JetBrains.Annotations;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Composition;
+using Squirix.Server.Logging;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
-/// <summary>Cluster-owned DI registrations for static topology location (no child-namespace types).</summary>
+/// <summary>Cluster-owned component registrations for static topology location (no child-namespace types).</summary>
 internal static class RuntimeServiceRegistration
 {
-    /// <summary>Extension methods that register cluster locator services on <see cref="IServiceCollection" />.</summary>
+    /// <summary>Extension methods that register cluster locator services on <see cref="NodeServices" />.</summary>
     /// <param name="services">The service collection to register locators on.</param>
-    extension(IServiceCollection services)
+    extension(NodeServices services)
     {
         /// <summary>Registers static topology node location, ownership resolution, and the static leader table.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
+        /// <param name="valueLimitBytes">The maximum serialized value admitted by the node.</param>
         /// <remarks>
         /// The static leader table is added only when no table is registered yet; a node whose groups an election leads replaces it with the
         /// table of its election state afterwards.
         /// </remarks>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
+        internal NodeServices AddSquirixClusterLocator(TopologyOptions cluster, int valueLimitBytes = 0)
         {
             var nodeIds = GetPeerNodeIds(cluster);
-            _ = services.AddSingleton<INodeLocator>(new ConsistentHashRing(nodeIds, cluster.VirtualNodes));
-            _ = services.AddSingleton(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
-            _ = services.AddSingleton(static sp => new RingAgreement(sp.GetRequiredService<RingFingerprint>(), sp.GetRequiredService<ILogger<RingAgreement>>()));
-            _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
-                sp.GetRequiredService<INodeLocator>(),
-                sp.GetRequiredService<TopologyOptions>()));
-            services.TryAddSingleton<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
+            _ = services.Use<INodeLocator>(new ConsistentHashRing(nodeIds, cluster.VirtualNodes));
+            _ = services.Use(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes, valueLimitBytes));
+            _ = services.Own(static sp => new RingAgreement(sp.Require<RingFingerprint>(), sp.Require<IServerLoggerFactory>().CreateLogger<RingAgreement>()));
+            _ = services.Own<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
+                sp.Require<INodeLocator>(),
+                sp.Require<TopologyOptions>()));
+            services.UseDefault<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
             return services;
         }
     }
@@ -74,8 +75,7 @@ internal static class RuntimeServiceRegistration
         private const byte VNodeSeparator = 35;
 
         /// <summary>The thread's last lookup, scoped by ring identity to prevent reuse across topology instances.</summary>
-        [ThreadStatic]
-        private static (ConsistentHashRing? Ring, string? CacheName, string? Key, string? Owner) _lastOwner;
+        private static readonly ThreadLocal<(ConsistentHashRing? Ring, string? CacheName, string? Key, string? Owner)> LastOwner = new();
 
         private readonly ImmutableArray<(ulong Hash, string Node)> _items;
 
@@ -113,14 +113,14 @@ internal static class RuntimeServiceRegistration
 
         private static string ResolveOwner(ConsistentHashRing ring, string cacheName, string key)
         {
-            var (previousRing, previousCache, previousKey, previousOwner) = _lastOwner;
-            if (ReferenceEquals(previousRing, ring) && ReferenceEquals(previousCache, cacheName) && ReferenceEquals(previousKey, key) && previousOwner is { } cached)
-                return cached;
+            var (previousRing, previousCache, previousKey, previousOwner) = LastOwner.Value;
+            if (ReferenceEquals(previousRing, ring) && ReferenceEquals(previousCache, cacheName) && ReferenceEquals(previousKey, key) && previousOwner != null)
+                return previousOwner;
 
             var kh = HashCacheRouteKey(cacheName, key);
             var idx = ring.FindFirstGreaterOrEqual(kh);
             var owner = ring._items[idx].Node;
-            _lastOwner = (ring, cacheName, key, owner);
+            LastOwner.Value = (ring, cacheName, key, owner);
             return owner;
         }
 
@@ -236,7 +236,7 @@ internal static class RuntimeServiceRegistration
 
         internal NodeOwnershipResolver(INodeLocator locator, TopologyOptions options)
         {
-            // No options guard: the only caller feeds GetRequiredService (never null, throws first),
+            // No options guard: the only caller feeds a required component,
             // and an untestable guard would sink new-code coverage below the Sonar gate.
             ArgumentNullException.ThrowIfNull(locator);
             _locator = locator;

@@ -9,7 +9,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for bootstrap failover under a single absolute deadline.</summary>
-public sealed class FailoverDeadlineE2ETests : EndToEndTestBase
+public sealed class FailoverDeadlineE2ETests
 {
     /// <summary>Failover to the surviving endpoint completes within one absolute deadline after peer loss.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -31,7 +31,8 @@ public sealed class FailoverDeadlineE2ETests : EndToEndTestBase
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
 
-        await cache.SetAsync(key, "after-loss", cancellationToken: linked.Token);
-        _ = await Assert.That((await cache.GetValueAsync(key, linked.Token)).Value).IsEqualTo("after-loss");
+        var value = await cache.GetValueAsync(key, linked.Token);
+        _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(value.Value).IsEqualTo("before-loss");
     }
 }

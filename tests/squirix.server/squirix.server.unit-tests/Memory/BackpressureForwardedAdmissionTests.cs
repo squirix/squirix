@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -162,7 +161,7 @@ public sealed class BackpressureForwardedAdmissionTests : DisposableServerUnitTe
 
         var pending = gate.AcquireAsync("grpc", "get", Forwarded, cancellationToken).AsTask();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pending);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <inheritdoc />

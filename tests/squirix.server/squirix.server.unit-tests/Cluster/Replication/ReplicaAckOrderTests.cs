@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -109,7 +109,7 @@ public sealed class ReplicaAckOrderTests
             var secondCommit = CommitAsync(coordinator, second, ShortBudget, cancellationToken);
             await pipeline.StartedAsync(2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             clock.Advance(ShortBudget);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit, HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(error.Message).StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         }
@@ -142,7 +142,7 @@ public sealed class ReplicaAckOrderTests
             var secondCommit = CommitAsync(coordinator, second, ShortBudget, cancellationToken);
             await pipeline.StartedAsync(2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             clock.Advance(ShortBudget);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit, HangGuard, TimeProvider.System, cancellationToken);
 
             pipeline.Answer(1, first);
 

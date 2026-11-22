@@ -2,38 +2,37 @@
 <NDepend>
   <Queries>
     <CustomJustMyCodeQueries>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport types from JustMyCode</Name>
-// Share-sourced wire types and protobuf-generated service contracts are not product-layer code.
-// Removes Squirix.Transport.Grpc* from JustMyCode for all rules (including ND2016 Try* methods).
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared wire transport types from JustMyCode</Name>
+// The shared wire protocol is compiled into both packages so neither depends on the other.
+// Removes Squirix.Transport.Wire* from JustMyCode for all rules (including ND2016 Try* methods).
 notmycode
 from t in Types
-where t.FullNameLike("Squirix.Transport.Grpc*")
+where t.FullNameLike("Squirix.Transport.Wire*") ||
+      ((t.FullName == "Squirix.Transport.Binary.Frames" || t.FullName == "Squirix.Transport.Binary.FrameStatus") &&
+       t.SourceFileDeclAvailable &&
+       t.SourceDecls.Any(s => s.SourceFile.FilePath.ToString().Replace('/', '\\').Contains("\\shared\\Squirix\\Transport\\Binary\\")))
 select t]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport methods from JustMyCode</Name>
-// Explicit method discard so rules that enumerate Methods (for example ND2016) never see
-// protobuf client stubs such as SquirixCacheService+SquirixCacheServiceClient.TryAddEntry.
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared wire transport methods from JustMyCode</Name>
+// Method queries need their own exclusion for shared wire types.
 notmycode
 from m in Methods
 where m.ParentType != null &&
-      m.ParentType.FullNameLike("Squirix.Transport.Grpc*")
+      m.ParentType.FullNameLike("Squirix.Transport.Wire*")
 select m]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport fields from JustMyCode</Name>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared wire transport fields from JustMyCode</Name>
 notmycode
 from f in Fields
 where f.ParentType != null &&
-      f.ParentType.FullNameLike("Squirix.Transport.Grpc*")
+      f.ParentType.FullNameLike("Squirix.Transport.Wire*")
 select f]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
-// Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
-// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**,
+// Exclude generated wire messages, Roslyn outputs, and common generated folders.
+// Examples: CacheMessages.g.cs, ReplicaMessages.g.cs, **/*.g.cs, **/Generated/**,
 // obj/**/Rocks.Analysis/**/*_Rock_*.g.cs (Rocks mocks).
 // Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith(".pb.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
     filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
@@ -46,9 +45,6 @@ select t]]></Query>
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith(".pb.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
     filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
@@ -61,9 +57,6 @@ select m]]></Query>
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith(".pb.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
-    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
     filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
@@ -78,7 +71,6 @@ from t in Types
 where t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
 select t]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute methods from JustMyCode</Name>
-// Grpc.Tools tags generated RPC stubs on the method (grpc_csharp_plugin), not always on the declaring type.
 notmycode
 from m in Methods
 where m.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
@@ -130,7 +122,9 @@ select m]]></Query>
 // RootNamespace (ND2103) and other naming rules should not gate sample harnesses.
 notmycode
 from a in Application.Assemblies.WithNameIn(
-      "ExternalPackageSmoke")
+      "ExternalPackageSmoke",
+      "AspNetSharedCache",
+      "DockerClient")
 select a]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard unit-test assemblies from cohesion / SCA gates</Name>
 // Test harness cohesion and transitive SCA hits are not product-layer debt.
@@ -144,6 +138,7 @@ from a in Application.Assemblies.WithNameIn(
       "Squirix.Server.IntegrationTests",
       "Squirix.E2ETests",
       "Squirix.ProtocolModel.Tests",
+      "Squirix.Extensions.Caching.UnitTests",
       "Squirix.Benchmarks",
       "Squirix.Server.Benchmarks",
       "Squirix.E2EBenchmarks")
@@ -196,7 +191,7 @@ select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Q
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2016" Group="Naming Conventions"><![CDATA[// <Name>Methods prefixed with 'Try' should return a boolean</Name>
 // <Id>ND2016:MethodsPrefixedWithTryShouldReturnABoolean</Id>
 // ND2016 squirix override: stock rule uses Application.Methods and ignores notmycode.
-// JustMyCode excludes protobuf/gRPC generated Try* RPC stubs via notmycode queries above.
+// JustMyCode excludes shared wire and generated methods through the notmycode queries above.
 warnif count > 0
 from m in JustMyCode.Methods
 where m.SimpleNameLike("^Try") &&
@@ -297,12 +292,12 @@ select new { assembly, @using }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1305" Group="Design"><![CDATA[// <Name>Avoid namespaces with few types</Name>
 // <Id>ND1305:AvoidNamespacesWithFewTypes</Id>
 // ND1305 squirix override: count only non-generated (real) types per namespace.
-// Autogenerated namespaces (gRPC/protobuf/tools *.g.cs) are excluded from the
+// Autogenerated namespaces (wire and tooling *.g.cs) are excluded from the
 // decomposition heuristic. Squirix.Client is the exported v0.1 client surface
 // (intentionally small public API) and is also excluded.
 warnif count > 0
 from n in Application.Namespaces
-where n.Name != "Squirix.Client" && !n.Name.Contains(".Grpc.")
+where n.Name != "Squirix.Client" && !n.Name.Contains(".Wire.")
 let realTypeCount = JustMyCode.Types.Count(t => t.ParentNamespace != null && t.ParentNamespace.FullName == n.FullName)
 where realTypeCount > 0 && realTypeCount <= 3
 select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.Low }]]></Query>
@@ -310,7 +305,7 @@ select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Se
 // <Id>ND1409:AvoidMutuallyDependentTypes</Id>
 // ND1409 squirix override: scope to JustMyCode. Stock rule matches on
 // Application.* and ignores notmycode, so Roslyn source-generator outputs
-// (Rocks *_Rock_Create.g.cs mocks in obj/, protobuf/gRPC *.g.cs) and test
+// (Rocks *_Rock_Create.g.cs mocks in obj/, generated wire *.g.cs) and test
 // assemblies surface as architecture debt. Method-level mutual usage in both
 // directions mirrors the stock rule (t1MethodsUsingT2 / t2MethodsUsingT1).
 // Two legitimate idioms are excluded: nested types (implementation details reviewed
@@ -369,6 +364,29 @@ select new {
    namespaces = types.Except(tMatched).Select(t => t.ParentNamespace).Distinct(n => n.Name),
    Debt = 10.ToMinutes().ToDebt(), Severity = Severity.High
 }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2204" Group="System"><![CDATA[// <Name>Remove calls to GC.Collect()</Name>
+// <Id>ND2204:RemoveCallsToGCCollect</Id>
+// ND2204 squirix override: honor the existing JustMyCode boundary.
+// Retention tests deliberately collect unreachable objects to assert WeakReference liveness.
+// Product methods still match every GC.Collect overload with the stock severity and debt.
+warnif count > 0
+from m in JustMyCode.Methods
+let gcCollectMethodCalled = m.MethodsCalled.Where(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "Collect")
+where gcCollectMethodCalled.Any()
+select new { m, gcCollectMethodCalled, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2205" Group="System"><![CDATA[// <Name>Don't call GC.Collect() without calling GC.WaitForPendingFinalizers()</Name>
+// <Id>ND2205:DontCallGCCollectWithoutCallingGCWaitForPendingFinalizers</Id>
+// ND2205 squirix override: honor the existing JustMyCode boundary.
+// Retention tests deliberately collect unreachable objects to assert WeakReference liveness.
+// Product methods still match every GC.Collect overload with the stock severity and debt.
+warnif count > 0
+from m in JustMyCode.Methods
+let gcCollectMethodCalled = m.MethodsCalled.Where(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "Collect")
+where gcCollectMethodCalled.Any()
+   && !m.MethodsCalled.Any(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "WaitForPendingFinalizers")
+select new { m, gcCollectMethodCalled, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
     </CustomRuleOverrides>
   </Queries>
 </NDepend>

@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
@@ -73,7 +72,7 @@ public sealed class ReplicaVoteGatewayTests : NodeIntegrationTestBase
 
     /// <summary>Replaces the group log maintenance schedule, so no pass rewrites the voter metadata within the test.</summary>
     /// <param name="services">The node service collection.</param>
-    private static void SetManualMaintenance(IServiceCollection services)
+    private static void SetManualMaintenance(TestServiceCollection services)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {

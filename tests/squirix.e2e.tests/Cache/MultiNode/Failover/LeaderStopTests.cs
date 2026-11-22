@@ -15,7 +15,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// read through the SDK within the recovery bound, no acknowledged write is lost, reads stay linearizable, no term has two leaders, and the
 /// survivors keep one committed log with every client operation in it once.
 /// </summary>
-public sealed class LeaderStopTests : EndToEndTestBase
+public sealed class LeaderStopTests
 {
     private const string CacheName = "leader-stop";
 
@@ -90,8 +90,8 @@ public sealed class LeaderStopTests : EndToEndTestBase
                 _ = await Assert.That(second.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
                 _ = await Assert.That(second.Acked).IsEqualTo(leader).Because(dump);
                 _ = await Assert.That(second.StoppedWhileAcked).IsTrue().Because(dump);
-                _ = await Assert.That(first.Workload.History.Check()).IsEmpty().Because(first.Workload.History.Summary());
-                _ = await Assert.That(second.Workload.History.Check()).IsEmpty().Because(second.Workload.History.Summary());
+                _ = await Assert.That(first.Workload.History.Check(cancellationToken)).IsEmpty().Because(first.Workload.History.Summary());
+                _ = await Assert.That(second.Workload.History.Check(cancellationToken)).IsEmpty().Because(second.Workload.History.Summary());
                 _ = await Assert.That(FailoverFault.CoversAfter(first.Workload.History, elected)).IsTrue().Because(first.Workload.History.Summary() + dump);
                 _ = await Assert.That(FailoverFault.CoversAfter(second.Workload.History, second.Down)).IsTrue().Because(second.Workload.History.Summary() + dump);
                 _ = await Assert.That(leader.Term).IsGreaterThan(formerTerm).Because(dump);
@@ -140,7 +140,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
                 _ = await Assert.That(run.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
                 _ = await Assert.That(run.Acked.Term).IsGreaterThan(formerTerm).Because(dump);
                 _ = await Assert.That(survivors).Contains(run.Acked.NodeId).Because(dump);
-                _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
+                _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because(history.Summary());
                 _ = await Assert.That(FailoverFault.CoversAfter(history, timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue)).IsTrue().Because(history.Summary() + dump);
                 _ = await Assert.That(survivors).Contains(leader).Because(dump);
                 _ = await Assert.That(term).IsGreaterThan(formerTerm).Because(dump);

@@ -26,7 +26,7 @@ public sealed class OptionsTests
         var o = new PersistenceOptions();
 
         _ = await Assert.That(o.DataDir).IsEqualTo(string.Empty);
-        _ = await Assert.That(o.JournalMaxSegmentMb).IsEqualTo(64);
+        _ = await Assert.That(o.EffectiveJournalMaxSegmentMb).IsEqualTo(64);
         _ = await Assert.That(o.JournalMaxSegmentCount).IsEqualTo(32);
         _ = await Assert.That(o.JournalMaxTotalBytesMb).IsEqualTo(2048);
         _ = await Assert.That(o.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
@@ -60,7 +60,7 @@ public sealed class OptionsTests
             JournalMaxSegmentMb = 1,
         };
 
-        _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(1);
+        _ = await Assert.That(options.EffectiveJournalMaxSegmentMb).IsEqualTo(1);
     }
 
     /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
@@ -125,7 +125,7 @@ public sealed class OptionsTests
         _ = await Assert.That(overridden.DataDir).IsEqualTo("/var/lib/squirix");
 
         // Unchanged defaults
-        _ = await Assert.That(overridden.JournalMaxSegmentMb).IsEqualTo(defaults.JournalMaxSegmentMb);
+        _ = await Assert.That(overridden.EffectiveJournalMaxSegmentMb).IsEqualTo(defaults.EffectiveJournalMaxSegmentMb);
         _ = await Assert.That(overridden.JournalWriteBatch).IsEqualTo(defaults.JournalWriteBatch);
     }
 
