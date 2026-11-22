@@ -51,6 +51,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     /// <summary>Gets the number of admitted requests holding a slot.</summary>
     internal int InFlight => Volatile.Read(ref _inFlight);
 
+    internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
     /// <summary>Gets the number of requests waiting for slowdown or a node slot.</summary>
     internal int QueueDepth => Volatile.Read(ref _queueDepth);
 
@@ -105,7 +107,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private (Decision Decision, Lease Lease)? ResolveImmediateAdmission(string transport, string operation, string clientId, CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(transport);
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);

@@ -68,6 +68,7 @@ internal static class RuntimeServiceRegistration
             _ = services.Own<IRemoteInvocationScopeFactory>(static sp => sp.Require<RemoteInvocationContextAccessor>());
             _ = services.Own<IRemoteInvocationState>(static sp => sp.Require<RemoteInvocationContextAccessor>());
             _ = services.Own(static _ => new BinaryRequestAccessor());
+            _ = services.Own<IRoutedKeyContext>(static sp => sp.Require<BinaryRequestAccessor>());
             return services;
         }
 
@@ -157,7 +158,10 @@ internal static class RuntimeServiceRegistration
         sp.Require<IGroupLeaderTable>(),
         (sp.Find<ElectionTimerOptions>() ?? new ElectionTimerOptions()).LeaderWaitTimeout,
         sp.Require<TimeProvider>(),
-        sp.Require<IReplicaGroupLocator>());
+        sp.Require<IReplicaGroupLocator>())
+    {
+        KeyContext = sp.Require<IRoutedKeyContext>(),
+    };
 
     /// <summary>DI-backed accessor for <see cref="RemoteInvocationContext" /> async-local state.</summary>
     [Immutable]

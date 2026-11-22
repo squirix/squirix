@@ -98,7 +98,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         TState state,
         CancellationToken cancellationToken)
     {
-        var (decision, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
+        var (decision, lease) = await InboundAdmissionScope.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clientIdResolver, cancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 
@@ -113,7 +113,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         TState state,
         CancellationToken cancellationToken)
     {
-        var (decision, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
+        var (decision, lease) = await InboundAdmissionScope.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clientIdResolver, cancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 

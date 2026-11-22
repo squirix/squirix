@@ -46,6 +46,7 @@ internal sealed class RoutedCacheOperations<T>
         private readonly OwnerRpcForwarder _forwarder;
         private readonly OwnerRouter _router;
         private readonly TimeProvider _timeProvider;
+        private readonly IRoutedKeyContext? _keyValidation;
 
         internal ReadOperations(IInboundEndpointCacheOperations<T> cacheOperations, OwnerRouter router, OwnerRpcForwarder forwarder, TimeProvider timeProvider, IDistributedCacheAccess? distributedAccess)
         {
@@ -54,6 +55,7 @@ internal sealed class RoutedCacheOperations<T>
             _forwarder = forwarder;
             _timeProvider = timeProvider;
             _distributedAccess = distributedAccess;
+            _keyValidation = router.KeyContext;
         }
 
         internal Task<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -103,7 +105,7 @@ internal sealed class RoutedCacheOperations<T>
         private Task<GetDistributedAsyncResponse> AccessDistributedLocalAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
         {
             var cache = SquirixServiceAdapterValidation.RequireCacheName(cacheName);
-            SquirixServiceAdapterValidation.RequireValidCacheKey(key);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(key, _keyValidation);
             var access = _distributedAccess ??
                          ThrowHelper.Throw<IDistributedCacheAccess>(new ServerCallException(FrameStatus.Unimplemented, "Distributed cache access is unavailable."));
             return access.AccessAsync(operationId, cache, key, refresh, cancellationToken);
@@ -113,7 +115,7 @@ internal sealed class RoutedCacheOperations<T>
 
         private async Task<GetEntryAsyncResponse> GetEntryLocalAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken)
         {
-            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
             var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, cancellationToken).ConfigureAwait(false);
             if (entry == null)
                 return new GetEntryAsyncResponse { Found = false };
@@ -127,7 +129,7 @@ internal sealed class RoutedCacheOperations<T>
 
         private async Task<GetExpirationAsyncResponse> GetExpirationLocalAsync(GetExpirationAsyncRequest request, CancellationToken cancellationToken)
         {
-            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
             var read = await ApiForRequest(request.CacheName).GetValueWithDeadlineAsync(request.Key, cancellationToken).ConfigureAwait(false);
             if (!read.Found)
                 return new GetExpirationAsyncResponse { Found = false };
@@ -143,7 +145,7 @@ internal sealed class RoutedCacheOperations<T>
 
         private async Task<GetValueAsyncResponse> GetValueLocalAsync(GetValueAsyncRequest request, CancellationToken cancellationToken)
         {
-            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
             var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             var response = new GetValueAsyncResponse { Found = result.Found };
             if (result.Found)
@@ -173,7 +175,7 @@ internal sealed class RoutedCacheOperations<T>
         {
             _router = router;
             _forwarder = forwarder;
-            _handlers = new MutationHandlers(cacheOperations, replicated, journal);
+            _handlers = new MutationHandlers(cacheOperations, replicated, journal, router.KeyContext);
         }
 
         internal Task<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -255,12 +257,14 @@ internal sealed class RoutedCacheOperations<T>
 
             private readonly bool _replicated;
             private readonly IJournalCoordinator? _journal;
+            private readonly IRoutedKeyContext? _keyValidation;
 
-            internal MutationHandlers(IInboundEndpointCacheOperations<T> cacheOperations, bool replicated, IJournalCoordinator? journal)
+            internal MutationHandlers(IInboundEndpointCacheOperations<T> cacheOperations, bool replicated, IJournalCoordinator? journal, IRoutedKeyContext? keyValidation)
             {
                 _cacheOperations = cacheOperations;
                 _replicated = replicated;
                 _journal = journal;
+                _keyValidation = keyValidation;
             }
 
             internal async Task<TryAddAsyncResponse> AddEntryAsyncCoreAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken)
@@ -270,7 +274,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
 
                 var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(
                     operationId,
@@ -287,7 +291,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
                 var api = _cacheOperations.ForCache(cacheName);
 
                 // The add runs first, with the operation id: a retry whose RPC record is gone replays the recorded outcome of the add instead
@@ -314,7 +318,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
 
                 var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(operationId, request.Key, cancellationToken)
                                                    .ConfigureAwait(false);
@@ -328,7 +332,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
 
                 var found = await _cacheOperations.ForCache(cacheName)
                                                   .RemoveExpirationAsync(operationId, request.Key, cancellationToken)
@@ -343,7 +347,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
                 var policy = new DistributedCachePolicy(request.HasExpiresAtUnixMs ? request.ExpiresAtUnixMs : null, request.HasSlidingTicks ? request.SlidingTicks : null);
                 long? ttl = request.HasTtlTicks ? request.TtlTicks : null;
                 if (!policy.IsValid() || ttl is <= 0)
@@ -368,7 +372,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
 
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                     operationId,
@@ -385,7 +389,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
 
                 var found = await _cacheOperations.ForCache(cacheName).TouchAsync(
                     operationId,
@@ -402,7 +406,7 @@ internal sealed class RoutedCacheOperations<T>
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
 
                 var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
                     operationId,

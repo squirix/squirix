@@ -135,11 +135,13 @@ internal static class CachePipelineRegistration
                 sp.Require<INodeLocator>(),
                 leaders,
                 leaders is not StaticLeaderTable,
-                sp.Require<BackpressureCacheDecorator<object?>>());
+                sp.Require<BackpressureCacheDecorator<object?>>(),
+                sp.Find<IRoutedKeyContext>());
         });
         _ = services.Own(static sp => new ValidationCacheDecorator<object?>(
             sp.Require<OwnershipGuardCacheDecorator<object?>>(),
-            EntryLimits.ValueBytes(sp.Require<FeatureState>().NetworkReplicationEnabled)));
+            EntryLimits.ValueBytes(sp.Require<FeatureState>().NetworkReplicationEnabled),
+            sp.Find<IRoutedKeyContext>()));
         _ = services.Own(static sp => new DomainErrorMappingCacheDecorator<object?>(sp.Require<ValidationCacheDecorator<object?>>()));
         _ = services.Own(static sp => new TracingCacheDecorator<object?>(
             sp.Require<DomainErrorMappingCacheDecorator<object?>>(),

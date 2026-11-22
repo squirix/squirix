@@ -85,6 +85,8 @@ internal sealed class OwnerRouter
         _replicaGroups = replicaGroups;
     }
 
+    internal IRoutedKeyContext? KeyContext { get; init; }
+
     /// <summary>Runs a single-key call on this node or forwards it to the leader of the key's group.</summary>
     /// <typeparam name="TState">The state the call delegates read.</typeparam>
     /// <typeparam name="TResponse">The response type.</typeparam>
@@ -113,10 +115,17 @@ internal sealed class OwnerRouter
         ArgumentNullException.ThrowIfNull(forward);
         ArgumentNullException.ThrowIfNull(local);
         _ringAgreement.EnsureNotFenced();
-        if (!ServerCacheName.TryParsePublic(cacheName, out var canonicalName) || !CacheKeyValidator.TryValidate(key, out _))
+        if (!ServerCacheName.TryParsePublic(cacheName, out var canonicalName))
             return local(state, cancellationToken);
 
+        if (!CacheKeyValidator.TryValidate(key, out var error))
+        {
+            KeyContext?.RecordRoute(canonicalName, key, error, null);
+            return local(state, cancellationToken);
+        }
+
         var groupId = _ownershipResolver.GetOwner(canonicalName, key);
+        KeyContext?.RecordRoute(canonicalName, key, null, groupId);
         var route = ResolveNow(groupId);
 
         // An internal call is itself the single hop: it runs here or is refused. Elected right before it, this node may still wait for its own

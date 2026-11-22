@@ -18,52 +18,54 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly int _valueLimit;
+    private readonly IRoutedKeyContext? _keyValidation;
 
-    internal ValidationCacheDecorator(ILogicalNamespacedCache<T> inner, int valueLimit = int.MaxValue)
+    internal ValidationCacheDecorator(ILogicalNamespacedCache<T> inner, int valueLimit = int.MaxValue, IRoutedKeyContext? keyValidation = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         _inner = inner;
         _valueLimit = valueLimit;
+        _keyValidation = keyValidation;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.GetEntryAsync(cacheName, key, cancellationToken);
     }
 
     public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
     }
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.GetValueAsync(cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
     }
 
     public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
         ValidateLocalValue(entry.Value);
@@ -73,7 +75,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         expiration.ThrowIfNegativeOrZero(nameof(expiration), "expiration must be greater than zero.");
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
@@ -81,7 +83,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
         ValidateLocalValue(entry.Value);
@@ -91,7 +93,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
         ValidateLocalValue(entry.Value);
@@ -101,7 +103,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
-        _ = CacheKeyValidator.Validate(key, nameof(key));
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         cancellationToken.ThrowIfCancellationRequested();
         ValidateLocalValue(value);
         return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
