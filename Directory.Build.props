@@ -182,15 +182,19 @@
         </ItemGroup>
     </Target>
 
-    <!-- The ILLink analyzer is not part of the SDK: it ships as a NuGet pack whose version the SDK resolves from the target
-         framework (KnownILLinkPack in the SDK's BundledVersions.props maps net10.0 to 10.0.x). A newer SDK only helps when
-         its own mapping moves to a pack that carries the fix, and the 10.0.x and 11.0.x packs still format a namespace name
-         for every type symbol they inspect; only the 12.0 line dropped that. A net10.0 build therefore keeps the slow
-         analyzer however new the SDK is, which is why the fixed analyzer is committed here. Swap it for the analyzer of the
-         resolved pack; the rest of the pack stays as resolved. The replacement keeps the pack's package id, so a shard that
-         drops Microsoft.NET.ILLink.Tasks drops it too, and a project that resolves no ILLink pack gets nothing. Remove this
-         block, and build/analyzers with it, once the pack the SDK resolves for the targeted framework ships the fix: a
-         backport that the SDK's net10.0 entry picks up, or a retarget to a framework whose pack carries it. -->
+    <!-- Use the SDK's .NET 11 linker pack for both supported frameworks. -->
+    <Target Name="SquirixUseNet11ILLinkPack" BeforeTargets="ProcessFrameworkReferences" Condition="'$(TargetFramework)' == 'net10.0'">
+        <ItemGroup>
+            <_SquirixNet11ILLinkPack Include="@(KnownILLinkPack)" Condition="'%(KnownILLinkPack.Identity)' == 'Microsoft.NET.ILLink.Tasks' And '%(KnownILLinkPack.TargetFramework)' == 'net11.0'"/>
+            <KnownILLinkPack Update="Microsoft.NET.ILLink.Tasks" Condition="'%(KnownILLinkPack.TargetFramework)' == 'net10.0' And '@(_SquirixNet11ILLinkPack)' != ''">
+                <ILLinkPackVersion>@(_SquirixNet11ILLinkPack->'%(ILLinkPackVersion)')</ILLinkPackVersion>
+            </KnownILLinkPack>
+        </ItemGroup>
+    </Target>
+
+    <!-- The .NET 11 pack still formats a namespace name for every type it inspects. Use the fixed analyzer from the
+         .NET 12 line while keeping the SDK pack for linking. Preserving the package ID keeps analysis-shard filtering
+         effective. Remove the override and the bundled analyzer when the resolved pack includes the fix. -->
     <PropertyGroup Label="IllinkAnalyzer">
         <SquirixIllinkAnalyzer>$(MSBuildThisFileDirectory)build/analyzers/illink-12.0.0-alpha.1.26515.111/ILLink.RoslynAnalyzer.dll</SquirixIllinkAnalyzer>
     </PropertyGroup>
