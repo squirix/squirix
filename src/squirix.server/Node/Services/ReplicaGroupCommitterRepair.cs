@@ -201,15 +201,14 @@ internal static class ReplicaGroupCommitterRepair
                 if (result.Outcome == ReplicaCatchUpOutcome.Yielded)
                 {
                     // Bulk replay never needs the committer gate. Keep the sender leased but let healthy-quorum writes proceed.
-                    guard.Dispose();
+                    ReleaseCatchUpGate(ref guard);
                     result = await session.CopyPrefixAsync(lease, catchUpToken).ConfigureAwait(false);
                 }
 
                 var (transfers, othersWait) = pass;
                 if (transfers == null || result.Outcome is not (ReplicaCatchUpOutcome.Unseeded or ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete))
                     return (result, false, result.Outcome is ReplicaCatchUpOutcome.PrefixCopied or ReplicaCatchUpOutcome.CaughtUp);
-                lease.Dispose();
-                guard.Dispose();
+                ReleaseCatchUp(ref lease, ref guard);
                 (lease, guard) = await committer.AcquireCatchUpAsync(target.Sender, catchUpToken).ConfigureAwait(false);
                 if (lease == null)
                     return (new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0), false, false);
@@ -227,8 +226,7 @@ internal static class ReplicaGroupCommitterRepair
             }
             finally
             {
-                lease?.Dispose();
-                guard.Dispose();
+                ReleaseCatchUp(ref lease, ref guard);
             }
         }
 
@@ -254,5 +252,25 @@ internal static class ReplicaGroupCommitterRepair
                 return false;
             }
         }
+    }
+
+    private static void ReleaseCatchUp(ref ReplicaFollowerCatchUp? lease, ref AsyncLockHolder guard)
+    {
+        var acquired = lease;
+        lease = null;
+        try
+        {
+            acquired?.Dispose();
+        }
+        finally
+        {
+            ReleaseCatchUpGate(ref guard);
+        }
+    }
+
+    private static void ReleaseCatchUpGate(ref AsyncLockHolder guard)
+    {
+        guard.Dispose();
+        guard = default;
     }
 }
