@@ -111,7 +111,7 @@ internal sealed class BinaryConnectionPump
         }
         finally
         {
-            Publish(ref _ready);
+            PublishReady();
         }
     }
 
@@ -225,7 +225,7 @@ internal sealed class BinaryConnectionPump
         }
         else
         {
-            Publish(ref _ready);
+            PublishReady();
             _previousOrdered = _jobs[call.Slot] = PublishOnCompletionAsync(pending);
         }
     }
@@ -233,8 +233,10 @@ internal sealed class BinaryConnectionPump
     private void PublishBeforeWait(bool completed)
     {
         if (!completed)
-            Publish(ref _ready);
+            PublishReady();
     }
+
+    private void PublishReady() => Publish(ref _ready);
 
     private void QueueExecution(ref QueuedCall[]? queued, ref int queuedCount)
     {
@@ -324,7 +326,7 @@ internal sealed class BinaryConnectionPump
         if (_largeRequests is not { } admission)
             throw new InvalidDataException("Extended cache frames were not negotiated.");
 
-        Publish(ref _ready);
+        PublishReady();
         var (size, valueBytes) = await FrameIO.ReadExtensionAsync(stream, cancellationToken).ConfigureAwait(false);
         if (admission.Admit(size, valueBytes) is { } refusal)
         {
