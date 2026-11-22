@@ -8,7 +8,7 @@ namespace Squirix.Server.Runtime.Contracts;
 internal interface IDistributedCacheAccess
 {
     /// <summary>Reads or refreshes a value at its owner.</summary>
-    /// <param name="operationId">The operation identifier for a replicated owner.</param>
+    /// <param name="operationId">The operation identifier for Refresh on a replicated owner.</param>
     /// <param name="cacheName">The validated cache name.</param>
     /// <param name="key">The validated key.</param>
     /// <param name="refresh">Whether to omit the value from the response.</param>

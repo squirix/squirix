@@ -13,7 +13,7 @@ internal static class ReplicaGroupCommitterWrites
     extension(ReplicaGroupCommitter committer)
     {
         /// <summary>Commits or replays a serialized adapter access through the existing group mutation pipeline.</summary>
-        /// <param name="operationId">Client identity for Refresh, or a fresh server identity for Get.</param>
+        /// <param name="operationId">Client identity for Refresh. Get generates its own identity.</param>
         /// <param name="cacheName">Target cache name.</param>
         /// <param name="key">Target key.</param>
         /// <param name="refresh">Whether the response omits the value.</param>

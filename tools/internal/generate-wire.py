@@ -17,29 +17,29 @@ REPLICA = ROOT / "src/squirix.server/Adapters/Wire/Replication"
 CACHE = """
 CacheEntryWire ?CacheValue:Value ?Timestamp:ExpiresUtc ?Duration:Expiration
 CacheValue |Null:NullValue |String:StringValue |Int64:Int64Value |Double:DoubleValue |Bool:BoolValue |Bytes:JsonUtf8 |Bytes:BinaryValue
-SetEntryAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry OperationId:OperationId
+SetEntryAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry ?OperationId:OperationId
 SetAsyncResponse
 GetEntryAsyncRequest String:CacheName String:Key
 GetEntryAsyncResponse Bool:Found ?CacheEntryWire:Entry ?Duration:Remaining
 GetValueAsyncRequest String:CacheName String:Key
-RemoveAsyncRequest String:CacheName String:Key OperationId:OperationId
+RemoveAsyncRequest String:CacheName String:Key ?OperationId:OperationId
 RemoveAsyncResponse Bool:Removed
-TryAddEntryAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry OperationId:OperationId
+TryAddEntryAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry ?OperationId:OperationId
 TryAddAsyncResponse Bool:Added
-TouchAsyncRequest String:CacheName String:Key ?Duration:Expiration OperationId:OperationId
+TouchAsyncRequest String:CacheName String:Key ?Duration:Expiration ?OperationId:OperationId
 TouchAsyncResponse Bool:Found
-RemoveExpirationAsyncRequest String:CacheName String:Key OperationId:OperationId
+RemoveExpirationAsyncRequest String:CacheName String:Key ?OperationId:OperationId
 RemoveExpirationAsyncResponse Bool:Found
-UpdateAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry OperationId:OperationId
+UpdateAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry ?OperationId:OperationId
 UpdateAsyncResponse Bool:Updated
 GetExpirationAsyncRequest String:CacheName String:Key
 GetExpirationAsyncResponse Bool:Found Bool:HasExpiration ?Duration:Remaining
-GetOrAddAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry OperationId:OperationId
+GetOrAddAsyncRequest String:CacheName String:Key ?CacheEntryWire:Entry ?OperationId:OperationId
 GetOrAddAsyncResponse Bool:Added ?CacheValue:Value Bool:Found
-SetDistributedAsyncRequest String:CacheName String:Key ?Int64:ExpiresAtUnixMs ?Int64:SlidingTicks OperationId:OperationId ?Int64:TtlTicks TailBytes:Value
-GetDistributedAsyncRequest String:CacheName String:Key OperationId:OperationId
+SetDistributedAsyncRequest String:CacheName String:Key ?Int64:ExpiresAtUnixMs ?Int64:SlidingTicks ?OperationId:OperationId ?Int64:TtlTicks TailBytes:Value
+GetDistributedAsyncRequest String:CacheName String:Key
 BinaryCallError String:Detail *Trailer:Trailers
-RefreshDistributedAsyncRequest String:CacheName String:Key OperationId:OperationId
+RefreshDistributedAsyncRequest String:CacheName String:Key ?OperationId:OperationId
 RefreshDistributedAsyncResponse
 Trailer String:Key |String:Text |Bytes:Binary
 """
@@ -106,7 +106,9 @@ def write(kind, expression):
 def model(name, fields, models, empty_response=False, status_body=False):
     lines = []
     add = lines.append
-    add(f"internal sealed class {name} : WireMessage")
+    mutation = any(kind == "?OperationId" for kind, _ in fields)
+    base = "CacheMutationRequest" if mutation else "WireMessage"
+    add(f"internal sealed class {name} : {base}")
     add("{")
     add(f"    internal static WireParser<{name}> Parser {{ get; }} = new(Read);")
     regular = [(kind, prop) for kind, prop in fields if kind[0] != "|"]
@@ -121,7 +123,11 @@ def model(name, fields, models, empty_response=False, status_body=False):
             condition = f"{prop} != null" if optional else prop
             if optional and kind == "Int64":
                 condition = f"Has{prop}"
+            if optional and kind == "OperationId":
+                condition = "operationId.Length != 0"
             flags[prop] = (condition, 1 << len(flags))
+        if optional and kind == "OperationId":
+            continue
         if repeated:
             add(f"    internal List<{type_name}> {prop} {{ get; }} = [];")
         elif optional and kind == "Int64":
@@ -194,6 +200,8 @@ def model(name, fields, models, empty_response=False, status_body=False):
     if status_body:
         add("        if (Detail.Length == 0 && Trailers.Count == 0)")
         add("            return;")
+    if mutation:
+        add("        var operationId = writer.MutationOperationId ?? OperationId;")
     if flags:
         assert len(flags) <= 8
         condition = " | ".join(f"({condition} ? {bit} : 0)" for condition, bit in flags.values())
@@ -216,6 +224,8 @@ def model(name, fields, models, empty_response=False, status_body=False):
             condition, _ = flags[prop]
             add(f"        if ({condition})")
             expr = prop + ".Value" if kind in ("?Duration", "?Timestamp") else prop
+            if kind == "?OperationId":
+                expr = "operationId"
             add("            " + write(kind[1:], expr))
         else:
             add("        " + write(kind, prop))
@@ -314,7 +324,8 @@ def generate(schema, namespace, path, cache=False):
     if cache:
         lines += ["internal enum NullValue : byte { NullValue }", "", "internal enum BinaryOperation", "{"]
         lines += [f"    {name} = {value}," for value, name in enumerate(OPERATIONS)]
-        lines += ["}", ""]
+        lines += ["}", "", "internal abstract class CacheMutationRequest : WireMessage", "{",
+                  "    internal string OperationId { get; set; } = string.Empty;", "}", ""]
     nested = {kind.lstrip("?*|") for fields in models.values() for kind, _ in fields}
     for name, fields in models.items():
         if name != "Trailer":

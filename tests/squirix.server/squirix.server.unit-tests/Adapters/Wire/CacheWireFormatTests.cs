@@ -50,32 +50,38 @@ public sealed class CacheWireFormatTests
 
     /// <summary>Operation identity preserves the exact caller string and the compact SDK representation.</summary>
     /// <param name="operationId">The identity supplied by the caller.</param>
-    /// <param name="identityBytes">The encoded identity, including its prefix.</param>
+    /// <param name="wireBytes">The full request encoding, including the presence flag.</param>
     [Test]
-    [Arguments("", "01")]
-    [Arguments("é", "03C3A9")]
-    [Arguments("0123456789abcdef0123456789abcdef", "000123456789ABCDEF0123456789ABCDEF")]
-    [Arguments("ABCDEF", "07414243444546")]
-    public async Task MutationIdentityHasStableEncoding(string operationId, string identityBytes)
+    [Arguments("", "000000")]
+    [Arguments("é", "01000003C3A9")]
+    [Arguments("0123456789abcdef0123456789abcdef", "010000000123456789ABCDEF0123456789ABCDEF")]
+    [Arguments("ABCDEF", "01000007414243444546")]
+    public async Task MutationIdentityHasStableEncoding(string operationId, string wireBytes)
     {
         var request = new RemoveAsyncRequest { OperationId = operationId };
-        byte[] expected = [0, 0, .. Convert.FromHexString(identityBytes)];
+        var expected = Convert.FromHexString(wireBytes);
         _ = await Assert.That(request.ToByteArray().AsSpan().SequenceEqual(expected)).IsTrue();
         _ = await Assert.That(RemoveAsyncRequest.Parser.ParseFrom(expected).OperationId).IsEqualTo(operationId);
     }
 
     /// <summary>Distributed write metadata precedes the value so the frame boundary delimits its bytes.</summary>
+    /// <param name="includeOperationId">Whether the request carries a replay identity.</param>
     [Test]
-    public async Task DistributedWriteEndsWithUnprefixedValue()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task DistributedWriteEndsWithUnprefixedValue(bool includeOperationId)
     {
         byte[] value = [0, 128, 255];
-        byte[] expected = [5, 1, 99, 1, 107, 1, 2, 120, 0, 0, 128, 255];
-        var write = new SetDistributedAsyncRequest { CacheName = "c", Key = "k", ExpiresAtUnixMs = -1, OperationId = "x", TtlTicks = 0, Value = value };
+        byte[] expected = includeOperationId
+            ? [13, 1, 99, 1, 107, 1, 2, 120, 0, 0, 128, 255]
+            : [9, 1, 99, 1, 107, 1, 0, 0, 128, 255];
+        var write = new SetDistributedAsyncRequest { CacheName = "c", Key = "k", ExpiresAtUnixMs = -1, OperationId = includeOperationId ? "x" : string.Empty, TtlTicks = 0, Value = value };
         _ = await Assert.That(write.ToByteArray().AsSpan().SequenceEqual(expected)).IsTrue();
 
         var decoded = SetDistributedAsyncRequest.Parser.ParseBorrowed(expected);
-        _ = await Assert.That(decoded.Value.Span.Overlaps(expected.AsSpan(9), out var offset) && offset == 0).IsTrue();
+        _ = await Assert.That(decoded.Value.Span.Overlaps(expected.AsSpan(expected.Length - value.Length), out var offset) && offset == 0).IsTrue();
         _ = await Assert.That(decoded.Value.Span.SequenceEqual(value)).IsTrue();
+        _ = await Assert.That(decoded.OperationId).IsEqualTo(includeOperationId ? "x" : string.Empty);
         _ = await Assert.That(decoded.HasTtlTicks).IsTrue();
         _ = await Assert.That(decoded.HasSlidingTicks).IsFalse();
     }
@@ -84,7 +90,7 @@ public sealed class CacheWireFormatTests
     [Test]
     public void DistributedWriteRequiresCompleteMetadata()
     {
-        foreach (var bytes in new byte[][] { [0, 1, 99, 1, 107], [4, 0, 0, 1, 128] })
+        foreach (var bytes in new byte[][] { [1, 0, 0], [2, 0, 0, 128], [4, 0, 0, 2], [8, 0, 0, 128] })
             _ = NodeExceptionAssert.For<InvalidDataException>().Throws(bytes, static frame => _ = SetDistributedAsyncRequest.Parser.ParseFrom(frame));
     }
 

@@ -136,11 +136,10 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
     {
         if (_invoke != null)
         {
+            _ = BinaryClientProtocol.PrepareMutationIdentity(request, true);
             var response = await _invoke(operation, request, parser, options).ConfigureAwait(false);
             return response as T ?? ThrowUnexpectedResponse<T>();
         }
-
-        var (control, wireRequest, bodySize) = BinaryClientProtocol.PrepareRequest(operation, request);
 
         Connection? connection = null;
         try
@@ -148,7 +147,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             connection = await GetConnectionAsync(options.CancellationToken).ConfigureAwait(false);
             var preventReplay = !connection.SupportsMutationReplay &&
                                 operation is not (BinaryOperation.GetEntry or BinaryOperation.GetValue or BinaryOperation.GetExpiration or BinaryOperation.GetDistributed);
-            var result = await connection.CallAsync(control, wireRequest, bodySize, parser, options, preventReplay).ConfigureAwait(false);
+            var prepared = BinaryClientProtocol.PrepareRequest(operation, request, connection.SupportsMutationReplay);
+            var result = await connection.CallAsync(prepared, parser, options, preventReplay).ConfigureAwait(false);
             return result as T ?? ThrowUnexpectedResponse<T>();
         }
         catch (Exception error) when (error is AuthenticationException or ConnectionRejectedException)
@@ -253,7 +253,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             return new Connection(socket, tls, replay);
         }
 
-        internal async ValueTask<WireMessage> CallAsync(int control, WireMessage request, int bodySize, IWireParser parser, BinaryCallOptions options, bool preventReplay)
+        internal async ValueTask<WireMessage> CallAsync(BinaryClientRequest request, IWireParser parser, BinaryCallOptions options, bool preventReplay)
         {
             var token = options.CancellationToken;
             int id;
@@ -267,7 +267,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
 
             var completion = new TaskCompletionSource<BinaryClientReply>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var pending = new PendingCall(id, control, request, bodySize, parser, options.Deadline, completion, token);
+            var pending = new PendingCall(id, request, parser, options.Deadline, completion, token);
             Volatile.Write(ref _pending[id], pending);
             if (!_outgoing.Writer.TryWrite(pending))
             {
@@ -329,7 +329,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         {
             var remaining = Math.Min((item.Deadline - now).TotalMilliseconds, RpcAttemptTimeout.PerAttempt.TotalMilliseconds);
             var timeout = item.CancellationToken.IsCancellationRequested ? 0 : Convert.ToInt32(Math.Max(0, Math.Ceiling(remaining)));
-            Frames.WriteRequestMessage(buffer, item.Id, item.BodySize, item.Control | timeout, item.Request);
+            item.Request.WriteTo(buffer, item.Id, timeout);
         }
 
         private bool HasLiveCalls()
@@ -368,7 +368,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             var now = TimeProvider.System.GetUtcNow().UtcDateTime;
             for (var count = 0; count < Frames.MaxBatch && _outgoing.Reader.TryRead(out var item); count++)
             {
-                var frameSize = Frames.RequestBytes + item.BodySize;
+                var frameSize = Frames.RequestBytes + item.Request.Size;
                 if (size > 0 && size + frameSize > buffer.Length)
                 {
                     await _tls.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
@@ -391,7 +391,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         private async Task SendLargeAsync(PendingCall item, DateTime now)
         {
-            var length = Frames.RequestBytes + item.BodySize;
+            var length = Frames.RequestBytes + item.Request.Size;
             var buffer = ArrayPool<byte>.Shared.Rent(length);
             try
             {
@@ -459,9 +459,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         private sealed record PendingCall(
             int Id,
-            int Control,
-            WireMessage Request,
-            int BodySize,
+            BinaryClientRequest Request,
             IWireParser Parser,
             DateTime Deadline,
             TaskCompletionSource<BinaryClientReply> Completion,

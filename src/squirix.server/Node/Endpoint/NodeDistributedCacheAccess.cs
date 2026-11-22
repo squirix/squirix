@@ -47,9 +47,12 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
 
         using (lease)
         {
-            return _local is ReplicatedCache replicated
-                ? Response(await replicated.AccessDistributedAsync(RpcMutationContracts.RequireOperationId(operationId), cacheName, key, refresh, cancellationToken).ConfigureAwait(false))
-                : await AccessSingleAsync(cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+            if (_local is not ReplicatedCache replicated)
+                return await AccessSingleAsync(cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+
+            if (refresh)
+                operationId = RpcMutationContracts.RequireOperationId(operationId);
+            return Response(await replicated.AccessDistributedAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false));
         }
     }
 

@@ -47,7 +47,6 @@ internal static class BinaryClientProtocol
         {
             CacheName = cacheName,
             Key = key,
-            OperationId = RpcOperationIdentity.New(),
             Value = ownedValue,
         };
         if (expiresAtUnixMs is { } cap)
@@ -60,8 +59,22 @@ internal static class BinaryClientProtocol
         return request;
     }
 
-    internal static (int Control, WireMessage Message, int Size) PrepareRequest(BinaryOperation operation, WireMessage request)
+    internal static string? PrepareMutationIdentity(WireMessage request, bool supportsMutationReplay)
     {
+        if (request is not CacheMutationRequest mutation)
+            return null;
+        if (!supportsMutationReplay)
+            return string.Empty;
+
+        if (mutation.OperationId.Length == 0)
+            mutation.OperationId = RpcOperationIdentity.New();
+        return mutation.OperationId;
+    }
+
+    internal static BinaryClientRequest PrepareRequest(BinaryOperation operation, WireMessage request, bool supportsMutationReplay)
+    {
+        // The send worker can still serialize an earlier attempt after a retry starts.
+        var mutationOperationId = PrepareMutationIdentity(request, supportsMutationReplay);
         var control = Unsafe.BitCast<BinaryOperation, int>(operation) << 16;
         if (Activity.Current is { IdFormat: ActivityIdFormat.W3C } activity)
         {
@@ -71,9 +84,9 @@ internal static class BinaryClientProtocol
             control |= Frames.TracedRequest;
         }
 
-        var bodySize = request.CalculateSize();
+        var bodySize = request.CalculateSize(mutationOperationId);
         return bodySize <= Frames.MaxRequestBytes
-            ? (control, request, bodySize)
+            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId)
             : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.ResourceExhausted, "Binary cache request is too large."));
     }
 

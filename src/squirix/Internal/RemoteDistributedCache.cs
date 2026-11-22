@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.Internal.Cluster.Transport;
-using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Internal;
@@ -44,7 +43,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
 
     internal async Task<byte[]?> GetAsync(string key, CancellationToken cancellationToken)
     {
-        var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
+        var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key };
         var reply = await _rpc.ExecuteAsync(
             static (client, wire, options) => new ValueTask<GetDistributedAsyncResponse>(client.GetDistributedAsync(wire, in options)),
             request,
@@ -71,7 +70,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
 
     internal async Task RefreshAsync(string key, CancellationToken cancellationToken)
     {
-        var request = new RefreshDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
+        var request = new RefreshDistributedAsyncRequest { CacheName = _cacheName, Key = key };
         _ = await _rpc.ExecuteAsync(
             static (client, wire, options) => new ValueTask<RefreshDistributedAsyncResponse>(client.RefreshDistributedAsync(wire, in options)),
             request,
@@ -80,7 +79,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
 
     internal async Task RemoveAsync(string key, CancellationToken cancellationToken)
     {
-        var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
+        var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key };
         _ = await _rpc.ExecuteAsync(
             static (client, wire, options) => new ValueTask<RemoveAsyncResponse>(client.RemoveAsync(wire, in options)),
             request,

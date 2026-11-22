@@ -76,7 +76,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         using var channel = CreateBinaryChannel(node.Uri);
         var client = new CacheWireClient(channel);
         var access = node.GetRequiredService<IDistributedCacheAccess>();
-        var missing = await access.AccessAsync(Guid.NewGuid().ToString("N"), CacheName, "lazy", false, cancellationToken);
+        var missing = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
         _ = await Assert.That(missing.Found).IsFalse();
         var set = new SetDistributedAsyncRequest
         {
@@ -87,18 +87,18 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             OperationId = Guid.NewGuid().ToString("N"),
         };
         _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
-        var unchanged = await access.AccessAsync(Guid.NewGuid().ToString("N"), CacheName, "lazy", false, cancellationToken);
+        var unchanged = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
         _ = await Assert.That(unchanged.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
         _ = await access.AccessAsync(Guid.NewGuid().ToString("N"), CacheName, "lazy", true, cancellationToken);
 
         clock.Advance(TimeSpan.FromMilliseconds(1));
         var operationId = Guid.NewGuid().ToString("N");
-        var renewed = await access.AccessAsync(operationId, CacheName, "lazy", false, cancellationToken);
+        var renewed = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
         _ = await Assert.That(renewed.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
         set.OperationId = Guid.NewGuid().ToString("N");
         set.Value = new byte[] { 13 };
         _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
-        var replay = await access.AccessAsync(operationId, CacheName, "lazy", false, cancellationToken);
+        var replay = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
         _ = await Assert.That(replay.Value.Span.SequenceEqual(new byte[] { 13 })).IsTrue();
         _ = await access.AccessAsync(operationId, CacheName, "lazy", true, cancellationToken);
     }
@@ -135,7 +135,6 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
                 {
                     CacheName = string.Create(CultureInfo.InvariantCulture, $"{CacheName}{i}"),
                     Key = "shared-key",
-                    OperationId = Guid.NewGuid().ToString("N"),
                 },
                 cancellationToken: cancellationToken);
         }
@@ -613,8 +612,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         };
         _ = await client.SetDistributedAsync(request, cancellationToken: cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(2));
-        var operationId = Guid.NewGuid().ToString("N");
-        var access = new GetDistributedAsyncRequest { CacheName = CacheName, Key = request.Key, OperationId = operationId };
+        var access = new GetDistributedAsyncRequest { CacheName = CacheName, Key = request.Key };
         var first = await client.GetDistributedAsync(access, cancellationToken: cancellationToken);
         var missingRemove = new RemoveAsyncRequest { CacheName = CacheName, Key = "missing-replay", OperationId = Guid.NewGuid().ToString("N") };
         _ = await Assert.That((await client.RemoveAsync(missingRemove, cancellationToken: cancellationToken)).Removed).IsFalse();
@@ -742,7 +740,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             return null;
         }
 
-        var response = await client.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken);
+        var response = await client.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         return response.Found ? response.Value : default(ReadOnlyMemory<byte>?);
     }
 
