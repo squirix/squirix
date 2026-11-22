@@ -261,7 +261,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             now.Ticks,
             0);
         var mutation = Build(cacheName, record, index, key, decision.Entry);
-        if (entry.Value is not DistributedCacheWrite { HasSlidingExpiration: true })
+        if (entry.RawValue is not DistributedCacheWrite { HasSlidingExpiration: true })
             return mutation;
 
         // Renewals keep the same entry and compact outcome; only the mutation kind can require more bytes.

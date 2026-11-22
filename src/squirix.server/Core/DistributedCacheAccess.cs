@@ -20,7 +20,7 @@ internal static class DistributedCacheAccess
         if (current.ExpiresUtc is { } expires && expires <= now)
             return (null, null, true);
 
-        var payload = ReadPayload(current.Value, out var policy);
+        var payload = ReadPayload(current.RawValue, out var policy);
         if (policy.SlidingTicks == null)
             return (payload, null, false);
 

@@ -67,10 +67,10 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (!IsExpired(read.ExpiresUtc))
-            return new NodeCacheValueResult<object?>(read.Found, read.Value);
+            return new NodeCacheValueResult<object?>(read.Found, read.RawValue);
 
         var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return entry == null ? new NodeCacheValueResult<object?>(false, null) : new NodeCacheValueResult<object?>(true, entry.Value);
+        return entry == null ? new NodeCacheValueResult<object?>(false, null) : new NodeCacheValueResult<object?>(true, entry.RawValue);
     }
 
     /// <inheritdoc />
@@ -83,7 +83,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
             return read;
 
         var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return entry == null ? default : new NodeCacheValueRead<object?>(true, entry.Value, entry.ExpiresUtc);
+        return entry == null ? default : new NodeCacheValueRead<object?>(true, entry.RawValue, entry.ExpiresUtc);
     }
 
     /// <inheritdoc />
@@ -130,7 +130,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         if (entry == null)
             return null;
 
-        var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
+        var payload = DistributedCacheAccess.ReadPayload(entry.RawValue, out var policy);
         var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
         if (policy.SlidingTicks == null)
             return readOnlyResult;

@@ -18,6 +18,7 @@ internal static partial class CacheEntryCodec
         {
             null => 1,
             bool => 2,
+            StoredText text => 5 + text.Bytes.Length,
             string s => 1 + 4 + Encoding.UTF8.GetByteCount(s),
             byte[] bytes => 1 + 4 + bytes.Length,
             sbyte or byte or short or ushort or int or uint or long => 1 + 8,
@@ -35,13 +36,15 @@ internal static partial class CacheEntryCodec
                 return true;
             }
 
+            if (value is StoredText text && typeof(T) != typeof(object))
+                value = text.Decode();
             if (value is not T ok)
                 return TryCoerceNumericOrJson(value, out result);
             result = ok;
             return true;
         }
 
-        internal static bool TryReadInternal(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
+        internal static bool TryReadInternal<T>(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -49,7 +52,7 @@ internal static partial class CacheEntryCodec
             {
                 ValueKind.Null => CacheEntryValueReadCodec.TryReadNullValue(out value, out bytesRead),
                 ValueKind.Bool => CacheEntryValueReadCodec.TryReadBoolValue(source, materialize, out value, out bytesRead),
-                ValueKind.String => CacheEntryValueReadCodec.TryReadStringValue(source, materialize, out value, out bytesRead),
+                ValueKind.String => CacheEntryValueReadCodec.TryReadStringValue<T>(source, materialize, out value, out bytesRead),
                 ValueKind.Bytes => CacheEntryValueReadCodec.TryReadBytesValue(source, materialize, out value, out bytesRead),
                 ValueKind.Int64 => CacheEntryValueReadCodec.TryReadInt64Value(source, materialize, out value, out bytesRead),
                 ValueKind.Double => CacheEntryValueReadCodec.TryReadDoubleValue(source, materialize, out value, out bytesRead),
@@ -63,6 +66,7 @@ internal static partial class CacheEntryCodec
         {
             null => CacheEntryValueWriteCodec.WriteNull(destination),
             bool b => CacheEntryValueWriteCodec.WriteBool(b, destination),
+            StoredText text => CacheEntryValueWriteCodec.WriteText(text, destination),
             string s => CacheEntryValueWriteCodec.WriteString(s, destination),
             byte[] bytes => CacheEntryValueWriteCodec.WriteBytes(bytes, destination),
             sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
@@ -253,7 +257,7 @@ internal static partial class CacheEntryCodec
             return true;
         }
 
-        internal static bool TryReadStringValue(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
+        internal static bool TryReadStringValue<T>(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -261,7 +265,12 @@ internal static partial class CacheEntryCodec
                 return false;
 
             if (materialize)
-                value = Encoding.UTF8.GetString(stringBytes);
+            {
+                value = typeof(T) == typeof(object) && System.Text.Unicode.Utf8.IsValid(stringBytes)
+                    ? new StoredText(Squirix.Transport.Wire.Codec.WireReader.CopyBytes(stringBytes))
+                    : Encoding.UTF8.GetString(stringBytes);
+            }
+
             bytesRead = 1 + stringBytesRead;
             return true;
         }
@@ -314,6 +323,12 @@ internal static partial class CacheEntryCodec
         {
             destination[0] = ValueKind.Null;
             return 1;
+        }
+
+        internal static int WriteText(StoredText text, Span<byte> destination)
+        {
+            destination[0] = ValueKind.String;
+            return 1 + TagEncoding.WriteUtf32Prefixed(text.Bytes, destination[1..]);
         }
 
         internal static int WriteString(string value, Span<byte> destination)

@@ -25,6 +25,7 @@ internal static class ServerWireMapping
         return value switch
         {
             null => CacheValueWire.Null(),
+            StoredText text => CacheValue.FromText(text.Bytes),
             string text => new CacheValue { StringValue = text },
             int number => new CacheValue { Int64Value = number },
             long number => new CacheValue { Int64Value = number },
@@ -54,7 +55,7 @@ internal static class ServerWireMapping
 
     internal static RpcEntry MapToWire<T>(this NodeCacheEntry<T> e, bool includeDeadline = true) => new()
     {
-        Value = CacheValueToWire(e.Value),
+        Value = CacheValueToWire(e.RawValue),
         ExpiresUtc = includeDeadline ? e.ExpiresUtc : null,
         Expiration = e.Expiration,
     };
@@ -95,7 +96,7 @@ internal static class ServerWireMapping
 
     private static object? ReadObject(CacheValue wire) => wire.KindCase switch
     {
-        CacheValue.KindOneofCase.StringValue => wire.StringValue,
+        CacheValue.KindOneofCase.StringValue => wire.EncodedText is { } bytes ? new StoredText(bytes) : wire.StringValue,
         CacheValue.KindOneofCase.BoolValue => wire.BoolValue,
         CacheValue.KindOneofCase.Int64Value => wire.Int64Value,
         CacheValue.KindOneofCase.DoubleValue => wire.DoubleValue,

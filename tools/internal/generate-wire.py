@@ -168,7 +168,7 @@ def model(name, fields, models, empty_response=False, status_body=False):
                 }
                 getter, assign = expressions[kind]
                 if name == "CacheValue" and kind == "String":
-                    getter = "_reference as string ?? string.Empty"
+                    getter = "_reference as string ?? (EncodedText is { } bytes ? WireReader.Utf8.GetString(bytes) : string.Empty)"
                     assign = "_reference = value;"
                 clear = ("_text = null; " if kind != "String" else "") + ("_bytes = default; " if kind != "Bytes" else "")
                 if name == "CacheValue":
@@ -181,6 +181,8 @@ def model(name, fields, models, empty_response=False, status_body=False):
             add("    }")
 
     if name == "CacheValue":
+        add("    internal byte[]? EncodedText => KindCase == KindOneofCase.StringValue ? _reference as byte[] : null;")
+        add("    internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes };")
         # The reference slot holds text or the exact array of a parsed binary result.
         # Shared byte fields have no owner and retain their independent-copy semantics.
         add("")
@@ -188,7 +190,7 @@ def model(name, fields, models, empty_response=False, status_body=False):
         add("")
         add("    internal byte[] TakeBinaryValue()")
         add("    {")
-        add("        if (_reference is not byte[] owned)")
+        add("        if (KindCase != KindOneofCase.BinaryValue || _reference is not byte[] owned)")
         add("            return BinaryValue.ToArray();")
         add("        _reference = null;")
         add("        _bytes = default;")
@@ -248,7 +250,12 @@ def model(name, fields, models, empty_response=False, status_body=False):
                     add("                else")
                     add(f"                    writer.Bytes({prop});")
                 elif name == "CacheValue" and kind == "String":
-                    add(f"                writer.Text({prop}, tail);")
+                    add("                if (EncodedText is { } text)")
+                    add("                {")
+                    add("                    if (tail) writer.TailBytes(text);")
+                    add("                    else writer.Bytes(text);")
+                    add("                }")
+                    add(f"                else writer.Text({prop}, tail);")
                 else:
                     add("                " + write(kind, prop))
                 add("                break;")
@@ -295,7 +302,8 @@ def model(name, fields, models, empty_response=False, status_body=False):
             elif name == "CacheValue" and kind == "Bytes":
                 add(f"                message.{prop} = tail ? reader.TailBytes(out _) : reader.Bytes(out _);")
             elif name == "CacheValue" and kind == "String":
-                add(f"                message.{prop} = reader.Text(tail);")
+                add("                message.KindCase = kind;")
+                add("                message._reference = TextPayloadReader.Read(ref reader, tail);")
             else:
                 add(f"                message.{prop} = {read(kind)};")
             add("                break;")

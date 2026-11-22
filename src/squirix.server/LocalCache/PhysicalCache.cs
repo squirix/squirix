@@ -211,8 +211,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
+        var stored = StoredText.Pack(normalized.RawValue);
         lock (_lock)
-            _ = UpsertLocked(key, normalized, bytes, false);
+            _ = UpsertLocked(key, normalized, stored, bytes, false);
     }
 
     public bool Touch(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -239,21 +240,23 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
+        var stored = StoredText.Pack(normalized.RawValue);
         lock (_lock)
-            return UpsertLocked(key, normalized, bytes, true);
+            return UpsertLocked(key, normalized, stored, bytes, true);
     }
 
     public bool Update(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var measuredValue = _footprint.MeasureValue(value);
+        var stored = StoredText.Pack(value);
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
             _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
-            node.WriteValue(value);
+            node.WriteValue(stored);
             BoundedNode.RecordAccess(node);
             return true;
         }
@@ -297,7 +300,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
     private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
-        if (candidate.Value is DistributedCacheWrite write)
+        if (candidate.RawValue is DistributedCacheWrite write)
             candidate = write.Materialize<T>(UtcNow);
 
         if (candidate is not { Version: > 0, Expiration: null })
@@ -311,7 +314,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     expires = relativeDeadline;
             }
 
-            candidate = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
+            candidate = new NodeCacheEntry<T>(candidate.RawValue, version, expires, candidate.Expiration, candidate.Tags);
         }
 
         var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, candidate, length) : _footprint.Estimate(key, candidate);
@@ -399,7 +402,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
     }
 
-    private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
+    private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, T? stored, long bytes, bool insertOnly)
     {
         _ = _store.TryGetLocked(key, out var node);
         if (node != null && insertOnly && IsExpired(node.ExpiresUtc))
@@ -412,8 +415,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (node == null)
         {
             node = _scopes == null
-                ? new Node(key, normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
-                : BoundedNode.Create(this, key, normalized);
+                ? new Node(key, stored, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
+                : BoundedNode.Create(this, key, normalized, stored);
             if (node == null)
                 return true;
 
@@ -429,7 +432,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         _footprint.Resize(node, bytes);
         var previous = node.ExpiresUtc;
-        node.Write(normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
+        node.Write(stored, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
         _deadlines.MovedLocked(node, previous);
         BoundedNode.RecordAccess(node);
         return false;

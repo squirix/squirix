@@ -31,7 +31,7 @@ internal static class ReplicaMutationDecisions
 
         var outcome = access.RenewTo != null ? ReplicaOutcomeCodec.Applied : ReplicaOutcomeCodec.NotApplied;
         return access.RenewTo is { } deadline
-            ? new ReplicaDecision(PreparedJournalEntry.ForReplicaUpsert(current!.Value, current.Version, current.Tags), outcome, deadline.Ticks)
+            ? new ReplicaDecision(PreparedJournalEntry.ForReplicaUpsert(current!.RawValue, current.Version, current.Tags), outcome, deadline.Ticks)
             : new ReplicaDecision(null, outcome, 0);
     }
 
@@ -41,10 +41,10 @@ internal static class ReplicaMutationDecisions
     /// <returns>The decision.</returns>
     internal static ReplicaDecision DecideSet(NodeCacheEntry<object?> entry, DateTime now)
     {
-        if (entry.Value is DistributedCacheWrite write)
+        if (entry.RawValue is DistributedCacheWrite write)
             entry = write.Materialize<object?>(now);
 
-        return Upsert(entry.Value, entry.Version, entry.Tags, DeadlineTicks(entry, now));
+        return Upsert(entry.RawValue, entry.Version, entry.Tags, DeadlineTicks(entry, now));
     }
 
     /// <summary>Decides a conditional add: applied, writing the requested entry, when the key is absent or expired; otherwise nothing changes.</summary>
@@ -76,7 +76,7 @@ internal static class ReplicaMutationDecisions
     {
         null => Unchanged(),
         _ when IsExpired(current, now) => Expired(current),
-        _ => Upsert(current.Value, current.Version, current.Tags, PinnedTicks(ExpiresAt(now, expiration))),
+        _ => Upsert(current.RawValue, current.Version, current.Tags, PinnedTicks(ExpiresAt(now, expiration))),
     };
 
     /// <summary>Decides an expiration removal: applied, writing the observed entry without a deadline, when the live entry has one.</summary>
@@ -87,7 +87,7 @@ internal static class ReplicaMutationDecisions
     {
         null or { ExpiresUtc: null } => Unchanged(),
         _ when IsExpired(current, now) => Expired(current),
-        _ => Upsert(current.Value, current.Version, current.Tags, 0),
+        _ => Upsert(current.RawValue, current.Version, current.Tags, 0),
     };
 
     /// <summary>Decides a remove: applied when the key is live, with only its applied flag as the outcome; the effect deletes the key either way.</summary>

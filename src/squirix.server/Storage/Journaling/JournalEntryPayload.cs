@@ -135,7 +135,7 @@ internal static class JournalEntryPayload
         DateTime? expiresUtc = expiresUtcTicks == 0 ? null : new DateTime(expiresUtcTicks, DateTimeKind.Utc);
         entry = decoded.ExpiresUtc == expiresUtc && decoded.Expiration == null
             ? decoded
-            : new NodeCacheEntry<object?>(decoded.Value, decoded.Version, expiresUtc, null, decoded.Tags);
+            : new NodeCacheEntry<object?>(decoded.RawValue, decoded.Version, expiresUtc, null, decoded.Tags);
         if (bytesRead != source.Length)
             return true;
 
