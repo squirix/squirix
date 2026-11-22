@@ -3,8 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
+using HybridCacheService = Microsoft.Extensions.Caching.Hybrid.HybridCache;
 
-namespace Squirix.HybridCacheSample;
+namespace Squirix.HybridCache;
 
 internal static class Program
 {
@@ -31,7 +32,7 @@ internal static class Program
 
         var provider = services.BuildServiceProvider();
         await using var lifetime = provider.ConfigureAwait(false);
-        var cache = provider.GetRequiredService<HybridCache>();
+        var cache = provider.GetRequiredService<HybridCacheService>();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var policy = new HybridCacheEntryOptions
         {

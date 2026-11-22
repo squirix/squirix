@@ -3,7 +3,7 @@
         <OutputType>Exe</OutputType>
         <TargetFramework>$(SquirixTargetFramework)</TargetFramework>
         <IsAotCompatible>false</IsAotCompatible>
-        <RootNamespace>Squirix.HybridCacheSample</RootNamespace>
+        <RootNamespace>Squirix.HybridCache</RootNamespace>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="../../src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj"/>
