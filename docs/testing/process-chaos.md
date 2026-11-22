@@ -46,19 +46,20 @@ a non-vacuous normal write/read history passes. The additional recovery/apply pa
 
 ## Process configuration and faults
 
-`tools/chaos/run.py` starts the built host in separate Linux Docker containers. Each node has a private 256 MiB ext4 filesystem,
+`tools/chaos/run.py` starts the built host in separate Linux Docker containers. For disk and clock faults each node has a private 256 MiB ext4 filesystem,
 backed by a loop-mounted image and retained across process/container restarts. Cluster mTLS and external HTTPS use a generated
 test CA. Cache access uses an ephemeral cluster-specific JWT key. The runner never publishes ports. The client uses only the exported SDK.
 
-The output directory must be on local Linux storage, including when using Docker Desktop. Keep it inside the Linux controller or VM
+The disk and clock scenarios require the output directory on local Linux storage, including when using Docker Desktop. Keep it inside the Linux controller or VM
 and copy artifacts to the host after cleanup. Windows/macOS shared folders (`9p`, `drvfs`, `cifs`, `smb2`, `virtiofs`) are rejected before
 cluster allocation. Loop-backed disk I/O and uncached `libfaketime` clock-file reads otherwise cross the host file-sharing boundary,
 which can stall startup and make a healthy persisted RF=5 cluster miss the 90-second recovery deadline.
 
-Every schedule includes:
+The complete manual schedule exercises the following faults.
 
 | Fault | Mechanism |
 | --- | --- |
+| Graceful stop and recovery | Send the observed leader SIGTERM, require a clean exit, observe authority in a higher term, then restart it |
 | Abrupt stop and recovery | Kill the observed leader with `SIGKILL`, verify a higher-term replacement, then restart on the same data filesystem |
 | Process pause | Pause the observed leader, verify a higher-term replacement through survivors' public metrics, then resume the deposed leader |
 | Majority/minority partition | Drop internal TCP traffic in both directions across the split |
@@ -118,13 +119,29 @@ SQUIRIX_CHAOS_HISTORY=/absolute/path/0.history.json dotnet test \
 and failed read intervals. The workflow uploads logs and TRX for passing and failing runs. CA private keys and disk images
 are not uploaded. After cleanup, the local disk image files remain for investigation; no filesystem remains mounted.
 
+## Nightly graceful-stop measurements
+
+The performance workflow runs 30 graceful stops per configuration on the same runner with the product election timing.
+It measures RF=3 and RF=5 under a register workload in four modes. The timer control uses ordinary elections.
+The successor mode sets `SQUIRIX_EXPERIMENTAL_LEADERSHIP_TRANSFER=1` on all nodes. Production defaults to timer-based elections.
+The test gateway can also deliver to all survivors or discard the hint. Both controls use the same server implementation.
+Older peers refuse the new peer operations. A failed transfer leaves the ordinary timers armed.
+
+Each JSON sample contains election RPC start times, observed authority, convergence, stop phases and the first successful client write/read probe after shutdown.
+The job summary reports pre-vote rounds, the winning campaign type and p50/p95 recovery. Diagnostic polling and SDK retry intervals affect these measurements.
+Absolute latency limits apply only on a configured controlled machine.
+
 ## Results and acceptance status
 
-The scheduled `.github/workflows/chaos-nightly.yml` run checks the controls on `develop`. Use **Run workflow** on the selected ref to run both the
-controls and the RF=3/RF=5 process-chaos matrix.
-The `checker-controls` job runs scheduler controls, register checker tests and only the model-generated
-`BrokenModeHistoryTests` controls once, before either process-chaos job can start. Its reports and build logs are uploaded separately.
-Regular CI runs the complete protocol-model suite. The manual matrix runs the real-process faults.
+The scheduled workflow runs the checker controls and the paired leader-exit scenario on RF=3 and RF=5 from develop.
+Each node keeps its data on a private Docker volume. In `leader-exit`, a separate container holds the network namespace across stops. The
+additional `leader-dns-loss` run withdraws the stopped leader’s Docker network endpoint and DNS registration, verifies that every survivor
+remains attached, and requires a higher-term leader within the same 30-second deadline.
+The runner observes the first
+higher-term authority before healing. The reported latency includes the stop command and diagnostic polling. Survivor logs identify transfer attempts in the retiring term.
+The manual workflow runs the complete fault schedule. Both paths upload the register histories, checker results and node logs.
+The checker job also exercises premature transfer emission, stale hints and source identity. Regular CI runs the full model suite.
+
 Both matrix jobs check out the exact commit validated by `checker-controls`. Filtered control runs fail if no test executes,
 including when all selected tests are skipped. Artifact paths remain bounded to their specific temporary directories even if setup fails.
 Both replica factors use a fresh seed unless the dispatch supplies one.

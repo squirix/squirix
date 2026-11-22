@@ -45,6 +45,12 @@ internal sealed class ReplicaElectableContacts
         Volatile.Write(ref _candidate[replicaIndex], canStand ? now : NoContact);
     }
 
+    internal bool CanStand(int slot, TimeSpan window)
+    {
+        var timestamp = Volatile.Read(ref _candidate[slot]);
+        return timestamp != NoContact && _clock.GetElapsedTime(timestamp) < window;
+    }
+
     /// <summary>Forgets every contact, as a new leadership starts.</summary>
     internal void Reset()
     {

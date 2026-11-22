@@ -151,6 +151,7 @@ internal sealed class ReplicaFollower
     /// <param name="generation">Candidate configuration generation.</param>
     /// <param name="ballot">The probe; its term is the term the candidate proposes to start.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="transferSource">The authenticated target’s claim identifying the retired source, when the transfer context matches the topology.</param>
     /// <returns>The probe outcome; a refusal before the log is reached, a candidate outside the replica set included, reports term zero.</returns>
     /// <remarks>
     /// A pre-vote is read-only, with one exception: the call of a candidate that is a member of the group completes a copy that holds an offer,
@@ -162,7 +163,8 @@ internal sealed class ReplicaFollower
         ReadOnlyMemory<byte> fingerprint,
         ulong generation,
         ElectionVoteRequest ballot,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? transferSource = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         if (!TryGetLog(groupId, out var log) || !_members.IsMember(groupId, ballot.CandidateId))
@@ -179,7 +181,7 @@ internal sealed class ReplicaFollower
         // A live leader keeps its followers from campaigning: a node cut off for a while must not depose it once it returns. Only a
         // group an election driver runs for decides this; any other answers from its log as before.
         var state = _groups.StateFor(groupId);
-        return state.IsElectionDriven && state.HasRecentLeaderContact(state.Options.ElectionTimeout)
+        return state.Transfers.RefusesPreVote(transferSource, status.CurrentTerm, ballot.Term)
             ? new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, status.CurrentTerm)
             : await log.CheckPreVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
     }
@@ -250,6 +252,16 @@ internal sealed class ReplicaFollower
             ReplicaGroupRole.Leader => state.HasAuthority ? LeaderRole : CandidateRole,
             _ => throw new InvalidOperationException($"Unsupported election role '{role}'."),
         };
+    }
+
+    internal async Task<bool> AcceptTransferAsync(ReplicaRpcHeader header, CancellationToken cancellationToken)
+    {
+        if (!TryGetLog(header.GroupId, out var log) || !_members.IsMember(header.GroupId, header.SenderNodeId))
+            return false;
+
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return !status.IsTopologyMismatch(header.TopologyFingerprint, header.ConfigurationGeneration) && status.CurrentTerm == header.Term && status.MemberState == GroupMemberState.Complete && status.Readiness == FollowerLogReadiness.Ready &&
+               _groups.StateFor(header.GroupId).Transfers.AcceptTransfer(header.SenderNodeId, header.Term);
     }
 
     /// <summary>Completes a copy that holds an offer before the log serves the call of a member, and refuses the call while the copy is not complete.</summary>

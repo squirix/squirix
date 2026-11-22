@@ -31,7 +31,7 @@ internal sealed class TrackedConnectionStream : NetworkStream
         _tracked = 1;
     }
 
-    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, EndPoint endpoint, CancellationToken cancellationToken)
+    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, EndPoint endpoint, CancellationToken cancellationToken, IPAddress[]? addresses = null)
     {
         if (!connections.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and admits no new connection.");
@@ -42,7 +42,10 @@ internal sealed class TrackedConnectionStream : NetworkStream
         {
             socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             connections.Register(socket);
-            await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+            if (endpoint is DnsEndPoint dns && addresses != null)
+                await socket.ConnectAsync(addresses, dns.Port, cancellationToken).ConfigureAwait(false);
+            else
+                await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
             var stream = new TrackedConnectionStream(socket, connections);
             created = true;
             return stream;

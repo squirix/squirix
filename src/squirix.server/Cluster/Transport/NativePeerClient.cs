@@ -25,7 +25,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Pools mutually authenticated peer streams, reserving each one for a single request and its reply.</summary>
 internal sealed class NativePeerClient : IPeerClient, IDisposable
 {
-    private readonly DnsEndPoint _address;
+    private readonly PeerHostAddresses _addresses;
     private readonly TrackedConnections _connections;
     private readonly TimeSpan _dial;
     private readonly byte[] _fingerprint;
@@ -44,7 +44,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     internal NativePeerClient((Uri Address, string Id) target, MtlsCertificate material, PeerHandshakeVerifier verifier, TrackedConnections connections, TimeSpan dial, string? fingerprint, PeerSocketOptions? options = null)
     {
         var (address, peer) = target;
-        _address = new DnsEndPoint(address.DnsSafeHost, address.Port);
+        _addresses = new PeerHostAddresses(new DnsEndPoint(address.DnsSafeHost, address.Port), Dns.GetHostAddressesAsync);
         _peer = peer;
         _verifier = verifier;
         _connections = connections;
@@ -347,8 +347,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         Stream network;
         try
         {
-            var endpoint = _resolveEndpoint == null ? _address : await _resolveEndpoint(dial.Token).ConfigureAwait(false);
-            network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dial.Token).ConfigureAwait(false);
+            var endpoint = _resolveEndpoint == null ? _addresses.Endpoint : await _resolveEndpoint(dial.Token).ConfigureAwait(false);
+            var addresses = _resolveEndpoint == null ? await _addresses.ResolveAsync(dial.Token).ConfigureAwait(false) : null;
+            network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dial.Token, addresses).ConfigureAwait(false);
             _ = Interlocked.Exchange(ref _lastDialTimeout, 0);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

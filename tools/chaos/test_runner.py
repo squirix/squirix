@@ -201,6 +201,49 @@ class ScheduleTests(unittest.TestCase):
                 {"node": 2, "error": "offline"},
             ])
 
+    def testNightlyLeaderExitPairsStopAndKill(self):
+        for replicas in (3, 5):
+            for scenario in ("leader-exit", "leader-dns-loss"):
+                with self.subTest(replicas=replicas, scenario=scenario), tempfile.TemporaryDirectory() as directory:
+                    args = SimpleNamespace(output=Path(directory) / "run", replicas=replicas, seed=1, scenario=scenario)
+                    cluster = Cluster(args)
+                    self.assertCountEqual([step["kind"] for step in cluster.plan], ["graceful-stop", "kill"])
+                    self.assertEqual(cluster.plan, [s for s in schedule(1, replicas) if s["kind"] in ("kill", "graceful-stop")])
+
+    def testKillRejectsTransferWitnessFromSourceTerm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))
+            step = {"kind": "kill", "nodes": [2, 0, 1], "leader_before": {"group": "n0", "term": 7}}
+            event = "Processed leadership transfer for group n0 from term "
+            with patch("run.command", side_effect=[event + "70", ""]):
+                self.assertEqual(cluster.transfer_witnesses(step), [])
+            with patch("run.command", side_effect=[event + "7", ""]):
+                with self.assertRaisesRegex(RuntimeError, "Unexpected transfer"):
+                    cluster.transfer_witnesses(step)
+
+    def testGracefulStopRequiresOneTransferWitness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))
+            step = {"kind": "graceful-stop", "nodes": [2, 0, 1], "leader_before": {"group": "n0", "term": 7}}
+            event = "Processed leadership transfer for group n0 from term 7"
+            with patch("run.command", return_value=""), patch("run.time.monotonic", side_effect=[0, 5]):
+                with self.assertRaisesRegex(TimeoutError, "No transfer campaign"):
+                    cluster.transfer_witnesses(step)
+            with patch("run.command", side_effect=[event, event]), self.assertRaisesRegex(RuntimeError, "Unexpected transfer"):
+                cluster.transfer_witnesses(step)
+            with patch("run.command", side_effect=["", "", "", event]), patch("run.time.sleep"):
+                self.assertEqual(cluster.transfer_witnesses(step), [1])
+
+    def testGracefulStopRejectsForcedTermination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))
+            step = {"kind": "graceful-stop", "nodes": [2, 0, 1]}
+            with patch("run.command", side_effect=["", "137"]) as docker, patch.object(cluster, "record") as record:
+                with self.assertRaisesRegex(RuntimeError, "exit code 137"):
+                    cluster.fault(step)
+                self.assertEqual(docker.call_args_list[0].args, ("docker", "stop", "--signal", "TERM", "--timeout", "20", cluster.nodes[2]))
+                record.assert_not_called()
+
     def testLeaderObservationRequiresAuthorityAndTerm(self):
         metrics = ('squirix_replication_leader_authority{node="n2",group="n0"} 1\n'
                    'squirix_replication_term{group="n0",node="n2"} 7\n')

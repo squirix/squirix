@@ -15,4 +15,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// </param>
 [Immutable]
 [StructLayout(LayoutKind.Auto)]
-internal readonly record struct ElectionOutcome(ElectionEvent Event, ulong Term, FailoverDenial Denial = FailoverDenial.None, TimeSpan Waited = default);
+internal readonly record struct ElectionOutcome(ElectionEvent Event, ulong Term, FailoverDenial Denial = FailoverDenial.None, TimeSpan Waited = default)
+{
+    internal ulong TransferSourceTerm { get; init; }
+}

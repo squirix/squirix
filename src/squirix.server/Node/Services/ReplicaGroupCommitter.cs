@@ -420,6 +420,18 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _reportedAppendFault = fault;
     }
 
+    /// <summary>Fences the retiring tenure under the commit gate. Normal disposal drains committed entries.</summary>
+    /// <param name="term">The term the election driver retired.</param>
+    /// <returns>Whether this committer held that tenure and closed admission.</returns>
+    internal bool FenceTransfer(ulong term)
+    {
+        if (_retiring || Tenure?.Term != term)
+            return false;
+
+        _retiring = true;
+        return true;
+    }
+
     /// <summary>Stops leading the group by election: closes its followers, disposes its coordinator, and releases the applier lease.</summary>
     /// <param name="cancellationToken">Cancellation token for the wait on the commit gate.</param>
     /// <returns>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -47,16 +48,39 @@ public sealed class LeaderStopSeriesTests
     [Test]
     [Timeout(1_200_000)]
     [NotInParallel]
-    public async Task LeaderStopSeriesRecordsTimeline(CancellationToken cancellationToken)
-    {
-        const string testName = nameof(LeaderStopSeriesRecordsTimeline);
+    public Task LeaderStopSeriesRecordsTimeline(CancellationToken cancellationToken) =>
+        RunSeriesAsync(nameof(LeaderStopSeriesRecordsTimeline), 3, cancellationToken);
 
+    /// <summary>Measures recovery under load with five voting replicas.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(1_200_000)]
+    [NotInParallel]
+    public Task FiveReplicaStopsRecordTimeline(CancellationToken cancellationToken) =>
+        RunSeriesAsync(nameof(FiveReplicaStopsRecordTimeline), 5, cancellationToken);
+
+    private static async Task RunSeriesAsync(string testName, int replicas, CancellationToken cancellationToken)
+    {
         // The product default timing, not the pull request tier, with a jitter seed fixed per test; the testkit mixes in each node.
         var timing = FailoverTiming.ProductDefaults(testName);
-        var options = new MultiNodeStartOptions { ReplicaCount = 3, Failover = true, ElectionTiming = timing, TrackRequests = true };
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, options, true, cancellationToken);
+        var events = new ConcurrentQueue<(long At, string Sender, string Target, string Rpc, ulong Term)>();
+        var members = replicas == 3 ? FailoverSteps.ThreeNodes : FailoverSteps.FiveNodes;
+        var rounds = new ElectionRoundCounter
+        {
+            DropHints = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_TEST_DROP_HINT"), "1", StringComparison.Ordinal),
+            BroadcastMembers = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_TEST_BROADCAST_HINT"), "1", StringComparison.Ordinal) ? members : null,
+            Observe = (group, sender, target, rpc, term) =>
+            {
+                if (string.Equals(group, Group, StringComparison.Ordinal))
+                    events.Enqueue((Stopwatch.GetTimestamp(), sender, target, rpc, term));
+            },
+        };
+        var options = new MultiNodeStartOptions { ReplicaCount = replicas, Failover = true, ElectionTiming = timing, TrackRequests = true, ServicesConfigure = (_, services) => rounds.Register(services) };
+        await using var cluster = replicas == 3
+            ? await HostedCluster.StartThreeNodeAsync(testName, options, true, cancellationToken)
+            : await HostedCluster.StartFiveNodeAsync(testName, options, true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
-        _ = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
+        _ = await probe.WaitForStableLeaderAsync(Group, Members(cluster), FailoverSteps.Bound, cancellationToken);
 
         var samples = new List<FailoverSample>(Stops);
         var series = new List<(RegisterHistory History, string[] Keys)>(Stops);
@@ -67,7 +91,15 @@ public sealed class LeaderStopSeriesTests
             for (var i = 1; i <= Stops; i++)
             {
                 var (sample, history, keys) = await StopOnceAsync(cluster, probe, i, cancellationToken);
-                samples.Add(sample);
+                var calls = new List<ElectionCall>();
+                while (events.TryDequeue(out var call))
+                {
+                    var elapsed = Stopwatch.GetElapsedTime(sample.StopTimestamp, call.At).TotalMilliseconds;
+                    if (elapsed >= 0 && elapsed <= sample.RecoveryFromStopStartMs)
+                        calls.Add(new ElectionCall(elapsed, call.Sender, call.Target, call.Rpc, call.Term));
+                }
+
+                samples.Add(sample with { ElectionCalls = [.. calls] });
                 series.Add((history, keys));
                 Write(FailoverEvidence.Describe(sample));
             }
@@ -78,7 +110,7 @@ public sealed class LeaderStopSeriesTests
         finally
         {
             evidence = FailoverEvidence.Build(testName, timing, [.. samples], completed);
-            await WriteEvidenceAsync(evidence);
+            await WriteEvidenceAsync(evidence, replicas == 3 ? EvidenceFile : "failover-leader-stop-series-rf5.json");
         }
 
         var (machine, enforced, reason) = FailoverEvidence.Gate();
@@ -91,12 +123,13 @@ public sealed class LeaderStopSeriesTests
 
     /// <summary>Writes the evidence file and reports where; a write that fails is reported to the test output and does not replace the failure of the test.</summary>
     /// <param name="evidence">The evidence.</param>
+    /// <param name="fileName">The evidence file for the measured replica count.</param>
     /// <returns>A task that completes once the file is written or the failure is reported.</returns>
-    private static async Task WriteEvidenceAsync(FailoverTimingEvidence evidence)
+    private static async Task WriteEvidenceAsync(FailoverTimingEvidence evidence, string fileName)
     {
         try
         {
-            var path = await FailoverEvidence.WriteAsync(evidence, EvidenceFile, CancellationToken.None);
+            var path = await FailoverEvidence.WriteAsync(evidence, fileName, CancellationToken.None);
             Write(
                 string.Create(
                     CultureInfo.InvariantCulture,
@@ -144,8 +177,8 @@ public sealed class LeaderStopSeriesTests
         CancellationToken cancellationToken)
     {
         var iteration = step.Iteration;
-        var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
-        var survivors = FailoverSteps.Except(FailoverSteps.ThreeNodes, former);
+        var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, Members(cluster), FailoverSteps.Bound, cancellationToken);
+        var survivors = FailoverSteps.Except(Members(cluster), former);
         var timeline = FailoverTimeline<ClusterStartOptions>.Start(cluster.Cluster, Group);
         var clients = cluster.ClientCount;
         await using (timeline)
@@ -155,7 +188,7 @@ public sealed class LeaderStopSeriesTests
                 var stopStarted = 0L;
                 var stale = false;
 
-                var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.ThreeNode);
+                var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, cluster.Cluster.Topology.Count == 3 ? KeyOwnerHelper.ThreeNode : KeyOwnerHelper.FiveNode);
                 var fault = (former, $"stop {iteration}: leader {former} stops", (Func<HostedCluster, string, ValueTask>?)StopLeaderAsync);
                 FailoverFault.FaultRun run;
                 try
@@ -177,14 +210,14 @@ public sealed class LeaderStopSeriesTests
 
                 await cluster.DisposeClientsAfterAsync(clients);
                 await cluster.RestartNodeAsync(former, cancellationToken);
-                _ = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
-                _ = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
+                _ = await probe.WaitForStableLeaderAsync(Group, Members(cluster), FailoverSteps.Bound, cancellationToken);
+                _ = await GroupLogAudit.RunAsync(cluster.Cluster, Group, Members(cluster), FailoverSteps.Bound, cancellationToken);
                 return (sample, history, run.Keys);
 
                 ValueTask StopLeaderAsync(HostedCluster stopped, string nodeId)
                 {
                     stopStarted = Stopwatch.GetTimestamp();
-                    stale = timeline.Baseline != (former, formerTerm) || probe.Ledger(Group).Observe(FailoverSteps.ThreeNodes) != (former, formerTerm);
+                    stale = timeline.Baseline != (former, formerTerm) || probe.Ledger(Group).Observe(Members(cluster)) != (former, formerTerm);
                     return stale ? throw new InvalidOperationException($"The leader of {Group} changed before the stop began.") : stopped.StopNodeAsync(nodeId);
                 }
             }
@@ -229,7 +262,10 @@ public sealed class LeaderStopSeriesTests
             phases?.PersistenceReleaseMs,
             phases?.TotalMs,
             phases?.InFlightAtStop,
-            phases?.LastRequestFinishedMs);
+            phases?.LastRequestFinishedMs)
+        {
+            StopTimestamp = stopStarted,
+        };
         _ = await Assert.That(run.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
         _ = await Assert.That(run.Read).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
         _ = await Assert.That(run.StoppedWhileAcked).IsTrue().Because(dump);
@@ -249,7 +285,7 @@ public sealed class LeaderStopSeriesTests
     /// <returns>A task that completes once every history passed.</returns>
     private static async Task AssertNothingLostAsync(HostedCluster cluster, List<(RegisterHistory History, string[] Keys)> series, CancellationToken cancellationToken)
     {
-        var reader = await cluster.GetCacheAsync<long>(CacheName, FailoverSteps.ThreeNodes[0], cancellationToken);
+        var reader = await cluster.GetCacheAsync<long>(CacheName, Members(cluster)[0], cancellationToken);
         for (var i = 0; i < series.Count; i++)
         {
             var (history, keys) = series[i];
@@ -257,6 +293,8 @@ public sealed class LeaderStopSeriesTests
             _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because($"stop {i + 1}: {history.Summary()}");
         }
     }
+
+    private static string[] Members(HostedCluster cluster) => cluster.Cluster.Topology.Count == 3 ? FailoverSteps.ThreeNodes : FailoverSteps.FiveNodes;
 
     private static bool HasNegativePhase(FailoverSample sample) => sample.LeaderLostMs < 0 || sample.TermRaisedMs < 0 || sample.NewLeaderMs < 0 || sample.ConvergedMs < 0;
 

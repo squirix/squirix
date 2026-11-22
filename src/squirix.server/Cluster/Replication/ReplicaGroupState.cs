@@ -45,6 +45,7 @@ internal sealed class ReplicaGroupState
         _followerContact = new long[replicaCount];
         _followerContact.AsSpan().Fill(NoContact);
         ElectableContacts = new ReplicaElectableContacts(replicaCount, clock);
+        Transfers = new TransferState(this);
         Options = options;
         Clock = clock;
         TransferProgress = new ReplicaTransferProgress(clock);
@@ -117,6 +118,8 @@ internal sealed class ReplicaGroupState
                 return _term;
         }
     }
+
+    internal TransferState Transfers { get; }
 
     /// <summary>Gets when a state transfer of this leader last made progress, which holds the authority deadline.</summary>
     internal ReplicaTransferProgress TransferProgress { get; }
@@ -455,5 +458,67 @@ internal sealed class ReplicaGroupState
         _hasAuthority = false;
         RouteChanged.Publish();
         return _driven && term > _term;
+    }
+
+    internal sealed class TransferState
+    {
+        private readonly ReplicaGroupState _state;
+        private ulong _acceptedTransferTerm;
+        private string? _pendingTransfer;
+
+        internal TransferState(ReplicaGroupState state)
+        {
+            _state = state;
+        }
+
+        internal ulong StopForTransfer()
+        {
+            lock (_state._sync)
+            {
+                var term = _state._hasAuthority && _state._highestObservedTerm == _state._term ? _state._term : 0UL;
+                _state.SetElectionDriven(false);
+                return term;
+            }
+        }
+
+        internal bool AcceptTransfer(string source, ulong term)
+        {
+            lock (_state._sync)
+            {
+                if (!FollowsSourceLocked(source, term) || _acceptedTransferTerm >= term || _state.ApplyBlock.Denial() != FailoverDenial.None)
+                    return false;
+
+                _acceptedTransferTerm = term;
+                _pendingTransfer = source;
+            }
+
+            _state._wake.Notify();
+            return true;
+        }
+
+        internal string? TakeTransfer(ulong durableTerm)
+        {
+            lock (_state._sync)
+            {
+                var source = _pendingTransfer;
+                _pendingTransfer = null;
+                return source != null && _acceptedTransferTerm == durableTerm && FollowsSourceLocked(source, durableTerm) ? source : null;
+            }
+        }
+
+        internal bool RefusesPreVote(string? source, ulong durableTerm, ulong proposedTerm)
+        {
+            lock (_state._sync)
+            {
+                var live = _state._hasAuthority || _state.HasLiveLeaderContactLocked;
+                var scoped = source != null && durableTerm < ulong.MaxValue && proposedTerm == durableTerm + 1 && FollowsSourceLocked(source, durableTerm);
+                return _state._driven && live && !scoped;
+            }
+        }
+
+        private bool FollowsSourceLocked(string source, ulong term) =>
+            _state.ReplicaCount is 3 or 5 && _state._driven && _state._role == ReplicaGroupRole.Follower && term is > 0 and < ulong.MaxValue &&
+            _state._term == term && _state._highestObservedTerm == term && _state._knownLeaderTerm == term &&
+            source.Length > 0 && string.Equals(_state._knownLeader, source, StringComparison.Ordinal);
     }
 }

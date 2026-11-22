@@ -10,6 +10,19 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal interface IReplicaLeadership
 {
+    /// <summary>Gets acknowledged progress of a follower of the current coordinator.</summary>
+    /// <param name="groupId">The led group.</param>
+    /// <param name="slot">The follower slot.</param>
+    /// <returns>The acknowledged log index, or null without a coordinator.</returns>
+    ulong? MatchIndex(string groupId, int slot) => null;
+
+    /// <summary>Crosses the commit admission gate after authority revocation. The host owns the shutdown drain.</summary>
+    /// <param name="groupId">The retiring group.</param>
+    /// <param name="term">The revoked leader term.</param>
+    /// <param name="cancellationToken">The remaining handoff budget.</param>
+    /// <returns>Whether admission for this tenure is fenced.</returns>
+    Task<bool> FenceTransferAsync(string groupId, ulong term, CancellationToken cancellationToken) => Task.FromResult(false);
+
     /// <summary>Leads a group in a won term and commits its leader-term entry.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="term">The won term; every entry the leader appends carries it.</param>

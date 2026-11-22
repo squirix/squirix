@@ -291,28 +291,21 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     internal static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken) =>
         CreateFollowerScopeAsync(groupId, false, null, null, cancellationToken);
 
-    /// <summary>Creates an adapter backed by an opened single-group registry that reports no memory pressure.</summary>
-    /// <param name="groupId">The replica group identifier served by the registry.</param>
-    /// <param name="votesEnabled">Whether automatic failover is on, so the adapter answers votes from the log.</param>
-    /// <param name="members">The replica sets of the group; <see langword="null" /> counts every node a member.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The follower scope owning the adapter and its storage.</returns>
-    private static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, bool votesEnabled, IReplicaMembership? members, CancellationToken cancellationToken) =>
-        CreateFollowerScopeAsync(groupId, votesEnabled, members, null, cancellationToken);
-
     /// <summary>Creates an adapter backed by an opened single-group registry.</summary>
     /// <param name="groupId">The replica group identifier served by the registry.</param>
     /// <param name="votesEnabled">Whether automatic failover is on, so the adapter answers votes from the log.</param>
     /// <param name="members">The replica sets of the group; <see langword="null" /> counts every node a member.</param>
     /// <param name="memoryPressure">The reader of the critical memory pressure the replies report; <see langword="null" /> reports none.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="transferEnabled">Whether to use the transfer protocol with the configured topology digest.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
-    private static async Task<FollowerScope> CreateFollowerScopeAsync(
+    internal static async Task<FollowerScope> CreateFollowerScopeAsync(
         string groupId,
         bool votesEnabled,
         IReplicaMembership? members,
         ICriticalMemoryPressureReader? memoryPressure,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool transferEnabled = false)
     {
         var topology = CreateTopology(votesEnabled);
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
@@ -321,9 +314,10 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
         var dir = new TempDirectory("squirix-replication-adapter");
         await SeededLogs.SeedGroupsAsync(dir, [groupId], cancellationToken);
-        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
+        var fingerprint = transferEnabled ? [.. TopologyFingerprint.CreateFromTopology(topology, mtls).Bytes] : Encoding.UTF8.GetBytes("\t");
+        var registry = new ReplicaGroupRegistry(dir, [groupId], transferEnabled ? 3 : 1, fingerprint, topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers(), null, memoryPressure);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers(), null, memoryPressure) { TransferEnabled = transferEnabled };
         var header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
@@ -331,7 +325,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
             LeaderNodeId = "node-a",
             GroupId = groupId,
             Term = 7,
-            TopologyFingerprint = Encoding.UTF8.GetBytes("\t"),
+            TopologyFingerprint = fingerprint,
             ConfigurationGeneration = topology.ConfigurationGeneration,
         };
         var httpContext = new PeerCallContext
@@ -352,6 +346,15 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
             Registry = registry,
         };
     }
+
+    /// <summary>Creates an adapter backed by an opened single-group registry that reports no memory pressure.</summary>
+    /// <param name="groupId">The replica group identifier served by the registry.</param>
+    /// <param name="votesEnabled">Whether automatic failover is on, so the adapter answers votes from the log.</param>
+    /// <param name="members">The replica sets of the group; <see langword="null" /> counts every node a member.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The follower scope owning the adapter and its storage.</returns>
+    private static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, bool votesEnabled, IReplicaMembership? members, CancellationToken cancellationToken) =>
+        CreateFollowerScopeAsync(groupId, votesEnabled, members, null, cancellationToken);
 
     /// <summary>Gets the metadata file path of the group served by the scope.</summary>
     /// <param name="follower">The follower scope.</param>
