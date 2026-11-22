@@ -171,11 +171,12 @@ Known limits:
 - A member that came back on an empty data directory holds an unseeded copy until a leader repairs it
   ([Starting a replica group](#starting-a-replica-group)). Until then it costs the group one vote: with two such members
   of three, or three of five, no leader is elected, nothing repairs them, and the group refuses reads and writes.
-- All nodes must run builds that agree on the replication settings and the minimum cluster package version
-  (`0.1.0-preview.10`); mixed versions fail readiness through the topology fingerprint, and a data directory activated by
-  an older build refuses to start. So does a group metadata file written by an earlier build: the node prints `Replica
-  group '{id}' metadata was written by an earlier build and is not supported; the file was left unchanged.` and does
-  not start.
+- All nodes in a replicated cluster must agree on the replication settings and topology fingerprint. The minimum
+  cluster package version recorded in the fingerprint is `0.1.0-preview.11`. When upgrading to
+  [`0.2.0-preview.1`](release-notes/v0.2.0-preview.1.md), upgrade all cluster members together because this release
+  switches internode communication to the native binary mTLS protocol.
+- A data directory activated by an older build can fail to start. If the node encounters unsupported group metadata
+  from an earlier build, it reports that the metadata file was left unchanged and stops.
 - Membership is static; there is no rebalancing or dynamic membership.
 
 Observe a failover with `/health/ready` (the `replica_readiness` check) and the metrics `squirix_replication_role` and
