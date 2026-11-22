@@ -67,7 +67,7 @@ internal sealed class BinaryConnectionPump
 
     internal async Task RunAsync(CancellationToken readStop)
     {
-        var writer = WriteAsync();
+        var writer = ResponseWriter.RunAsync(this);
         try
         {
             await ReadAsync(readStop).ConfigureAwait(false);
@@ -371,55 +371,6 @@ internal sealed class BinaryConnectionPump
             _ = _outgoing.Writer.TryWrite(new ResponseBatch(in response));
     }
 
-    private async Task WriteAsync()
-    {
-        var writer = _transport.Output;
-        var stop = _connectionClosed;
-        var current = default(ResponseBatch);
-        var index = 0;
-        try
-        {
-            while (index < current.Count || await _outgoing.Reader.WaitToReadAsync(stop).ConfigureAwait(false))
-            {
-                stop.ThrowIfCancellationRequested();
-                var bytes = 0;
-                var count = 0;
-                for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && ResponseBatch.TryRead(_outgoing.Reader, ref current, ref index, out var frame); count++)
-                {
-                    var size = frame.Response.Payload?.CalculateSize() ?? 0;
-                    if (_largeRequests != null && size is > Frames.MaxResponseBytes and <= Frames.MaxExtendedBodyBytes)
-                    {
-                        using var transfer = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop);
-                        await FrameIO.WriteExtendedResponseAsync(writer, frame, size, transfer.Token).ConfigureAwait(false);
-                        bytes += size;
-                    }
-                    else
-                    {
-                        bytes += FrameIO.WriteResponse(writer, in frame, size);
-                    }
-
-                    _ = _slots.Writer.TryWrite(frame.Slot);
-                }
-
-                using var boundedFlush = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop);
-                var flush = await writer.FlushAsync(boundedFlush.Token).ConfigureAwait(false);
-                if (flush is { IsCanceled: false, IsCompleted: false })
-                    continue;
-
-                _abort();
-                return;
-            }
-        }
-        catch (Exception error) when (error is IOException or OperationCanceledException)
-        {
-            _abort();
-        }
-        finally
-        {
-            current.Release();
-        }
-    }
-
     private async Task CompleteAsync(Task writer)
     {
         try
@@ -606,7 +557,76 @@ internal sealed class BinaryConnectionPump
             }
         }
 
-        internal static async ValueTask WriteExtendedResponseAsync(PipeWriter writer, PendingResponse frame, int size, CancellationToken cancellationToken)
+        internal static RequestFrame ReadHeader(in ReadOnlySequence<byte> buffer)
+        {
+            var first = buffer.FirstSpan;
+            if (first.Length >= Frames.RequestBytes)
+                return ReadHeader(first);
+
+            Span<byte> header = stackalloc byte[Frames.RequestBytes];
+            buffer.Slice(0, Frames.RequestBytes).CopyTo(header);
+            return ReadHeader(header);
+        }
+
+        private static RequestFrame ReadHeader(ReadOnlySpan<byte> header)
+        {
+            var (id, size, control) = Frames.ReadRequest(header);
+            return new RequestFrame(id, size, control);
+        }
+    }
+
+    private static class ResponseWriter
+    {
+        internal static async Task RunAsync(BinaryConnectionPump connection)
+        {
+            var writer = connection._transport.Output;
+            var stop = connection._connectionClosed;
+            var current = default(ResponseBatch);
+            var index = 0;
+            try
+            {
+                while (index < current.Count || await connection._outgoing.Reader.WaitToReadAsync(stop).ConfigureAwait(false))
+                {
+                    stop.ThrowIfCancellationRequested();
+                    var bytes = 0;
+                    var count = 0;
+                    for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && ResponseBatch.TryRead(connection._outgoing.Reader, ref current, ref index, out var frame); count++)
+                    {
+                        var size = frame.Response.Payload?.CalculateSize() ?? 0;
+                        if (connection._largeRequests != null && size is > Frames.MaxResponseBytes and <= Frames.MaxExtendedBodyBytes)
+                        {
+                            using var transfer = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, connection._timeProvider, stop);
+                            await WriteExtendedResponseAsync(writer, frame, size, transfer.Token).ConfigureAwait(false);
+                            bytes += size;
+                        }
+                        else
+                        {
+                            bytes += WriteResponse(writer, in frame, size);
+                        }
+
+                        _ = connection._slots.Writer.TryWrite(frame.Slot);
+                    }
+
+                    using var boundedFlush = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, connection._timeProvider, stop);
+                    var flush = await writer.FlushAsync(boundedFlush.Token).ConfigureAwait(false);
+                    if (flush is { IsCanceled: false, IsCompleted: false })
+                        continue;
+
+                    connection._abort();
+                    return;
+                }
+            }
+            catch (Exception error) when (error is IOException or OperationCanceledException)
+            {
+                connection._abort();
+            }
+            finally
+            {
+                current.Release();
+            }
+        }
+
+        private static async ValueTask WriteExtendedResponseAsync(PipeWriter writer, PendingResponse frame, int size, CancellationToken cancellationToken)
         {
             using var segments = new WireSegments();
             const int headerBytes = Frames.ReplyBytes + Frames.ExtendedReplyBytes;
@@ -623,7 +643,7 @@ internal sealed class BinaryConnectionPump
             }
         }
 
-        internal static int WriteResponse(PipeWriter writer, in PendingResponse frame, int size)
+        private static int WriteResponse(PipeWriter writer, in PendingResponse frame, int size)
         {
             var payload = frame.Response.Payload;
             var status = frame.Response.Status;
@@ -642,23 +662,6 @@ internal sealed class BinaryConnectionPump
 
             writer.Advance(length);
             return length;
-        }
-
-        internal static RequestFrame ReadHeader(in ReadOnlySequence<byte> buffer)
-        {
-            var first = buffer.FirstSpan;
-            if (first.Length >= Frames.RequestBytes)
-                return ReadHeader(first);
-
-            Span<byte> header = stackalloc byte[Frames.RequestBytes];
-            buffer.Slice(0, Frames.RequestBytes).CopyTo(header);
-            return ReadHeader(header);
-        }
-
-        private static RequestFrame ReadHeader(ReadOnlySpan<byte> header)
-        {
-            var (id, size, control) = Frames.ReadRequest(header);
-            return new RequestFrame(id, size, control);
         }
     }
 
