@@ -37,7 +37,7 @@ A zero-byte budget permits no allocation.
 ## Same-runner source comparison
 
 [performance-ci-baseline.json](performance-ci-baseline.json) pins the accepted develop revision to the full immutable commit
-52c6fca26ecc7e0296b5b4dc673ac1603def4547.
+fdf3179991fb2502c32a73a23a749752adb9c9d7.
 The [runner](../tools/ci/run-performance-guard.py) creates a temporary checkout of that revision. The reference does not float with the branch.
 It rebuilds both versions with the current SDK and identical selected benchmark sources, then runs BenchmarkDotNet
 in native child processes: one launch, ten warmup iterations and ten measurement iterations at 500 ms.
