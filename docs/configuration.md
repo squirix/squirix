@@ -401,11 +401,11 @@ There is **no** `Squirix:Persistence` JSON merge in public hosting — putting a
 | Field                         | Type   | Default in node host                                       | Validation                                                                                                                                 |
 | ----------------------------- | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DataDir`                     | string | `%LocalAppData%/squirix/<cluster>/<node>` or temp fallback | Required, non-empty when persistence is enabled                                                                                            |
-| `JournalMaxSegmentMb`         | int    | `64`                                                       | `>= 9`: a segment must hold the largest journal frame (an entry or a recorded reply of up to 8 MiB, plus framing)                          |
+| `JournalMaxSegmentMb` | int | `514` without replication, `64` with replication | At least `514` without replication or `34` with replication, to fit the largest journal frame |
 | Journal group commit wait     | span   | `0` (disabled)                                             | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | Journal group commit batch    | int    | `32`                                                       | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
-| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `>= 9` (Pipelined journal total on-disk size hard cap; must hold one segment with the largest journal frame)                               |
+| `JournalMaxTotalBytesMb` | int | `2048` | At least `514` without replication or `34` with replication, to fit one full journal frame |
 | `ReplicaLogCompactionMb`      | int    | `64`                                                       | `> 0` (RF>1: group log size of each served replica group that triggers its compaction)                                                     |
 | `ReplicaLogCompactionEntries` | int    | `100000`                                                   | `> 0` (RF>1: entries in each served replica group log that trigger its compaction)                                                         |
 | `ReplicaLogRetentionMaxMb`    | int    | `1024`                                                     | `>= ReplicaLogCompactionMb` (RF>1: group log size of a led group past which followers not ready or behind stop holding it)                 |
@@ -425,8 +425,7 @@ not change readiness. See [Journal disk quota](operational-runbook.md#journal-di
 
 At the same high-water mark (80% of `JournalMaxTotalBytesMb`, or of `JournalMaxSegmentCount`) the node takes a snapshot, whatever
 the snapshot triggers say, and pauses an incoming state transfer. Keep `JournalMaxSegmentMb` plus the largest journal frame
-below that mark (with the 9 MB minimum frame allowance, a quota of at least `(JournalMaxSegmentMb + 9) / 0.8` MB); the node
-warns at startup when it does not fit.
+below that mark. Use a frame allowance of 514 MiB without replication or 34 MiB with replication. The node warns at startup when it does not fit.
 
 Journal group commit is configured through the [Journal](#journal) section. See [journal group commit](journal-group-commit.md) for how it works.
 
@@ -759,7 +758,7 @@ hosting ignores:
   Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.`
 - `QuorumReadsEnabled requires AutomaticFailoverEnabled: quorum reads are served by elected leaders only. Set both
   Squirix:Cluster:AutomaticFailoverEnabled and Squirix:Cluster:QuorumReadsEnabled, or neither.`
-- `Persistence JournalMaxSegmentMb must be at least 9: a journal segment must hold the largest journal frame.`
+- `Persistence JournalMaxSegmentMb must be at least 514: a journal segment must hold the largest journal frame.`
 - `MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.`
 - `MemoryPressure MaxEstimatedCacheBytes must be positive when set.`
 - `MemoryPressure MaxEstimatedCacheBytes ({configured}) exceeds the 80% RAM cap ({cap}).`

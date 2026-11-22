@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
@@ -13,6 +14,7 @@ using Squirix.Server.Logging;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -30,7 +32,8 @@ internal sealed class BinaryConnectionPump
     private readonly Action _abort;
     private readonly IServerLogger _log;
     private readonly TimeProvider _timeProvider;
-    private readonly Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> _process;
+    private readonly Func<RequestFrame, ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> _process;
+    private readonly LargeCacheRequests? _largeRequests;
     private readonly Task[] _jobs = new Task[MaxPending];
     private readonly Channel<int> _slots = Channel.CreateBounded<int>(MaxPending);
     private readonly Channel<ResponseBatch> _outgoing = Channel.CreateBounded<ResponseBatch>(
@@ -42,10 +45,11 @@ internal sealed class BinaryConnectionPump
     internal BinaryConnectionPump(
         IDuplexPipe transport,
         Action abort,
-        Func<(int Id, int Size, int Control), ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> process,
+        Func<RequestFrame, ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> process,
         IServerLogger log,
         TimeProvider timeProvider,
-        CancellationToken connectionClosed)
+        CancellationToken connectionClosed,
+        LargeCacheRequests? largeRequests = null)
     {
         _transport = transport;
         _connectionClosed = connectionClosed;
@@ -53,6 +57,7 @@ internal sealed class BinaryConnectionPump
         _log = log;
         _timeProvider = timeProvider;
         _process = process;
+        _largeRequests = largeRequests;
         for (var i = 0; i < _jobs.Length; i++)
         {
             _jobs[i] = Task.CompletedTask;
@@ -96,7 +101,7 @@ internal sealed class BinaryConnectionPump
                     return;
             }
         }
-        catch (IOException)
+        catch (Exception error) when (error is IOException or InvalidDataException)
         {
             _abort();
         }
@@ -146,7 +151,7 @@ internal sealed class BinaryConnectionPump
                 buffer = buffer.Slice(Frames.RequestBytes);
                 consumed = examined = buffer.Start;
                 var frame = FrameIO.ReadHeader(in header);
-                if (buffer.Length < frame.Size)
+                if (frame.Size == Frames.ExtendedSize || buffer.Length < frame.Size)
                     return new PartialFrame(slot, frame);
 
                 var body = ArrayPool<byte>.Shared.Rent(frame.Size);
@@ -159,7 +164,7 @@ internal sealed class BinaryConnectionPump
                     break;
                 }
 
-                Dispatch(slot, frame, body, ref queued, ref queuedCount);
+                Dispatch(slot, in frame, body, ref queued, ref queuedCount);
             }
 
             examined = buffer.End;
@@ -179,7 +184,7 @@ internal sealed class BinaryConnectionPump
         }
     }
 
-    private void Dispatch(int slot, (int Id, int Size, int Control) frame, byte[] body, ref QueuedCall[]? batch, ref int count)
+    private void Dispatch(int slot, in RequestFrame frame, byte[] body, ref QueuedCall[]? batch, ref int count)
     {
         var operation = Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(frame.Control));
         var predecessor = _previousOrdered;
@@ -283,11 +288,15 @@ internal sealed class BinaryConnectionPump
         var stream = input.AsStream(true);
         await using var streamLifetime = stream.ConfigureAwait(false);
         byte[] body;
+        var frame = partial.Frame;
         using (var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop))
         {
             try
             {
-                var read = FrameIO.ReadBodyAsync(stream, partial.Frame.Size, deadline.Token);
+                if (frame.Size == Frames.ExtendedSize)
+                    return await ReadExtendedAsync(stream, partial, deadline.Token).ConfigureAwait(false);
+
+                var read = FrameIO.ReadBodyAsync(stream, frame.Size, deadline.Token);
                 PublishBeforeWait(read.IsCompletedSuccessfully);
                 body = await read.ConfigureAwait(false);
             }
@@ -304,6 +313,39 @@ internal sealed class BinaryConnectionPump
         Dispatch(partial.Slot, partial.Frame, body, ref batch, ref count);
         QueueExecution(ref batch, ref count);
         return true;
+    }
+
+    private async ValueTask<bool> ReadExtendedAsync(Stream stream, PartialFrame partial, CancellationToken cancellationToken)
+    {
+        if (_largeRequests is not { } admission)
+            throw new InvalidDataException("Extended cache frames were not negotiated.");
+
+        Publish(ref _ready);
+        var (size, valueBytes) = await FrameIO.ReadExtensionAsync(stream, cancellationToken).ConfigureAwait(false);
+        if (admission.Admit(size, valueBytes) is { } refusal)
+        {
+            var response = new PendingResponse(partial.Slot, partial.Frame.Id, refusal);
+            _ = _outgoing.Writer.TryWrite(new ResponseBatch(in response));
+            await FrameIO.SkipBodyAsync(stream, size, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        try
+        {
+            var body = GC.AllocateUninitializedArray<byte>(size);
+            await stream.ReadExactlyAsync(body, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            QueuedCall[]? batch = null;
+            var count = 0;
+            Dispatch(partial.Slot, partial.Frame with { Size = size, ValueBytes = valueBytes }, body, ref batch, ref count);
+            QueueExecution(ref batch, ref count);
+            return true;
+        }
+        catch
+        {
+            admission.Release(size);
+            throw;
+        }
     }
 
     private void Stage(in PendingResponse response, ref ResponseBatch ready)
@@ -344,7 +386,18 @@ internal sealed class BinaryConnectionPump
                 var count = 0;
                 for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && ResponseBatch.TryRead(_outgoing.Reader, ref current, ref index, out var frame); count++)
                 {
-                    bytes += FrameIO.WriteResponse(writer, in frame);
+                    var size = frame.Response.Payload?.CalculateSize() ?? 0;
+                    if (_largeRequests != null && size is > Frames.MaxResponseBytes and <= Frames.MaxExtendedBodyBytes)
+                    {
+                        using var transfer = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, _timeProvider, stop);
+                        await FrameIO.WriteExtendedResponseAsync(writer, frame, size, transfer.Token).ConfigureAwait(false);
+                        bytes += size;
+                    }
+                    else
+                    {
+                        bytes += FrameIO.WriteResponse(writer, in frame, size);
+                    }
+
                     _ = _slots.Writer.TryWrite(frame.Slot);
                 }
 
@@ -415,7 +468,10 @@ internal sealed class BinaryConnectionPump
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(call.Body);
+            if (call.Frame.ValueBytes != null)
+                _largeRequests!.Release(call.Frame.Size);
+            else
+                ArrayPool<byte>.Shared.Return(call.Body);
             if (call.Completion is { } completion)
             {
                 // A rejected or expired request still links its successor to older mutations.
@@ -426,11 +482,14 @@ internal sealed class BinaryConnectionPump
     }
 
     [StructLayout(LayoutKind.Auto)]
-    private readonly record struct PartialFrame(int Slot, (int Id, int Size, int Control) Frame);
+    internal readonly record struct RequestFrame(int Id, int Size, int Control, int? ValueBytes = null);
+
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct PartialFrame(int Slot, RequestFrame Frame);
 
     private readonly record struct QueuedCall(
         int Slot,
-        (int Id, int Size, int Control) Frame,
+        RequestFrame Frame,
         byte[] Body,
         long Received,
         Task Predecessor,
@@ -499,6 +558,38 @@ internal sealed class BinaryConnectionPump
 
     private static class FrameIO
     {
+        internal static async ValueTask<(int Size, int ValueBytes)> ReadExtensionAsync(Stream input, CancellationToken cancellationToken)
+        {
+            var bytes = ArrayPool<byte>.Shared.Rent(Frames.ExtendedRequestBytes);
+            try
+            {
+                await input.ReadExactlyAsync(bytes.AsMemory(0, Frames.ExtendedRequestBytes), cancellationToken).ConfigureAwait(false);
+                return (Frames.ReadExtendedSize(bytes), BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(sizeof(int))));
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(bytes);
+            }
+        }
+
+        internal static async ValueTask SkipBodyAsync(Stream input, int size, CancellationToken cancellationToken)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
+            try
+            {
+                while (size > 0)
+                {
+                    var length = Math.Min(size, Frames.MaxBatchBytes);
+                    await input.ReadExactlyAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+                    size -= length;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
         internal static async ValueTask<byte[]> ReadBodyAsync(Stream input, int size, CancellationToken cancellationToken)
         {
             var body = ArrayPool<byte>.Shared.Rent(size);
@@ -515,11 +606,27 @@ internal sealed class BinaryConnectionPump
             }
         }
 
-        internal static int WriteResponse(PipeWriter writer, in PendingResponse frame)
+        internal static async ValueTask WriteExtendedResponseAsync(PipeWriter writer, PendingResponse frame, int size, CancellationToken cancellationToken)
+        {
+            using var segments = new WireSegments();
+            const int headerBytes = Frames.ReplyBytes + Frames.ExtendedReplyBytes;
+            var header = segments.GetMemory(headerBytes);
+            Frames.WriteReply(header.Span, frame.Id, Frames.ExtendedSize, Unsafe.BitCast<FrameStatus, int>(frame.Response.Status));
+            Frames.WriteExtendedSize(header.Span[Frames.ReplyBytes..], size);
+            segments.Advance(headerBytes);
+            frame.Response.Payload!.WriteTo(segments);
+            foreach (var chunk in segments.Chunks())
+            {
+                var flush = await writer.WriteAsync(chunk, cancellationToken).ConfigureAwait(false);
+                if (flush.IsCanceled || flush.IsCompleted)
+                    throw new IOException("Extended cache reply was interrupted.");
+            }
+        }
+
+        internal static int WriteResponse(PipeWriter writer, in PendingResponse frame, int size)
         {
             var payload = frame.Response.Payload;
             var status = frame.Response.Status;
-            var size = payload?.CalculateSize() ?? 0;
             if (size > Frames.MaxResponseBytes)
             {
                 size = 0;
@@ -537,15 +644,21 @@ internal sealed class BinaryConnectionPump
             return length;
         }
 
-        internal static (int Id, int Size, int Control) ReadHeader(in ReadOnlySequence<byte> buffer)
+        internal static RequestFrame ReadHeader(in ReadOnlySequence<byte> buffer)
         {
             var first = buffer.FirstSpan;
             if (first.Length >= Frames.RequestBytes)
-                return Frames.ReadRequest(first);
+                return ReadHeader(first);
 
             Span<byte> header = stackalloc byte[Frames.RequestBytes];
             buffer.Slice(0, Frames.RequestBytes).CopyTo(header);
-            return Frames.ReadRequest(header);
+            return ReadHeader(header);
+        }
+
+        private static RequestFrame ReadHeader(ReadOnlySpan<byte> header)
+        {
+            var (id, size, control) = Frames.ReadRequest(header);
+            return new RequestFrame(id, size, control);
         }
     }
 

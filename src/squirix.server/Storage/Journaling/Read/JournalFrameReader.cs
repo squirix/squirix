@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using Microsoft.Win32.SafeHandles;
@@ -79,7 +78,7 @@ internal static class JournalFrameReader
         if (offset + JournalFrameEnvelope.HeaderSize + length > fileLength)
             return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, offset);
 
-        var rented = ArrayPool<byte>.Shared.Rent(Math.Max(length, 1));
+        var rented = PayloadBuffer.Rent(Math.Max(length, 1));
         try
         {
             var payload = rented.AsSpan(0, length);
@@ -101,7 +100,7 @@ internal static class JournalFrameReader
         finally
         {
             if (buffer == null)
-                ArrayPool<byte>.Shared.ReturnCleared(rented);
+                PayloadBuffer.Release(rented);
         }
     }
 

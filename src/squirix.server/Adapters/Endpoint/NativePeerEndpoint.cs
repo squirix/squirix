@@ -52,10 +52,23 @@ internal sealed class NativePeerEndpoint
     {
         using var writing = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, clock, abort);
         var length = reply.Payload?.CalculateSize() ?? 0;
-        if (length > EntryLimits.MaxSendMessageSizeBytes)
+        if (length > Frames.MaxExtendedBodyBytes)
         {
             reply = new BinaryResponse(FrameStatus.ResourceExhausted);
             length = 0;
+        }
+
+        if (length > EntryLimits.MaxSendMessageSizeBytes)
+        {
+            using var message = new WireSegments();
+            const int headerSize = PeerFrames.ReplyBytes + Frames.ExtendedReplyBytes;
+            var header = message.GetMemory(headerSize);
+            PeerFrames.WriteReply(header.Span, Unsafe.BitCast<FrameStatus, int>(reply.Status), Frames.ExtendedSize);
+            Frames.WriteExtendedSize(header.Span[PeerFrames.ReplyBytes..], length);
+            message.Advance(headerSize);
+            reply.Payload!.WriteTo(message);
+            await message.SendAsync(stream, writing.Token).ConfigureAwait(false);
+            return;
         }
 
         var packet = ArrayPool<byte>.Shared.Rent(PeerFrames.ReplyBytes + length);
@@ -86,7 +99,10 @@ internal sealed class NativePeerEndpoint
             if (!_verifier.TryVerify(certificate, out _))
                 return;
             var frame = PeerFrames.ReadRequest(header.Span);
-            if (!await ProcessAsync(stream, frame, certificate, graceful, abort).ConfigureAwait(false))
+            var processed = frame.Body == Frames.ExtendedSize
+                ? await ProcessExtendedAsync(stream, header, frame, certificate, graceful, abort).ConfigureAwait(false)
+                : await ProcessAsync(stream, frame, certificate, graceful, abort).ConfigureAwait(false);
+            if (!processed)
                 return;
         }
     }
@@ -100,6 +116,25 @@ internal sealed class NativePeerEndpoint
         return frame.TraceParentIsBinary ? WireTraceParent.Read(bytes) : PeerFrames.Text.GetString(bytes);
     }
 
+    private async Task<bool> ProcessExtendedAsync(SslStream stream, Memory<byte> header, PeerFrames.Request frame, X509Certificate2 certificate, CancellationToken graceful, CancellationToken abort)
+    {
+        using var extensionDeadline = new TimedCancellation(PeerFrames.IdleTimeout, TimeProvider.System, graceful);
+        await stream.ReadExactlyAsync(header[..sizeof(int)], extensionDeadline.Token).ConfigureAwait(false);
+        var size = Frames.ReadExtendedSize(header.Span);
+        var admission = _services.Require<LargeCacheRequests>();
+        if (!admission.TryReservePeerFrame(size))
+            return false;
+
+        try
+        {
+            return await ProcessAsync(stream, frame with { Body = size }, certificate, graceful, abort).ConfigureAwait(false);
+        }
+        finally
+        {
+            admission.ReleasePeerFrame(size);
+        }
+    }
+
     private async Task<bool> ProcessAsync(SslStream stream, PeerFrames.Request frame, X509Certificate2 certificate, CancellationToken graceful, CancellationToken abort)
     {
         var clock = _services.Require<TimeProvider>();
@@ -108,7 +143,8 @@ internal sealed class NativePeerEndpoint
         using var deadlineScope = budget is { } time ? ServerRpcDeadlineContext.Push(new ServerDeadlineBudget(clock, time, started)) : null;
         using var deadline = new TimedCancellation(budget ?? Timeout.InfiniteTimeSpan, clock, abort);
         var meta = ArrayPool<byte>.Shared.Rent(frame.Metadata);
-        var body = ArrayPool<byte>.Shared.Rent(frame.Body);
+        var extended = frame.Body > EntryLimits.MaxReceiveMessageSizeBytes;
+        var body = extended ? GC.AllocateUninitializedArray<byte>(frame.Body) : ArrayPool<byte>.Shared.Rent(frame.Body);
         BinaryResponse reply;
         try
         {
@@ -140,7 +176,8 @@ internal sealed class NativePeerEndpoint
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(body, true);
+            if (!extended)
+                ArrayPool<byte>.Shared.Return(body, true);
             ArrayPool<byte>.Shared.Return(meta, true);
         }
 

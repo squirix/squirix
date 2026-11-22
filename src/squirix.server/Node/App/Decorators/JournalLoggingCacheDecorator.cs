@@ -83,7 +83,6 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     {
         var durable = ResolveExpiration(entry);
         var prepared = JournalEntryPayload.PrepareEncode(durable);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
         return SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
@@ -104,7 +103,6 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     {
         var durable = ResolveExpiration(entry);
         var prepared = JournalEntryPayload.PrepareEncode(durable);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
         return TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
@@ -193,7 +191,6 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     private static PooledJournalPayload EncodeWhole(NodeCacheEntry<T> decided)
     {
         var prepared = JournalEntryPayload.PrepareEncode(decided);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
         return JournalEntryPayload.Encode(in prepared);
     }
 

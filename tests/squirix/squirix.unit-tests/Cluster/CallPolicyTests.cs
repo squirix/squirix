@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Concurrent;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Internal.Cluster.Transport;
 using Squirix.Testing;
 using Squirix.TestKit;
 using Squirix.Transport;
+using Squirix.Transport.Binary;
+using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -294,6 +298,27 @@ public sealed class CallPolicyTests
         _ = await Assert.That(value).IsEqualTo(8);
         _ = await Assert.That(box.Count).IsEqualTo(2);
         _ = await Assert.That(sink.HasEvent("squirix_call_policy_retries_total", ("peer", peer), ("reason", reason))).IsTrue();
+    }
+
+    /// <summary>A payload limit rejection remains terminal even though temporary resource exhaustion is retryable.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PayloadLimitRejectionIsNotRetried(CancellationToken cancellationToken)
+    {
+        var error = new BinaryCallError { Detail = "Payload size limit is 33554432 bytes." };
+        error.Trailers.Add(new BinaryCallError.Types.Trailer { Key = Frames.ErrorCodeTrailer, Text = Frames.PayloadTooLargeCode });
+        var rpc = BinaryClientProtocol.ParseReply(SetAsyncResponse.Parser, Unsafe.BitCast<FrameStatus, int>(FrameStatus.ResourceExhausted), error.ToByteArray());
+        var box = new IntBox();
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero);
+        var call = policy.ExecuteAsync(
+            static (state, _) => state.Count.Increment() == 1 ? ValueTask.FromException<int>(state.Failure!) : ValueTask.FromResult(42),
+            (Count: box, rpc.Failure),
+            cancellationToken);
+
+        var failure = await AsyncAssert.ThrowsAsync<SquirixTransportException, int>(call, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(CacheTransportStatusCode.ResourceExhausted);
+        _ = await Assert.That(failure.Message).IsEqualTo(error.Detail);
+        _ = await Assert.That(box.Count).IsEqualTo(1);
     }
 
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>

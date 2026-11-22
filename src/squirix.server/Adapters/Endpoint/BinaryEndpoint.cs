@@ -51,14 +51,16 @@ internal static class BinaryEndpoint
         var (hasPreface, mode) = await ReadPrefaceAsync(connection.Transport.Input, timeout.Token).ConfigureAwait(false);
         if (!hasPreface)
             return;
-        var allowed = mode == 1 ? requiresCredentials : mode == 0 && !requiresCredentials;
+        var credentials = mode & ~Frames.ExtendedMode;
+        var allowed = credentials == 1 ? requiresCredentials : credentials == 0 && !requiresCredentials;
         var writer = connection.Transport.Output;
         writer.GetSpan(1)[0] = allowed ? accepted : Frames.Rejected;
         writer.Advance(1);
         _ = await writer.FlushAsync(timeout.Token).ConfigureAwait(false);
         if (!allowed)
             return;
-        if (mode == 1)
+        connection.SupportsExtendedFrames = (mode & Frames.ExtendedMode) != 0;
+        if (credentials == 1)
             await authenticate.OnConnectionAsync(connection).ConfigureAwait(false);
         else
             await ServeAsync(connection, services, null).ConfigureAwait(false);
@@ -113,11 +115,12 @@ internal static class BinaryEndpoint
             (frame, bytes, elapsed, predecessor) => ProcessAsync(state, frame, bytes, elapsed, predecessor),
             log,
             TimeProvider.System,
-            connection.ConnectionClosed);
+            connection.ConnectionClosed,
+            connection.SupportsExtendedFrames ? services.Require<LargeCacheRequests>() : null);
         await pump.RunAsync(lifetime.Token).ConfigureAwait(false);
     }
 
-    private static async ValueTask<BinaryResponse> ProcessAsync(CallState state, (int Id, int Size, int Control) frame, ReadOnlyMemory<byte> body, TimeSpan elapsed, Task predecessor)
+    private static async ValueTask<BinaryResponse> ProcessAsync(CallState state, BinaryConnectionPump.RequestFrame frame, ReadOnlyMemory<byte> body, TimeSpan elapsed, Task predecessor)
     {
         var timeout = TimeSpan.FromMilliseconds(Math.Min(frame.Control & 0xffff, RpcAttemptTimeout.OperationDeadline.TotalMilliseconds)) - elapsed;
         if (timeout <= TimeSpan.Zero)
@@ -138,7 +141,7 @@ internal static class BinaryEndpoint
             if (!TryReadTrace(call, frame.Control, ref body))
                 return new BinaryResponse(FrameStatus.InvalidArgument);
 
-            var callContext = new BinaryDispatch.Request(call, deadlineUtc, predecessor);
+            var callContext = new BinaryDispatch.Request(call, deadlineUtc, predecessor, ValueBytes: frame.ValueBytes);
             return await state.Operations.ExecuteAsync(Unsafe.BitCast<int, BinaryOperation>(operationId), body, in callContext).ConfigureAwait(false);
         }
         catch (ServerCallException error)

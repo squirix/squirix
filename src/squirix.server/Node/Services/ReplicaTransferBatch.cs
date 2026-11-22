@@ -82,7 +82,7 @@ internal sealed class ReplicaTransferBatch : IDisposable
     /// <summary>Tells whether an entry fits the message: an empty batch takes any entry, so one larger than the budget travels alone.</summary>
     /// <param name="size">The bytes of the entry as <see cref="SizeOf" /> counted them.</param>
     /// <returns><see langword="true" /> when the entry may join the batch.</returns>
-    internal bool Fits(long size) => Count == 0 || (Count < MaxEntries && Bytes + size <= ReplicaTransferOptions.MessageBudgetBytes);
+    internal bool Fits(long size) => Count == 0 || (Count < MaxEntries && Bytes + size <= ReplicaTransferOptions.EntryBatchTargetBytes);
 
     private static byte[] Grow(byte[] small, int length)
     {

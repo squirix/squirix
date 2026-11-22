@@ -15,7 +15,7 @@ namespace Squirix.Server.Cluster;
 internal sealed class RingFingerprint
 {
     internal const int DigestBytes = 32;
-    private const int FormatVersion = 1;
+    private const int FormatVersion = 2;
 
     private RingFingerprint(byte[] digest)
     {
@@ -33,8 +33,9 @@ internal sealed class RingFingerprint
     /// <param name="clusterId">Cluster identifier.</param>
     /// <param name="nodeIds">Configured peer node identifiers; order and duplicates are ignored.</param>
     /// <param name="virtualNodes">Virtual nodes per physical node.</param>
+    /// <param name="valueLimitBytes">The maximum serialized value admitted by this node.</param>
     /// <returns>The ring fingerprint.</returns>
-    internal static RingFingerprint Create(string clusterId, ReadOnlySpan<string> nodeIds, int virtualNodes)
+    internal static RingFingerprint Create(string clusterId, ReadOnlySpan<string> nodeIds, int virtualNodes, int valueLimitBytes = 0)
     {
         ArgumentNullException.ThrowIfNull(clusterId);
 
@@ -45,6 +46,7 @@ internal sealed class RingFingerprint
         AppendInt32(hasher, FormatVersion);
         AppendString(hasher, clusterId);
         AppendInt32(hasher, virtualNodes);
+        AppendInt32(hasher, valueLimitBytes);
         AppendInt32(hasher, distinct.Length);
         for (var i = 0; i < distinct.Length; i++)
             AppendString(hasher, distinct[i]);

@@ -16,11 +16,12 @@ internal sealed class JournalSegmentPolicy
 
     private const int MinHighWaterSegmentCount = 2;
 
-    private static readonly long LargestFrameBytes = Convert.ToInt64(JournalSegmentLimits.MinSegmentMb) * 1024L * 1024L;
+    private readonly long _largestFrameBytes;
 
     internal JournalSegmentPolicy(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        _largestFrameBytes = Convert.ToInt64(options.MinimumSegmentMb) * 1024L * 1024L;
         MaxSegmentBytes = ClampMb(options.JournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
         SegmentCountProbeLimit = Clamp(options.JournalMaxSegmentCount, JournalSegmentLimits.DefaultMaxSegmentCount, JournalSegmentLimits.HardMaxSegmentCount);
         MaxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
@@ -44,7 +45,7 @@ internal sealed class JournalSegmentPolicy
     /// When it does not, a snapshot at the high-water mark may free no segment before the active one fills the quota, and a state transfer can wait for
     /// space that never comes.
     /// </remarks>
-    internal bool LeavesHeadroomBelowHighWater => MaxSegmentBytes + LargestFrameBytes < HighWaterBytes && HighWaterSegmentCount < SegmentCountProbeLimit;
+    internal bool LeavesHeadroomBelowHighWater => MaxSegmentBytes + _largestFrameBytes < HighWaterBytes && HighWaterSegmentCount < SegmentCountProbeLimit;
 
     internal int HighWaterSegmentCount { get; }
 

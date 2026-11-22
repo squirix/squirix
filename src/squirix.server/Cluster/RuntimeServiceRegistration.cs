@@ -21,16 +21,17 @@ internal static class RuntimeServiceRegistration
     {
         /// <summary>Registers static topology node location, ownership resolution, and the static leader table.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
+        /// <param name="valueLimitBytes">The maximum serialized value admitted by the node.</param>
         /// <remarks>
         /// The static leader table is added only when no table is registered yet; a node whose groups an election leads replaces it with the
         /// table of its election state afterwards.
         /// </remarks>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        internal NodeServices AddSquirixClusterLocator(TopologyOptions cluster)
+        internal NodeServices AddSquirixClusterLocator(TopologyOptions cluster, int valueLimitBytes = 0)
         {
             var nodeIds = GetPeerNodeIds(cluster);
             _ = services.Use<INodeLocator>(new ConsistentHashRing(nodeIds, cluster.VirtualNodes));
-            _ = services.Use(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
+            _ = services.Use(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes, valueLimitBytes));
             _ = services.Own(static sp => new RingAgreement(sp.Require<RingFingerprint>(), sp.Require<IServerLoggerFactory>().CreateLogger<RingAgreement>()));
             _ = services.Own<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
                 sp.Require<INodeLocator>(),

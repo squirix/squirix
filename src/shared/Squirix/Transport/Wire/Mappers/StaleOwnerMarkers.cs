@@ -1,3 +1,5 @@
+using Squirix.Transport.Binary;
+
 // ReSharper disable once CheckNamespace
 namespace Squirix.Transport.Wire.Mappers;
 
@@ -5,7 +7,7 @@ namespace Squirix.Transport.Wire.Mappers;
 internal static class StaleOwnerMarkers
 {
     /// <summary>Trailer key that carries a stable machine-readable error code on internal cluster gRPC calls.</summary>
-    internal const string ErrorCodeMetadataKey = "squirix-error-code";
+    internal const string ErrorCodeMetadataKey = Frames.ErrorCodeTrailer;
 
     /// <summary>Trailer key that names the node the refusing node knows as the leader of the group.</summary>
     internal const string LeaderNodeIdMetadataKey = "squirix-leader-node-id";

@@ -334,7 +334,7 @@ internal sealed class CallPolicy : ICallPolicy
             // A mutation may have committed durably even though its outcome is unknown (server write-ahead
             // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
             // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
-            if (CommitOutcomeUnknownDetail.Matches(rx.Status.Detail))
+            if (rx.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rx.Status.Detail))
                 return AttemptOutcome<T>.Stop(rx);
 
             // The transport deadline timer and the budget timer expire at the same instant: when the server reports the
@@ -367,7 +367,7 @@ internal sealed class CallPolicy : ICallPolicy
         private void ThrowAfterFailedAttempts(Exception? last, DeadlineBudget? budget, CancellationToken effectiveToken)
         {
             // An ambiguous durable outcome must retain its no-retry contract even at the deadline boundary.
-            if (last is SquirixTransportException rpc && CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail))
+            if (last is SquirixTransportException rpc && (rpc.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail)))
                 throw rpc;
 
             if (budget == null || (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget)))
@@ -428,7 +428,7 @@ internal sealed class CallPolicy : ICallPolicy
             // The timer records which limit won even if its callback precedes the next timestamp observation.
             return failure switch
             {
-                SquirixTransportException rpc when CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptOutcome<T>.Stop(rpc),
+                SquirixTransportException rpc when rpc.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptOutcome<T>.Stop(rpc),
                 _ when attemptBoundsBudget && attemptToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested => throw CreateBudgetExceeded(),
                 OperationCanceledException oce => await MapOperationCanceledFailureAsync<T>(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
                 SquirixTransportException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),

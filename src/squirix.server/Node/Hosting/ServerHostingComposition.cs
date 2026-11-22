@@ -12,6 +12,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Composition;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Backpressure;
@@ -107,13 +108,14 @@ internal static class ServerHostingComposition
     /// <param name="args">Hosting composition overrides for this node.</param>
     private static void AddSquirixClusterStack(NodeServices services, TopologyOptions cluster, CompositionArgs args)
     {
-        _ = services.AddSquirixClusterLocator(cluster);
+        var feature = FeatureState.Resolve(cluster, args.FoundationOnly);
+        _ = services.AddSquirixClusterLocator(cluster, EntryLimits.ValueBytes(feature.NetworkReplicationEnabled));
         _ = services.Use(new ReadinessCheck("ring_agreement", static sp => new RingAgreementHealthCheck(sp.Require<RingAgreement>())));
         _ = services.AddSquirixClusterTransport(cluster, null, (args.BackpressureOptions ?? new AdmissionOptions()).MaxInFlight);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
 
         // Activated hosts expire entries through committed records and the replica sweep; every other host expires by its local clock.
-        if (FeatureState.Resolve(cluster, args.FoundationOnly) != FeatureState.Activated)
+        if (feature != FeatureState.Activated)
         {
             _ = services.RunService(static sp => new LocalExpirationSweepService(
                 sp.Require<ILocalCacheExpiredKeys>(),
@@ -144,7 +146,8 @@ internal static class ServerHostingComposition
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(args);
 
-        var persistence = args.PersistenceOptions == null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions);
+        var replicated = FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled;
+        var persistence = args.PersistenceOptions == null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions, replicated);
         var persistenceEnabled = persistence != null;
         var uri = cluster.Uri;
         var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(cluster, args, persistenceEnabled);
@@ -177,6 +180,9 @@ internal static class ServerHostingComposition
         var authEnabled = services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
         _ = services.AddSquirixFrameworkServices();
+        _ = services.Own(static sp => new LargeCacheRequests(
+            sp.Require<FeatureState>().NetworkReplicationEnabled,
+            sp.Require<PressureOptions>().MaxEstimatedCacheBytes));
         _ = services.Own(sp => new NativeClientService(
             sp,
             cluster,
@@ -571,13 +577,13 @@ internal static class ServerHostingComposition
 
     private static class PersistenceOptionsResolver
     {
-        internal static PersistenceOptions Resolve(TopologyOptions cluster, PersistenceOptions source)
+        internal static PersistenceOptions Resolve(TopologyOptions cluster, PersistenceOptions source, bool replicated)
         {
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(source);
 
             var dataDir = string.IsNullOrWhiteSpace(source.DataDir) ? DefaultDataDirectory.Resolve(cluster.ClusterId, cluster.NodeId) : source.DataDir;
-            return source with { DataDir = dataDir };
+            return source with { DataDir = dataDir, ValueLimitBytes = EntryLimits.ValueBytes(replicated) };
         }
     }
 }

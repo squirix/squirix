@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -66,28 +65,27 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
     }
 
-    /// <summary>An update of a missing key with a value over the entry limit is rejected before the existence check.</summary>
+    /// <summary>A large update of a missing key still appends nothing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MissingKeyOversizedUpdateIsRejected(CancellationToken cancellationToken)
+    public async Task MissingKeyLargeUpdateAppendsNothing(CancellationToken cancellationToken)
     {
         var kit = new JournalReplayKit(Dir);
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
-        var oversized = new string('x', EntryLimits.MaxEntrySizeBytes);
+        var value = new string('x', EntryLimitKit.LargeFixtureBytes);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, oversized, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, value, cancellationToken)).IsFalse();
 
-        _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(0);
     }
 
-    /// <summary>A value within the limit whose entry with tags is over it is rejected under the gate: no frame, and the key guard is released.</summary>
+    /// <summary>A large update is journaled with its existing tags.</summary>
     /// <param name="groupCommit">Whether group commit is on.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task OversizedWithTagsUpdateIsRejected(bool groupCommit, CancellationToken cancellationToken)
+    public async Task LargeUpdatePreservesTags(bool groupCommit, CancellationToken cancellationToken)
     {
         var kit = new JournalReplayKit(Dir, groupCommit);
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
@@ -95,12 +93,10 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", tags: tags), cancellationToken);
         var framesBefore = kit.CountJournalRecords(cancellationToken);
 
-        // The encoded value alone is exactly the limit, so only the tags and the entry header push the assembled entry over it.
-        var nearLimit = new string('x', EntryLimits.MaxEntrySizeBytes - 5);
-        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, nearLimit, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
-        _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(framesBefore);
+        var nearLimit = new string('x', EntryLimitKit.LargeFixtureBytes - 5);
+        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, nearLimit, cancellationToken)).IsTrue();
+        _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(framesBefore + 1);
+        _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Tags!["team"]).IsEqualTo("a");
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }

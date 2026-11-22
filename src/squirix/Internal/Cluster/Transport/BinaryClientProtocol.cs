@@ -6,6 +6,7 @@ using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Internal.Cluster.Reliability;
@@ -19,25 +20,16 @@ namespace Squirix.Internal.Cluster.Transport;
 
 internal static class BinaryClientProtocol
 {
-    internal static async Task<(TcpClient Socket, SslStream Tls, bool SupportsMutationReplay)> ConnectAsync(
+    internal static async Task<(TcpClient Socket, SslStream Tls, bool Replay, bool Extended)> ConnectAsync(
         Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, CancellationToken token)
     {
-        var socket = new TcpClient { NoDelay = true };
-        SslStream? tls = null;
         try
         {
-            await socket.ConnectAsync(endpoint.IdnHost, endpoint.Port, token).ConfigureAwait(false);
-            tls = new SslStream(socket.GetStream());
-            await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, tlsOptions), token).ConfigureAwait(false);
-            var supportsMutationReplay = await NegotiateAsync(tls, provider, token).ConfigureAwait(false);
-            return (socket, tls, supportsMutationReplay);
+            return await ConnectAsync(endpoint, provider, tlsOptions, true, token).ConfigureAwait(false);
         }
-        catch
+        catch (ConnectionRejectedException)
         {
-            if (tls != null)
-                await tls.DisposeAsync().ConfigureAwait(false);
-            socket.Dispose();
-            throw;
+            return await ConnectAsync(endpoint, provider, tlsOptions, false, token).ConfigureAwait(false);
         }
     }
 
@@ -71,10 +63,11 @@ internal static class BinaryClientProtocol
         return mutation.OperationId;
     }
 
-    internal static BinaryClientRequest PrepareRequest(BinaryOperation operation, WireMessage request, bool supportsMutationReplay)
+    internal static BinaryClientRequest PrepareRequest(BinaryOperation operation, WireMessage request, bool supportsMutationReplay, bool supportsExtendedFrames = true)
     {
         // The send worker can still serialize an earlier attempt after a retry starts.
         var mutationOperationId = PrepareMutationIdentity(request, supportsMutationReplay);
+        var original = request;
         var control = Unsafe.BitCast<BinaryOperation, int>(operation) << 16;
         if (Activity.Current is { IdFormat: ActivityIdFormat.W3C } activity)
         {
@@ -85,9 +78,14 @@ internal static class BinaryClientProtocol
         }
 
         var bodySize = request.CalculateSize(mutationOperationId);
-        return bodySize <= Frames.MaxRequestBytes
-            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId)
-            : throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.ResourceExhausted, "Binary cache request is too large."));
+        var frameLimit = supportsExtendedFrames ? Frames.MaxExtendedBodyBytes : Frames.MaxRequestBytes;
+        if (bodySize > frameLimit)
+            throw RequestTooLarge();
+
+        var valueSize = bodySize <= Frames.MaxRequestBytes ? 0 : CacheWritePayload.Length(original);
+        return valueSize is { } size
+            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId, size)
+            : throw RequestTooLarge();
     }
 
     internal static bool IsOutcomeUnconfirmed(SquirixTransportException? failure) =>
@@ -102,8 +100,7 @@ internal static class BinaryClientProtocol
     {
         return status == 0
             ? new BinaryClientReply(parser.ParseFrom(body), null)
-            : new BinaryClientReply(null, new SquirixTransportException(
-                new CallStatus(Unsafe.BitCast<int, CacheTransportStatusCode>(status), BinaryCallError.Parser.ParseFrom(body).Detail)));
+            : new BinaryClientReply(null, ReadFailure(status, body));
     }
 
     internal static BinaryClientReply ReadBlockingReply(Stream stream, IWireParser? parser, int status, int size, byte[] scratch)
@@ -175,6 +172,45 @@ internal static class BinaryClientProtocol
     internal static bool CanReadLargeLookupReply(IWireParser parser, int status) =>
         status == 0 && (ReferenceEquals(parser, GetDistributedAsyncResponse.Parser) || ReferenceEquals(parser, GetValueAsyncResponse.Parser));
 
+    private static async Task<(TcpClient Socket, SslStream Tls, bool Replay, bool Extended)> ConnectAsync(
+        Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, bool extended, CancellationToken token)
+    {
+        var socket = new TcpClient { NoDelay = true };
+        SslStream? tls = null;
+        try
+        {
+            await socket.ConnectAsync(endpoint.IdnHost, endpoint.Port, token).ConfigureAwait(false);
+            tls = new SslStream(socket.GetStream());
+            await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, tlsOptions), token).ConfigureAwait(false);
+            var supportsMutationReplay = await NegotiateAsync(tls, provider, extended, token).ConfigureAwait(false);
+            return (socket, tls, supportsMutationReplay, extended);
+        }
+        catch
+        {
+            if (tls != null)
+                await tls.DisposeAsync().ConfigureAwait(false);
+            socket.Dispose();
+            throw;
+        }
+    }
+
+    private static SquirixTransportException ReadFailure(int status, ReadOnlySpan<byte> body)
+    {
+        var error = BinaryCallError.Parser.ParseFrom(body);
+        var code = Unsafe.BitCast<int, CacheTransportStatusCode>(status);
+        foreach (var trailer in CollectionsMarshal.AsSpan(error.Trailers))
+        {
+            if (string.Equals(trailer.Key, Frames.ErrorCodeTrailer, StringComparison.Ordinal) &&
+                string.Equals(trailer.Text, Frames.PayloadTooLargeCode, StringComparison.Ordinal))
+                return new SquirixTransportException(new CallStatus(code, error.Detail, PayloadTooLarge: true));
+        }
+
+        return new SquirixTransportException(new CallStatus(code, error.Detail));
+    }
+
+    private static SquirixTransportException RequestTooLarge() =>
+        new(new CallStatus(CacheTransportStatusCode.ResourceExhausted, "Binary cache request is too large.", PayloadTooLarge: true));
+
     private static bool HasOwnedDistributedPayload(IWireParser parser, int status) =>
         status == 0 && ReferenceEquals(parser, GetDistributedAsyncResponse.Parser);
 
@@ -203,15 +239,18 @@ internal static class BinaryClientProtocol
         _ => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, "The endpoint does not speak the Squirix cache protocol.")),
     };
 
-    private static async Task<bool> NegotiateAsync(SslStream tls, Func<CancellationToken, ValueTask<string>>? provider, CancellationToken token)
+    private static async Task<bool> NegotiateAsync(SslStream tls, Func<CancellationToken, ValueTask<string>>? provider, bool extended, CancellationToken token)
     {
         var preface = ArrayPool<byte>.Shared.Rent(Frames.PrefaceBytes);
         try
         {
             BinaryPrimitives.WriteUInt32BigEndian(preface, Frames.Preface);
-            const byte noCredentials = 0;
-            const byte bearerCredentials = 1;
-            preface[4] = provider == null ? noCredentials : bearerCredentials;
+            const byte extendedBearerCredentials = Frames.ExtendedMode | 1;
+            const byte legacyAnonymous = 0;
+            var anonymous = extended ? Frames.ExtendedMode : legacyAnonymous;
+            const byte legacyBearer = 1;
+            var bearer = extended ? extendedBearerCredentials : legacyBearer;
+            preface[4] = provider == null ? anonymous : bearer;
             await tls.WriteAsync(preface.AsMemory(0, Frames.PrefaceBytes), token).ConfigureAwait(false);
             await tls.ReadExactlyAsync(preface.AsMemory(0, 1), token).ConfigureAwait(false);
             var replay = SupportsMutationReplay(preface[0]);

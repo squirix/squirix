@@ -1,74 +1,39 @@
-using System;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Core;
-using Squirix.Server.Errors;
-using Squirix.Server.Storage.Journaling;
-using Squirix.Server.TestKit;
-using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>Unit tests for <see cref="EntryPayloadSizeGuard" />.</summary>
-[Immutable]
-public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
+/// <summary>Covers both admission limits without allocating large buffers.</summary>
+public sealed class EntryPayloadSizeGuardTests
 {
-    /// <summary>Direct length and span overloads reject oversized payloads.</summary>
+    /// <summary>The value limit is inclusive and excludes the encoded envelope.</summary>
+    /// <param name="replicated">Whether replication is active.</param>
+    /// <param name="limit">The expected value limit.</param>
+    /// <param name="offset">The number of bytes above or below the limit.</param>
+    /// <param name="expected">Whether the value should be admitted.</param>
     [Test]
-    public async Task EnsureOverloadsRejectOversizedPayloads()
+    [Arguments(false, Frames.MaxValueBytes, -1, true)]
+    [Arguments(false, Frames.MaxValueBytes, 0, true)]
+    [Arguments(false, Frames.MaxValueBytes, 1, false)]
+    [Arguments(true, EntryLimits.MaxReplicatedValueBytes, -1, true)]
+    [Arguments(true, EntryLimits.MaxReplicatedValueBytes, 0, true)]
+    [Arguments(true, EntryLimits.MaxReplicatedValueBytes, 1, false)]
+    public async Task ValueLimitIsInclusive(bool replicated, int limit, int offset, bool expected)
     {
-        const int overLength = EntryLimits.MaxEntrySizeBytes + 1;
-        var lengthEx = NodeExceptionAssert.For<SquirixException>().Throws(overLength, static value => EntryPayloadSizeGuard.EnsureLengthWithinLimit(value));
-        _ = await Assert.That(lengthEx.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
+        var admission = new LargeCacheRequests(replicated, long.MaxValue);
+        var valueBytes = limit + offset;
+        var bodyBytes = valueBytes + 4096;
+        var refusal = admission.Admit(bodyBytes, valueBytes);
 
-        var bytes = new byte[overLength];
-        var bytesEx = NodeExceptionAssert.For<SquirixException>().Throws(bytes, static value => EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(value.AsSpan()));
-        _ = await Assert.That(bytesEx.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
-
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(EntryLimits.MaxEntrySizeBytes);
-        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit([]);
-    }
-
-    /// <summary>Checks if an entry above the limit throws.</summary>
-    [Test]
-    public async Task EntryJustAboveLimitThrowsPayloadTooLarge()
-    {
-        var value = EntryLimitKit.CreateStringOverEntryLimit();
-        var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
-
-        var ex = NodeExceptionAssert.For<SquirixException>().Throws(entry, static value => JournalEntryPayload.EnsureEncodedLengthWithinLimit(value));
-
-        _ = await Assert.That(ex.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
-        _ = await Assert.That(ex.Error).IsEqualTo("PayloadTooLarge");
-        _ = await Assert.That(ex.Detail).Contains("4194304", StringComparison.Ordinal);
-    }
-
-    /// <summary>Checks if an entry below the limit doesn't throw.</summary>
-    [Test]
-    public async Task EntryJustBelowLimitDoesNotThrow()
-    {
-        var value = EntryLimitKit.CreateStringAtMostSerializedBytes(EntryLimits.MaxEntrySizeBytes);
-        var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
-
-        JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
-        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(entry) <= EntryLimits.MaxEntrySizeBytes).IsTrue();
-    }
-
-    /// <summary>Checks that the near-limit string is the longest one that fits, for the default and a small limit.</summary>
-    /// <param name="limit">The entry size limit.</param>
-    [Test]
-    [Arguments(EntryLimits.MaxEntrySizeBytes)]
-    [Arguments(1000)]
-    public async Task NearLimitStringIsTheLongestThatFits(int limit)
-    {
-        var value = EntryLimitKit.CreateStringAtMostSerializedBytes(limit);
-        var fits = PreparedJournalEntry.MeasureEncodedLength(new NodeCacheEntry<object?> { Value = value, Version = 1 });
-        var longer = PreparedJournalEntry.MeasureEncodedLength(new NodeCacheEntry<object?> { Value = value + "x", Version = 1 });
-
-        _ = await Assert.That(fits).IsLessThanOrEqualTo(limit);
-        _ = await Assert.That(longer).IsGreaterThan(limit);
+        _ = await Assert.That(refusal == null).IsEqualTo(expected);
+        if (refusal is { } error)
+            _ = await Assert.That(error.Status).IsEqualTo(FrameStatus.ResourceExhausted);
+        else
+            admission.Release(bodyBytes);
     }
 }

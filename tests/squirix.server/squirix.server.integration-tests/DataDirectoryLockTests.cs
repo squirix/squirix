@@ -30,7 +30,7 @@ public sealed class DataDirectoryLockTests : NodeIntegrationTestBase
     {
         await using var first = await StartClusterAsync("node-a", new IntegrationStartOptions { UsePersistence = true, ExtraScope = FirstScope }, cancellationToken);
         var dataDir = first["node-a"].DataDir;
-        var shared = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 64 };
+        var shared = new PersistenceOptions { DataDir = dataDir };
         var secondOptions = new IntegrationStartOptions { PersistenceOptions = shared, CleanTestDir = false, ExtraScope = SecondScope };
 
         var refused = NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartSecondAsync(secondOptions, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -58,7 +58,7 @@ public sealed class DataDirectoryLockTests : NodeIntegrationTestBase
         var options = new IntegrationStartOptions
         {
             ReplicaCount = 2,
-            PersistenceOptions = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 },
+            PersistenceOptions = new PersistenceOptions { DataDir = dir },
             CleanTestDir = false,
             ExtraScope = ReplicatedScope,
         };

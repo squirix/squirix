@@ -419,7 +419,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 null => new PersistenceOptions
                 {
                     DataDir = dir,
-                    JournalMaxSegmentMb = 64,
                 },
                 _ when string.IsNullOrWhiteSpace(options.DataDir) => options with { DataDir = dir },
                 _ => options,

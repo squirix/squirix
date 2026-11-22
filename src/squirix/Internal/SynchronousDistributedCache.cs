@@ -67,6 +67,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
     }
 
     private static bool IsRetryable(SquirixTransportException error) =>
+        !error.Status.PayloadTooLarge &&
         !CommitOutcomeUnknownDetail.Matches(error.Status.Detail) &&
         error.StatusCode is CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.DeadlineExceeded
             or CacheTransportStatusCode.Cancelled or CacheTransportStatusCode.Internal or CacheTransportStatusCode.ResourceExhausted;

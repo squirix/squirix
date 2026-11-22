@@ -20,9 +20,9 @@ internal abstract class WireMessage
         Encode(ref writer);
     }
 
-    internal void WriteTo(IBufferWriter<byte> destination)
+    internal void WriteTo(IBufferWriter<byte> destination, string? mutationOperationId = null)
     {
-        var writer = new WireWriter(destination);
+        var writer = new WireWriter(destination, mutationOperationId);
         Encode(ref writer);
     }
 

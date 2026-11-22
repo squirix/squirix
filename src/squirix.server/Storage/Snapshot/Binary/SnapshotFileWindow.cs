@@ -39,7 +39,7 @@ internal sealed class SnapshotFileWindow : IDisposable
         ArrayPool<byte>.Shared.ReturnCleared(_window);
         if (_large == null)
             return;
-        ArrayPool<byte>.Shared.ReturnCleared(_large);
+        PayloadBuffer.Release(_large);
         _large = null;
     }
 
@@ -101,9 +101,9 @@ internal sealed class SnapshotFileWindow : IDisposable
         if (_large == null || _large.Length < count)
         {
             if (_large != null)
-                ArrayPool<byte>.Shared.ReturnCleared(_large);
+                PayloadBuffer.Release(_large);
 
-            _large = ArrayPool<byte>.Shared.Rent(count);
+            _large = PayloadBuffer.Rent(count);
         }
 
         var buffered = _end - _start;

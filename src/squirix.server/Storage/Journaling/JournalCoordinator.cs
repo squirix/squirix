@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -217,11 +216,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
-    public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
-    {
-        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
-        return _appendPipeline.AppendRecordCoreAsync(_appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.Put, entryBytes), cancellationToken);
-    }
+    public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
+        _appendPipeline.AppendRecordCoreAsync(_appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.Put, entryBytes), cancellationToken);
 
     public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => _appendPipeline.AppendRecordCoreAsync(
         _appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.Remove),
@@ -455,11 +451,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             try
             {
                 var encode = BinaryJournalCodec.PrepareEncode(record);
+                if (encode.BodyLength > JournalSegmentLimits.MaxFramePayloadBytes)
+                    throw new JournalCapacityExceededException("journal frame exceeds the format limit.");
+
                 var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
 
                 // Refused before the buffer is rented, the frame is tracked, or its idempotency stamp is reported: nothing reaches the ring.
                 _owner.EnsureAppendAdmission(frameLen);
-                var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
+                var frameBytes = PayloadBuffer.Rent(frameLen);
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
                 try
                 {
@@ -468,7 +467,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 }
                 catch
                 {
-                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                    PayloadBuffer.Release(frameBytes);
                     throw;
                 }
 
@@ -541,7 +540,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 // Fail-fast after a drain: the frame never entered the ring, so compensate the
                 // slot and return the rented buffer here. Surface the pipeline failure, not the latch.
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
-                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                PayloadBuffer.Release(frameBytes);
                 _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
                 throw;
             }
@@ -556,7 +555,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             }
             catch when (_owner.PendingAppends.Untrack(item, out _))
             {
-                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                PayloadBuffer.Release(frameBytes);
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
                 throw;
             }

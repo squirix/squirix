@@ -1,19 +1,18 @@
+using Squirix.Transport.Binary;
+
 namespace Squirix.Server.Core;
 
-/// <summary>
-/// Fixed v0.1.x entry and peer transport size limits (not user-configurable yet).
-/// Transport limits are intentionally larger than <see cref="MaxEntrySizeBytes" /> so Squirix returns a controlled error first.
-/// </summary>
+/// <summary>Limits for cache entries and the short form of peer frames.</summary>
 internal static class EntryLimits
 {
-    /// <summary>Maximum peer receive message size in bytes (8 MiB).</summary>
+    /// <summary>Maximum serialized value admitted on a replication-enabled node.</summary>
+    internal const int MaxReplicatedValueBytes = 32 * 1024 * 1024;
+
+    /// <summary>Maximum short-form peer receive message size in bytes (8 MiB).</summary>
     internal const int MaxReceiveMessageSizeBytes = 8 * 1024 * 1024;
 
-    /// <summary>Maximum peer send message size in bytes (8 MiB).</summary>
+    /// <summary>Maximum short-form peer send message size in bytes (8 MiB).</summary>
     internal const int MaxSendMessageSizeBytes = 8 * 1024 * 1024;
-
-    /// <summary>Maximum encoded cache entry payload size in bytes (4 MiB).</summary>
-    internal const int MaxEntrySizeBytes = 4 * 1024 * 1024;
 
     /// <summary>Maximum number of tags on a cache entry.</summary>
     internal const int MaxEntryTagCount = 32;
@@ -23,4 +22,6 @@ internal static class EntryLimits
 
     /// <summary>Maximum UTF-8 byte length of a cache entry tag value.</summary>
     internal const int MaxEntryTagValueUtf8Bytes = 1024;
+
+    internal static int ValueBytes(bool replicated) => replicated ? MaxReplicatedValueBytes : Frames.MaxValueBytes;
 }

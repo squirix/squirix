@@ -263,7 +263,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var builtInEstimator = _estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator;
 
         // Built-in string estimates are monotonic in UTF-8 length. A conservative bound can admit a write without scanning its value.
-        if (builtInEstimator && proposed.Value is string { Length: <= EntryLimits.MaxEntrySizeBytes } text)
+        if (builtInEstimator && proposed.Value is string { Length: <= 4 * 1024 * 1024 } text)
         {
             var stringBound = _estimator.EstimateBytesForMeasuredValue(key, proposed, Encoding.UTF8.GetMaxByteCount(text.Length));
             if (stringBound > 0 && !_gate.RejectsMemoryGrowingWrite(stringBound, false))

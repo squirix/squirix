@@ -19,7 +19,7 @@ namespace Squirix.Server.IntegrationTests;
 public sealed class JournalDiskQuotaTests : NodeIntegrationTestBase
 {
     /// <summary>Size of each filling append: the smallest cap fills in a few appends, and a rejected one leaves less room than another.</summary>
-    private const int FillBytes = 1024 * 1024;
+    private const int FillBytes = 2 * 1024 * 1024;
 
     /// <summary>
     /// Fills the smallest accepted journal cap until durable appends are rejected without crashing the node,
@@ -31,13 +31,15 @@ public sealed class JournalDiskQuotaTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(
             "node_journal_quota",
+            "node_journal_replica",
             new IntegrationStartOptions
             {
+                ReplicaCount = 2,
                 PersistenceOptions = new PersistenceOptions
                 {
                     // The smallest cap the options accept: one segment that still holds the largest frame.
-                    JournalMaxTotalBytesMb = JournalSegmentLimits.MinSegmentMb,
-                    JournalMaxSegmentMb = JournalSegmentLimits.MinSegmentMb,
+                    JournalMaxTotalBytesMb = JournalSegmentLimits.MinimumSegmentMb(EntryLimits.MaxReplicatedValueBytes),
+                    JournalMaxSegmentMb = JournalSegmentLimits.MinimumSegmentMb(EntryLimits.MaxReplicatedValueBytes),
                 },
             },
             cancellationToken);
@@ -45,7 +47,7 @@ public sealed class JournalDiskQuotaTests : NodeIntegrationTestBase
         var uri = node.ManagementUri;
 
         var journal = node.GetRequiredService<IJournalCoordinator>();
-        _ = await Assert.That(journal.MaxBytes).IsEqualTo(JournalSegmentLimits.MinSegmentMb * 1024L * 1024L);
+        _ = await Assert.That(journal.MaxBytes).IsEqualTo(JournalSegmentLimits.MinimumSegmentMb(EntryLimits.MaxReplicatedValueBytes) * 1024L * 1024L);
 
         var rejection = await FillUntilJournalQuotaAsync(journal, cancellationToken);
         _ = await Assert.That(rejection is JournalCapacityExceededException).IsTrue();

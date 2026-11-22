@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Composition;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.App;
@@ -136,7 +137,9 @@ internal static class CachePipelineRegistration
                 leaders is not StaticLeaderTable,
                 sp.Require<BackpressureCacheDecorator<object?>>());
         });
-        _ = services.Own(static sp => new ValidationCacheDecorator<object?>(sp.Require<OwnershipGuardCacheDecorator<object?>>()));
+        _ = services.Own(static sp => new ValidationCacheDecorator<object?>(
+            sp.Require<OwnershipGuardCacheDecorator<object?>>(),
+            EntryLimits.ValueBytes(sp.Require<FeatureState>().NetworkReplicationEnabled)));
         _ = services.Own(static sp => new DomainErrorMappingCacheDecorator<object?>(sp.Require<ValidationCacheDecorator<object?>>()));
         _ = services.Own(static sp => new TracingCacheDecorator<object?>(
             sp.Require<DomainErrorMappingCacheDecorator<object?>>(),
@@ -159,8 +162,7 @@ internal static class CachePipelineRegistration
             return;
         }
 
-        _ = services.Own(static sp => new OwnerPutPayloadGuardDecorator<object?>(sp.Require<ClientCache<object?>>()));
-        _ = services.Own(static sp => new OwnerLocalCache(sp.Require<OwnerPutPayloadGuardDecorator<object?>>()));
+        _ = services.Own(static sp => new OwnerLocalCache(sp.Require<ClientCache<object?>>()));
     }
 
     /// <summary>Returns how memory admission asks whether the replica group of a key recorded an operation's outcome; none on single-copy hosts.</summary>

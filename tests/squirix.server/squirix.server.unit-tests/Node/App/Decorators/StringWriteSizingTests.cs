@@ -90,28 +90,13 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var empty = new NodeCacheEntry<object?>(string.Empty, 1, deadline, TimeSpan.FromMinutes(1), tags);
-        var length = EntryLimits.MaxEntrySizeBytes - PreparedJournalEntry.MeasureEncodedLength(empty);
+        var length = EntryLimitKit.LargeFixtureBytes - PreparedJournalEntry.MeasureEncodedLength(empty);
         var value = unicode ? new string('\u754c', length / 3) + new string('x', length % 3) : new string('x', length);
         var fitting = new NodeCacheEntry<object?>(value, 1, deadline, TimeSpan.FromMinutes(1), tags);
         var oversized = new NodeCacheEntry<object?>(value + "x", 1, deadline, TimeSpan.FromMinutes(1), tags);
 
-        JournalEntryPayload.EnsureEncodedLengthWithinLimit(fitting);
-        var error = NodeExceptionAssert.For<SquirixException>().Throws(oversized, static entry => JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry));
-
-        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(fitting)).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
-        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
-    }
-
-    /// <summary>The short-string shortcut must not skip tag validation.</summary>
-    [Test]
-    public async Task ShortStringStillRejectsOversizedTag()
-    {
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = new('x', EntryLimits.MaxEntryTagValueUtf8Bytes + 1) }.ToFrozenDictionary(StringComparer.Ordinal);
-        var entry = new NodeCacheEntry<object?>("x", tags: tags);
-
-        var error = NodeExceptionAssert.For<SquirixException>().Throws(entry, static candidate => JournalEntryPayload.EnsureEncodedLengthWithinLimit(candidate));
-
-        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.InvalidEntryTags);
+        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(fitting)).IsEqualTo(EntryLimitKit.LargeFixtureBytes);
+        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(oversized)).IsEqualTo(EntryLimitKit.LargeFixtureBytes + 1);
     }
 
     private static MemoryAdmissionCacheDecorator<object?> Create(PhysicalCache<object?> physical, Meter meter, long limit)
@@ -122,7 +107,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
             "node",
             meter);
         return new MemoryAdmissionCacheDecorator<object?>(
-            new OwnerPutPayloadGuardDecorator<object?>(new ClientCache<object?>(physical, physical)),
+            new ClientCache<object?>(physical, physical),
             gate,
             new ObjectCacheEntrySizeEstimator());
     }

@@ -114,7 +114,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
     private static async Task<string> ActiveSegmentPathAsync(string dataDir, CancellationToken cancellationToken)
     {
         await JournalSegmentLeaseWait.WaitForReleasedAsync(dataDir, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16 };
+        var persistence = new PersistenceOptions { DataDir = dataDir };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         return PathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");

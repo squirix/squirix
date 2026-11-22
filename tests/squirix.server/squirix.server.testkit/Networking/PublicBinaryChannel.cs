@@ -61,11 +61,8 @@ public sealed class PublicBinaryChannel : IDisposable
         try
         {
             stream = _idle.TryTake(out var pooled) ? pooled : await ConnectAsync(timeout.Token).ConfigureAwait(false);
-            var size = message.CalculateSize();
-            var bytes = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes + size);
             var control = (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | Convert.ToInt32(Math.Floor(Math.Min(budget.TotalMilliseconds, ushort.MaxValue)));
-            Frames.WriteRequestMessage(bytes, 0, size, control, message);
-            await stream.WriteAsync(bytes, timeout.Token).ConfigureAwait(false);
+            await WriteRequestAsync(stream, message, control, timeout.Token).ConfigureAwait(false);
             var (value, failure) = await ReadReplyAsync(stream, parser, timeout.Token).ConfigureAwait(false);
             lock (_lifetime)
             {
@@ -96,6 +93,41 @@ public sealed class PublicBinaryChannel : IDisposable
         }
     }
 
+    internal async Task<ServerCallException?> ReadWriteHeaderRejectionAsync(BinaryOperation operation, int valueBytes, CancellationToken cancellationToken)
+    {
+        await using var stream = await ConnectAsync(cancellationToken).ConfigureAwait(false);
+        var frame = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes + Frames.ExtendedRequestBytes);
+        var control = (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | 15000;
+        Frames.WriteRequest(frame, 0, Frames.ExtendedSize, control);
+        Frames.WriteExtendedSize(frame.AsSpan(Frames.RequestBytes), valueBytes + 64);
+        Frames.WriteExtendedSize(frame.AsSpan(Frames.RequestBytes + sizeof(int)), valueBytes);
+        await stream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
+        var (_, failure) = await ReadReplyAsync(stream, SetAsyncResponse.Parser, cancellationToken).ConfigureAwait(false);
+        return failure;
+    }
+
+    private static async ValueTask WriteRequestAsync(Stream stream, WireMessage message, int control, CancellationToken cancellationToken)
+    {
+        var size = message.CalculateSize();
+        if (size <= Frames.MaxRequestBytes)
+        {
+            var bytes = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes + size);
+            Frames.WriteRequestMessage(bytes, 0, size, control, message);
+            await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        using var segments = new WireSegments();
+        const int headerSize = Frames.RequestBytes + Frames.ExtendedRequestBytes;
+        var header = segments.GetMemory(headerSize);
+        Frames.WriteRequest(header.Span, 0, Frames.ExtendedSize, control);
+        Frames.WriteExtendedSize(header.Span[Frames.RequestBytes..], size);
+        Frames.WriteExtendedSize(header.Span[(Frames.RequestBytes + sizeof(int))..], CacheWritePayload.Length(message) ?? 0);
+        segments.Advance(headerSize);
+        message.WriteTo(segments);
+        await segments.SendAsync(stream, cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task<(T? Value, ServerCallException? Failure)> ReadReplyAsync<T>(Stream stream, WireParser<T> parser, CancellationToken cancellationToken)
         where T : WireMessage
     {
@@ -105,9 +137,15 @@ public sealed class PublicBinaryChannel : IDisposable
         if (id != 0)
             ThrowUnexpectedResponseId();
 
+        if (size == Frames.ExtendedSize)
+        {
+            await stream.ReadExactlyAsync(header.AsMemory(0, Frames.ExtendedReplyBytes), cancellationToken).ConfigureAwait(false);
+            size = Frames.ReadExtendedSize(header);
+        }
+
         var body = GC.AllocateUninitializedArray<byte>(size);
         await stream.ReadExactlyAsync(body, cancellationToken).ConfigureAwait(false);
-        return status == 0 ? (parser.ParseFrom(body), null) : (default, new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(body)));
+        return status == 0 ? (parser.ParseBorrowed(body), null) : (default, new ServerCallException(Unsafe.BitCast<int, FrameStatus>(status), BinaryCallError.Parser.ParseFrom(body)));
     }
 
     private static void ThrowUnexpectedResponseId() => throw new InvalidDataException("Unexpected response ID.");
@@ -147,9 +185,8 @@ public sealed class PublicBinaryChannel : IDisposable
     {
         var preface = GC.AllocateArray<byte>(Frames.PrefaceBytes);
         BinaryPrimitives.WriteUInt32BigEndian(preface, Frames.Preface);
-        const byte anonymous = 0;
-        const byte bearer = 1;
-        preface[4] = _token == null ? anonymous : bearer;
+        const byte bearer = Frames.ExtendedMode | 1;
+        preface[4] = _token == null ? Frames.ExtendedMode : bearer;
         await stream.WriteAsync(preface, cancellationToken).ConfigureAwait(false);
         await stream.ReadExactlyAsync(preface.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
         if (preface[0] is not (Frames.Accepted or Frames.AcceptedWithMutationReplay))

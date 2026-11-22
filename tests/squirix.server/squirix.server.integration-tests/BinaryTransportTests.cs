@@ -202,7 +202,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var client = new CacheWireClient(channel);
 
         // Two flags, Int64 version, UInt16 tag count, byte kind and Int32 byte length.
-        var maximum = new byte[EntryLimits.MaxEntrySizeBytes - 17];
+        var maximum = new byte[EntryLimitKit.LargeFixtureBytes - 17];
         maximum[^1] = 255;
         _ = await client.SetEntryAsync(Request("limit", maximum), cancellationToken: cancellationToken);
         var tooLarge = new byte[maximum.Length + 1];
@@ -416,7 +416,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var policy = new DistributedCachePolicy(cap, TimeSpan.FromMinutes(5).Ticks);
 
         // An untagged binary entry adds a 17-byte header and an Int64 deadline.
-        var bytes = new byte[maximum ? EntryLimits.MaxEntrySizeBytes - 17 - sizeof(long) - DistributedCachePolicy.HeaderLength : 65536];
+        var bytes = new byte[maximum ? EntryLimitKit.LargeFixtureBytes - 17 - sizeof(long) - DistributedCachePolicy.HeaderLength : 65536];
         _ = await client.SetDistributedAsync(
             new SetDistributedAsyncRequest
             {

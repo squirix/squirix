@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using Squirix.Server.Attributes;
@@ -360,7 +359,7 @@ internal sealed class JournalEventLoopSegmentWriter
         }
         finally
         {
-            ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+            PayloadBuffer.Release(frameBytes);
         }
     }
 
