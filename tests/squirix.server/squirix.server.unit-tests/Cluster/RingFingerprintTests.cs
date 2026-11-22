@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -63,8 +64,8 @@ public sealed class RingFingerprintTests : ServerUnitTestBase
     [Test]
     public async Task FingerprintMatchesGoldenVector()
     {
-        var value = Fingerprint(["n2", "n1"]);
-        _ = await Assert.That(value).IsEqualTo("F34273F8A8A6F585B9BAB884F36960B2C23792823F97CADAA89DC57FEC5A3583");
+        var value = RingFingerprint.Create(ClusterId, ["n2", "n1"], VirtualNodes, EntryLimits.MaxReplicatedValueBytes).Value;
+        _ = await Assert.That(value).IsEqualTo("68DB90625992DF0A486B61AD9B6BA86FD5F919B2A3C2D20D3946009D5513F3E8");
     }
 
     /// <summary>Node ids are compared ordinally, so case differences change the fingerprint.</summary>

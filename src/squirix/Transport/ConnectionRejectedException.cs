@@ -26,6 +26,8 @@ internal sealed class ConnectionRejectedException : IOException
     {
     }
 
+    internal bool PrefaceRejected { get; init; }
+
     internal static SquirixTransportException? Map(Exception exception)
     {
         for (var current = exception; current != null; current = current.InnerException)

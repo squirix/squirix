@@ -27,7 +27,7 @@ internal static class BinaryClientProtocol
         {
             return await ConnectAsync(endpoint, provider, tlsOptions, true, token).ConfigureAwait(false);
         }
-        catch (ConnectionRejectedException)
+        catch (ConnectionRejectedException exception) when (exception.PrefaceRejected)
         {
             return await ConnectAsync(endpoint, provider, tlsOptions, false, token).ConfigureAwait(false);
         }
@@ -235,7 +235,7 @@ internal static class BinaryClientProtocol
     {
         Frames.Accepted => false,
         Frames.AcceptedWithMutationReplay => true,
-        Frames.Rejected => throw new ConnectionRejectedException(),
+        Frames.Rejected => throw new ConnectionRejectedException { PrefaceRejected = true },
         _ => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, "The endpoint does not speak the Squirix cache protocol.")),
     };
 

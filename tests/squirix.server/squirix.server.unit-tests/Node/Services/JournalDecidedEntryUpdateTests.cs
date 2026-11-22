@@ -87,14 +87,14 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
     [Arguments(true)]
     public async Task LargeUpdatePreservesTags(bool groupCommit, CancellationToken cancellationToken)
     {
-        var kit = new JournalReplayKit(Dir, groupCommit);
+        var kit = new JournalReplayKit(Dir, groupCommit, journalMaxSegmentMb: 5);
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", tags: tags), cancellationToken);
         var framesBefore = kit.CountJournalRecords(cancellationToken);
 
-        var nearLimit = new string('x', EntryLimitKit.LargeFixtureBytes - 5);
-        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, nearLimit, cancellationToken)).IsTrue();
+        var largeValue = new string('x', EntryLimitKit.LargeFixtureBytes);
+        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, largeValue, cancellationToken)).IsTrue();
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(framesBefore + 1);
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Tags!["team"]).IsEqualTo("a");
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
