@@ -94,7 +94,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
                     return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
                 cancellationToken.ThrowIfCancellationRequested();
-                return new NodeCacheAddOrGetResult<T>(false, new NodeCacheValueResult<T>(true, existing.Value));
+                return new NodeCacheAddOrGetResult<T>(false, new NodeCacheValueResult<T>(true, existing.RawValue));
             }
         }
 
@@ -196,7 +196,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     }
 
     private static NodeCacheEntry<T> CreateExpirationMetadataReplacement(NodeCacheEntry<T> existing, bool hasExpirationUtc) => new(
-        existing.Value,
+        existing.RawValue,
         existing.Version,
         hasExpirationUtc ? existing.ExpiresUtc ?? DateTime.UnixEpoch : null,
         existing.Expiration,
@@ -263,7 +263,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var builtInEstimator = _estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator;
 
         // Built-in string estimates are monotonic in UTF-8 length. A conservative bound can admit a write without scanning its value.
-        if (builtInEstimator && proposed.Value is string { Length: <= 4 * 1024 * 1024 } text)
+        if (builtInEstimator && proposed.RawValue is string { Length: <= 4 * 1024 * 1024 } text)
         {
             var stringBound = _estimator.EstimateBytesForMeasuredValue(key, proposed, Encoding.UTF8.GetMaxByteCount(text.Length));
             if (stringBound > 0 && !_gate.RejectsMemoryGrowingWrite(stringBound, false))
@@ -271,7 +271,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         }
 
         var upperBound = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, null, proposed, _estimator, out var magnitudeUnknown);
-        if (builtInEstimator && proposed.Value is string)
+        if (builtInEstimator && proposed.RawValue is string)
             measuredBytes = upperBound;
 
         return magnitudeUnknown

@@ -23,7 +23,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter) => EstimateWithPayload(
         key,
         entry,
-        payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value));
+        payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.RawValue));
 
     /// <inheritdoc />
     public long MeasureValue(T? value) => EstimateTypedPayloadBytes(value);
@@ -36,7 +36,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     public long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => EstimateBytes(key, entry, false);
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.RawValue);
 
     /// <summary>Includes the resident policy metadata in estimates used by admission and the physical store.</summary>
     /// <param name="estimator">Base entry-size estimator.</param>
@@ -99,6 +99,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         return value switch
         {
             null => 0,
+            StoredText text => text.Bytes.Length,
             string s => Encoding.UTF8.GetByteCount(s),
             byte[] bytes => bytes.LongLength,
             bool => sizeof(bool),

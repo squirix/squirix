@@ -47,7 +47,7 @@ internal static class ReplicaOperationFingerprints
 
     internal static byte[] Set(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry)
     {
-        if (entry.Value is not DistributedCacheWrite write)
+        if (entry.RawValue is not DistributedCacheWrite write)
             return Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToWire());
 
         var kind = write.TtlTicks is { } ttl ? string.Create(CultureInfo.InvariantCulture, $"set-distributed-ttl:{ttl}") : "set-distributed";

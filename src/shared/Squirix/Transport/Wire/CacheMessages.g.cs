@@ -79,7 +79,7 @@ internal sealed class CacheValue : WireMessage
     }
     internal string StringValue
     {
-        get => _reference as string ?? string.Empty;
+        get => _reference as string ?? (EncodedText is { } bytes ? WireReader.Utf8.GetString(bytes) : string.Empty);
         set { _bytes = default; _reference = value; KindCase = KindOneofCase.StringValue; }
     }
     internal long Int64Value
@@ -107,12 +107,14 @@ internal sealed class CacheValue : WireMessage
         get => KindCase == KindOneofCase.BinaryValue ? _bytes : default;
         set { _reference = null; _bytes = value; KindCase = KindOneofCase.BinaryValue; }
     }
+    internal byte[]? EncodedText => KindCase == KindOneofCase.StringValue ? _reference as byte[] : null;
+    internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes };
 
     internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bytes = payload, _reference = payload };
 
     internal byte[] TakeBinaryValue()
     {
-        if (_reference is not byte[] owned)
+        if (KindCase != KindOneofCase.BinaryValue || _reference is not byte[] owned)
             return BinaryValue.ToArray();
         _reference = null;
         _bytes = default;
@@ -130,7 +132,12 @@ internal sealed class CacheValue : WireMessage
         switch (KindCase)
         {
             case KindOneofCase.StringValue:
-                writer.Text(StringValue, tail);
+                if (EncodedText is { } text)
+                {
+                    if (tail) writer.TailBytes(text);
+                    else writer.Bytes(text);
+                }
+                else writer.Text(StringValue, tail);
                 break;
             case KindOneofCase.Int64Value:
                 writer.Signed(Int64Value);
@@ -169,7 +176,8 @@ internal sealed class CacheValue : WireMessage
                 message.NullValue = NullValue.NullValue;
                 break;
             case KindOneofCase.StringValue:
-                message.StringValue = reader.Text(tail);
+                message.KindCase = kind;
+                message._reference = TextPayloadReader.Read(ref reader, tail);
                 break;
             case KindOneofCase.Int64Value:
                 message.Int64Value = reader.Signed();

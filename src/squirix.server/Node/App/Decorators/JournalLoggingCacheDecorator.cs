@@ -75,7 +75,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         cacheName,
         key,
         default(NoDecisionArgs),
-        static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.Value, current.Version, tags: current.Tags),
+        static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.RawValue, current.Version, tags: current.Tags),
         null,
         cancellationToken);
 
@@ -92,7 +92,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         key,
         expiration,
         static (current, now, ttl) => new NodeCacheEntry<T>(
-            current.Value,
+            current.RawValue,
             current.Version,
             JournalEntryExpirationMaterializer.PinToJournalPrecision(now.SaturatedAdd(ttl)),
             tags: current.Tags),

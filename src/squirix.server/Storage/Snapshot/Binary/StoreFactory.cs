@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -147,16 +146,13 @@ internal static class StoreFactory
             /// <exception cref="InvalidDataException">The body is not a readable entry.</exception>
             internal void AddEntry(ReadOnlySpan<byte> body)
             {
-                if (!SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength, _expiredAsOf))
+                if (!SnapshotCodec.TryReadEntryBody<T>(body, out var key, out var entry, out var encodedLength, _expiredAsOf))
                     throw new InvalidDataException("Binary snapshot entry body could not be read.");
 
                 if (entry == null)
                     return;
 
-                if (!CacheEntryCodec.TryMapEntry<T>(entry, out var mapped) || mapped == null)
-                    throw new InvalidDataException("Binary snapshot entry payload could not be read.");
-
-                Entries.Add((key, mapped));
+                Entries.Add((key, entry));
                 Lengths.Add(encodedLength);
             }
         }

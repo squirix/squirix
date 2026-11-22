@@ -149,7 +149,7 @@ internal sealed class RoutedCacheOperations<T>
             var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             var response = new GetValueAsyncResponse { Found = result.Found };
             if (result.Found)
-                response.Value = ServerWireMapping.CacheValueToWire(result.Value);
+                response.Value = ServerWireMapping.CacheValueToWire(result.RawValue);
 
             return response;
         }
@@ -307,7 +307,7 @@ internal sealed class RoutedCacheOperations<T>
                     : existing.Found switch
                     {
                         false => new GetOrAddAsyncResponse { Added = false, Found = false },
-                        _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerWireMapping.CacheValueToWire(existing.Value) },
+                        _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerWireMapping.CacheValueToWire(existing.RawValue) },
                     };
             }
 
@@ -411,7 +411,7 @@ internal sealed class RoutedCacheOperations<T>
                 var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
                     operationId,
                     request.Key,
-                    request.Entry.MapFromWire<T>().Value,
+                    request.Entry.MapFromWire<T>().RawValue,
                     cancellationToken).ConfigureAwait(false);
                 return new UpdateAsyncResponse { Updated = updated };
             }

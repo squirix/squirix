@@ -18,7 +18,7 @@ internal static class CacheWritePayload
 
     private static int ValueLength(CacheValue? value) => value?.KindCase switch
     {
-        CacheValue.KindOneofCase.StringValue => WireReader.Utf8.GetByteCount(value.StringValue),
+        CacheValue.KindOneofCase.StringValue => value.EncodedText?.Length ?? WireReader.Utf8.GetByteCount(value.StringValue),
         CacheValue.KindOneofCase.BinaryValue => value.BinaryValue.Length,
         CacheValue.KindOneofCase.JsonUtf8 => value.JsonUtf8.Length,
         _ => value?.CalculateSize() ?? 0,

@@ -63,7 +63,7 @@ internal sealed record PreparedJournalEntry
     private static NodeCacheEntry<object?> ToObjectEntry<T>(NodeCacheEntry<T> entry, DateTime? expiresUtc)
     {
         var value = entry.Normalize();
-        return entry is NodeCacheEntry<object?> objectEntry && entry.Expiration == null && entry.ExpiresUtc == expiresUtc && ReferenceEquals(value, objectEntry.Value)
+        return entry is NodeCacheEntry<object?> objectEntry && entry.Expiration == null && entry.ExpiresUtc == expiresUtc && ReferenceEquals(value, objectEntry.RawValue)
             ? objectEntry
             : new NodeCacheEntry<object?>(value, entry.Version, expiresUtc, null, entry.Tags);
     }

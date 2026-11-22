@@ -10,4 +10,16 @@ namespace Squirix.Server.Core;
 /// <param name="Value">The retrieved value (may be <see langword="null" />).</param>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
-public readonly record struct NodeCacheValueResult<T>(bool Found, T? Value);
+public readonly record struct NodeCacheValueResult<T>(bool Found, T? Value)
+{
+    /// <summary>Gets the logical value of the hit.</summary>
+    public T? Value { get => StoredText.Unpack(RawValue); init => RawValue = value; }
+
+    internal T? RawValue { get; private init; } = Value;
+
+    /// <inheritdoc />
+    public bool Equals(NodeCacheValueResult<T> other) => Found == other.Found && System.Collections.Generic.EqualityComparer<T?>.Default.Equals(Value, other.Value);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => System.HashCode.Combine(Found, Value);
+}

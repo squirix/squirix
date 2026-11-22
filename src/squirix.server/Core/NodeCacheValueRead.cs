@@ -32,7 +32,7 @@ internal readonly record struct NodeCacheValueRead<T>
         if (!found)
             return;
 
-        Value = value;
+        RawValue = value;
         _state = expiresUtc is { } deadline ? deadline.Ticks + DeadlineStateOffset : NoDeadlineState;
     }
 
@@ -40,8 +40,14 @@ internal readonly record struct NodeCacheValueRead<T>
     internal bool Found => _state != MissState;
 
     /// <summary>Gets the stored value (may be <see langword="null" />); the default for a miss.</summary>
-    internal T? Value { get; }
+    internal T? Value => StoredText.Unpack(RawValue);
+
+    internal T? RawValue { get; }
 
     /// <summary>Gets the absolute UTC deadline of the stored entry, or <see langword="null" /> for none or for a miss.</summary>
     internal DateTime? ExpiresUtc => _state >= DeadlineStateOffset ? new DateTime(_state - DeadlineStateOffset, DateTimeKind.Utc) : null;
+
+    public bool Equals(NodeCacheValueRead<T> other) => _state == other._state && System.Collections.Generic.EqualityComparer<T?>.Default.Equals(Value, other.Value);
+
+    public override int GetHashCode() => HashCode.Combine(_state, Value);
 }

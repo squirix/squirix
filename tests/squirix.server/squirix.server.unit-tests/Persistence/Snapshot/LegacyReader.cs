@@ -146,7 +146,7 @@ internal sealed class LegacyReader : ISnapshotReader
             switch (kind)
             {
                 case RecordKind.Entry:
-                    if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength) && entry != null)
+                    if (SnapshotCodec.TryReadEntryBody<object?>(body, out var key, out var entry, out var encodedLength) && entry != null)
                         return new EntryRecord(key, entry, encodedLength);
 
                     throw new InvalidDataException("Binary snapshot entry body could not be read.");

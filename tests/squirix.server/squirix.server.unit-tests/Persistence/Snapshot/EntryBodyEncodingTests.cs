@@ -38,7 +38,7 @@ public sealed class EntryBodyEncodingTests : ServerUnitTestBase
         SnapshotCodec.WriteEntryBody(key, entry, actual);
 
         _ = await Assert.That(actual.AsSpan().SequenceEqual(expected)).IsTrue();
-        _ = await Assert.That(SnapshotCodec.TryReadEntryBody(actual, out var readKey, out var readEntry, out var encodedLength)).IsTrue();
+        _ = await Assert.That(SnapshotCodec.TryReadEntryBody<object?>(actual, out var readKey, out var readEntry, out var encodedLength)).IsTrue();
         _ = await Assert.That(readKey).IsEqualTo(key);
         _ = await Assert.That(readEntry!.Value).IsEqualTo(value);
         _ = await Assert.That(readEntry.Version).IsEqualTo(entry.Version);
