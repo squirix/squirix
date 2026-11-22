@@ -21,6 +21,7 @@ namespace Squirix.E2ETests.Fixtures;
 /// The time from the start of the stop until the last request on the stopping node finished, counting every request that finished after the stop
 /// began, including those that arrived while the web server was draining; <see langword="null" /> when requests were not tracked or none finished afterwards.
 /// </param>
+/// <param name="ElectionCalls">The election calls observed during the stop, or <see langword="null" /> in earlier evidence files.</param>
 internal sealed record FailoverSample(
     int Iteration,
     string StoppedLeader,
@@ -38,10 +39,11 @@ internal sealed record FailoverSample(
     double? StopPersistenceReleaseMs = null,
     double? StopTotalMs = null,
     int? StopInFlightRequests = null,
-    double? StopLastRequestFinishedMs = null)
+    double? StopLastRequestFinishedMs = null,
+    ElectionCall[]? ElectionCalls = null)
 {
     [System.Text.Json.Serialization.JsonInclude]
-    internal ElectionCall[] ElectionCalls { get; init => field = value ?? []; } = [];
+    internal ElectionCall[] ElectionCalls { get; init; } = ElectionCalls ?? [];
 
     [System.Text.Json.Serialization.JsonIgnore]
     internal long StopTimestamp { get; init; }
