@@ -336,9 +336,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         if (idle != null)
             return idle;
 
-        var timedOut = Interlocked.Read(ref _lastDialTimeout);
-        if (timedOut != 0 && Stopwatch.GetElapsedTime(timedOut) < _dial)
-            throw new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.TimedOut));
+        ThrowIfRecentDialTimedOut();
 
         using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         handshake.CancelAfter(TimeSpan.FromSeconds(5));
@@ -378,6 +376,13 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             if (connection != null)
                 await connection.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    private void ThrowIfRecentDialTimedOut()
+    {
+        var timedOut = Interlocked.Read(ref _lastDialTimeout);
+        if (timedOut != 0 && Stopwatch.GetElapsedTime(timedOut) < _dial)
+            throw new SocketException(Unsafe.BitCast<SocketError, int>(SocketError.TimedOut));
     }
 
     private async ValueTask ReturnAsync(PeerSession stream)

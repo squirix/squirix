@@ -176,15 +176,7 @@ internal static class ServerHostingComposition
             },
             cancellationToken).ConfigureAwait(false);
 
-        if (args.MetricsEnabled)
-        {
-            _ = services.Own(static _ => new Meter(MetricsMeterName));
-            _ = services.Own(static sp => new PrometheusMetricsScraper(sp.Require<Meter>()));
-        }
-
-        if (args.Eviction != null)
-            _ = services.Use(args.Eviction);
-        _ = services.AddSquirixRuntimeServices(args.MetricsEnabled);
+        RegisterRuntimeServices(services, args);
         AddSquirixClusterStack(services, cluster, args);
         RegisterPersistenceAndReplication(services, cluster, persistence, mtlsOptions, args);
 
@@ -203,6 +195,19 @@ internal static class ServerHostingComposition
             args.ManagementUri,
             args.ServerCertificate));
         _ = services.RunService(static sp => sp.Require<NativeClientService>());
+    }
+
+    private static void RegisterRuntimeServices(NodeServices services, CompositionArgs args)
+    {
+        if (args.MetricsEnabled)
+        {
+            _ = services.Own(static _ => new Meter(MetricsMeterName));
+            _ = services.Own(static sp => new PrometheusMetricsScraper(sp.Require<Meter>()));
+        }
+
+        if (args.Eviction != null)
+            _ = services.Use(args.Eviction);
+        _ = services.AddSquirixRuntimeServices(args.MetricsEnabled);
     }
 
     /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>
