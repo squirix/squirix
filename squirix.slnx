@@ -33,7 +33,7 @@
         <Project Path="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"/>
     </Folder>
     <Folder Name="/samples/">
-        <Project Path="samples/hybrid-cache/HybridCacheSample.csproj"/>
+        <Project Path="samples/hybrid-cache/HybridCache.csproj"/>
         <Project Path="samples/shared-cache/SharedCache.csproj"/>
         <Project Path="samples/docker-client/DockerClient.csproj"/>
         <Project Path="samples/external-package-smoke/ExternalPackageSmoke.csproj"/>
