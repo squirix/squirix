@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -46,6 +47,44 @@ public sealed class AsyncBinaryCompletionTests
     public Task RoundTripsAllAsyncOperations(CancellationToken cancellationToken) =>
         WithPeerAsync(VerifyAllOperationsAsync, cancellationToken);
 
+    /// <summary>Observes mutation identity on the actual connection and checks that retries reuse it.</summary>
+    /// <param name="replay">Whether the server advertises mutation replay.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public Task MutationIdentityFollowsHandshake(bool replay, CancellationToken cancellationToken) =>
+        WithPeerAsync((client, stream, token) => VerifyMutationIdentityAsync(client, stream, replay, token), cancellationToken, replay);
+
+    /// <summary>Keeps prepared frames valid when a later attempt negotiates a different replay capability.</summary>
+    /// <param name="traced">Whether the prepared frame contains an activity envelope.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task MutationFrameKeepsIdentityAcrossRetries(bool traced)
+    {
+        using var activity = new Activity(nameof(MutationFrameKeepsIdentityAcrossRetries));
+        _ = activity.SetIdFormat(traced ? ActivityIdFormat.W3C : ActivityIdFormat.Hierarchical);
+        _ = activity.Start();
+
+        byte[] value = [0, 255, 1];
+        var request = BinaryClientProtocol.CreateSetRequest("cache", "key", value, null, 100, 20);
+        var singleCopy = BinaryClientProtocol.PrepareRequest(BinaryOperation.SetDistributed, request, false);
+        _ = await Assert.That(request.OperationId).IsEmpty();
+        var replicated = BinaryClientProtocol.PrepareRequest(BinaryOperation.SetDistributed, request, true);
+        var singleCopyRetry = BinaryClientProtocol.PrepareRequest(BinaryOperation.SetDistributed, request, false);
+        var replicatedRetry = BinaryClientProtocol.PrepareRequest(BinaryOperation.SetDistributed, request, true);
+
+        _ = await Assert.That((replicated.Control & Frames.TracedRequest) != 0).IsEqualTo(traced);
+        _ = await Assert.That(replicated.Size - singleCopy.Size).IsEqualTo(17);
+        _ = await Assert.That(singleCopyRetry.Size).IsEqualTo(singleCopy.Size);
+        _ = await Assert.That(Guid.TryParseExact(request.OperationId, "N", out _)).IsTrue();
+        await AssertDistributedSetFrameAsync(singleCopy, string.Empty, value);
+        await AssertDistributedSetFrameAsync(replicated, request.OperationId, value);
+        await AssertDistributedSetFrameAsync(singleCopyRetry, string.Empty, value);
+        await AssertDistributedSetFrameAsync(replicatedRetry, request.OperationId, value);
+    }
+
     /// <summary>Checks cancellation, deadline outcomes, and connection reuse after a late reply.</summary>
     /// <param name="read">Whether the operation can be retried after a deadline.</param>
     /// <param name="callerCancels">Whether cancellation comes directly from the caller.</param>
@@ -65,7 +104,7 @@ public sealed class AsyncBinaryCompletionTests
                 : VerifyLifetimeAsync(client, stream, MutationLifetime, callerCancels, keepOtherCall, token),
             cancellationToken);
 
-    private static async Task WithPeerAsync(Func<BinaryCacheClient, SslStream, CancellationToken, Task> scenario, CancellationToken cancellationToken)
+    private static async Task WithPeerAsync(Func<BinaryCacheClient, SslStream, CancellationToken, Task> scenario, CancellationToken cancellationToken, bool replay = false)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
@@ -89,7 +128,7 @@ public sealed class AsyncBinaryCompletionTests
         var connecting = client.ConnectAsync(token);
         using var socket = await listener.AcceptTcpClientAsync(token);
         await using var stream = new SslStream(socket.GetStream());
-        await NegotiateAsync(stream, certificate, token);
+        await NegotiateAsync(stream, certificate, replay, token);
         await connecting;
         await scenario(client, stream, token);
     }
@@ -99,6 +138,37 @@ public sealed class AsyncBinaryCompletionTests
         await VerifyNativeReadsAsync(client, stream, token);
         await VerifyNativeMutationsAsync(client, stream, token);
         await VerifyDistributedOperationsAsync(client, stream, token);
+    }
+
+    private static async Task VerifyMutationIdentityAsync(BinaryCacheClient client, SslStream stream, bool replay, CancellationToken token)
+    {
+        var request = new RemoveAsyncRequest { CacheName = "default", Key = "mutation" };
+        var reply = new RemoveAsyncResponse { Removed = true };
+        await RoundTripAsync(client, stream, BinaryOperation.Remove, request, reply, static (peer, wire, options) => peer.RemoveAsync(wire, in options), token);
+
+        var firstIdentity = request.OperationId;
+        if (replay)
+            _ = await Assert.That(Guid.TryParseExact(firstIdentity, "N", out _)).IsTrue();
+        else
+            _ = await Assert.That(firstIdentity).IsEmpty();
+
+        await RoundTripAsync(client, stream, BinaryOperation.Remove, request, reply, static (peer, wire, options) => peer.RemoveAsync(wire, in options), token);
+        _ = await Assert.That(request.OperationId).IsEqualTo(firstIdentity);
+    }
+
+    private static async Task AssertDistributedSetFrameAsync(BinaryClientRequest request, string operationId, byte[] value)
+    {
+        var frame = new byte[Frames.RequestBytes + request.Size];
+        request.WriteTo(frame, 5);
+        ReadOnlyMemory<byte> payload = frame.AsMemory(Frames.RequestBytes);
+        if ((request.Control & Frames.TracedRequest) != 0)
+            payload = BinaryTracedRequest.Parser.ParseFrom(payload.Span).Payload;
+
+        var decoded = SetDistributedAsyncRequest.Parser.ParseFrom(payload.Span);
+        _ = await Assert.That(decoded.OperationId).IsEqualTo(operationId);
+        _ = await Assert.That(decoded.TtlTicks).IsEqualTo(100L);
+        _ = await Assert.That(decoded.SlidingTicks).IsEqualTo(20L);
+        _ = await Assert.That(decoded.Value.Span.SequenceEqual(value)).IsTrue();
     }
 
     private static async Task VerifyNativeReadsAsync(BinaryCacheClient client, SslStream stream, CancellationToken token)
@@ -315,13 +385,13 @@ public sealed class AsyncBinaryCompletionTests
         return stream.WriteAsync(frame, token);
     }
 
-    private static async Task NegotiateAsync(SslStream stream, X509Certificate2 certificate, CancellationToken token)
+    private static async Task NegotiateAsync(SslStream stream, X509Certificate2 certificate, bool replay, CancellationToken token)
     {
         await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate }, token);
         var preface = GC.AllocateUninitializedArray<byte>(Frames.PrefaceBytes);
         await stream.ReadExactlyAsync(preface, token);
         _ = await Assert.That(BinaryPrimitives.ReadUInt32BigEndian(preface)).IsEqualTo(Frames.Preface);
-        preface[0] = Frames.Accepted;
+        preface[0] = replay ? Frames.AcceptedWithMutationReplay : Frames.Accepted;
         await stream.WriteAsync(preface.AsMemory(0, 1), token);
     }
 

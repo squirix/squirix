@@ -104,9 +104,8 @@ public sealed class SynchronousBinaryConnectionTests
     private static Task<GetDistributedAsyncResponse> SendSynchronousGetAsync(SynchronousBinaryConnection connection, string key, CancellationToken attempt, CancellationToken lifetime)
     {
         var request = new GetDistributedAsyncRequest { CacheName = "default", Key = key };
-        var prepared = BinaryClientProtocol.PrepareRequest(BinaryOperation.GetDistributed, request);
         return Task.Factory.StartNew(
-            () => connection.Send(BinaryOperation.GetDistributed, prepared, GetDistributedAsyncResponse.Parser, DateTimeOffset.UtcNow.AddSeconds(20), attempt, lifetime),
+            () => connection.Send(BinaryOperation.GetDistributed, request, GetDistributedAsyncResponse.Parser, DateTimeOffset.UtcNow.AddSeconds(20), attempt, lifetime),
             lifetime,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);

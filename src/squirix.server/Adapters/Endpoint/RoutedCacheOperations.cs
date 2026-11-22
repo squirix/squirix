@@ -61,7 +61,7 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.GetDistributedAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter.AccessDistributedLocalAsync(s.Request.OperationId, s.Request.CacheName, s.Request.Key, false, ct),
+            static (s, ct) => s.Adapter.AccessDistributedLocalAsync(string.Empty, s.Request.CacheName, s.Request.Key, false, ct),
             cancellationToken);
 
         internal Task<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(

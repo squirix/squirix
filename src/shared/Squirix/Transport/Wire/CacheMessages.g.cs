@@ -27,6 +27,11 @@ internal enum BinaryOperation
     RefreshDistributed = 13,
 }
 
+internal abstract class CacheMutationRequest : WireMessage
+{
+    internal string OperationId { get; set; } = string.Empty;
+}
+
 internal sealed class CacheEntryWire : WireMessage
 {
     internal static WireParser<CacheEntryWire> Parser { get; } = new(Read);
@@ -189,33 +194,35 @@ internal sealed class CacheValue : WireMessage
     }
 }
 
-internal sealed class SetEntryAsyncRequest : WireMessage
+internal sealed class SetEntryAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<SetEntryAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
     internal CacheEntryWire? Entry { get; set; }
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
-        writer.Byte((byte)((Entry != null ? 1 : 0)));
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((Entry != null ? 1 : 0) | (operationId.Length != 0 ? 2 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
             Entry.Encode(ref writer);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static SetEntryAsyncRequest Read(ref WireReader reader)
     {
         var message = new SetEntryAsyncRequest();
-        var flags = reader.Flags(1);
+        var flags = reader.Flags(3);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
-        message.OperationId = reader.OperationId();
+        if ((flags & 2) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -311,26 +318,30 @@ internal sealed class GetValueAsyncRequest : WireMessage
     }
 }
 
-internal sealed class RemoveAsyncRequest : WireMessage
+internal sealed class RemoveAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<RemoveAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((operationId.Length != 0 ? 1 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static RemoveAsyncRequest Read(ref WireReader reader)
     {
         var message = new RemoveAsyncRequest();
+        var flags = reader.Flags(1);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
-        message.OperationId = reader.OperationId();
+        if ((flags & 1) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -359,33 +370,35 @@ internal sealed class RemoveAsyncResponse : WireMessage
     }
 }
 
-internal sealed class TryAddEntryAsyncRequest : WireMessage
+internal sealed class TryAddEntryAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<TryAddEntryAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
     internal CacheEntryWire? Entry { get; set; }
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
-        writer.Byte((byte)((Entry != null ? 1 : 0)));
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((Entry != null ? 1 : 0) | (operationId.Length != 0 ? 2 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
             Entry.Encode(ref writer);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static TryAddEntryAsyncRequest Read(ref WireReader reader)
     {
         var message = new TryAddEntryAsyncRequest();
-        var flags = reader.Flags(1);
+        var flags = reader.Flags(3);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
-        message.OperationId = reader.OperationId();
+        if ((flags & 2) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -414,33 +427,35 @@ internal sealed class TryAddAsyncResponse : WireMessage
     }
 }
 
-internal sealed class TouchAsyncRequest : WireMessage
+internal sealed class TouchAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<TouchAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
     internal TimeSpan? Expiration { get; set; }
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
-        writer.Byte((byte)((Expiration != null ? 1 : 0)));
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((Expiration != null ? 1 : 0) | (operationId.Length != 0 ? 2 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
         if (Expiration != null)
             writer.Duration(Expiration.Value);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static TouchAsyncRequest Read(ref WireReader reader)
     {
         var message = new TouchAsyncRequest();
-        var flags = reader.Flags(1);
+        var flags = reader.Flags(3);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Expiration = reader.Duration();
-        message.OperationId = reader.OperationId();
+        if ((flags & 2) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -469,26 +484,30 @@ internal sealed class TouchAsyncResponse : WireMessage
     }
 }
 
-internal sealed class RemoveExpirationAsyncRequest : WireMessage
+internal sealed class RemoveExpirationAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<RemoveExpirationAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((operationId.Length != 0 ? 1 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static RemoveExpirationAsyncRequest Read(ref WireReader reader)
     {
         var message = new RemoveExpirationAsyncRequest();
+        var flags = reader.Flags(1);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
-        message.OperationId = reader.OperationId();
+        if ((flags & 1) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -517,33 +536,35 @@ internal sealed class RemoveExpirationAsyncResponse : WireMessage
     }
 }
 
-internal sealed class UpdateAsyncRequest : WireMessage
+internal sealed class UpdateAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<UpdateAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
     internal CacheEntryWire? Entry { get; set; }
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
-        writer.Byte((byte)((Entry != null ? 1 : 0)));
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((Entry != null ? 1 : 0) | (operationId.Length != 0 ? 2 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
             Entry.Encode(ref writer);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static UpdateAsyncRequest Read(ref WireReader reader)
     {
         var message = new UpdateAsyncRequest();
-        var flags = reader.Flags(1);
+        var flags = reader.Flags(3);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
-        message.OperationId = reader.OperationId();
+        if ((flags & 2) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -624,33 +645,35 @@ internal sealed class GetExpirationAsyncResponse : WireMessage
     }
 }
 
-internal sealed class GetOrAddAsyncRequest : WireMessage
+internal sealed class GetOrAddAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<GetOrAddAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
     internal CacheEntryWire? Entry { get; set; }
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
-        writer.Byte((byte)((Entry != null ? 1 : 0)));
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((Entry != null ? 1 : 0) | (operationId.Length != 0 ? 2 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
             Entry.Encode(ref writer);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static GetOrAddAsyncRequest Read(ref WireReader reader)
     {
         var message = new GetOrAddAsyncRequest();
-        var flags = reader.Flags(1);
+        var flags = reader.Flags(3);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
-        message.OperationId = reader.OperationId();
+        if ((flags & 2) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -686,7 +709,7 @@ internal sealed class GetOrAddAsyncResponse : WireMessage
     }
 }
 
-internal sealed class SetDistributedAsyncRequest : WireMessage
+internal sealed class SetDistributedAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<SetDistributedAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
@@ -697,7 +720,6 @@ internal sealed class SetDistributedAsyncRequest : WireMessage
     private long? _slidingTicks;
     internal bool HasSlidingTicks => _slidingTicks.HasValue;
     internal long SlidingTicks { get => _slidingTicks.GetValueOrDefault(); set => _slidingTicks = value; }
-    internal string OperationId { get; set; } = string.Empty;
     private long? _ttlTicks;
     internal bool HasTtlTicks => _ttlTicks.HasValue;
     internal long TtlTicks { get => _ttlTicks.GetValueOrDefault(); set => _ttlTicks = value; }
@@ -705,14 +727,16 @@ internal sealed class SetDistributedAsyncRequest : WireMessage
 
     internal override void Encode(ref WireWriter writer)
     {
-        writer.Byte((byte)((HasExpiresAtUnixMs ? 1 : 0) | (HasSlidingTicks ? 2 : 0) | (HasTtlTicks ? 4 : 0)));
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((HasExpiresAtUnixMs ? 1 : 0) | (HasSlidingTicks ? 2 : 0) | (operationId.Length != 0 ? 4 : 0) | (HasTtlTicks ? 8 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
         if (HasExpiresAtUnixMs)
             writer.Signed(ExpiresAtUnixMs);
         if (HasSlidingTicks)
             writer.Signed(SlidingTicks);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
         if (HasTtlTicks)
             writer.Signed(TtlTicks);
         writer.TailBytes(Value);
@@ -721,15 +745,16 @@ internal sealed class SetDistributedAsyncRequest : WireMessage
     internal static SetDistributedAsyncRequest Read(ref WireReader reader)
     {
         var message = new SetDistributedAsyncRequest();
-        var flags = reader.Flags(7);
+        var flags = reader.Flags(15);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.ExpiresAtUnixMs = reader.Signed();
         if ((flags & 2) != 0)
             message.SlidingTicks = reader.Signed();
-        message.OperationId = reader.OperationId();
         if ((flags & 4) != 0)
+            message.OperationId = reader.OperationId();
+        if ((flags & 8) != 0)
             message.TtlTicks = reader.Signed();
         message.Value = reader.TailBytes(out _);
         return message;
@@ -741,13 +766,11 @@ internal sealed class GetDistributedAsyncRequest : WireMessage
     internal static WireParser<GetDistributedAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
         writer.Text(CacheName);
         writer.Text(Key);
-        writer.OperationId(OperationId);
     }
 
     internal static GetDistributedAsyncRequest Read(ref WireReader reader)
@@ -755,7 +778,6 @@ internal sealed class GetDistributedAsyncRequest : WireMessage
         var message = new GetDistributedAsyncRequest();
         message.CacheName = reader.Text();
         message.Key = reader.Text();
-        message.OperationId = reader.OperationId();
         return message;
     }
 }
@@ -847,26 +869,30 @@ internal sealed class BinaryCallError : WireMessage
     }
 }
 
-internal sealed class RefreshDistributedAsyncRequest : WireMessage
+internal sealed class RefreshDistributedAsyncRequest : CacheMutationRequest
 {
     internal static WireParser<RefreshDistributedAsyncRequest> Parser { get; } = new(Read);
     internal string CacheName { get; set; } = string.Empty;
     internal string Key { get; set; } = string.Empty;
-    internal string OperationId { get; set; } = string.Empty;
 
     internal override void Encode(ref WireWriter writer)
     {
+        var operationId = writer.MutationOperationId ?? OperationId;
+        writer.Byte((byte)((operationId.Length != 0 ? 1 : 0)));
         writer.Text(CacheName);
         writer.Text(Key);
-        writer.OperationId(OperationId);
+        if (operationId.Length != 0)
+            writer.OperationId(operationId);
     }
 
     internal static RefreshDistributedAsyncRequest Read(ref WireReader reader)
     {
         var message = new RefreshDistributedAsyncRequest();
+        var flags = reader.Flags(1);
         message.CacheName = reader.Text();
         message.Key = reader.Text();
-        message.OperationId = reader.OperationId();
+        if ((flags & 1) != 0)
+            message.OperationId = reader.OperationId();
         return message;
     }
 }

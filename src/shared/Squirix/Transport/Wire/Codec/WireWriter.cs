@@ -13,10 +13,16 @@ internal ref struct WireWriter
     private readonly IBufferWriter<byte>? _output;
     private readonly bool _hasDestination;
 
-    internal WireWriter(Span<byte> destination)
+    internal WireWriter(string? mutationOperationId)
+    {
+        MutationOperationId = mutationOperationId;
+    }
+
+    internal WireWriter(Span<byte> destination, string? mutationOperationId = null)
     {
         _destination = destination;
         _hasDestination = true;
+        MutationOperationId = mutationOperationId;
     }
 
     internal WireWriter(IBufferWriter<byte> output)
@@ -25,6 +31,8 @@ internal ref struct WireWriter
     }
 
     internal int Written { get; private set; }
+
+    internal string? MutationOperationId { get; }
 
     internal void Byte(byte value)
     {

@@ -8,7 +8,6 @@ using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport;
-using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Internal;
@@ -118,15 +117,10 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
+        var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key };
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.RemoveAsync(
-                    new RemoveAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    in options);
-                return new ValueTask<RemoveAsyncResponse>(responseAsync);
-            },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
+            static (client, state, options) => new ValueTask<RemoveAsyncResponse>(client.RemoveAsync(state, in options)),
+            request,
             cancellationToken).ConfigureAwait(false);
 
         return response.Removed;
@@ -135,15 +129,10 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
+        var request = new RemoveExpirationAsyncRequest { CacheName = _cacheName, Key = key };
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.RemoveExpirationAsync(
-                    new RemoveExpirationAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    in options);
-                return new ValueTask<RemoveExpirationAsyncResponse>(responseAsync);
-            },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
+            static (client, state, options) => new ValueTask<RemoveExpirationAsyncResponse>(client.RemoveExpirationAsync(state, in options)),
+            request,
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -154,7 +143,6 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var request = _rpc.ToSetEntryAsyncRequest(key, new CacheEntry<T> { Value = value });
         _rpc.ApplyExpiration(request.Entry, options);
-        request.OperationId = RpcOperationIdentity.New();
 
         _ = await _rpc.ExecuteAsync(
             static (client, state, options) =>
@@ -170,20 +158,10 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         expiration.ThrowIfNegativeOrZero(nameof(expiration), "expiration must be greater than zero.");
+        var request = new TouchAsyncRequest { CacheName = _cacheName, Key = key, Expiration = expiration };
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var touchAsyncRequest = new TouchAsyncRequest
-                {
-                    OperationId = state.OperationId,
-                    CacheName = state.CacheName,
-                    Key = state.Key,
-                    Expiration = state.Expiration,
-                };
-                var responseAsync = client.TouchAsync(touchAsyncRequest, in options);
-                return new ValueTask<TouchAsyncResponse>(responseAsync);
-            },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: expiration),
+            static (client, state, options) => new ValueTask<TouchAsyncResponse>(client.TouchAsync(state, in options)),
+            request,
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -201,7 +179,6 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var request = _rpc.ToTryAddEntryAsyncRequest(key, new CacheEntry<T> { Value = value });
         _rpc.ApplyExpiration(request.Entry, options);
-        request.OperationId = RpcOperationIdentity.New();
 
         var response = await _rpc.ExecuteAsync(
             static (client, state, options) =>
@@ -220,7 +197,6 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var request = new UpdateAsyncRequest
         {
-            OperationId = RpcOperationIdentity.New(),
             CacheName = _cacheName,
             Key = key,
             Entry = WireMapping.MapEntryToWire(new CacheEntry<T> { Value = value }, _serializer),
@@ -243,7 +219,6 @@ internal sealed class RemoteCache<T> : ICache<T>
         var cache = state.Cache;
         var request = cache._rpc.ToGetOrAddAsyncRequest(state.Key, new CacheEntry<T> { Value = created });
         cache._rpc.ApplyExpiration(request.Entry, state.Options);
-        request.OperationId = RpcOperationIdentity.New();
         var r = await cache._rpc.ExecuteAsync(
             static (client, requestState, options) =>
             {

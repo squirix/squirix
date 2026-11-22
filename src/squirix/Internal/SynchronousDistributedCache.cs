@@ -43,7 +43,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
 
     internal byte[]? Get(string key, CancellationToken token)
     {
-        var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
+        var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key };
         var response = Execute(BinaryOperation.GetDistributed, request, GetDistributedAsyncResponse.Parser, token);
         return response.Found ? response.TakeValue() : null;
     }
@@ -56,13 +56,13 @@ internal sealed class SynchronousDistributedCache : IDisposable
 
     internal void Refresh(string key, CancellationToken token)
     {
-        var request = new RefreshDistributedAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
+        var request = new RefreshDistributedAsyncRequest { CacheName = _cacheName, Key = key };
         _ = Execute(BinaryOperation.RefreshDistributed, request, RefreshDistributedAsyncResponse.Parser, token);
     }
 
     internal void Remove(string key, CancellationToken token)
     {
-        var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key, OperationId = RpcOperationIdentity.New() };
+        var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key };
         _ = Execute(BinaryOperation.Remove, request, RemoveAsyncResponse.Parser, token);
     }
 
@@ -87,7 +87,6 @@ internal sealed class SynchronousDistributedCache : IDisposable
         where T : WireMessage
     {
         var start = Stopwatch.GetTimestamp();
-        var prepared = BinaryClientProtocol.PrepareRequest(operation, request);
         SquirixTransportException? failure = null;
         for (var attempt = 1; attempt <= RpcAttemptTimeout.MaxAttempts; attempt++)
         {
@@ -99,7 +98,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
             var duration = remaining < RpcAttemptTimeout.PerAttempt ? remaining : RpcAttemptTimeout.PerAttempt;
             try
             {
-                return SendAttempt(operation, prepared, parser, duration, token);
+                return SendAttempt(operation, request, parser, duration, token);
             }
             catch (SquirixTransportException error) when (IsRetryable(error))
             {
@@ -118,7 +117,7 @@ internal sealed class SynchronousDistributedCache : IDisposable
     }
 
     [SuppressMessage("Reliability", "CA2000", Justification = "GetConnection borrows the connection owned and disposed by this cache.")]
-    private T SendAttempt<T>(BinaryOperation operation, (int Control, WireMessage Message, int Size) request, WireParser<T> parser, TimeSpan duration, CancellationToken token)
+    private T SendAttempt<T>(BinaryOperation operation, WireMessage request, WireParser<T> parser, TimeSpan duration, CancellationToken token)
         where T : WireMessage
     {
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);

@@ -111,7 +111,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
 
     /// <summary>Reads an adapter entry, serializing sliding access through the group commit gate.</summary>
-    /// <param name="operationId">Client operation identifier.</param>
+    /// <param name="operationId">Client operation identifier for Refresh.</param>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
     /// <param name="refresh">Whether to omit the payload from the result.</param>

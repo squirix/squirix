@@ -82,7 +82,6 @@ public class DistributedRenewalBenchmarks
         {
             CacheName = CacheName,
             Key = _key,
-            OperationId = Guid.NewGuid().ToString("N"),
         };
         var response = await Client.GetDistributedAsync(request, new BinaryCallOptions(DateTime.MaxValue, CancellationToken.None, CancellationToken.None)).ConfigureAwait(false);
         return response.Found ? response.Value.Length : throw new InvalidOperationException("The seeded entry must be present.");

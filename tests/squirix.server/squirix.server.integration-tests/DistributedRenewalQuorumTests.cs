@@ -48,7 +48,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         var before = (await log.GetStatusAsync(cancellationToken)).CommitIndex;
         await armed.CancelAsync();
         Task mutation;
-        var access = new GetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = Guid.NewGuid().ToString("N") };
+        var access = new GetDistributedAsyncRequest { CacheName = CacheName, Key = key };
         var competingId = Guid.NewGuid().ToString("N");
         var pending = client.GetDistributedAsync(access, cancellationToken: cancellationToken);
         try
@@ -68,7 +68,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
 
         var original = await pending;
         await mutation;
-        await AssertMutationOrderAsync(log, before, access.OperationId, competingId, cancellationToken);
+        await AssertMutationOrderAsync(log, before, competingId, cancellationToken);
         await AssertFinalStateAsync(client, access, original, remove, cancellationToken);
         return;
 
@@ -180,7 +180,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         var operationId = Guid.NewGuid().ToString("N");
         return refresh
             ? client.RefreshDistributedAsync(new RefreshDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken)
-            : client.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId }, cancellationToken: cancellationToken);
+            : client.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
     }
 
     private static async Task AssertFinalStateAsync(CacheWireClient client, GetDistributedAsyncRequest access, GetDistributedAsyncResponse original, bool remove, CancellationToken cancellationToken)
@@ -190,20 +190,15 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         var replay = await client.GetDistributedAsync(access, cancellationToken: cancellationToken);
         _ = await Assert.That(replay.Found).IsEqualTo(!remove);
         _ = await Assert.That(replay.Value.Span.SequenceEqual(remove ? [] : new byte[] { 7 })).IsTrue();
-        var fresh = GetDistributedAsyncRequest.Parser.ParseFrom(access.ToByteArray());
-        fresh.OperationId = Guid.NewGuid().ToString("N");
-        var current = await client.GetDistributedAsync(fresh, cancellationToken: cancellationToken);
-        _ = await Assert.That(current.Found).IsEqualTo(!remove);
-        _ = await Assert.That(current.Value.Span.SequenceEqual(remove ? [] : new byte[] { 7 })).IsTrue();
     }
 
-    private static async Task AssertMutationOrderAsync(IFollowerLog log, ulong before, string accessId, string mutationId, CancellationToken cancellationToken)
+    private static async Task AssertMutationOrderAsync(IFollowerLog log, ulong before, string mutationId, CancellationToken cancellationToken)
     {
         var entries = await log.GetCommittedEntriesAsync(before, 2, cancellationToken);
         _ = await Assert.That(entries.Count).IsEqualTo(2);
         var renewal = ReplicaLogCodec.DecodeBorrowed(entries[0].Payload);
         _ = await Assert.That(renewal).IsNotNull();
-        _ = await Assert.That(renewal.Value.OperationId).IsNotEqualTo(accessId);
+        _ = await Assert.That(Guid.TryParseExact(renewal.Value.OperationId, "N", out _)).IsTrue();
         _ = await Assert.That(renewal.Value.MutationKind).IsEqualTo(ReplicaMutationKinds.DistributedGet);
         _ = await Assert.That(renewal.Value.OutcomePayload.Length).IsEqualTo(5);
         _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries[1].Payload)?.OperationId).IsEqualTo(mutationId);

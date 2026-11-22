@@ -66,13 +66,14 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         return connection;
     }
 
-    internal T Send<T>(BinaryOperation operation, (int Control, WireMessage Message, int Size) request, WireParser<T> parser, DateTimeOffset deadline, CancellationToken token, CancellationToken lifetime)
+    internal T Send<T>(BinaryOperation operation, WireMessage request, WireParser<T> parser, DateTimeOffset deadline, CancellationToken token, CancellationToken lifetime)
         where T : WireMessage
     {
         EnterCall();
         try
         {
-            var reply = SendRequest(operation, request, parser, deadline, token, lifetime);
+            var prepared = BinaryClientProtocol.PrepareRequest(operation, request, _supportsMutationReplay);
+            var reply = SendRequest(operation, in prepared, parser, deadline, token, lifetime);
             return reply as T ?? UnexpectedReply<T>();
         }
         finally
@@ -116,7 +117,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     }
 
     [SuppressMessage("Usage", "MA0045", Justification = "The caller reserves a slot on the synchronous transport.")]
-    private WireMessage SendRequest(BinaryOperation operation, (int Control, WireMessage Message, int Size) request, IWireParser parser, DateTimeOffset deadline, CancellationToken token, CancellationToken lifetime)
+    private WireMessage SendRequest(BinaryOperation operation, in BinaryClientRequest request, IWireParser parser, DateTimeOffset deadline, CancellationToken token, CancellationToken lifetime)
     {
         _slots.Wait(token);
         var id = Interlocked.Increment(ref _next) & int.MaxValue;
@@ -125,7 +126,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         var queued = false;
         try
         {
-            Enqueue(new Request(id, request.Control, request.Size, request.Message, deadline), pending, token);
+            Enqueue(new Request(id, request, deadline), pending, token);
             queued = true;
             return ReadResult(pending.Wait(token), preventReplay);
         }
@@ -283,7 +284,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
 
     private void WriteRequest(in Request request, byte[] buffer, Span<BufferedFrame> frames, ref int used, ref int count)
     {
-        var length = Frames.RequestBytes + request.Size;
+        var length = Frames.RequestBytes + request.Frame.Size;
         if (length > buffer.Length - used && used != 0)
         {
             FlushBatch(buffer.AsSpan(0, used), frames[..count]);
@@ -293,7 +294,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
 
         if (length <= buffer.Length)
         {
-            Frames.WriteRequestMessage(buffer.AsSpan(used), request.Id, request.Size, request.Control, request.Message);
+            request.Frame.WriteTo(buffer.AsSpan(used), request.Id);
             frames[count++] = new BufferedFrame(used, request.Deadline);
             used += length;
             return;
@@ -302,7 +303,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         var large = ArrayPool<byte>.Shared.Rent(length);
         try
         {
-            Frames.WriteRequestMessage(large, request.Id, request.Size, request.Control, request.Message);
+            request.Frame.WriteTo(large, request.Id);
             WriteTimeout(large, request.Deadline, TimeProvider.System.GetUtcNow());
             _tls.Write(large.AsSpan(0, length));
         }
@@ -330,7 +331,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     private readonly record struct BufferedFrame(int Offset, DateTimeOffset Deadline);
 
     [Immutable]
-    private readonly record struct Request(int Id, int Control, int Size, WireMessage Message, DateTimeOffset Deadline);
+    private readonly record struct Request(int Id, BinaryClientRequest Frame, DateTimeOffset Deadline);
 
     private sealed class Pending
     {
