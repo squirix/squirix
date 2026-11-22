@@ -41,7 +41,7 @@ internal sealed record FailoverSample(
     double? StopLastRequestFinishedMs = null)
 {
     [System.Text.Json.Serialization.JsonInclude]
-    internal ElectionCall[] ElectionCalls { get; init; } = [];
+    internal ElectionCall[] ElectionCalls { get; set; } = [];
 
     [System.Text.Json.Serialization.JsonIgnore]
     internal long StopTimestamp { get; init; }

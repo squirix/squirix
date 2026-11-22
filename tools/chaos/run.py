@@ -306,10 +306,21 @@ class Cluster:
         before = step["leader_before"]
         witness = re.compile(rf"Processed leadership transfer for group {re.escape(before['group'])} from term {before['term']}(?![0-9])")
         targets = []
-        for index in step["nodes"][1:]:
-            log = command("docker", "logs", self.nodes[index])
-            targets.extend([index] * len(witness.findall(log)))
-        if len(targets) != (1 if step["kind"] == "graceful-stop" else 0):
+
+        def scan():
+            targets.clear()
+            for index in step["nodes"][1:]:
+                log = command("docker", "logs", self.nodes[index])
+                targets.extend([index] * len(witness.findall(log)))
+            return bool(targets)
+
+        if step["kind"] == "graceful-stop":
+            wait_until(scan, 5, "No transfer campaign logged after graceful stop")
+            expected = 1
+        else:
+            scan()
+            expected = 0
+        if len(targets) != expected:
             raise RuntimeError(f"Unexpected transfer campaigns after {step['kind']}: {targets}")
         return targets
 

@@ -226,10 +226,12 @@ class ScheduleTests(unittest.TestCase):
             cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))
             step = {"kind": "graceful-stop", "nodes": [2, 0, 1], "leader_before": {"group": "n0", "term": 7}}
             event = "Processed leadership transfer for group n0 from term 7"
-            for logs in (["", ""], [event, event]):
-                with patch("run.command", side_effect=logs), self.assertRaisesRegex(RuntimeError, "Unexpected transfer"):
+            with patch("run.command", return_value=""), patch("run.time.monotonic", side_effect=[0, 5]):
+                with self.assertRaisesRegex(TimeoutError, "No transfer campaign"):
                     cluster.transfer_witnesses(step)
-            with patch("run.command", side_effect=["", event]):
+            with patch("run.command", side_effect=[event, event]), self.assertRaisesRegex(RuntimeError, "Unexpected transfer"):
+                cluster.transfer_witnesses(step)
+            with patch("run.command", side_effect=["", "", "", event]), patch("run.time.sleep"):
                 self.assertEqual(cluster.transfer_witnesses(step), [1])
 
     def testGracefulStopRejectsForcedTermination(self):

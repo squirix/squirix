@@ -134,7 +134,9 @@ Absolute latency limits apply only on a configured controlled machine.
 ## Results and acceptance status
 
 The scheduled workflow runs the checker controls and the paired leader-exit scenario on RF=3 and RF=5 from develop.
-Each node keeps its data on a private Docker volume. In `leader-exit`, a separate container holds the network namespace across stops. The additional `leader-dns-loss` run withdraws the stopped leader’s Docker network endpoint and DNS registration, verifies that every survivor remains attached, and requires a higher-term leader within the same 30-second deadline.
+Each node keeps its data on a private Docker volume. In `leader-exit`, a separate container holds the network namespace across stops. The
+additional `leader-dns-loss` run withdraws the stopped leader’s Docker network endpoint and DNS registration, verifies that every survivor
+remains attached, and requires a higher-term leader within the same 30-second deadline.
 The runner observes the first
 higher-term authority before healing. The reported latency includes the stop command and diagnostic polling. Survivor logs identify transfer attempts in the retiring term.
 The manual workflow runs the complete fault schedule. Both paths upload the register histories, checker results and node logs.

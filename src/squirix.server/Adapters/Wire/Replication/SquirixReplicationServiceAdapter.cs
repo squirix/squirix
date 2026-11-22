@@ -167,6 +167,8 @@ internal sealed class SquirixReplicationServiceAdapter
         if (RefusesVotes(h.GroupId))
             return StubVoteRefusal();
 
+        // Graceful leadership transfer ADR, D4: the authenticated candidate forwards a hint it accepted from the retiring leader.
+        // Under the crash-fault model, voters trust that candidate and independently check their known leader, term and configuration.
         var transferred = transfer && TransferTopologyMatches(h) && !string.Equals(h.SenderNodeId, h.LeaderNodeId, StringComparison.Ordinal);
         var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint, h.ConfigurationGeneration, Ballot(h, request), context.RequestAborted, transferred ? h.LeaderNodeId : null)
                                     .ConfigureAwait(false);
