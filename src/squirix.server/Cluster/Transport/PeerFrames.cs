@@ -39,10 +39,7 @@ internal static class PeerFrames
 
     internal static void WriteRequest(Span<byte> header, in Request request)
     {
-        if (request.Body < 0 || (request.Body > EntryLimits.MaxSendMessageSizeBytes && request.Body != Frames.ExtendedSize) ||
-            request.Fingerprint is < 0 or > 128 || (request.FingerprintIsDigest && request.Fingerprint != RingFingerprint.DigestBytes) ||
-            request.Parent is < 0 or > Frames.MaxTraceParentLength || (request.TraceParentIsBinary && request.Parent != WireTraceParent.ByteCount) ||
-            request.State is < 0 or > Frames.MaxTraceStateLength)
+        if (!HasValidSendBody(request.Body) || request.Fingerprint < 0 || request.Parent < 0 || request.State < 0 || !HasValidMetadata(in request, 0))
             throw new ArgumentOutOfRangeException(nameof(request));
 
         var operation = uint.CreateChecked(Unsafe.BitCast<PeerOperation, byte>(request.Operation));
@@ -91,6 +88,8 @@ internal static class PeerFrames
             ? throw new InvalidDataException("Invalid peer response status or length.")
             : (status, size);
     }
+
+    private static bool HasValidSendBody(int size) => size is >= 0 and <= EntryLimits.MaxSendMessageSizeBytes || size == Frames.ExtendedSize;
 
     private static bool HasValidMetadata(in Request request, int metadata) =>
         (metadata >>> 29) == 0 &&

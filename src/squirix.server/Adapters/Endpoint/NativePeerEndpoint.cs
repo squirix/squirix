@@ -116,6 +116,13 @@ internal sealed class NativePeerEndpoint
         return frame.TraceParentIsBinary ? WireTraceParent.Read(bytes) : PeerFrames.Text.GetString(bytes);
     }
 
+    private static void ReturnFrameBuffers(byte[] metadata, byte[] body, bool extended)
+    {
+        if (!extended)
+            ArrayPool<byte>.Shared.Return(body, true);
+        ArrayPool<byte>.Shared.Return(metadata, true);
+    }
+
     private async Task<bool> ProcessExtendedAsync(SslStream stream, Memory<byte> header, PeerFrames.Request frame, X509Certificate2 certificate, CancellationToken graceful, CancellationToken abort)
     {
         using var extensionDeadline = new TimedCancellation(PeerFrames.IdleTimeout, TimeProvider.System, graceful);
@@ -143,6 +150,8 @@ internal sealed class NativePeerEndpoint
         using var deadlineScope = budget is { } time ? ServerRpcDeadlineContext.Push(new ServerDeadlineBudget(clock, time, started)) : null;
         using var deadline = new TimedCancellation(budget ?? Timeout.InfiniteTimeSpan, clock, abort);
         var meta = ArrayPool<byte>.Shared.Rent(frame.Metadata);
+
+        // Extended frames already hold a reservation. Avoid retaining those buffers in the shared pool.
         var extended = frame.Body > EntryLimits.MaxReceiveMessageSizeBytes;
         var body = extended ? GC.AllocateUninitializedArray<byte>(frame.Body) : ArrayPool<byte>.Shared.Rent(frame.Body);
         BinaryResponse reply;
@@ -176,9 +185,7 @@ internal sealed class NativePeerEndpoint
         }
         finally
         {
-            if (!extended)
-                ArrayPool<byte>.Shared.Return(body, true);
-            ArrayPool<byte>.Shared.Return(meta, true);
+            ReturnFrameBuffers(meta, body, extended);
         }
 
         await WriteAsync(stream, reply, TimeProvider.System, abort).ConfigureAwait(false);

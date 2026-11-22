@@ -22,7 +22,7 @@ internal sealed class JournalSegmentPolicy
     {
         ArgumentNullException.ThrowIfNull(options);
         _largestFrameBytes = Convert.ToInt64(options.MinimumSegmentMb) * 1024L * 1024L;
-        MaxSegmentBytes = ClampMb(options.JournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
+        MaxSegmentBytes = ClampMb(options.EffectiveJournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
         SegmentCountProbeLimit = Clamp(options.JournalMaxSegmentCount, JournalSegmentLimits.DefaultMaxSegmentCount, JournalSegmentLimits.HardMaxSegmentCount);
         MaxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
         HighWaterBytes = MaxTotalBytes * JournalSegmentLimits.HighWaterPercent / 100L;

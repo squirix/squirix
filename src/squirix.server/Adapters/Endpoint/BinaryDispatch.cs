@@ -47,6 +47,15 @@ internal sealed class BinaryDispatch
         _ => ValueTask.FromResult(new BinaryResponse(FrameStatus.Unimplemented, new BinaryCallError { Detail = "Unknown binary cache operation." })),
     };
 
+    private static BinaryResponse MapDispatchError(Exception error) => error switch
+    {
+        ResourceExhaustedException => BinaryResponse.FromError(ServerOpContract.MemoryPressure()),
+        JournalCapacityExceededException => BinaryResponse.FromError(ServerOpContract.JournalDiskQuota()),
+        ServerOpIdMismatchException => BinaryResponse.FromError(ServerOpContract.OperationIdReuseMismatch()),
+        SquirixException failure => BinaryResponse.FromError(failure),
+        _ => throw new ArgumentOutOfRangeException(nameof(error)),
+    };
+
     private ValueTask<BinaryResponse> InvokeDistributedSetAsync(ReadOnlyMemory<byte> body, in Request context) =>
         DispatchAsync(
             SetDistributedAsyncRequest.Parser.ParseBorrowed(body),
@@ -106,21 +115,9 @@ internal sealed class BinaryDispatch
                 }
             }
         }
-        catch (ResourceExhaustedException)
+        catch (Exception error) when (error is ResourceExhaustedException or JournalCapacityExceededException or ServerOpIdMismatchException or SquirixException)
         {
-            return BinaryResponse.FromError(ServerOpContract.MemoryPressure());
-        }
-        catch (JournalCapacityExceededException)
-        {
-            return BinaryResponse.FromError(ServerOpContract.JournalDiskQuota());
-        }
-        catch (ServerOpIdMismatchException)
-        {
-            return BinaryResponse.FromError(ServerOpContract.OperationIdReuseMismatch());
-        }
-        catch (SquirixException error)
-        {
-            return BinaryResponse.FromError(error);
+            return MapDispatchError(error);
         }
     }
 
