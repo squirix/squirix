@@ -2015,11 +2015,12 @@ jobs:
                     shopt -s inherit_errexit
                     # Either listing can lag behind; their union is scanned newest first. Pull request runs have no NDepend job.
                     list_runs() {
+                      local branch="$1"
                       local filter='.workflow_runs[] | select(.head_branch == env.B and .event != "pull_request"
                         and .status == "completed" and .id != (env.GITHUB_RUN_ID | tonumber)) | "\(.run_number) \(.id)"'
-                      B="$1" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
-                          -f branch="$1" -F per_page=50 --jq "${filter}"
-                      B="$1" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                      B="$branch" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+                          -f branch="$branch" -F per_page=50 --jq "${filter}"
+                      B="$branch" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
                           -F per_page=100 --jq "${filter}"
                     }
                     # A failed or malformed answer stops the step: read as "not passed" it would pick a run that failed the gate.
@@ -2161,6 +2162,7 @@ jobs:
                 run: |
                     set -euo pipefail
                     failed=0
+                    readonly pull_request_event="pull_request"
 
                     require_docs=false
                     require_code=false
@@ -2180,18 +2182,18 @@ jobs:
                     if [[ "${{ needs.changes.outputs.docker }}" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docker=true
                     fi
-                    if [[ "$EVENT_NAME" == "pull_request" ]]; then
+                    if [[ "$EVENT_NAME" == "$pull_request_event" ]]; then
                       require_line_endings=true
                     fi
                     if [[ "$require_code" == "true" && ( "$GITHUB_REF" == "refs/heads/develop" || "$GITHUB_BASE_REF" == "develop" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ) ]]; then
                       require_alloc=true
                       require_benchmark_smoke=true
                     fi
-                    if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
+                    if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "$pull_request_event" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_sonar=true
                       require_pvs=true
                     fi
-                    if [[ ( "$require_code" == "true" || "$NDEPEND_CHANGED" == "true" ) && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
+                    if [[ ( "$require_code" == "true" || "$NDEPEND_CHANGED" == "true" ) && ( "$EVENT_NAME" != "$pull_request_event" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_ndepend=true
                     fi
 
@@ -2238,7 +2240,7 @@ jobs:
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
                     # PR fast path: skipped on pull_request into develop, required otherwise.
-                    if [[ "$EVENT_NAME" == "pull_request" && "$GITHUB_BASE_REF" != "main" ]]; then
+                    if [[ "$EVENT_NAME" == "$pull_request_event" && "$GITHUB_BASE_REF" != "main" ]]; then
                       assert_success_or_skipped "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
                     else
                       assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
@@ -2252,7 +2254,7 @@ jobs:
                     assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
                     assert_success_or_skipped "build-macos" "$require_code" "$RESULT_BUILD_MACOS"
                     assert_success "test-ubuntu" "$require_code" "$RESULT_TEST_UBUNTU"
-                    if [[ "$EVENT_NAME" == "pull_request" && "$GITHUB_BASE_REF" != "main" ]]; then
+                    if [[ "$EVENT_NAME" == "$pull_request_event" && "$GITHUB_BASE_REF" != "main" ]]; then
                       assert_success_or_skipped "build-ubuntu-net11" "$require_code" "$RESULT_BUILD_UBUNTU_NET11"
                     else
                       assert_success "build-ubuntu-net11" "$require_code" "$RESULT_BUILD_UBUNTU_NET11"
