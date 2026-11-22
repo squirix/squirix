@@ -87,21 +87,8 @@ internal static class ReplicaLogCodec
             return false;
 
         var rest = payload[VersionSize..];
-        if (rest.Length < 2 * sizeof(ulong))
-            return false;
-
-        if (BinaryPrimitives.ReadUInt64LittleEndian(rest) != logIndex || BinaryPrimitives.ReadUInt64LittleEndian(rest[sizeof(ulong)..]) != term)
-            return false;
-
-        rest = rest[(2 * sizeof(ulong))..];
-
-        for (var field = 0; field < LengthPrefixedFieldCount; field++)
-        {
-            if (!TrySkipField(ref rest, ((StringFieldMask >> field) & 1) != 0))
-                return false;
-        }
-
-        return version == Version ? rest.Length == TailSize : HasValidEvictionTail(rest);
+        return TrySkipRecordFields(ref rest, logIndex, term)
+            && (version == Version ? rest.Length == TailSize : HasValidEvictionTail(rest));
     }
 
     /// <summary>Encodes a record to its canonical bytes.</summary>
@@ -159,6 +146,25 @@ internal static class ReplicaLogCodec
         span = span[(LengthPrefixSize + mutationLength)..];
         WriteRecordTail(span, in record, victimBytes);
         return buffer;
+    }
+
+    private static bool TrySkipRecordFields(ref ReadOnlySpan<byte> rest, ulong logIndex, ulong term)
+    {
+        if (rest.Length < 2 * sizeof(ulong))
+            return false;
+
+        if (BinaryPrimitives.ReadUInt64LittleEndian(rest) != logIndex || BinaryPrimitives.ReadUInt64LittleEndian(rest[sizeof(ulong)..]) != term)
+            return false;
+
+        rest = rest[(2 * sizeof(ulong))..];
+
+        for (var field = 0; field < LengthPrefixedFieldCount; field++)
+        {
+            if (!TrySkipField(ref rest, ((StringFieldMask >> field) & 1) != 0))
+                return false;
+        }
+
+        return true;
     }
 
     private static bool HasValidEvictionTail(ReadOnlySpan<byte> rest)
