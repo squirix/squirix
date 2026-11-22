@@ -9,7 +9,7 @@ namespace Squirix.Server.TestKit;
 /// <summary>Allows tests to override node registrations and add request-scoped probes.</summary>
 internal sealed class TestServiceCollection : List<TestServiceRegistration>
 {
-    internal void UseLruCapacity(int capacity) => this.AddSingleton(new Squirix.Server.Core.EvictionOptions { Capacity = capacity });
+    internal void UseLruCapacity(int capacity) => AddSingleton(new Squirix.Server.Core.EvictionOptions { Capacity = capacity });
 
     internal TestServiceCollection AddSingleton<T>(T instance)
     {

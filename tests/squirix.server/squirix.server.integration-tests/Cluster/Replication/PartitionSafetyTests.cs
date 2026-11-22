@@ -30,6 +30,8 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// of a node with authority: a client write reaches the new leader of a group only through leader routing, which this release does not
 /// have yet. Reads under quorum reads go through the replicated cache of a node over its local chain, fenced by a read index.
 /// </remarks>
+// Each case starts several real nodes and needs predictable election scheduling on CI runners.
+[NotInParallel]
 [ExecutionPriority(Priority.High)]
 public sealed class PartitionSafetyTests : NodeIntegrationTestBase
 {
