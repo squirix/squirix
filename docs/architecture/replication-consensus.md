@@ -802,7 +802,6 @@ its deadline until a committed record removes it; RF=1 and foundation-only hosts
 | Embed model inside `Squirix.Server`    | Shared-bug risk; ambiguous isolation              |
 | Unbounded model checking as merge gate | Non-terminating; residual risk must stay explicit |
 
-
 ## Capacity eviction
 
 The internal default is unbounded LRU. A finite test configuration limits the number of resident keys in one named
