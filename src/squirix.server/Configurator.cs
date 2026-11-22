@@ -27,6 +27,29 @@ public static class Configurator
         ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
     }
 
+    /// <summary>Applies eviction flags over the settings loaded for this node.</summary>
+    /// <param name="options">Server options to update.</param>
+    /// <param name="mode">Optional disabled, keyCount or memory mode.</param>
+    /// <param name="maxKeys">Optional positive limit for keyCount mode.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The key limit is zero or negative.</exception>
+    /// <exception cref="InvalidOperationException">The mode is unknown or incompatible with the effective limit.</exception>
+    public static void ApplyCacheEvictionOverrides(SquirixServerOptions options, string? mode, int? maxKeys)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (mode == null && maxKeys == null)
+            return;
+        if (maxKeys <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxKeys), "The --max-keys limit must be positive.");
+
+        var previousLimit = options.Eviction?.Capacity;
+        if (mode == null && previousLimit == null)
+            throw new InvalidOperationException("--max-keys requires keyCount mode. Set --cache-eviction keyCount.");
+        mode ??= "keyCount";
+        if (string.Equals(mode, "keyCount", StringComparison.Ordinal))
+            maxKeys ??= previousLimit;
+        options.Eviction = EvictionSettings.Resolve(mode, maxKeys);
+    }
+
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
     /// <param name="uri">Optional listen URI override.</param>
@@ -69,6 +92,7 @@ public static class Configurator
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(target);
 
+        target.Eviction = source.Eviction;
         target.ClusterId = source.ClusterId;
         target.NodeId = source.NodeId;
         target.Uri = source.Uri;
@@ -258,6 +282,7 @@ public static class Configurator
             var options = ThrowHelper.Required(
                 JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
                 "Cannot deserialize Squirix.Cluster.");
+            options.Eviction = EvictionSettings.Read(root);
             if (options.DataDirectory != null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
 

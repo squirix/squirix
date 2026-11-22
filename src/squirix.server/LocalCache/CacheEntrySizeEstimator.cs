@@ -10,28 +10,8 @@ namespace Squirix.Server.LocalCache;
 [Immutable]
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
-    /// <summary>
-    /// The entry node of the store: object header (16) and its fields, six references (two of them the namespace and key of the inline key),
-    /// five longs, three ints and a flag, padded to 104; 120 in all.
-    /// </summary>
-    /// <remarks>
-    /// The node keeps the version, the deadline and the deadline index fields of every entry, with a deadline or without one. The size assumes
-    /// a reference-type value, one of the six references; a value-type value is stored inline in the node and changes its size.
-    /// </remarks>
-    private const int StoreNodeBytes = 120;
-
-    /// <summary>The share of the bucket array of the store per entry: two slots of 8 bytes.</summary>
-    /// <remarks>The array doubles once the entries fill three quarters of it, so it holds between 4/3 and 8/3 slots per entry; two is the middle.</remarks>
-    private const int BucketSlotsBytes = 2 * sizeof(long);
-
-    /// <summary>Fixed overhead per stored entry, with or without a deadline.</summary>
-    /// <remarks>
-    /// Derived from the layout of the store on a 64-bit runtime: 136 bytes. Measured with one million entries of a shared value, key strings
-    /// built beforehand: the heap grew 136.8 bytes per entry without a deadline; the bucket array was at 2.1 slots per entry. A cache with a
-    /// capacity also links every entry into its eviction order, a 56-byte list node holding a copy of the key, not counted here. After a change
-    /// to the layout of the store, measure again with EntryMemoryMeasurement, the entry-memory runner of the server benchmarks.
-    /// </remarks>
-    private const int FixedPerEntryOverheadBytes = StoreNodeBytes + BucketSlotsBytes;
+    /// <summary>The existing admission budget: a 104-byte store node, two eight-byte bucket slots, and 16 bytes of headroom on x64.</summary>
+    private const int FixedPerEntryOverheadBytes = 136;
 
     /// <summary>The width the entry codec stores every integer (as an Int64) and every floating-point number (as a Double) at.</summary>
     private const int EncodedNumberBytes = sizeof(long);
@@ -57,6 +37,18 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     /// <inheritdoc />
     public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
+
+    /// <summary>Includes the resident policy metadata in estimates used by admission and the physical store.</summary>
+    /// <param name="estimator">Base entry-size estimator.</param>
+    /// <param name="options">Eviction configuration.</param>
+    /// <returns>The estimator appropriate for this cache.</returns>
+    internal static ICacheEntrySizeEstimator<T> ForEviction(ICacheEntrySizeEstimator<T> estimator, EvictionOptions options)
+    {
+        if (!options.Enabled || estimator is BoundedEstimator)
+            return estimator;
+
+        return new BoundedEstimator(estimator, options.Policy == EvictionPolicyType.Lru ? 52 : 40);
+    }
 
     /// <summary>Gets the additional index bytes when an entry gains an absolute deadline.</summary>
     /// <param name="entry">The stored entry.</param>
@@ -126,4 +118,31 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         long or ulong or double => EncodedNumberBytes,
         _ => UnknownTypedPayloadFallbackBytes,
     };
+
+    /// <summary>The bounded node adds 40 bytes. Sampled LRU also reserves one to two eight-byte array slots per resident.</summary>
+    [Immutable]
+    private sealed class BoundedEstimator : ICacheEntrySizeEstimator<T>
+    {
+        private readonly ICacheEntrySizeEstimator<T> _inner;
+        private readonly int _overhead;
+
+        internal BoundedEstimator(ICacheEntrySizeEstimator<T> inner, int overhead)
+        {
+            _inner = inner;
+            _overhead = overhead;
+        }
+
+        public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter) =>
+            _overhead + _inner.EstimateBytes(key, entry, payloadIsCounter);
+
+        public long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) =>
+            _overhead + _inner.EstimateBytesForEncodedLength(key, entry, knownEncodedLength);
+
+        public long EstimateBytesForMeasuredValue(CacheKey key, NodeCacheEntry<T> entry, long measuredValue) =>
+            _overhead + _inner.EstimateBytesForMeasuredValue(key, entry, measuredValue);
+
+        public long MeasureValue(T? value) => _inner.MeasureValue(value);
+
+        public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => _inner.HasUnknownPayloadMagnitude(entry, isCounter);
+    }
 }

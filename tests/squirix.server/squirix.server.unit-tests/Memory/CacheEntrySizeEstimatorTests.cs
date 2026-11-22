@@ -77,7 +77,7 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
             _ = await Assert.That(estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = value, Version = 1 }, false)).IsEqualTo(expected);
     }
 
-    /// <summary>Null payloads cost the base overhead only (120 for the entry node with its key, 16 for bucket slots, + 6 + 4).</summary>
+    /// <summary>Null payloads cost the base overhead only (104 for the entry node, 16 for bucket slots and 16 of headroom, + 6 + 4).</summary>
     [Test]
     public async Task EstimateBytesNullIsBaseOverhead()
     {

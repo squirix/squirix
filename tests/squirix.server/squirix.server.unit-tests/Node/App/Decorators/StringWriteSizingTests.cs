@@ -80,6 +80,23 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         _ = await Assert.That(refused.GetValue(new CacheKey("cache", "key"), cancellationToken)).IsEqualTo(new NodeCacheValueResult<object?>(false, null));
     }
 
+    /// <summary>A growing write refused by admission leaves the resident of a full cache available.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedInsertKeepsEvictionCandidate(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("bounded-admission");
+        var options = new EvictionOptions { Capacity = 1 };
+        var physical = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator(), options);
+        var cache = Create(physical, meter, 300, options);
+        var value = new NodeCacheEntry<object?>("v");
+        await cache.SetEntryAsync("first", "cache", "a", value, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("second", "cache", "b", value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(physical.GetValue(new CacheKey("cache", "a"), cancellationToken).Found).IsTrue();
+        _ = await Assert.That(physical.GetValue(new CacheKey("cache", "b"), cancellationToken).Found).IsFalse();
+    }
+
     /// <summary>Payload checks fall back to exact sizing and include both deadline fields and tag bytes at the limit.</summary>
     /// <param name="unicode">Whether to use three-byte UTF-8 characters.</param>
     [Test]
@@ -99,7 +116,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(oversized)).IsEqualTo(EntryLimitKit.LargeFixtureBytes + 1);
     }
 
-    private static MemoryAdmissionCacheDecorator<object?> Create(PhysicalCache<object?> physical, Meter meter, long limit)
+    private static MemoryAdmissionCacheDecorator<object?> Create(PhysicalCache<object?> physical, Meter meter, long limit, EvictionOptions? options = null)
     {
         var gate = new PressureGate(
             new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = limit, HighPressureThresholdPercent = 99, CriticalPressureThresholdPercent = 100 }),
@@ -109,7 +126,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         return new MemoryAdmissionCacheDecorator<object?>(
             new ClientCache<object?>(physical, physical),
             gate,
-            new ObjectCacheEntrySizeEstimator());
+            CacheEntrySizeEstimator<object?>.ForEviction(new ObjectCacheEntrySizeEstimator(), options ?? new EvictionOptions()));
     }
 
     private static string ValueFor(int kind) => kind switch

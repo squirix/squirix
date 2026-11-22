@@ -20,10 +20,12 @@ internal static class ReplicaLogCodec
     /// <summary>The canonical encoding version.</summary>
     /// <remarks>
     /// Version 6 carries compact boolean outcomes for removal and distributed renewal, without response values. It carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
-    /// absolute deadline, or the passed deadline of an entry the leader expired, and no payload checksum. Records of any other version are refused, so every node
-    /// of a replica group must run the same encoding version.
+    /// absolute deadline, or the passed deadline of an entry the leader expired, and no payload checksum. Writers retain this encoding for records without an eviction.
     /// </remarks>
     private const ushort Version = 6;
+
+    /// <summary>Only insertion records carrying a leader-selected victim append a UTF-8 victim key after the timestamps.</summary>
+    private const ushort EvictionVersion = 7;
 
     private const int VersionSize = sizeof(ushort);
 
@@ -43,14 +45,23 @@ internal static class ReplicaLogCodec
     internal static ReplicaLogRecord? DecodeBorrowed(ReadOnlyMemory<byte> bytes)
     {
         var span = bytes.Span;
-        if (span.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
+        if (span.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(span) is not (Version or EvictionVersion))
             return null;
 
         var rest = span[VersionSize..];
         try
         {
-            var isComplete = Decoder.TryReadRecord(ref rest, bytes, out var record) && rest.IsEmpty;
-            return isComplete ? record : null;
+            if (!Decoder.TryReadRecord(ref rest, bytes, out var record))
+                return null;
+
+            if (BinaryPrimitives.ReadUInt16LittleEndian(span) == Version)
+                return rest.IsEmpty ? record : null;
+
+            var field = rest;
+            if (!TrySkipField(ref rest, true) || !rest.IsEmpty || field.Length == LengthPrefixSize)
+                return null;
+
+            return record!.Value with { EvictedKey = Encoding.UTF8.GetString(field[LengthPrefixSize..]) };
         }
         catch (DecoderFallbackException)
         {
@@ -68,7 +79,7 @@ internal static class ReplicaLogCodec
     /// </returns>
     internal static bool IsWellFormed(ReadOnlySpan<byte> payload, ulong logIndex, ulong term)
     {
-        if (payload.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(payload) != Version)
+        if (payload.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(payload) is not (Version or EvictionVersion))
             return false;
 
         var rest = payload[VersionSize..];
@@ -86,7 +97,12 @@ internal static class ReplicaLogCodec
                 return false;
         }
 
-        return rest.Length == TailSize;
+        if (BinaryPrimitives.ReadUInt16LittleEndian(payload) == Version)
+            return rest.Length == TailSize;
+        if (rest.Length <= TailSize + LengthPrefixSize)
+            return false;
+        rest = rest[TailSize..];
+        return TrySkipField(ref rest, true) && rest.IsEmpty;
     }
 
     /// <summary>Encodes a record to its canonical bytes.</summary>
@@ -122,13 +138,16 @@ internal static class ReplicaLogCodec
         var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long))
             + operationIdLength + operationScopeLength + recordKindLength + cacheNameLength + mutationKindLength
             + record.OperationFingerprint.Length + keyLength + mutationLength + record.OutcomePayload.Length;
+        var victimBytes = record.EvictedKey == null ? 0 : Encoding.UTF8.GetByteCount(record.EvictedKey);
+        if (record.EvictedKey != null)
+            length += long.CreateChecked(LengthPrefixSize) + victimBytes;
         if (length > int.MaxValue)
             throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
 
         var buffer = GC.AllocateUninitializedArray<byte>(int.CreateChecked(length));
         var span = buffer.AsSpan();
 
-        BinaryPrimitives.WriteUInt16LittleEndian(span, Version);
+        BinaryPrimitives.WriteUInt16LittleEndian(span, record.EvictedKey == null ? Version : EvictionVersion);
         span = span[VersionSize..];
         BinaryPrimitives.WriteUInt64LittleEndian(span, record.LogIndex);
         BinaryPrimitives.WriteUInt64LittleEndian(span[sizeof(ulong)..], record.Term);
@@ -145,6 +164,8 @@ internal static class ReplicaLogCodec
         span = span[(LengthPrefixSize + mutationLength)..];
         span = WriteBytes(span, record.OutcomePayload.Span);
         WriteTimestamps(span, in record);
+        if (record.EvictedKey != null)
+            _ = WriteString(span[TailSize..], record.EvictedKey, victimBytes);
         return buffer;
     }
 

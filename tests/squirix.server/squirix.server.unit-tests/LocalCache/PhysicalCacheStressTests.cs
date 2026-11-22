@@ -75,7 +75,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
         _ = await Assert.That(maxObserved).IsBetween(0, capacity);
         _ = await Assert.That(EntryCountOf(cache)).IsBetween(0, capacity);
-        _ = await Assert.That(BytesOf(cache)).IsEqualTo(await SumOfLiveEntriesAsync(cache, estimator, cancellationToken));
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(await SumOfLiveEntriesAsync(cache, estimator, cancellationToken) + ((policy == EvictionPolicyType.Lru ? 52L : 40L) * EntryCountOf(cache)));
         _ = await Assert.That(EntryCountOf(cache)).IsEqualTo(await CountLiveEntriesAsync(cache, cancellationToken));
     }
 

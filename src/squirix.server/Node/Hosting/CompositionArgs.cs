@@ -2,6 +2,7 @@ using System;
 using System.Security.Cryptography.X509Certificates;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
@@ -18,6 +19,8 @@ internal sealed class CompositionArgs
 
     /// <summary>Gets or sets a value indicating whether the closed replication peer service is mapped for foundation tests.</summary>
     internal bool FoundationOnly { get; set; }
+
+    internal EvictionOptions? Eviction { get; set; }
 
     internal PressureOptions? MemoryPressureOptions { get; set; }
 

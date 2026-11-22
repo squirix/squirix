@@ -463,6 +463,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 ElectionTiming = options.ElectionTiming,
                 TimeProvider = options.TimeProvider,
                 BackpressureOptions = options.BackpressureOptions,
+                EvictionBudgetBytes = options.EvictionBudgetBytes,
                 MemoryPressureOptions = options.MemoryPressureByNode?.GetValueOrDefault(selfNodeId),
                 PersistenceOptions = persistenceOptions,
                 SecurityOptions = options.Security?.ToServerOptions(),

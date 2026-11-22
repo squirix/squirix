@@ -2,6 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
@@ -28,12 +29,14 @@ internal sealed class ReplicaGroupAppliers
     /// <param name="nodeId">Identifier of this node, the node label of the metrics.</param>
     /// <param name="log">Logger of the appliers.</param>
     /// <param name="metrics">Replication metrics counting the inconsistent records.</param>
+    /// <param name="owners">Validates ownership of evicted keys on every apply.</param>
     internal ReplicaGroupAppliers(
         ReplicaGroupRegistry registry,
         ILogicalNamespacedCache<object?> local,
         string nodeId,
         IServerLogger<ReplicaGroupAppliers> log,
-        ReplicationMetrics metrics)
+        ReplicationMetrics metrics,
+        INodeLocator? owners = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(local);
@@ -43,7 +46,7 @@ internal sealed class ReplicaGroupAppliers
         var served = registry.GroupIds;
         var appliers = new Dictionary<string, ReplicaGroupApplier>(served.Count, StringComparer.Ordinal);
         for (var i = 0; i < served.Count; i++)
-            appliers.Add(served[i], new ReplicaGroupApplier(local, log, served[i], nodeId, metrics));
+            appliers.Add(served[i], new ReplicaGroupApplier(local, log, served[i], nodeId, metrics) { Owners = owners });
 
         _groupIds = [.. served];
         _appliers = appliers.ToFrozenDictionary(StringComparer.Ordinal);

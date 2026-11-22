@@ -37,7 +37,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="term">Static leader term for prepared mutations.</param>
     /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
     /// <param name="log">Logger of the records found inconsistent at prepare.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, IServerLogger log)
+    /// <param name="selectCapacityVictim">Selects a resident in the original owner's scope, when bounded.</param>
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, IServerLogger log, Func<CacheKey, CacheKey?>? selectCapacityVictim = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
@@ -49,7 +50,10 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         _term = term;
         _clock = clock;
         _log = log;
+        SelectCapacityVictim = selectCapacityVictim;
     }
+
+    internal Func<CacheKey, CacheKey?>? SelectCapacityVictim { get; }
 
     /// <inheritdoc />
     public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
@@ -406,8 +410,13 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="entry">The decided upsert entry, or null for a mutation without an entry.</param>
     /// <returns>The prepared mutation, carrying the outcome of the record.</returns>
     /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
+    /// <exception cref="ServerCallException">The insertion and its eviction exceed the replication message budget.</exception>
     private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, PreparedJournalEntry? entry = null)
     {
+        if (SelectCapacityVictim != null && key != null && entry != null &&
+            (string.Equals(record.MutationKind, ReplicaMutationKinds.Set, StringComparison.Ordinal) || string.Equals(record.MutationKind, ReplicaMutationKinds.TryAdd, StringComparison.Ordinal)))
+            record = record with { EvictedKey = SelectCapacityVictim(new CacheKey(record.CacheName, key))?.Key };
+
         byte[] canonical;
         if (entry == null)
         {
@@ -429,6 +438,9 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaCommitLog.ReplicaInconsistentDecision(_log, _groupId, error);
             throw;
         }
+
+        if (record.EvictedKey != null && canonical.Length > ReplicaTransferOptions.MessageBudgetBytes)
+            throw new ServerCallException(FrameStatus.ResourceExhausted, "The eviction record exceeds the replication message budget.");
 
         var outcome = record.OutcomePayload;
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);

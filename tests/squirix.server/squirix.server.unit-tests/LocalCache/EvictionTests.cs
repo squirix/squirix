@@ -166,13 +166,47 @@ public sealed class EvictionTests : ServerUnitTestBase
         _ = await Assert.That(cache.GetValue(CacheKey.Default("c"), cancellationToken).Found).IsTrue();
     }
 
-    /// <summary>Access counts stay positive even at saturation.</summary>
+    /// <summary>Equal keys, cache names and owners each retain independent capacity scopes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FrequencySaturatesWithoutWrapping()
+    public async Task CapacityIsLocalToCacheAndOwner(CancellationToken cancellationToken)
     {
-        _ = await Assert.That(CacheAccessFrequency.Increment(1L)).IsEqualTo(2L);
-        _ = await Assert.That(CacheAccessFrequency.Increment(long.MaxValue - 1L)).IsEqualTo(long.MaxValue);
-        _ = await Assert.That(CacheAccessFrequency.Increment(long.MaxValue)).IsEqualTo(long.MaxValue);
+        var options = new EvictionOptions { Capacity = 1 };
+        var cache = new PhysicalCache<int>(TimeProvider.System, new CacheEntrySizeEstimator<int>(), options, groupForKey: static key => key.Key[..1]);
+        var one = new CacheKey("one", "a1");
+        var otherOwner = new CacheKey("one", "b1");
+        var otherCache = new CacheKey("two", "a1");
+        var replacement = new CacheKey("one", "a2");
+        var value = new NodeCacheEntry<int> { Value = 17 };
+        foreach (var key in new[] { one, otherOwner, otherCache, replacement })
+            cache.Set(key, value, cancellationToken);
+
+        _ = await Assert.That(cache.GetValue(one, cancellationToken).Found).IsFalse();
+        foreach (var key in new[] { otherOwner, otherCache, replacement })
+            _ = await Assert.That(cache.GetValue(key, cancellationToken).Value).IsEqualTo(17);
+    }
+
+    /// <summary>A removed and reinserted key becomes an eviction candidate again.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LfuReinsertStartsWithOneAccess(CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<int>(TimeProvider.System, new CacheEntrySizeEstimator<int>(), new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Lfu });
+        var a = CacheKey.Default("a");
+        var b = CacheKey.Default("b");
+        var c = CacheKey.Default("c");
+        var entry = new NodeCacheEntry<int> { Value = 1 };
+        cache.Set(a, entry, cancellationToken);
+        cache.Set(b, entry, cancellationToken);
+        _ = cache.GetValue(a, cancellationToken);
+        cache.Set(b, entry, cancellationToken);
+        _ = cache.Remove(a, cancellationToken);
+        cache.Set(a, entry, cancellationToken);
+        cache.Set(c, entry, cancellationToken);
+
+        _ = await Assert.That(cache.GetValue(a, cancellationToken).Found).IsFalse();
+        _ = await Assert.That(cache.GetValue(b, cancellationToken).Found).IsTrue();
+        _ = await Assert.That(cache.GetValue(c, cancellationToken).Found).IsTrue();
     }
 
     /// <summary>The oldest minimum wins ties; a newcomer is rejected when every older key is more frequent.</summary>

@@ -46,7 +46,8 @@ internal static class RuntimeServiceRegistration
             _ = services.Own<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
                 sp.Require<IMemoryPressureStateEvaluator>(),
                 sp.Require<IMemoryUsageAccounting>()));
-            _ = services.Own<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());
+            services.UseDefault(new EvictionOptions());
+            _ = services.Own<ICacheEntrySizeEstimator<object?>>(static sp => CacheEntrySizeEstimator<object?>.ForEviction(new ObjectCacheEntrySizeEstimator(), sp.Require<EvictionOptions>()));
             _ = services.AddLocalCacheServices();
 
             if (metricsEnabled)
@@ -119,8 +120,9 @@ internal static class RuntimeServiceRegistration
             _ = services.Own(static sp => new PhysicalCache<object?>(
                 sp.Require<TimeProvider>(),
                 sp.Require<ICacheEntrySizeEstimator<object?>>(),
-                new EvictionOptions { Policy = EvictionPolicyType.Lru },
-                sp.Require<CacheExpiryAuthority>()));
+                sp.Require<EvictionOptions>(),
+                sp.Require<CacheExpiryAuthority>(),
+                (sp.Require<EvictionOptions>().Capacity != null || (sp.Require<EvictionOptions>().EvictOnMemoryPressure && sp.Require<FeatureState>().NetworkReplicationEnabled)) ? GroupForKey(sp.Require<INodeLocator>()) : null));
             _ = services.Own<ILocalCache<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
             _ = services.Own<ILocalCacheReadOperations<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
             _ = services.Own<ILocalCacheMutationOperations<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
@@ -147,6 +149,8 @@ internal static class RuntimeServiceRegistration
             return services;
         }
     }
+
+    private static Func<CacheKey, string> GroupForKey(INodeLocator owners) => key => owners.GetOwner(key.Namespace, key.Key);
 
     /// <summary>Creates the router of single-key RPCs over the leader table of the node.</summary>
     /// <param name="sp">The service provider.</param>

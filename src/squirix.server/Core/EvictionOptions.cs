@@ -12,6 +12,11 @@ internal sealed class EvictionOptions
     /// </summary>
     internal int? Capacity { get; init; }
 
+    /// <summary>Gets or initializes a value indicating whether to enable proactive eviction at the node's high estimated memory threshold.</summary>
+    internal bool EvictOnMemoryPressure { get; init; }
+
+    internal bool Enabled => Capacity != null || EvictOnMemoryPressure;
+
     /// <summary>
     /// Gets the eviction policy to use when capacity is exceeded.
     /// Defaults to <see cref="EvictionPolicyType.Lru" />.
