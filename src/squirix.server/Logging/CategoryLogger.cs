@@ -13,6 +13,8 @@ internal sealed class CategoryLogger<T> : IServerLogger<T>
         _sink = sink;
     }
 
+    public bool IsScopeEnabled => _sink.IsScopeEnabled;
+
     public IDisposable? BeginScope<TState>(TState state)
         where TState : notnull => _sink.BeginScope(state);
 

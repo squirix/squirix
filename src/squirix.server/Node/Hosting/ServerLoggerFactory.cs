@@ -60,8 +60,10 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
             Refresh();
         }
 
+        public bool IsScopeEnabled => _includeScopes;
+
         public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => _owner._scopes.Push(state);
+            where TState : notnull => _includeScopes ? _owner._scopes.Push(state) : null;
 
         public bool IsEnabled(ServerLogLevel logLevel) => logLevel >= _minimum && logLevel < ServerLogLevel.None;
 

@@ -5,6 +5,8 @@ namespace Squirix.Server.Logging;
 /// <summary>Writes events and correlation scopes for one node category.</summary>
 internal interface IServerLogger
 {
+    bool IsScopeEnabled => true;
+
     IDisposable? BeginScope<TState>(TState state)
         where TState : notnull;
 

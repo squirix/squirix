@@ -29,5 +29,5 @@ internal sealed class ServerCallCorrelation
         return ActivitySourceHolder.StartServer(method, in parent);
     }
 
-    internal IDisposable? BeginLogScope(string method) => _log.BeginScope(Correlation.CreateScopeState(_nodeId, method));
+    internal IDisposable? BeginLogScope(string method) => _log.IsScopeEnabled ? _log.BeginScope(Correlation.CreateScopeState(_nodeId, method)) : null;
 }
