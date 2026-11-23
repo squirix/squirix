@@ -114,9 +114,8 @@
          tuple and generic arguments): CS1570/CS1574/CS1580/CS1584/CS1658. Path-scoped
          .editorconfig severities do not apply to compiler diagnostics from generated trees,
          and GenerateDocumentationFile must stay on for IDE0005 and StyleCop doc analysis, so
-         these compiler codes are suppressed for test projects, which is where Rocks runs.
-         TODO(Rocks): delete this PropertyGroup once doc-cref rendering is fixed upstream. -->
-    <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true'">
+         these compiler codes are suppressed for test projects using Rocks 10 on .NET 10. -->
+    <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true' And '$(SquirixTargetFramework)' == 'net10.0'">
         <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CS1584;CS1658</NoWarn>
     </PropertyGroup>
 

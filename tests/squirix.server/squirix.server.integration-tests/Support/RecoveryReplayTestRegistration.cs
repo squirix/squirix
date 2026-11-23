@@ -12,7 +12,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 /// <summary>Registers delayed durable replay for recovery integration tests.</summary>
 internal static class RecoveryReplayTestRegistration
 {
-    /// <summary>Builds a <see cref="IntegrationStartOptions.ServicesConfigure" /> action without a capturing lambda.</summary>
+    /// <summary>Creates a callback that configures services for delayed recovery.</summary>
     /// <param name="signal">Replay gate owned by the test.</param>
     /// <returns>Configure callback that registers <paramref name="signal" /> for delayed recovery.</returns>
     internal static Action<TestServiceCollection> CreateDelayedReplayConfigure(RecoveryReplayDelaySignal signal)
