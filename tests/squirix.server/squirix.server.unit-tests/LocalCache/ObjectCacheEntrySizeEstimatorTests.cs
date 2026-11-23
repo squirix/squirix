@@ -52,6 +52,27 @@ public sealed class ObjectCacheEntrySizeEstimatorTests : ServerUnitTestBase
         _ = await Assert.That(estimator.HasUnknownPayloadMagnitude(small, false)).IsFalse();
     }
 
+    /// <summary>String measurements agree with UTF-8 for ASCII, mixed text and replacement characters.</summary>
+    [Test]
+    public async Task StringMeasurementsMatchUtf8()
+    {
+        var estimator = new ObjectCacheEntrySizeEstimator();
+        var prefix = new string('x', 128);
+        string[] values =
+        [
+            string.Empty,
+            "ascii",
+            prefix,
+            prefix + "\0\u007f",
+            prefix + "界😀end",
+            prefix + '\uD800' + "end",
+            prefix + "é",
+        ];
+
+        foreach (var value in values)
+            _ = await Assert.That(estimator.MeasureValue(value)).IsEqualTo(Encoding.UTF8.GetByteCount(value));
+    }
+
     /// <summary>An element, an object and the JSON value they are stored as weigh the same, so an entry weighs the same before and after a restart.</summary>
     [Test]
     public async Task NormalizedFormsWeighTheSame()
