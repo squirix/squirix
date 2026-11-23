@@ -369,13 +369,18 @@ internal static class ReplicaLogCodec
                 11 when bytes.SequenceEqual("leader-noop"u8) => "leader-noop",
                 11 when bytes.SequenceEqual("leader-term"u8) => "leader-term",
                 13 when bytes.SequenceEqual("user-mutation"u8) => "user-mutation",
-                15 when bytes.SequenceEqual("distributed-get"u8) => "distributed-get",
-                17 when bytes.SequenceEqual("remove-expiration"u8) => "remove-expiration",
-                19 when bytes.SequenceEqual("distributed-refresh"u8) => "distributed-refresh",
-                _ => StrictUtf8.GetString(bytes),
+                _ => DecodeLongKind(bytes),
             };
             return true;
         }
+
+        private static string DecodeLongKind(ReadOnlySpan<byte> bytes) => bytes.Length switch
+        {
+            15 when bytes.SequenceEqual("distributed-get"u8) => "distributed-get",
+            17 when bytes.SequenceEqual("remove-expiration"u8) => "remove-expiration",
+            19 when bytes.SequenceEqual("distributed-refresh"u8) => "distributed-refresh",
+            _ => StrictUtf8.GetString(bytes),
+        };
 
         private static bool TryReadBytes(ref ReadOnlySpan<byte> rest, ReadOnlyMemory<byte> borrowedSource, out ReadOnlyMemory<byte> value)
         {
