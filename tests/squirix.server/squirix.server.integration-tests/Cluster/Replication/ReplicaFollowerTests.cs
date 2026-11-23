@@ -263,7 +263,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         $"op-{index}",
         "scope",
         new[] { Convert.ToByte(index) },
-        "UserMutation",
+        "user-mutation",
         "cache",
         new[] { Convert.ToByte(index + 1) },
         "set",

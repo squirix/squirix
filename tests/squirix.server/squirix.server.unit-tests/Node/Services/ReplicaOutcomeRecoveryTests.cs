@@ -34,7 +34,7 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
     public async Task RecoveredOutcomeOwnsRetainedFields()
     {
         byte[] previous = [7, 8];
-        var record = new ReplicaLogRecord(1UL, 1UL, "op", Scope, Fingerprint, "UserMutation", "cache", Key, "remove", default, previous, 0, DateTime.UnixEpoch.Ticks, 0);
+        var record = new ReplicaLogRecord(1UL, 1UL, "op", Scope, Fingerprint, "user-mutation", "cache", Key, "remove", default, previous, 0, DateTime.UnixEpoch.Ticks, 0);
         var source = ReplicaLogCodec.Encode(in record);
         var decoded = ReplicaLogCodec.DecodeBorrowed(source).GetValueOrDefault();
         var outcome = ReplicaOutcomeRecovery.OutcomeOf(in decoded);
@@ -246,7 +246,7 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         foreach (var id in ids)
         {
             var outcome = new[] { Convert.ToByte(index) };
-            var record = new ReplicaLogRecord(index, 1UL, id, Scope, Fingerprint, "UserMutation", "cache", Key, "Set", Fingerprint, outcome, 0, (clock.GetUtcNow().UtcDateTime - decisionAge).Ticks, 0);
+            var record = new ReplicaLogRecord(index, 1UL, id, Scope, Fingerprint, "user-mutation", "cache", Key, "set", Fingerprint, outcome, 0, (clock.GetUtcNow().UtcDateTime - decisionAge).Ticks, 0);
             var entries = new FollowerLogEntry[] { new(index, 1UL, ReplicaLogCodec.Encode(in record)) };
             var request = new FollowerLogAppendRequest("leader", 1UL, index - 1UL, index == 1UL ? 0UL : 1UL, 0UL, entries);
             _ = await log.AppendAsync(request, cancellationToken);

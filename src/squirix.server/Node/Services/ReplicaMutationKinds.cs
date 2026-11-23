@@ -1,6 +1,6 @@
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Wire-stable mutation and record kinds for replicated cache operations.</summary>
+/// <summary>Canonical kebab-case mutation kinds for the replica log.</summary>
 /// <remarks>
 /// The strings travel on the replication wire and in canonical log payloads; renaming one breaks
 /// rolling compatibility between activated releases.
@@ -23,7 +23,7 @@ internal static class ReplicaMutationKinds
     internal const string Remove = "remove";
 
     /// <summary>Clears the expiration of a key.</summary>
-    internal const string RemoveExpiration = "removeexpiration";
+    internal const string RemoveExpiration = "remove-expiration";
 
     /// <summary>Writes an entry unconditionally.</summary>
     internal const string Set = "set";
@@ -32,7 +32,7 @@ internal static class ReplicaMutationKinds
     internal const string Touch = "touch";
 
     /// <summary>Adds an entry only when the key is absent.</summary>
-    internal const string TryAdd = "tryadd";
+    internal const string TryAdd = "try-add";
 
     /// <summary>Replaces the value of an existing key.</summary>
     internal const string Update = "update";
