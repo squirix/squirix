@@ -53,7 +53,7 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
         const ulong ulongValue = 9;
         var cases = new (object? Value, long Expected)[]
         {
-            ("ab", 148),
+            ("ab", 150),
             (new byte[] { 1, 2, 3 }, 149),
             (true, 147),
             ('x', 148),

@@ -28,6 +28,12 @@ CLI listen, persistence, data-directory, replication, and metrics flags apply af
 For an embedded node, pass a `SquirixServerOptions` instance to `SquirixServer.StartAsync`. To start from a
 named settings file, first load it with `Configurator.LoadAsync`, then apply any overrides to those options.
 
+## Server logging
+
+By default, the server writes `Warning`, `Error`, and `Critical` messages to the console.
+To change the default threshold, set `Logging:LogLevel:Default` in `appsettings.json` in the server working directory.
+For example, set it to `Information` to also log informational messages.
+
 ## Remote client (`SquirixClientOptions`)
 
 Configure the client when calling `SquirixClient.ConnectAsync`:

@@ -100,7 +100,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         {
             null => 0,
             StoredText text => text.Bytes.Length,
-            string s => Encoding.UTF8.GetByteCount(s),
+            string s => long.CreateChecked(s.Length) * sizeof(char),
             byte[] bytes => bytes.LongLength,
             bool => sizeof(bool),
             char => sizeof(char),

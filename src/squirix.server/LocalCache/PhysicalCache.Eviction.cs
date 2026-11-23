@@ -15,8 +15,8 @@ internal sealed partial class PhysicalCache<T>
         private int _position;
         private long _stamp;
 
-        private BoundedNode(CacheKey key, NodeCacheEntry<T> entry, T? stored, EvictionScope scope)
-            : base(key, stored, entry.ExpiresUtc, entry.Version, entry.Tags)
+        private BoundedNode(CacheKey key, NodeCacheEntry<T> entry, EvictionScope scope)
+            : base(key, entry.RawValue, entry.ExpiresUtc, entry.Version, entry.Tags)
         {
             Scope = scope;
         }
@@ -37,7 +37,7 @@ internal sealed partial class PhysicalCache<T>
 
         internal static (string Namespace, string Group) ScopeOf(PhysicalCache<T> owner, CacheKey key) => (owner._eviction.EvictOnMemoryPressure ? string.Empty : key.Namespace, owner._groupForKey?.Invoke(key) ?? string.Empty);
 
-        internal static BoundedNode? Create(PhysicalCache<T> owner, CacheKey key, NodeCacheEntry<T> entry, T? stored)
+        internal static BoundedNode? Create(PhysicalCache<T> owner, CacheKey key, NodeCacheEntry<T> entry)
         {
             var scopeKey = ScopeOf(owner, key);
             if (!owner._scopes!.TryGetValue(scopeKey, out var scope))
@@ -54,7 +54,7 @@ internal sealed partial class PhysicalCache<T>
                     return null;
             }
 
-            var node = new BoundedNode(key, entry, stored, scope);
+            var node = new BoundedNode(key, entry, scope);
             scope.Add(node);
             if (victim != null)
             {

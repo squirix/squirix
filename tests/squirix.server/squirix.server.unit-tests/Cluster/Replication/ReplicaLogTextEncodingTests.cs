@@ -17,14 +17,16 @@ public sealed class ReplicaLogTextEncodingTests : ServerUnitTestBase
     /// <param name="recordKind">The record kind.</param>
     /// <param name="mutationKind">The mutation kind.</param>
     [Test]
-    [Arguments("UserMutation", "set")]
-    [Arguments("UserMutation", "remove")]
-    [Arguments("UserMutation", "tryadd")]
-    [Arguments("UserMutation", "update")]
-    [Arguments("UserMutation", "touch")]
-    [Arguments("UserMutation", "removeexpiration")]
-    [Arguments("Expiration", "expire")]
-    [Arguments("LeaderTerm", "leader-noop")]
+    [Arguments("user-mutation", "set")]
+    [Arguments("user-mutation", "remove")]
+    [Arguments("user-mutation", "try-add")]
+    [Arguments("user-mutation", "update")]
+    [Arguments("user-mutation", "touch")]
+    [Arguments("user-mutation", "remove-expiration")]
+    [Arguments("user-mutation", "distributed-get")]
+    [Arguments("user-mutation", "distributed-refresh")]
+    [Arguments("expiration", "expire")]
+    [Arguments("leader-term", "leader-noop")]
     public async Task KnownKindsReuseStrings(string recordKind, string mutationKind)
     {
         var record = Record() with { RecordKind = recordKind, MutationKind = mutationKind };
@@ -72,5 +74,5 @@ public sealed class ReplicaLogTextEncodingTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaLogCodec.IsWellFormed(actual, 1, 2)).IsTrue();
     }
 
-    private static ReplicaLogRecord Record() => new(1, 2, "op", "cache", new byte[] { 1 }, "UserMutation", "cache", new byte[] { 2 }, "set", new byte[] { 3 }, new byte[] { 4 }, 0, 0, 0);
+    private static ReplicaLogRecord Record() => new(1, 2, "op", "cache", new byte[] { 1 }, "user-mutation", "cache", new byte[] { 2 }, "set", new byte[] { 3 }, new byte[] { 4 }, 0, 0, 0);
 }

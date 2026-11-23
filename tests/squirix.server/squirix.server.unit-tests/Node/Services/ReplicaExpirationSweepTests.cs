@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Rocks;
@@ -275,7 +276,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var local = new ClientCache<object?>(physical, physical);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
         var replicated = new ReplicatedCache(local, LeadOwn(committer));
-        var storedBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime + Ttl), false);
+        var storedBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes("v")), 1, Start.UtcDateTime + Ttl), false);
         var options = new PressureOptions { MaxEstimatedCacheBytes = 4 * storedBytes };
         var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), "n1", meter);
         var admission = CachePipelineRegistration.CreateAdmissionDecorator(
@@ -342,8 +343,9 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v"), cancellationToken);
-        var liveBytes = estimator.EstimateBytes(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>("v"), false);
-        var expiringBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime + Ttl), false);
+        var storedText = new StoredText(Encoding.UTF8.GetBytes("v"));
+        var liveBytes = estimator.EstimateBytes(new CacheKey(CacheName, "live"), new NodeCacheEntry<object?>(storedText), false);
+        var expiringBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>(storedText, 1, Start.UtcDateTime + Ttl), false);
         var before = stats.EstimatedBytes;
         clock.Advance(Ttl);
         using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());

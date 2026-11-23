@@ -204,7 +204,7 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         "op",
         "scope",
         new byte[] { 1 },
-        "UserMutation",
+        "user-mutation",
         "cache",
         KeyBytes,
         kind,

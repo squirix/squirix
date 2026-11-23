@@ -60,8 +60,10 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
             Refresh();
         }
 
+        public bool IsScopeEnabled => _includeScopes;
+
         public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => _owner._scopes.Push(state);
+            where TState : notnull => _includeScopes ? _owner._scopes.Push(state) : null;
 
         public bool IsEnabled(ServerLogLevel logLevel) => logLevel >= _minimum && logLevel < ServerLogLevel.None;
 
@@ -91,7 +93,7 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
         {
             var settings = _owner._settings.Values;
             _json = string.Equals(settings.GetValueOrDefault("Console:FormatterName"), "json", StringComparison.OrdinalIgnoreCase);
-            _minimum = FindLevel(settings, "Console:LogLevel:") ?? FindLevel(settings, "LogLevel:") ?? ServerLogLevel.Information;
+            _minimum = FindLevel(settings, "Console:LogLevel:") ?? FindLevel(settings, "LogLevel:") ?? ServerLogLevel.Warning;
             _includeScopes = bool.TryParse(settings.GetValueOrDefault("Console:FormatterOptions:IncludeScopes") ?? settings.GetValueOrDefault("Console:IncludeScopes"), out var enabled) && enabled;
         }
 

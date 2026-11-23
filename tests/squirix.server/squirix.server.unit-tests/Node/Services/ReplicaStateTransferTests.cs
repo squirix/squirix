@@ -285,9 +285,9 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     {
         var reference = new PhysicalCache<object?>(harness.Clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         reference.Set(new CacheKey(CacheName, "other-1"), new NodeCacheEntry<object?>("old"), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<object?>("v1"), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<object?>("v2", 1, now.AddHours(1)), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<object?>("v3", 1, now.AddHours(-1)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes("v1"))), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes("v2")), 1, now.AddHours(1)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes("v3")), 1, now.AddHours(-1)), cancellationToken);
         return BytesOf(reference);
     }
 }

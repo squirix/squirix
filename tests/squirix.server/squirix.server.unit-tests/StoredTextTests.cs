@@ -90,9 +90,9 @@ public sealed class StoredTextTests
         _ = await Assert.That(allocated).IsLessThan((Convert.ToInt64(input.Length) * sizeof(char)) + 1024);
     }
 
-    /// <summary>The public local value stays a string for hits and replacements.</summary>
+    /// <summary>Replacing a local value retains the supplied string without encoding it.</summary>
     [Test]
-    public async Task ReplacementReturnsLogicalText()
+    public async Task ReplacementRetainsLocalString()
     {
         var cache = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
         var key = CacheKey.Default("test");
@@ -101,9 +101,9 @@ public sealed class StoredTextTests
         cache.Set(key, new NodeCacheEntry<object?>(value), CancellationToken.None);
         var hit = cache.GetValue(key, CancellationToken.None);
         _ = await Assert.That(hit.Found).IsTrue();
-        _ = await Assert.That(hit.RawValue is StoredText).IsTrue();
-        _ = await Assert.That(hit.Value as string).IsEqualTo(value);
-        _ = await Assert.That(cache.GetEntry(key, CancellationToken.None)!.Value as string).IsEqualTo(value);
+        _ = await Assert.That(hit.RawValue).IsSameReferenceAs(value);
+        _ = await Assert.That(hit.Value).IsSameReferenceAs(value);
+        _ = await Assert.That(cache.GetEntry(key, CancellationToken.None)!.Value).IsSameReferenceAs(value);
     }
 
     /// <summary>Updating with encoded text preserves its identity and exposes the new logical string.</summary>

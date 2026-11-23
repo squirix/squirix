@@ -40,7 +40,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         _ = await Assert.That(record.Term).IsEqualTo(7UL);
         _ = await Assert.That(record.OperationId).IsEqualTo("term-7-3");
         _ = await Assert.That(record.OperationScope).IsEqualTo(ReplicaLeaderOperationId.OperationScope);
-        _ = await Assert.That(record.RecordKind).IsEqualTo(nameof(GroupRecordKind.LeaderTerm));
+        _ = await Assert.That(record.RecordKind).IsEqualTo("leader-term");
         _ = await Assert.That(record.MutationKind).IsEqualTo(ReplicaMutationKinds.LeaderNoop);
         await SequenceAssert.EqualAsync(ReplicaLeaderOperationId.Fingerprint(GroupId, 7UL), record.OperationFingerprint.ToArray());
         _ = await Assert.That(GroupRecordKinds.FromScope(record.OperationScope)).IsEqualTo(GroupRecordKind.LeaderTerm);

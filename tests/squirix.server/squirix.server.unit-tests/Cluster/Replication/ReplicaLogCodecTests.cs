@@ -19,13 +19,13 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
     /// <summary>SHA-256 of the canonical encoding of each golden record, in order.</summary>
     private static readonly string[] GoldenHashes =
     [
-        "3A60F2C7F9FF0D9C44A82B57D43AE9DF95CC88C4332820BF23224249EC43EA05",
-        "99DA5EB1DD9935E3EC4E7F7B6CFFF44CF8B9C01D9079827A72F7E8C394F6EC53",
-        "5A59490A54E49DCEBF5DD4F0E1AEC5DDAAC4E5B4915BC86D576CDF2BF8A72585",
-        "6591B19647A11821732B9308C0CAE6C49C05959CEBCC7DAB6F742F49C16DE26A",
+        "7DE14683C95D3CAD2C39ABB1C0F1E67C9ABBB41A330EBED9B9D9618C2C4EAC21",
+        "1E5F1DBABEE97EA853A73CAAE70FEAE76D093D8E75F89B7EFF359071931E50EB",
+        "409B6B6E23CA9C6B7FD11CD6E1CE75394682D7A88833A17567677FC07E54A7CA",
+        "165C75D91667E0CFB93CDD3B3486C28E050295E67377A6738DDAA887A7A4766A",
     ];
 
-    private static readonly ushort[] OtherVersions = [0, 1, 2, 3, 4, 5];
+    private static readonly ushort[] OtherVersions = [0, 1, 2, 3, 4, 5, 6, 7];
 
     private static readonly int[] BadLengths = [-1, int.MinValue, int.MaxValue, 1 << 20];
 
@@ -145,6 +145,16 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             _ = await Assert.That(decoded.Value.CacheName).IsEqualTo(records[i].CacheName);
             _ = await Assert.That(decoded.Value.MutationPayload.Span.SequenceEqual(records[i].MutationPayload.Span)).IsTrue();
         }
+
+        var record = records[0];
+        var regular = ReplicaLogCodec.Encode(in record);
+        var eviction = record with { EvictedKey = "界" };
+        var withEviction = ReplicaLogCodec.Encode(in eviction);
+        byte[] expectedSuffix = [3, 0, 0, 0, 0xe7, 0x95, 0x8c];
+        _ = await Assert.That(BinaryPrimitives.ReadUInt16LittleEndian(withEviction)).IsNotEqualTo(BinaryPrimitives.ReadUInt16LittleEndian(regular));
+        _ = await Assert.That(withEviction.AsSpan(2, regular.Length - 2).SequenceEqual(regular.AsSpan(2))).IsTrue();
+        _ = await Assert.That(withEviction.AsSpan(regular.Length).SequenceEqual(expectedSuffix.AsSpan())).IsTrue();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(withEviction)?.EvictedKey).IsEqualTo("界");
     }
 
     /// <summary>Verifies that every encoded record is well formed at its own position.</summary>
@@ -188,6 +198,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             BinaryPrimitives.WriteUInt16LittleEndian(other, version);
 
             _ = await Assert.That(ReplicaLogCodec.IsWellFormed(other, 1, 2)).IsFalse();
+            _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(other)).IsNull();
         }
     }
 
@@ -310,10 +321,10 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 "op-1",
                 "user",
                 new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
-                "mutation",
+                "user-mutation",
                 "orders",
                 new byte[] { 1, 2, 3 },
-                "Set",
+                "set",
                 new byte[] { 4, 5 },
                 new byte[] { 6 },
                 long.MaxValue,

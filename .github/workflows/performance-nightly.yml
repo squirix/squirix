@@ -47,6 +47,12 @@ jobs:
             -   name: Test Performance Guard
                 run: python3 -m unittest discover -s tools/ci -p test_performance_guard.py -v
 
+            -   name: Check Disabled Request Scope Allocations
+                run: |
+                    dotnet test --project tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj -c Release \
+                      --treenode-filter '/*/*/ServerLoggerFactoryTests/DisabledRequestScopeAllocatesNothing' \
+                      --minimum-expected-tests 1 --zero-tests-policy strict
+
             -   name: Compare Hot Paths With Pinned Sources
                 run: python3 tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
 

@@ -9,10 +9,10 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="OperationId">Client operation identifier for idempotent retries.</param>
 /// <param name="OperationScope">Operation scope distinguishing user mutations from expirations.</param>
 /// <param name="OperationFingerprint">Operation identity fingerprint.</param>
-/// <param name="RecordKind">Wire record kind carried opaquely for the follower applier.</param>
+/// <param name="RecordKind">Canonical kebab-case record kind stored in the replica log.</param>
 /// <param name="CacheName">Target cache name.</param>
 /// <param name="KeyPayload">Target key bytes.</param>
-/// <param name="MutationKind">Cache mutation kind carried opaquely for the follower applier.</param>
+/// <param name="MutationKind">Canonical kebab-case mutation kind used by the follower applier.</param>
 /// <param name="MutationPayload">
 /// The entry the record writes, in the durable entry encoding that keeps its version and tags, when the effect is an upsert; empty
 /// when the effect is a delete or leaves memory unchanged.

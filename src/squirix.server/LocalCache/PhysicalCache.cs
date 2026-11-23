@@ -211,9 +211,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
-        var stored = StoredText.Pack(normalized.RawValue);
         lock (_lock)
-            _ = UpsertLocked(key, normalized, stored, bytes, false);
+            _ = UpsertLocked(key, normalized, bytes, false);
     }
 
     public bool Touch(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -240,23 +239,21 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
-        var stored = StoredText.Pack(normalized.RawValue);
         lock (_lock)
-            return UpsertLocked(key, normalized, stored, bytes, true);
+            return UpsertLocked(key, normalized, bytes, true);
     }
 
     public bool Update(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var measuredValue = _footprint.MeasureValue(value);
-        var stored = StoredText.Pack(value);
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
             _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
-            node.WriteValue(stored);
+            node.WriteValue(value);
             BoundedNode.RecordAccess(node);
             return true;
         }
@@ -402,7 +399,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
     }
 
-    private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, T? stored, long bytes, bool insertOnly)
+    private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
     {
         _ = _store.TryGetLocked(key, out var node);
         if (node != null && insertOnly && IsExpired(node.ExpiresUtc))
@@ -415,8 +412,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (node == null)
         {
             node = _scopes == null
-                ? new Node(key, stored, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
-                : BoundedNode.Create(this, key, normalized, stored);
+                ? new Node(key, normalized.RawValue, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
+                : BoundedNode.Create(this, key, normalized);
             if (node == null)
                 return true;
 
@@ -432,7 +429,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         _footprint.Resize(node, bytes);
         var previous = node.ExpiresUtc;
-        node.Write(stored, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
+        node.Write(normalized.RawValue, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
         _deadlines.MovedLocked(node, previous);
         BoundedNode.RecordAccess(node);
         return false;

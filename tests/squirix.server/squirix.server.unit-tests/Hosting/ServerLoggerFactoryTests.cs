@@ -4,9 +4,12 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Composition;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -45,6 +48,59 @@ public sealed class ServerLoggerFactoryTests
         _ = await Assert.That(logger.IsEnabled(ServerLogLevel.Debug)).IsTrue();
     }
 
+    /// <summary>Server startup uses a warning threshold with packaged and fallback defaults.</summary>
+    /// <param name="packagedDefaults">Whether the packaged settings file is available.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task StartupLogsWarningsAndErrors(bool packagedDefaults, CancellationToken cancellationToken)
+    {
+        const string category = "Squirix.Startup";
+        using var directory = new TempDirectory("squirix-startup-logging");
+        var defaults = packagedDefaults
+            ? Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server.host", "appsettings.defaults.json")
+            : Path.Join(directory, "appsettings.defaults.json");
+        using var settings = new ServerLoggingSettings(defaults, directory, "Production");
+        var output = new List<string>();
+        var services = new NodeServices();
+        _ = services.Own<IServerLoggerFactory>(_ => new ServerLoggerFactory(settings, output.Add));
+        await using var app = ServerApplication.Build(services);
+
+        await app.StartAsync(cancellationToken);
+        var logger = app.Services.Require<IServerLoggerFactory>().CreateLogger(category);
+        var eventId = new ServerLogEventId(1);
+        logger.Log(ServerLogLevel.Information, eventId, "information", null, static (message, _) => message);
+        logger.Log(ServerLogLevel.Warning, eventId, "warning", null, static (message, _) => message);
+        logger.Log(ServerLogLevel.Error, eventId, "error", null, static (message, _) => message);
+        logger.Log(ServerLogLevel.Critical, eventId, "critical", null, static (message, _) => message);
+        await app.StopAsync(cancellationToken);
+
+        _ = await Assert.That(output.Count).IsEqualTo(3);
+        _ = await Assert.That(output[0]).IsEqualTo($"Warning: {category}[1] warning");
+        _ = await Assert.That(output[1]).IsEqualTo($"Error: {category}[1] error");
+        _ = await Assert.That(output[2]).IsEqualTo($"Critical: {category}[1] critical");
+    }
+
+    /// <summary>Opening and closing the default disabled request scope allocates no managed memory.</summary>
+    [Test]
+    [Explicit]
+    public async Task DisabledRequestScopeAllocatesNothing()
+    {
+        const int iterations = 1_000;
+        using var directory = new TempDirectory("squirix-scope-allocation");
+        using var settings = new ServerLoggingSettings(Path.Join(directory, "defaults.json"), directory, "Production");
+        using IServerLoggerFactory factory = new ServerLoggerFactory(settings, static _ => { });
+        var correlation = new ServerCallCorrelation(factory.CreateLogger<ServerCallCorrelation>(), "node-a");
+        ExerciseScope(correlation, iterations);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        ExerciseScope(correlation, iterations);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        _ = await Assert.That(allocated).IsEqualTo(0L);
+    }
+
     /// <summary>The selected JSON formatter writes one parseable event with the original exception.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -56,11 +112,12 @@ public sealed class ServerLoggerFactoryTests
         await File.WriteAllTextAsync(settings, """{"Logging":{"Console":{"FormatterName":"json","FormatterOptions":{"IncludeScopes":true}}}}""", cancellationToken);
         using var configuration = new ServerLoggingSettings(Path.Join(directory, "defaults.json"), directory, "Production");
         var output = new List<string>();
-        using var factory = new ServerLoggerFactory(configuration, output.Add);
+        using IServerLoggerFactory factory = new ServerLoggerFactory(configuration, output.Add);
         var cause = new IOException("No space left on device\n/data/replication/group.log.");
 
         var logger = factory.CreateLogger(category);
-        using var scope = logger.BeginScope<KeyValuePair<string, object?>[]>([new KeyValuePair<string, object?>("node_id", "node-a")]);
+        var correlation = new ServerCallCorrelation(factory.CreateLogger<ServerCallCorrelation>(), "node-a");
+        using var scope = correlation.BeginLogScope("/cache/SetEntry");
         ReplicaCommitLog.ReplicaCommitOutcomeUnknown(logger, cause);
         ReplicaCommitLog.ReplicaTailOfOlderTerm(logger, 41, 12);
 
@@ -74,5 +131,13 @@ public sealed class ServerLoggerFactoryTests
         var state = tail.RootElement.GetProperty("State");
         _ = await Assert.That(state.GetProperty("LastIndex").GetUInt64()).IsEqualTo(41UL);
         _ = await Assert.That(state.GetProperty("Term").GetUInt64()).IsEqualTo(12UL);
+    }
+
+    private static void ExerciseScope(ServerCallCorrelation correlation, int iterations)
+    {
+        for (var iteration = 0; iteration < iterations; iteration++)
+        {
+            using var scope = correlation.BeginLogScope("/cache/GetValue");
+        }
     }
 }
