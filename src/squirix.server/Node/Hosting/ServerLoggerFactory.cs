@@ -91,7 +91,7 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
         {
             var settings = _owner._settings.Values;
             _json = string.Equals(settings.GetValueOrDefault("Console:FormatterName"), "json", StringComparison.OrdinalIgnoreCase);
-            _minimum = FindLevel(settings, "Console:LogLevel:") ?? FindLevel(settings, "LogLevel:") ?? ServerLogLevel.Information;
+            _minimum = FindLevel(settings, "Console:LogLevel:") ?? FindLevel(settings, "LogLevel:") ?? ServerLogLevel.Warning;
             _includeScopes = bool.TryParse(settings.GetValueOrDefault("Console:FormatterOptions:IncludeScopes") ?? settings.GetValueOrDefault("Console:IncludeScopes"), out var enabled) && enabled;
         }
 

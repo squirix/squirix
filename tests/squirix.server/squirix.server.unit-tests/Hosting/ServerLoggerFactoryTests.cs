@@ -4,9 +4,11 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Composition;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -43,6 +45,40 @@ public sealed class ServerLoggerFactoryTests
         File.Move(replacement, target);
         await reloaded.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(logger.IsEnabled(ServerLogLevel.Debug)).IsTrue();
+    }
+
+    /// <summary>Server startup uses a warning threshold with packaged and fallback defaults.</summary>
+    /// <param name="packagedDefaults">Whether the packaged settings file is available.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task StartupLogsWarningsAndErrors(bool packagedDefaults, CancellationToken cancellationToken)
+    {
+        const string category = "Squirix.Startup";
+        using var directory = new TempDirectory("squirix-startup-logging");
+        var defaults = packagedDefaults
+            ? Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server.host", "appsettings.defaults.json")
+            : Path.Join(directory, "appsettings.defaults.json");
+        using var settings = new ServerLoggingSettings(defaults, directory, "Production");
+        var output = new List<string>();
+        var services = new NodeServices();
+        _ = services.Own<IServerLoggerFactory>(_ => new ServerLoggerFactory(settings, output.Add));
+        await using var app = ServerApplication.Build(services);
+
+        await app.StartAsync(cancellationToken);
+        var logger = app.Services.Require<IServerLoggerFactory>().CreateLogger(category);
+        var eventId = new ServerLogEventId(1);
+        logger.Log(ServerLogLevel.Information, eventId, "information", null, static (message, _) => message);
+        logger.Log(ServerLogLevel.Warning, eventId, "warning", null, static (message, _) => message);
+        logger.Log(ServerLogLevel.Error, eventId, "error", null, static (message, _) => message);
+        logger.Log(ServerLogLevel.Critical, eventId, "critical", null, static (message, _) => message);
+        await app.StopAsync(cancellationToken);
+
+        _ = await Assert.That(output.Count).IsEqualTo(3);
+        _ = await Assert.That(output[0]).IsEqualTo($"Warning: {category}[1] warning");
+        _ = await Assert.That(output[1]).IsEqualTo($"Error: {category}[1] error");
+        _ = await Assert.That(output[2]).IsEqualTo($"Critical: {category}[1] critical");
     }
 
     /// <summary>The selected JSON formatter writes one parseable event with the original exception.</summary>
