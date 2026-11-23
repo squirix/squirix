@@ -145,6 +145,16 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             _ = await Assert.That(decoded.Value.CacheName).IsEqualTo(records[i].CacheName);
             _ = await Assert.That(decoded.Value.MutationPayload.Span.SequenceEqual(records[i].MutationPayload.Span)).IsTrue();
         }
+
+        var record = records[0];
+        var regular = ReplicaLogCodec.Encode(in record);
+        var eviction = record with { EvictedKey = "界" };
+        var withEviction = ReplicaLogCodec.Encode(in eviction);
+        byte[] expectedSuffix = [3, 0, 0, 0, 0xe7, 0x95, 0x8c];
+        _ = await Assert.That(BinaryPrimitives.ReadUInt16LittleEndian(withEviction)).IsNotEqualTo(BinaryPrimitives.ReadUInt16LittleEndian(regular));
+        _ = await Assert.That(withEviction.AsSpan(2, regular.Length - 2).SequenceEqual(regular.AsSpan(2))).IsTrue();
+        _ = await Assert.That(withEviction.AsSpan(regular.Length).SequenceEqual(expectedSuffix.AsSpan())).IsTrue();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(withEviction)?.EvictedKey).IsEqualTo("界");
     }
 
     /// <summary>Verifies that every encoded record is well formed at its own position.</summary>

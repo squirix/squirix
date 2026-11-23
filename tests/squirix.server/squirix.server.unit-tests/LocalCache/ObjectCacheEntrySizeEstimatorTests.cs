@@ -52,6 +52,23 @@ public sealed class ObjectCacheEntrySizeEstimatorTests : ServerUnitTestBase
         _ = await Assert.That(estimator.HasUnknownPayloadMagnitude(small, false)).IsFalse();
     }
 
+    /// <summary>Local strings use UTF-16 while stored wire text retains its UTF-8 payload.</summary>
+    [Test]
+    public async Task TextCountsTheRetainedRepresentation()
+    {
+        var estimator = new ObjectCacheEntrySizeEstimator();
+        var value = new string('x', 4096) + "界😀";
+        var encoded = Encoding.UTF8.GetBytes(value);
+        var stored = new StoredText(encoded);
+        var key = new CacheKey(CacheName, Key);
+        var empty = estimator.EstimateBytes(key, new NodeCacheEntry<object?>(null), false);
+
+        _ = await Assert.That(estimator.MeasureValue(value)).IsEqualTo(8198L);
+        _ = await Assert.That(estimator.MeasureValue(stored)).IsEqualTo(4103L);
+        _ = await Assert.That(estimator.EstimateBytes(key, new NodeCacheEntry<object?>(value), false) - empty).IsEqualTo(8198L);
+        _ = await Assert.That(estimator.EstimateBytes(key, new NodeCacheEntry<object?>(stored), false) - empty).IsEqualTo(4103L);
+    }
+
     /// <summary>An element, an object and the JSON value they are stored as weigh the same, so an entry weighs the same before and after a restart.</summary>
     [Test]
     public async Task NormalizedFormsWeighTheSame()

@@ -124,16 +124,15 @@ internal static class ReplicaLogCodec
         var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long))
             + operationIdLength + operationScopeLength + recordKindLength + cacheNameLength + mutationKindLength
             + record.OperationFingerprint.Length + keyLength + mutationLength + record.OutcomePayload.Length;
-        var victimBytes = record.EvictedKey == null ? 0 : Encoding.UTF8.GetByteCount(record.EvictedKey);
-        if (record.EvictedKey != null)
-            length += long.CreateChecked(LengthPrefixSize) + victimBytes;
-        if (length > int.MaxValue)
-            throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
-
-        var buffer = GC.AllocateUninitializedArray<byte>(int.CreateChecked(length));
+        var victim = record.EvictedKey;
+        var victimBytes = victim == null ? 0 : Encoding.UTF8.GetByteCount(victim);
+        var buffer = AllocateBuffer(length + (victim == null ? 0L : long.CreateChecked(LengthPrefixSize) + victimBytes));
         var span = buffer.AsSpan();
 
-        span = WriteRecordHeader(span, in record);
+        BinaryPrimitives.WriteUInt16LittleEndian(span, victim == null ? Version : EvictionVersion);
+        BinaryPrimitives.WriteUInt64LittleEndian(span[VersionSize..], record.LogIndex);
+        BinaryPrimitives.WriteUInt64LittleEndian(span[(VersionSize + sizeof(ulong))..], record.Term);
+        span = span[(VersionSize + (2 * sizeof(ulong)))..];
         span = WriteString(span, record.OperationId, operationIdLength);
         span = WriteString(span, record.OperationScope, operationScopeLength);
         span = WriteBytes(span, record.OperationFingerprint.Span);
@@ -143,10 +142,13 @@ internal static class ReplicaLogCodec
         span = WriteString(span, record.MutationKind, mutationKindLength);
         BinaryPrimitives.WriteInt32LittleEndian(span, mutationLength);
         mutation = buffer.AsMemory(buffer.Length - span.Length + LengthPrefixSize, mutationLength);
-        span = span[(LengthPrefixSize + mutationLength)..];
-        WriteRecordTail(span, in record, victimBytes);
+        WriteRecordTail(span[(LengthPrefixSize + mutationLength)..], in record, victim, victimBytes);
         return buffer;
     }
+
+    private static byte[] AllocateBuffer(long length) => length > int.MaxValue
+        ? throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.")
+        : GC.AllocateUninitializedArray<byte>(int.CreateChecked(length));
 
     private static bool TrySkipRecordFields(ref ReadOnlySpan<byte> rest, ulong logIndex, ulong term)
     {
@@ -207,21 +209,12 @@ internal static class ReplicaLogCodec
         return destination[(LengthPrefixSize + byteCount)..];
     }
 
-    private static Span<byte> WriteRecordHeader(Span<byte> span, scoped in ReplicaLogRecord record)
-    {
-        BinaryPrimitives.WriteUInt16LittleEndian(span, record.EvictedKey == null ? Version : EvictionVersion);
-        span = span[VersionSize..];
-        BinaryPrimitives.WriteUInt64LittleEndian(span, record.LogIndex);
-        BinaryPrimitives.WriteUInt64LittleEndian(span[sizeof(ulong)..], record.Term);
-        return span[(2 * sizeof(ulong))..];
-    }
-
-    private static void WriteRecordTail(Span<byte> span, in ReplicaLogRecord record, int victimBytes)
+    private static void WriteRecordTail(Span<byte> span, in ReplicaLogRecord record, string? victim, int victimBytes)
     {
         span = WriteBytes(span, record.OutcomePayload.Span);
         WriteTimestamps(span, in record);
-        if (record.EvictedKey != null)
-            _ = WriteString(span[TailSize..], record.EvictedKey, victimBytes);
+        if (victim != null)
+            _ = WriteString(span[TailSize..], victim, victimBytes);
     }
 
     private static void WriteTimestamps(Span<byte> destination, in ReplicaLogRecord record)
