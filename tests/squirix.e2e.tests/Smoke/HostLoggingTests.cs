@@ -28,10 +28,10 @@ public sealed class HostLoggingTests
     /// <param name="lifetimeInfo">Whether ordinary host information messages should be emitted.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(DefaultConfig, false, true)]
-    [Arguments(FileConfig, true, false)]
-    [Arguments(EnvironmentFileConfig, true, true)]
-    [Arguments(EnvironmentConfig, true, true)]
+    [Arguments(DefaultConfig, false, false)]
+    [Arguments(FileConfig, true, true)]
+    [Arguments(EnvironmentFileConfig, true, false)]
+    [Arguments(EnvironmentConfig, true, false)]
     [Arguments(EnvironmentOverFileConfig, false, false)]
     [Timeout(60_000)]
     public async Task LoggingDefaultsAllowOverrides(int configuration, bool requestInfo, bool lifetimeInfo, CancellationToken cancellationToken)
@@ -67,7 +67,7 @@ public sealed class HostLoggingTests
         {
             await File.WriteAllTextAsync(
                 Path.Join(start.WorkingDirectory, "appsettings.json"),
-                """{"Logging":{"LogLevel":{"Default":"Warning","Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Information"}}}""",
+                """{"Logging":{"LogLevel":{"Default":"Information","Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Information"}}}""",
                 cancellationToken);
         }
 
@@ -82,6 +82,9 @@ public sealed class HostLoggingTests
                 """{"Logging":{"LogLevel":{"Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Information"}}}""",
                 cancellationToken);
         }
+
+        if (configuration == EnvironmentOverFileConfig)
+            start.Environment["Logging__LogLevel__Default"] = "Warning";
 
         if (configuration is EnvironmentConfig or EnvironmentOverFileConfig)
             start.Environment["Logging__LogLevel__Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint"] = configuration == EnvironmentConfig ? "Information" : "Warning";
