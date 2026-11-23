@@ -100,7 +100,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         {
             null => 0,
             StoredText text => text.Bytes.Length,
-            string s => CountTextBytes(s),
+            string s => long.CreateChecked(s.Length) * sizeof(char),
             byte[] bytes => bytes.LongLength,
             bool => sizeof(bool),
             char => sizeof(char),
@@ -109,11 +109,6 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
             _ => EstimateNumericOrFallbackBytes(value),
         };
     }
-
-    private static int CountTextBytes(string text) =>
-        text.Length >= 128 && char.IsAscii(text[0]) && char.IsAscii(text[^1]) && Ascii.IsValid(text)
-            ? text.Length
-            : Encoding.UTF8.GetByteCount(text);
 
     private static long EstimateNumericOrFallbackBytes(T? value) => value switch
     {

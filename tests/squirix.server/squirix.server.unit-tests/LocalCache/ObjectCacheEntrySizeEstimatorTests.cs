@@ -52,25 +52,21 @@ public sealed class ObjectCacheEntrySizeEstimatorTests : ServerUnitTestBase
         _ = await Assert.That(estimator.HasUnknownPayloadMagnitude(small, false)).IsFalse();
     }
 
-    /// <summary>String measurements agree with UTF-8 for ASCII, mixed text and replacement characters.</summary>
+    /// <summary>Local strings use UTF-16 while stored wire text retains its UTF-8 payload.</summary>
     [Test]
-    public async Task StringMeasurementsMatchUtf8()
+    public async Task TextCountsTheRetainedRepresentation()
     {
         var estimator = new ObjectCacheEntrySizeEstimator();
-        var prefix = new string('x', 128);
-        string[] values =
-        [
-            string.Empty,
-            "ascii",
-            prefix,
-            prefix + "\0\u007f",
-            prefix + "界😀end",
-            prefix + '\uD800' + "end",
-            prefix + "é",
-        ];
+        var value = new string('x', 4096) + "界😀";
+        var encoded = Encoding.UTF8.GetBytes(value);
+        var stored = new StoredText(encoded);
+        var key = new CacheKey(CacheName, Key);
+        var empty = estimator.EstimateBytes(key, new NodeCacheEntry<object?>(null), false);
 
-        foreach (var value in values)
-            _ = await Assert.That(estimator.MeasureValue(value)).IsEqualTo(Encoding.UTF8.GetByteCount(value));
+        _ = await Assert.That(estimator.MeasureValue(value)).IsEqualTo(8198L);
+        _ = await Assert.That(estimator.MeasureValue(stored)).IsEqualTo(4103L);
+        _ = await Assert.That(estimator.EstimateBytes(key, new NodeCacheEntry<object?>(value), false) - empty).IsEqualTo(8198L);
+        _ = await Assert.That(estimator.EstimateBytes(key, new NodeCacheEntry<object?>(stored), false) - empty).IsEqualTo(4103L);
     }
 
     /// <summary>An element, an object and the JSON value they are stored as weigh the same, so an entry weighs the same before and after a restart.</summary>

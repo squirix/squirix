@@ -2,7 +2,6 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -22,11 +21,11 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
-/// <summary>Conservative string bounds preserve exact footprint, admission and encoded payload limits.</summary>
+/// <summary>String writes account for retained memory and preserve encoded payload limits.</summary>
 [Immutable]
 public sealed class StringWriteSizingTests : ServerUnitTestBase
 {
-    /// <summary>Normal writes keep the original value, tags and earliest deadline and account exact UTF-8 bytes.</summary>
+    /// <summary>Normal writes keep the original string, tags and earliest deadline and account for the UTF-16 payload.</summary>
     /// <param name="kind">Safe case id for empty, ASCII, Unicode or malformed UTF-16 input.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -47,26 +46,26 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         await cache.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
         var stored = await Assert.That(physical.GetEntry(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
 
-        _ = await Assert.That(stored.Value).IsEqualTo(value);
+        _ = await Assert.That(stored.RawValue).IsSameReferenceAs(value);
         _ = await Assert.That(stored.Version).IsEqualTo(7L);
         _ = await Assert.That(stored.Tags).IsSameReferenceAs(tags);
         _ = await Assert.That(stored.ExpiresUtc).IsEqualTo(clock.GetUtcNow().UtcDateTime.AddMinutes(1));
-        _ = await Assert.That(BytesOf(physical)).IsEqualTo(215L + Encoding.UTF8.GetByteCount(value));
+        _ = await Assert.That(BytesOf(physical)).IsEqualTo(215L + (2L * value.Length));
     }
 
-    /// <summary>An overly conservative bound falls back to the exact byte count at the admission boundary.</summary>
+    /// <summary>Admission accepts a write one byte below the memory limit and rejects it at the limit.</summary>
     /// <param name="kind">Safe id of the string shape.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(1)]
     [Arguments(2)]
     [Arguments(3)]
-    public async Task StringAdmissionFallsBackAtExactLimit(int kind, CancellationToken cancellationToken)
+    public async Task StringAdmissionChecksExactLimit(int kind, CancellationToken cancellationToken)
     {
         using var meter = new Meter("string-admission-boundary");
         var value = ValueFor(kind);
         var entry = new NodeCacheEntry<object?>(value);
-        var expectedBytes = 144L + Encoding.UTF8.GetByteCount(value);
+        var expectedBytes = 144L + (2L * value.Length);
         var fitting = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
         var refused = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
         var fits = Create(fitting, meter, expectedBytes + 1);
