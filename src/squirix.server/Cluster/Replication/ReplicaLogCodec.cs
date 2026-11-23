@@ -19,13 +19,13 @@ internal static class ReplicaLogCodec
 {
     /// <summary>The canonical encoding version.</summary>
     /// <remarks>
-    /// Version 6 carries compact boolean outcomes for removal and distributed renewal, without response values. It carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
+    /// Version 8 uses kebab-case record and mutation kinds and carries compact boolean outcomes for removal and distributed renewal, without response values. It carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
     /// absolute deadline, or the passed deadline of an entry the leader expired, and no payload checksum. Writers retain this encoding for records without an eviction.
     /// </remarks>
-    private const ushort Version = 6;
+    private const ushort Version = 8;
 
-    /// <summary>Only insertion records carrying a leader-selected victim append a UTF-8 victim key after the timestamps.</summary>
-    private const ushort EvictionVersion = 7;
+    /// <summary>Version 9 extends version 8 by appending the UTF-8 key of a leader-selected victim after the timestamps.</summary>
+    private const ushort EvictionVersion = 9;
 
     private const int VersionSize = sizeof(ushort);
 
@@ -368,15 +368,17 @@ internal static class ReplicaLogCodec
             {
                 3 when bytes.SequenceEqual("set"u8) => "set",
                 5 when bytes.SequenceEqual("touch"u8) => "touch",
-                6 when bytes.SequenceEqual("remove"u8) => "remove",
-                6 when bytes.SequenceEqual("tryadd"u8) => "tryadd",
-                6 when bytes.SequenceEqual("update"u8) => "update",
                 6 when bytes.SequenceEqual("expire"u8) => "expire",
-                10 when bytes.SequenceEqual("LeaderTerm"u8) => "LeaderTerm",
-                10 when bytes.SequenceEqual("Expiration"u8) => "Expiration",
+                6 when bytes.SequenceEqual("remove"u8) => "remove",
+                6 when bytes.SequenceEqual("update"u8) => "update",
+                7 when bytes.SequenceEqual("try-add"u8) => "try-add",
+                10 when bytes.SequenceEqual("expiration"u8) => "expiration",
                 11 when bytes.SequenceEqual("leader-noop"u8) => "leader-noop",
-                12 when bytes.SequenceEqual("UserMutation"u8) => "UserMutation",
-                16 when bytes.SequenceEqual("removeexpiration"u8) => "removeexpiration",
+                11 when bytes.SequenceEqual("leader-term"u8) => "leader-term",
+                13 when bytes.SequenceEqual("user-mutation"u8) => "user-mutation",
+                15 when bytes.SequenceEqual("distributed-get"u8) => "distributed-get",
+                17 when bytes.SequenceEqual("remove-expiration"u8) => "remove-expiration",
+                19 when bytes.SequenceEqual("distributed-refresh"u8) => "distributed-refresh",
                 _ => StrictUtf8.GetString(bytes),
             };
             return true;

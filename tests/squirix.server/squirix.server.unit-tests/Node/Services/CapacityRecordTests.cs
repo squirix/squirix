@@ -24,8 +24,8 @@ public sealed class CapacityRecordTests : ServerUnitTestBase
     [Test]
     public async Task PartialApplyReplaysLeaderDecision(CancellationToken cancellationToken)
     {
-        const ushort legacyVersion = 6;
-        const ushort evictionVersion = 7;
+        const ushort standardVersion = 8;
+        const ushort evictionVersion = 9;
         var options = new EvictionOptions { Capacity = 2 };
         var leader = Create(options);
         var follower = Create(options);
@@ -40,7 +40,7 @@ public sealed class CapacityRecordTests : ServerUnitTestBase
         foreach (var key in new[] { a, b })
         {
             var normal = factory.PrepareSet(key.Key, scope, key.Key, value, 1).CanonicalPayload;
-            _ = await Assert.That(BinaryPrimitives.ReadUInt16LittleEndian(normal.Span)).IsEqualTo(legacyVersion);
+            _ = await Assert.That(BinaryPrimitives.ReadUInt16LittleEndian(normal.Span)).IsEqualTo(standardVersion);
             var original = ReplicaLogCodec.DecodeBorrowed(normal)!.Value;
             await ReplicaCacheApplier.ApplyAsync(local, in original, cancellationToken);
             await ReplicaCacheApplier.ApplyAsync(remote, in original, cancellationToken);

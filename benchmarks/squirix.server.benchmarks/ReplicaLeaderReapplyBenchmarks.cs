@@ -102,7 +102,7 @@ public class ReplicaLeaderReapplyBenchmarks
                 "op-" + NodeInvariantIndexStrings.Format(i),
                 "client",
                 new byte[] { 1 },
-                "UserMutation",
+                "user-mutation",
                 "bench",
                 Encoding.UTF8.GetBytes("k" + NodeInvariantIndexStrings.Format(i)),
                 ReplicaMutationKinds.Set,

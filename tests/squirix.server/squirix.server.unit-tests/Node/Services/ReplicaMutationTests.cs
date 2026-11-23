@@ -7,7 +7,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
@@ -99,7 +98,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         _ = await Assert.That(prepared.OperationScope).IsEqualTo("cache");
         _ = await Assert.That(record.OperationScope).IsEqualTo("cache");
-        _ = await Assert.That(record.RecordKind).IsEqualTo(nameof(GroupRecordKind.UserMutation));
+        _ = await Assert.That(record.RecordKind).IsEqualTo("user-mutation");
     }
 
     /// <summary>Remove records only whether a live entry was removed, then reports missing.</summary>

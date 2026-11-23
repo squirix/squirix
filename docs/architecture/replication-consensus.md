@@ -741,9 +741,12 @@ and on every follower alike.
 Pinned deadlines are rounded up to whole milliseconds, the precision of the cache journal, so a journal recovery and a log re-apply write
 the same entry.
 
-The canonical record encoding is version 6 and nodes refuse records of any other version: every node
-of a replica group must run the same replica log codec version. Durability schema 2 and minimum cluster package
-preview.11 participate in the topology fingerprint, so older peers cannot agree on this topology.
+The canonical replica log uses version 8 for records without an eviction and version 9 for records with an eviction.
+Both versions encode the record kind and mutation kind in kebab-case. Record kinds are `user-mutation`, `expiration`
+and `leader-term`. Mutation kinds include `set`, `try-add`, `remove-expiration` and `leader-noop`.
+Nodes reject previous record versions. Durability schema 2 participates in the topology fingerprint and fences
+peers using schema 1. Upgrade the whole group together and start with fresh replica storage, or export
+the data before upgrading and re-import it into the new group.
 
 Remove retains only its original boolean, not the deleted entry. A retry with the same retained identity returns
 that boolean and leaves a replacement untouched. Adapter Get uses a fresh server renewal identity per transport
@@ -820,9 +823,8 @@ monotonic-clock timestamp on the observed node. Near-simultaneous accesses and s
 Successful live lookups and updates count. Raw reads, including snapshot enumeration and journal inspection,
 do not change recency. A stale reader can update only the node it observed.
 
-Version 6 remains the encoding for every write without an eviction. Version 7 appends the selected key in the same
-cache to the record for an applied Set or TryAdd. All members must understand version 7 before a finite capacity is
-enabled. The leader and followers apply the deletion before the insertion. If the incoming key is itself the victim,
+Version 9 appends the selected key in the same cache to the record for an applied Set or TryAdd.
+The leader and followers apply the deletion before the insertion. If the incoming key is itself the victim,
 only the deletion is applied. The group applied index advances after both effects. A crash between the effects can leave
 a local journal with only the removal. Replaying the committed group record repeats that removal and completes the
 insertion. A retry retains the original operation fingerprint and outcome. Unfenced reads may observe the interval
