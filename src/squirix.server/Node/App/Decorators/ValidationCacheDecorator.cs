@@ -111,18 +111,20 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     private void ValidateLocalValue(T? value)
     {
-        if (RemoteInvocationContext.IsRemoteInvocation || _valueLimit == int.MaxValue)
+        if (_valueLimit == int.MaxValue || RemoteInvocationContext.IsInternalOwnerInvocation)
             return;
 
-        var length = NodeCacheEntry<T>.NormalizeValue(value) switch
-        {
-            byte[] bytes => bytes.Length,
-            JsonUtf8Value json => json.Length,
-            StoredText text => text.Bytes.Length,
-            string text when text.Length > _valueLimit / 3 => Encoding.UTF8.GetByteCount(text),
-            _ => 0,
-        };
+        var length = value is DistributedCacheWrite write ? write.PayloadLength : MeasureValue(value);
         if (length > _valueLimit)
             throw ServerOpContract.PayloadTooLarge(_valueLimit);
     }
+
+    private int MeasureValue(T? value) => NodeCacheEntry<T>.NormalizeValue(value) switch
+    {
+        byte[] bytes => bytes.Length,
+        JsonUtf8Value json => json.Length,
+        StoredText text => text.Bytes.Length,
+        string text when text.Length > _valueLimit / 3 => Encoding.UTF8.GetByteCount(text),
+        _ => 0,
+    };
 }

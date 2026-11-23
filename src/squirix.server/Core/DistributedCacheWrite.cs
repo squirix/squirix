@@ -28,6 +28,9 @@ internal sealed class DistributedCacheWrite
     /// <summary>Gets the owned, immutable envelope.</summary>
     internal byte[] Envelope { get; }
 
+    /// <summary>Gets the length of the value carried by the envelope, excluding expiration metadata.</summary>
+    internal int PayloadLength => Envelope.Length - DistributedCachePolicy.HeaderLength;
+
     /// <summary>Gets a value indicating whether a future access can renew the stored entry.</summary>
     internal bool HasSlidingExpiration => _policy.SlidingTicks != null;
 

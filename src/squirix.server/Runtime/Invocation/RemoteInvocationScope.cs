@@ -8,7 +8,7 @@ namespace Squirix.Server.Runtime.Invocation;
 /// <param name="PreviousInvocation">Captured internal-owner flag to restore on dispose.</param>
 [Immutable]
 [StructLayout(LayoutKind.Auto)]
-internal readonly record struct RemoteInvocationScope(object? PreviousInvocation) : IDisposable
+internal readonly record struct RemoteInvocationScope(bool PreviousInvocation) : IDisposable
 {
     public void Dispose() => RemoteInvocationContext.RestoreInvocation(PreviousInvocation);
 }
