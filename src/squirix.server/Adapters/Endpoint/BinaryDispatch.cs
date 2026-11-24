@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
@@ -31,19 +32,19 @@ internal sealed class BinaryDispatch
 
     internal ValueTask<BinaryResponse> ExecuteAsync(BinaryOperation operation, ReadOnlyMemory<byte> body, in Request context) => operation switch
     {
-        BinaryOperation.SetEntry => InvokeAsync(SetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.SetEntryAsync(request, token), body, in context),
-        BinaryOperation.GetEntry => InvokeAsync(GetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetEntryAsync(request, token), body, in context),
-        BinaryOperation.GetValue => InvokeAsync(GetValueAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetValueAsync(request, token), body, in context),
-        BinaryOperation.Remove => InvokeAsync(RemoveAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveAsync(request, token), body, in context),
-        BinaryOperation.TryAddEntry => InvokeAsync(TryAddEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.AddEntryIfAbsentAsync(request, token), body, in context),
-        BinaryOperation.Touch => InvokeAsync(TouchAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.TouchAsync(request, token), body, in context),
-        BinaryOperation.RemoveExpiration => InvokeAsync(RemoveExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveExpirationAsync(request, token), body, in context),
-        BinaryOperation.Update => InvokeAsync(UpdateAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.UpdateAsync(request, token), body, in context),
-        BinaryOperation.GetExpiration => InvokeAsync(GetExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetExpirationAsync(request, token), body, in context),
-        BinaryOperation.GetOrAdd => InvokeAsync(GetOrAddAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.GetOrAddAsync(request, token), body, in context),
+        BinaryOperation.SetEntry => InvokeAsync(CacheOperationNames.Set, SetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.SetEntryAsync(request, token), body, in context),
+        BinaryOperation.GetEntry => InvokeAsync(CacheOperationNames.GetEntry, GetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetEntryAsync(request, token), body, in context),
+        BinaryOperation.GetValue => InvokeAsync(CacheOperationNames.Get, GetValueAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetValueAsync(request, token), body, in context),
+        BinaryOperation.Remove => InvokeAsync(CacheOperationNames.Remove, RemoveAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveAsync(request, token), body, in context),
+        BinaryOperation.TryAddEntry => InvokeAsync(CacheOperationNames.TryAdd, TryAddEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.AddEntryIfAbsentAsync(request, token), body, in context),
+        BinaryOperation.Touch => InvokeAsync(CacheOperationNames.Touch, TouchAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.TouchAsync(request, token), body, in context),
+        BinaryOperation.RemoveExpiration => InvokeAsync(CacheOperationNames.RemoveExpiration, RemoveExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.RemoveExpirationAsync(request, token), body, in context),
+        BinaryOperation.Update => InvokeAsync(CacheOperationNames.Update, UpdateAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.UpdateAsync(request, token), body, in context),
+        BinaryOperation.GetExpiration => InvokeAsync(CacheOperationNames.GetEntry, GetExpirationAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetExpirationAsync(request, token), body, in context),
+        BinaryOperation.GetOrAdd => InvokeAsync(CacheOperationNames.GetOrAdd, GetOrAddAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.GetOrAddAsync(request, token), body, in context),
         BinaryOperation.SetDistributed => InvokeDistributedSetAsync(body, in context),
-        BinaryOperation.GetDistributed => InvokeAsync(GetDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetDistributedAsync(request, token), body, in context),
-        BinaryOperation.RefreshDistributed => InvokeAsync(RefreshDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.RefreshDistributedAsync(request, token), body, in context),
+        BinaryOperation.GetDistributed => InvokeAsync(CacheOperationNames.Get, GetDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetDistributedAsync(request, token), body, in context),
+        BinaryOperation.RefreshDistributed => InvokeAsync(CacheOperationNames.Touch, RefreshDistributedAsyncRequest.Parser, static (ops, request, token) => ops.Reads.RefreshDistributedAsync(request, token), body, in context),
         _ => ValueTask.FromResult(new BinaryResponse(FrameStatus.Unimplemented, new BinaryCallError { Detail = "Unknown binary cache operation." })),
     };
 
@@ -58,21 +59,24 @@ internal sealed class BinaryDispatch
 
     private ValueTask<BinaryResponse> InvokeDistributedSetAsync(ReadOnlyMemory<byte> body, in Request context) =>
         DispatchAsync(
+            CacheOperationNames.Set,
             SetDistributedAsyncRequest.Parser.ParseBorrowed(body),
             static (ops, request, token) => ops.Mutations.SetDistributedAsync(request, token),
             context);
 
     private ValueTask<BinaryResponse> InvokeAsync<TRequest, TResponse>(
+        string operationName,
         WireParser<TRequest> parser,
         Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
         ReadOnlyMemory<byte> body,
         in Request context)
         where TRequest : WireMessage
         where TResponse : WireMessage =>
-        DispatchAsync(body.Length > Frames.MaxRequestBytes ? parser.ParseBorrowed(body) : parser.ParseFrom(body.Span), method, context);
+        DispatchAsync(operationName, body.Length > Frames.MaxRequestBytes ? parser.ParseBorrowed(body) : parser.ParseFrom(body.Span), method, context);
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<BinaryResponse> DispatchAsync<TRequest, TResponse>(
+        string operationName,
         TRequest request,
         Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
         Request context)
@@ -95,7 +99,7 @@ internal sealed class BinaryDispatch
             using var activity = ServerCallCorrelation.StartActivity(path, call.TraceParent, call.TraceState);
             using var log = _correlation.BeginLogScope(path);
             using var deadline = context.Forwarded ? null : ServerRpcDeadlineContext.Push(context.Deadline, TimeProvider.System);
-            var (decision, lease) = await _admission.AcquireAsync(path, call.RequestAborted).ConfigureAwait(false);
+            var (decision, lease) = await _admission.AcquireAsync(operationName, call.RequestAborted).ConfigureAwait(false);
             if (!decision.IsAccepted)
                 return BinaryResponse.FromError(ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown"));
 

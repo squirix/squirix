@@ -21,20 +21,6 @@ internal sealed class CacheRequestAdmission
 
     internal InboundAdmissionScope Enter() => InboundAdmissionScope.Enter(_gate);
 
-    internal ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string method, CancellationToken cancellationToken) =>
-        _gate.AcquireAsync(CacheOperationNames.CacheTransport, Operation(method), _clients.Resolve(), cancellationToken);
-
-    private static string Operation(string method) => method.AsSpan(method.AsSpan().LastIndexOf('/') + 1) switch
-    {
-        "GetEntry" or "GetExpiration" => CacheOperationNames.GetEntry,
-        "GetValue" or "GetDistributed" => CacheOperationNames.Get,
-        "SetEntry" or "SetDistributed" => CacheOperationNames.Set,
-        "TryAddEntry" => CacheOperationNames.TryAdd,
-        "GetOrAdd" => CacheOperationNames.GetOrAdd,
-        "Remove" => CacheOperationNames.Remove,
-        "RemoveExpiration" => CacheOperationNames.RemoveExpiration,
-        "Touch" or "RefreshDistributed" => CacheOperationNames.Touch,
-        "Update" => CacheOperationNames.Update,
-        _ => throw new InvalidOperationException("Unsupported cache RPC admission operation."),
-    };
+    internal ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string operationName, CancellationToken cancellationToken) =>
+        _gate.AcquireAsync(CacheOperationNames.CacheTransport, operationName, _clients.Resolve(), cancellationToken);
 }
