@@ -218,15 +218,21 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     private void ReadLoop()
     {
         var buffer = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
+        var ready = new ReadyReply[Frames.MaxBatch];
+        var count = 0;
         try
         {
             while (IsAvailable)
             {
-                var (id, size, status) = ReadReplyHeader(buffer);
-                _ = _pending.TryGetValue(id, out var completion);
-                var result = BinaryClientProtocol.ReadBlockingReply(_tls, completion?.Parser, status, size, buffer);
-                if (completion != null && _pending.TryRemove(id, out _))
-                    completion.Complete(in result);
+                var read = _tls.Read(buffer);
+                if (read == 0)
+                    break;
+
+                var bytes = buffer.AsSpan(0, read);
+                while (!bytes.IsEmpty)
+                    ReadOneReply(ref bytes, buffer, ready, ref count);
+
+                ReadyReply.Publish(ready, ref count);
             }
         }
         catch (Exception error) when (error is IOException or ObjectDisposedException or SocketException or InvalidDataException)
@@ -235,22 +241,57 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         }
         finally
         {
+            ReadyReply.Publish(ready, ref count);
             ArrayPool<byte>.Shared.Return(buffer);
             FinishLoop();
         }
     }
 
-    private (int Id, int Size, int Status) ReadReplyHeader(byte[] buffer)
+    private void ReadOneReply(ref Span<byte> bytes, byte[] buffer, ReadyReply[] ready, ref int count)
     {
-        _tls.ReadExactly(buffer.AsSpan(0, Frames.ReplyBytes));
-        var reply = Frames.ReadReply(buffer);
-        if (reply.Size == Frames.ExtendedSize)
+        var header = TakeHeader(ref bytes, buffer, Frames.ReplyBytes, ready, ref count);
+        var (id, size, status) = Frames.ReadReply(header);
+        if (size == Frames.ExtendedSize)
+            size = Frames.ReadExtendedSize(TakeHeader(ref bytes, buffer, Frames.ExtendedReplyBytes, ready, ref count));
+
+        _ = _pending.TryGetValue(id, out var pending);
+        BinaryClientReply result = default;
+        if (size <= bytes.Length)
         {
-            _tls.ReadExactly(buffer.AsSpan(0, Frames.ExtendedReplyBytes));
-            reply.Size = Frames.ReadExtendedSize(buffer);
+            if (pending != null)
+                result = BinaryClientProtocol.ParseReply(pending.Parser, status, bytes[..size]);
+            bytes = bytes[size..];
+        }
+        else
+        {
+            ReadyReply.Publish(ready, ref count);
+            bytes.CopyTo(buffer);
+            result = BinaryClientProtocol.ReadBlockingReply(_tls, pending?.Parser, status, size, buffer, bytes.Length);
+            bytes = default;
         }
 
-        return reply;
+        if (pending != null && _pending.TryRemove(id, out _))
+            ready[count++] = new ReadyReply(pending, result);
+        if (count == ready.Length)
+            ReadyReply.Publish(ready, ref count);
+    }
+
+    private Span<byte> TakeHeader(ref Span<byte> bytes, byte[] buffer, int size, ReadyReply[] ready, ref int count)
+    {
+        if (bytes.Length >= size)
+        {
+            var header = bytes[..size];
+            bytes = bytes[size..];
+            return header;
+        }
+
+        // A partial header must never hold up the replies from this read.
+        ReadyReply.Publish(ready, ref count);
+        var available = bytes.Length;
+        bytes.CopyTo(buffer);
+        bytes = default;
+        _tls.ReadExactly(buffer.AsSpan(available, size - available));
+        return buffer.AsSpan(0, size);
     }
 
     private void SendLoop()
@@ -362,6 +403,21 @@ internal sealed class SynchronousBinaryConnection : IDisposable
 
     [Immutable]
     private readonly record struct Request(int Id, BinaryClientRequest Frame, DateTimeOffset Deadline);
+
+    private readonly record struct ReadyReply(Pending Call, BinaryClientReply Reply)
+    {
+        internal static void Publish(ReadyReply[] ready, ref int count)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var item = ready[i];
+                item.Call.Complete(item.Reply);
+                ready[i] = default;
+            }
+
+            count = 0;
+        }
+    }
 
     private sealed class Pending
     {

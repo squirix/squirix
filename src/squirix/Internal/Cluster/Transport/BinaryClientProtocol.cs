@@ -103,10 +103,11 @@ internal static class BinaryClientProtocol
             : new BinaryClientReply(null, ReadFailure(status, body));
     }
 
-    internal static BinaryClientReply ReadBlockingReply(Stream stream, IWireParser? parser, int status, int size, byte[] scratch)
+    internal static BinaryClientReply ReadBlockingReply(Stream stream, IWireParser? parser, int status, int size, byte[] scratch, int buffered = 0)
     {
         if (parser == null)
         {
+            size -= buffered;
             while (size != 0)
             {
                 var length = Math.Min(size, scratch.Length);
@@ -119,17 +120,22 @@ internal static class BinaryClientProtocol
 
         if (size > scratch.Length && HasOwnedDistributedPayload(parser, status))
         {
-            stream.ReadExactly(scratch.AsSpan(0, 1));
+            if (buffered == 0)
+                stream.ReadExactly(scratch.AsSpan(0, 1));
             var found = DecodeDistributedFlag(scratch[0]);
             var payload = GC.AllocateUninitializedArray<byte>(size - 1);
-            stream.ReadExactly(payload);
+            var prefix = Math.Max(0, buffered - 1);
+            scratch.AsSpan(1, prefix).CopyTo(payload);
+            stream.ReadExactly(payload.AsSpan(prefix));
             return new BinaryClientReply(GetDistributedAsyncResponse.FromOwnedPayload(found, payload), null);
         }
 
         var body = size <= scratch.Length ? scratch : ArrayPool<byte>.Shared.Rent(size);
         try
         {
-            stream.ReadExactly(body.AsSpan(0, size));
+            if (!ReferenceEquals(body, scratch))
+                scratch.AsSpan(0, buffered).CopyTo(body);
+            stream.ReadExactly(body.AsSpan(buffered, size - buffered));
             return ParseReply(parser, status, body.AsSpan(0, size));
         }
         finally
