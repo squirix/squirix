@@ -1,6 +1,6 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Runtime.Contracts;
 
@@ -13,6 +13,6 @@ internal interface IDistributedCacheAccess
     /// <param name="key">The validated key.</param>
     /// <param name="refresh">Whether to omit the value from the response.</param>
     /// <param name="cancellationToken">The caller cancellation token.</param>
-    /// <returns>The observed value for Get, or an empty response for Refresh.</returns>
-    Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken);
+    /// <returns>The observed payload, including a zero-length value, or null for a miss or Refresh.</returns>
+    ValueTask<ReadOnlyMemory<byte>?> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken);
 }

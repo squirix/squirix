@@ -9,7 +9,6 @@ using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Transport.Wire.Cache;
 
 namespace Squirix.Server.Node.Endpoint;
 
@@ -38,7 +37,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
     }
 
     /// <inheritdoc />
-    public async Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    public async ValueTask<ReadOnlyMemory<byte>?> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
     {
         var operation = refresh ? CacheOperationNames.Touch : CacheOperationNames.Get;
         var (admission, lease) = await InboundAdmissionScope.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clients, cancellationToken).ConfigureAwait(false);
@@ -52,29 +51,25 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
 
             if (refresh)
                 operationId = RpcMutationContracts.RequireOperationId(operationId);
-            return Response(await replicated.AccessDistributedAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false));
+            return await replicated.AccessDistributedAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    /// <summary>Retains the immutable payload only through response serialization.</summary>
-    /// <param name="payload">Application bytes in an owned cache value, never a pooled buffer.</param>
-    /// <returns>The response retaining the observed payload.</returns>
-    private static GetDistributedAsyncResponse Response(ReadOnlyMemory<byte>? payload) =>
-        payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = bytes } : new GetDistributedAsyncResponse();
-
-    private async Task<GetDistributedAsyncResponse> AccessSingleAsync(string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    private async ValueTask<ReadOnlyMemory<byte>?> AccessSingleAsync(string cacheName, string key, bool refresh, CancellationToken cancellationToken)
     {
         var entry = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (entry == null)
-            return new GetDistributedAsyncResponse();
+            return null;
 
         var payload = DistributedCacheAccess.ReadPayload(entry.RawValue, out var policy);
-        if (policy.SlidingTicks == null || _physical.DistributedAccess.CanReadWithoutRenewal(entry))
-            return Response(refresh ? null : payload);
+        var result = refresh ? default(ReadOnlyMemory<byte>?) : payload;
+        if (policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry))
+        {
+            result = _durable is { } durable
+                ? await durable.DistributedAccess.AccessDistributedAsync(string.Empty, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
+                : _physical.DistributedAccess.AccessDistributed(new CacheKey(cacheName, key), refresh, cancellationToken);
+        }
 
-        var renewed = _durable is { } durable
-            ? await durable.DistributedAccess.AccessDistributedAsync(string.Empty, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
-            : _physical.DistributedAccess.AccessDistributed(new CacheKey(cacheName, key), refresh, cancellationToken);
-        return Response(renewed);
+        return result;
     }
 }
