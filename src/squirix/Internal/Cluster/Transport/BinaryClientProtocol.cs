@@ -103,11 +103,11 @@ internal static class BinaryClientProtocol
             : new BinaryClientReply(null, ReadFailure(status, body));
     }
 
-    internal static BinaryClientReply ReadBlockingReply(Stream stream, IWireParser? parser, int status, int size, byte[] scratch, int buffered = 0)
+    internal static BinaryClientReply ReadBlockingReply(Stream stream, IWireParser? parser, int status, int size, byte[] scratch, ReadOnlySpan<byte> prefix = default)
     {
         if (parser == null)
         {
-            size -= buffered;
+            size -= prefix.Length;
             while (size != 0)
             {
                 var length = Math.Min(size, scratch.Length);
@@ -120,22 +120,25 @@ internal static class BinaryClientProtocol
 
         if (size > scratch.Length && HasOwnedDistributedPayload(parser, status))
         {
-            if (buffered == 0)
+            if (prefix.IsEmpty)
+            {
                 stream.ReadExactly(scratch.AsSpan(0, 1));
-            var found = DecodeDistributedFlag(scratch[0]);
+                prefix = scratch.AsSpan(0, 1);
+            }
+
+            var found = DecodeDistributedFlag(prefix[0]);
             var payload = GC.AllocateUninitializedArray<byte>(size - 1);
-            var prefix = Math.Max(0, buffered - 1);
-            scratch.AsSpan(1, prefix).CopyTo(payload);
-            stream.ReadExactly(payload.AsSpan(prefix));
+            var bufferedPayload = prefix[1..];
+            bufferedPayload.CopyTo(payload);
+            stream.ReadExactly(payload.AsSpan(bufferedPayload.Length));
             return new BinaryClientReply(GetDistributedAsyncResponse.FromOwnedPayload(found, payload), null);
         }
 
         var body = size <= scratch.Length ? scratch : ArrayPool<byte>.Shared.Rent(size);
         try
         {
-            if (!ReferenceEquals(body, scratch))
-                scratch.AsSpan(0, buffered).CopyTo(body);
-            stream.ReadExactly(body.AsSpan(buffered, size - buffered));
+            prefix.CopyTo(body);
+            stream.ReadExactly(body.AsSpan(prefix.Length, size - prefix.Length));
             return ParseReply(parser, status, body.AsSpan(0, size));
         }
         finally

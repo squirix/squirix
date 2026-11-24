@@ -265,8 +265,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         else
         {
             ReadyReply.Publish(ready, ref count);
-            bytes.CopyTo(buffer);
-            result = BinaryClientProtocol.ReadBlockingReply(_tls, pending?.Parser, status, size, buffer, bytes.Length);
+            result = BinaryClientProtocol.ReadBlockingReply(_tls, pending?.Parser, status, size, buffer, bytes);
             bytes = default;
         }
 
