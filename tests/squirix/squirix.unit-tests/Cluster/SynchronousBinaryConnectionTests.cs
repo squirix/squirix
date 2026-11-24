@@ -40,6 +40,68 @@ public sealed class SynchronousBinaryConnectionTests
     public Task CompleteReplyPrecedesFragmentedReply(int prefix, CancellationToken cancellationToken) =>
         WithConnectionAsync((connection, stream, timeout) => CheckFragmentAsync(connection, stream, prefix, timeout.Token), cancellationToken);
 
+    /// <summary>Publishes a full batch and its remainder to the callers identified by each reply.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task PublishesBatchAndRemainder(CancellationToken cancellationToken) =>
+        WithConnectionAsync(CheckBatchAsync, cancellationToken);
+
+    /// <summary>Drains a fragmented late reply without consuming the following live reply.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task LateBodyPreservesNextReply(CancellationToken cancellationToken) =>
+        WithConnectionAsync(CheckLateBodyAsync, cancellationToken);
+
+    private static async Task CheckBatchAsync(SynchronousBinaryConnection connection, SslStream stream, CancellationTokenSource timeout)
+    {
+        var token = timeout.Token;
+        const int count = Frames.MaxBatch + 1;
+        var calls = new Task<GetDistributedAsyncResponse>[count];
+        const int frameBytes = Frames.ReplyBytes + 2;
+        var batch = GC.AllocateUninitializedArray<byte>(count * frameBytes);
+        for (var i = 0; i < count; i++)
+        {
+            calls[i] = SendSynchronousGetAsync(connection, "batch", token, token);
+            var id = await ReadDistributedGetIdAsync(stream, token);
+            var reply = new GetDistributedAsyncResponse { Found = true, Value = new byte[] { byte.CreateChecked(i) } };
+            Frames.WriteReplyMessage(batch.AsSpan((count - 1 - i) * frameBytes, frameBytes), id, reply.CalculateSize(), 0, reply);
+        }
+
+        await stream.WriteAsync(batch, token);
+        var replies = await Task.WhenAll(calls).WaitAsync(token);
+        for (var i = 0; i < count; i++)
+        {
+            _ = await Assert.That(replies[i].Found).IsTrue();
+            _ = await Assert.That(replies[i].TakeValue().AsSpan().SequenceEqual([byte.CreateChecked(i)])).IsTrue();
+        }
+    }
+
+    private static async Task CheckLateBodyAsync(SynchronousBinaryConnection connection, SslStream stream, CancellationTokenSource timeout)
+    {
+        var token = timeout.Token;
+        using var expired = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var cancelled = SendSynchronousGetAsync(connection, "cancelled", expired.Token, token);
+        var cancelledId = await ReadDistributedGetIdAsync(stream, token);
+        var live = SendSynchronousGetAsync(connection, "live", token, token);
+        var liveId = await ReadDistributedGetIdAsync(stream, token);
+        await expired.CancelAsync();
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, GetDistributedAsyncResponse>(new ValueTask<GetDistributedAsyncResponse>(cancelled), TimeSpan.FromSeconds(5), TimeProvider.System, token);
+
+        var lateReply = new GetDistributedAsyncResponse { Found = true, Value = new byte[Frames.MaxBatchBytes + 17] };
+        var liveReply = new GetDistributedAsyncResponse { Found = true, Value = new byte[] { 37, 91 } };
+        var lateSize = lateReply.CalculateSize();
+        var liveSize = liveReply.CalculateSize();
+        var frames = new byte[(2 * Frames.ReplyBytes) + lateSize + liveSize];
+        Frames.WriteReplyMessage(frames, cancelledId, lateSize, 0, lateReply);
+        Frames.WriteReplyMessage(frames.AsSpan(Frames.ReplyBytes + lateSize), liveId, liveSize, 0, liveReply);
+        const int split = Frames.ReplyBytes + 7;
+        await stream.WriteAsync(frames.AsMemory(0, split), token);
+        await stream.WriteAsync(frames.AsMemory(split), token);
+        var result = await live.WaitAsync(token);
+        _ = await Assert.That(result.Found).IsTrue();
+        _ = await Assert.That(result.TakeValue().AsSpan().SequenceEqual(new byte[] { 37, 91 })).IsTrue();
+    }
+
     private static async Task CheckFragmentAsync(SynchronousBinaryConnection connection, SslStream stream, int prefix, CancellationToken token)
     {
         var large = SendSynchronousGetAsync(connection, "large", token, token);
