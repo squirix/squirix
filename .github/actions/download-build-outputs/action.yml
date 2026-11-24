@@ -80,6 +80,8 @@ runs:
         done
 
     - name: Download Build Outputs
+      id: download
+      continue-on-error: ${{ inputs.wait-for-build == 'true' }}
       uses: actions/download-artifact@v8
       with:
         name: build-output-ubuntu-latest-${{ inputs.framework }}
@@ -87,3 +89,17 @@ runs:
         # Use the same REST artifact lookup as the wait step. The runner's internal artifact list can lag behind it.
         github-token: ${{ inputs.wait-for-build == 'true' && github.token || '' }}
         run-id: ${{ github.run_id }}
+
+    # A newly listed artifact can still return 404 from the REST download endpoint.
+    - name: Wait Before Retrying Download
+      if: steps.download.outcome == 'failure' && inputs.wait-for-build == 'true'
+      shell: bash
+      run: sleep 10
+
+    - name: Retry Build Output Download
+      if: steps.download.outcome == 'failure' && inputs.wait-for-build == 'true'
+      uses: actions/download-artifact@v8
+      with:
+        # Use the runner's artifact service for this run on the retry.
+        name: build-output-ubuntu-latest-${{ inputs.framework }}
+        path: .
