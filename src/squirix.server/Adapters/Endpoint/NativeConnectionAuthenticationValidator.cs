@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Composition;
+using Squirix.Server.Node.Backpressure;
 using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Endpoint;
@@ -14,6 +15,7 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
     private readonly bool _hasTokenObserver;
     private readonly ConnectionTrustHistory _history = new();
     private readonly Func<JwtValidationOptions> _options;
+    private readonly bool _requiresRequestPrincipal;
     private readonly SemaphoreSlim _pending = new(256, 256);
     private readonly INodeRequestScopes? _scopes;
 
@@ -24,6 +26,9 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
         _scopes = services.Find<INodeRequestScopes>();
         _hasAuthorizationHook = _scopes?.Contains(typeof(IBinaryAuthorizationHook)) == true;
         _hasTokenObserver = _scopes?.Contains(typeof(IConnectionTokenObserver)) == true;
+        _requiresRequestPrincipal = _hasAuthorizationHook || _hasTokenObserver ||
+                                    services.Find<IBackpressureClientIdResolver>() is not SharedClientIdResolver ||
+                                    services.Find<BinaryCallObserver>() != null;
     }
 
     public void Dispose() => _pending.Dispose();
@@ -35,6 +40,10 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
             connection.RequestClose();
             return FrameStatus.Unavailable;
         }
+
+        // ValidateTokenAsync already verified the identity accepted for this connection.
+        if (!_requiresRequestPrincipal)
+            return FrameStatus.Ok;
 
         var principal = connection.ClonePrincipal();
         if (principal == null || !HasAuthenticatedIdentity(principal))

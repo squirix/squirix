@@ -106,7 +106,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var client = new CacheWireClient(channel);
         var access = node.GetRequiredService<IDistributedCacheAccess>();
         var missing = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
-        _ = await Assert.That(missing.Found).IsFalse();
+        _ = await Assert.That(missing).IsNull();
         var set = new SetDistributedAsyncRequest
         {
             CacheName = CacheName,
@@ -117,19 +117,31 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         };
         _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
         var unchanged = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
-        _ = await Assert.That(unchanged.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
+        _ = await Assert.That(unchanged!.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
         _ = await access.AccessAsync(Guid.NewGuid().ToString("N"), CacheName, "lazy", true, cancellationToken);
 
         clock.Advance(TimeSpan.FromMilliseconds(1));
         var operationId = Guid.NewGuid().ToString("N");
         var renewed = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
-        _ = await Assert.That(renewed.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
+        _ = await Assert.That(renewed!.Value.Span.SequenceEqual(new byte[] { 3, 5, 8 })).IsTrue();
         set.OperationId = Guid.NewGuid().ToString("N");
         set.Value = new byte[] { 13 };
         _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
         var replay = await access.AccessAsync(string.Empty, CacheName, "lazy", false, cancellationToken);
-        _ = await Assert.That(replay.Value.Span.SequenceEqual(new byte[] { 13 })).IsTrue();
-        _ = await access.AccessAsync(operationId, CacheName, "lazy", true, cancellationToken);
+        _ = await Assert.That(replay!.Value.Span.SequenceEqual(new byte[] { 13 })).IsTrue();
+        var refreshed = await access.AccessAsync(operationId, CacheName, "lazy", true, cancellationToken);
+        _ = await Assert.That(refreshed).IsNull();
+
+        var read = new GetDistributedAsyncRequest { CacheName = CacheName, Key = "empty" };
+        var miss = await client.GetDistributedAsync(read, cancellationToken: cancellationToken);
+        _ = await Assert.That(miss.Found).IsFalse();
+        set.Key = read.Key;
+        set.OperationId = Guid.NewGuid().ToString("N");
+        set.Value = ReadOnlyMemory<byte>.Empty;
+        _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
+        var hit = await client.GetDistributedAsync(read, cancellationToken: cancellationToken);
+        _ = await Assert.That(hit.Found).IsTrue();
+        _ = await Assert.That(hit.Value.IsEmpty).IsTrue();
     }
 
     /// <summary>Concurrent calls through a shared gRPC service keep cache names and payloads isolated.</summary>

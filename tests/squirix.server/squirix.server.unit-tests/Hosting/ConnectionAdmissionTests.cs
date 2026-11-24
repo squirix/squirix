@@ -1,11 +1,14 @@
 using System;
+using System.IO;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Testing;
+using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -54,6 +57,47 @@ public sealed class ConnectionAdmissionTests
         using var validator = new NativeConnectionAuthenticationValidator(() => options, TimeProvider.System, provider);
         var token = TestJwtHelper.CreateBearerToken(credentials);
         _ = await Assert.That(await validator.ValidateBearerAsync(token, cancellationToken)).IsTrue();
+    }
+
+    /// <summary>Only callers with per-client limits need a request identity on the standard JWT path.</summary>
+    /// <param name="perClient">Whether admission uses the authenticated subject.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task JwtRequestIdentityFollowsAdmission(bool perClient, CancellationToken cancellationToken)
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        var options = new JwtValidationOptions
+        {
+            Issuer = credentials.Issuer,
+            Audience = credentials.Audience,
+            SigningKey = new JwtVerificationKey(credentials.GetSigningKey()),
+        };
+        var accessor = new BinaryRequestAccessor();
+        IBackpressureClientIdResolver clients = perClient ? new BinaryClientIdResolver(accessor) : SharedClientIdResolver.Instance;
+        await using var services = new TestServiceCollection().AddSingleton(clients).BuildServiceProvider();
+        using var validator = new NativeConnectionAuthenticationValidator(() => options, TimeProvider.System, services);
+        using var connection = new BinaryConnection("test", new NativeBinaryEndpoint.StreamPipe(Stream.Null), null, null, cancellationToken, cancellationToken);
+        var token = TestJwtHelper.CreateBearerToken(credentials, "tenant-a");
+        var identity = await validator.ValidateAsync(token, connection, cancellationToken);
+        var request = new BinaryRequestContext { Path = "/GetDistributed" };
+        var status = await validator.AuthorizeAsync(identity!, request, cancellationToken);
+        _ = await Assert.That(status).IsEqualTo(FrameStatus.Ok);
+        _ = await Assert.That(request.User != null).IsEqualTo(perClient);
+        accessor.Current = request;
+        try
+        {
+            _ = await Assert.That(clients.Resolve()).IsEqualTo(perClient ? "jwt:tenant-a" : ClientIds.Runtime);
+        }
+        finally
+        {
+            accessor.Current = null;
+        }
+
+        options = new JwtValidationOptions();
+        _ = await Assert.That(await validator.AuthorizeAsync(identity!, request, cancellationToken)).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(connection.CloseRequested.IsCancellationRequested).IsTrue();
     }
 
     private static async Task<bool> AdmitAfterLookupAsync(int change, CancellationToken cancellationToken)

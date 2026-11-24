@@ -63,7 +63,11 @@ internal sealed class RoutedCacheOperations<T>
             request.Key,
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.GetDistributedAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter.AccessDistributedLocalAsync(string.Empty, s.Request.CacheName, s.Request.Key, false, ct),
+            static async (s, ct) =>
+            {
+                var payload = await s.Adapter.AccessDistributedLocalAsync(string.Empty, s.Request.CacheName, s.Request.Key, false, ct).ConfigureAwait(false);
+                return payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = bytes } : new GetDistributedAsyncResponse();
+            },
             cancellationToken);
 
         internal Task<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -102,7 +106,7 @@ internal sealed class RoutedCacheOperations<T>
             },
             cancellationToken);
 
-        private Task<GetDistributedAsyncResponse> AccessDistributedLocalAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+        private ValueTask<ReadOnlyMemory<byte>?> AccessDistributedLocalAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
         {
             var cache = SquirixServiceAdapterValidation.RequireCacheName(cacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(key, _keyValidation);
