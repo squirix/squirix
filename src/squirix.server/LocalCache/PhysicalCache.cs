@@ -185,6 +185,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
+            _store.AdvanceGrowthLocked();
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
@@ -220,6 +221,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
+            _store.AdvanceGrowthLocked();
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
@@ -249,6 +251,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         var measuredValue = _footprint.MeasureValue(value);
         lock (_lock)
         {
+            _store.AdvanceGrowthLocked();
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
@@ -320,6 +323,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
     private bool RemoveLocked(CacheKey key)
     {
+        _store.AdvanceGrowthLocked();
         if (!_store.RemoveLocked(key, out var node))
             return false;
 
@@ -401,6 +405,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
     private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
     {
+        _store.AdvanceGrowthLocked();
         _ = _store.TryGetLocked(key, out var node);
         if (node != null && insertOnly && IsExpired(node.ExpiresUtc))
         {
@@ -729,8 +734,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// link before a node past it and leaves the link of the removed node as it was, so a reader standing on the removed node still reaches the rest
     /// of the bucket. A search without the lock therefore finds every node stored for the whole search, and any node it finds was stored at some point
     /// during the search.</para>
-    /// <para>Growing relinks every stored node into a bucket array twice as large, which may lead a reader on the old array to a bucket of the new one
-    /// and miss its key. Growing keeps <see cref="_resizes" /> odd while it relinks, so a search that missed while the count was odd or changed reports
+    /// <para>Growing moves nodes incrementally from the previous table to the current one. A node may move between the two probes of a reader.
+    /// Each transfer keeps <see cref="_resizes" /> odd while it relinks, so a search that missed while the count was odd or changed reports
     /// <see cref="ReadOutcome.Unsure" />. A hit needs no such check: there is at most one node per key. Links move only to nodes relinked before, so a
     /// reader never walks a cycle.</para>
     /// <para>An insert-only write that replaces an entry past its deadline removes the old node and adds a new one in one lock hold, so a non-live
@@ -752,7 +757,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <summary>The share of buckets kept free, as a right shift of the bucket count: a quarter, so the store grows at three nodes per four buckets.</summary>
         private const int FreeBucketShift = 2;
 
-        private Node?[] _buckets = new Node?[InitialBucketCount];
+        private const int TransferBudget = 8;
+        private BucketTable _table = new(InitialBucketCount);
+        private BucketTable? _previous;
+        private int _cursor;
         private int _resizes;
 
         /// <summary>Gets the number of stored nodes; read under the cache lock.</summary>
@@ -760,16 +768,20 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         /// <summary>Gets an enumerator over the stored nodes; use under the cache lock.</summary>
         /// <returns>The enumerator.</returns>
-        internal Enumerator GetEnumerator() => new(_buckets);
+        internal Enumerator GetEnumerator() => new(_table, _previous, _cursor);
 
         /// <summary>Links a node whose key is not stored; call under the cache lock.</summary>
         /// <param name="node">The node.</param>
         internal void AddLocked(Node node)
         {
-            if (Count >= GrowThreshold(_buckets.Length))
-                Grow();
+            if (Count >= GrowThreshold(_table.Length) && _previous == null && _table.Length < 1 << 30)
+            {
+                var grown = new BucketTable(_table.Length * 2);
+                Volatile.Write(ref _previous, _table);
+                Volatile.Write(ref _table, grown);
+            }
 
-            ref var head = ref _buckets[IndexOf(node.Hash, _buckets.Length)];
+            ref var head = ref _table.WritableBucket(_table.IndexOf(node.Hash));
             node.Next = head;
             Volatile.Write(ref head, node);
             Count++;
@@ -813,69 +825,110 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal bool RemoveLocked(CacheKey key, [NotNullWhen(true)] out Node? node)
         {
             var hash = key.GetHashCode();
-            ref var link = ref _buckets[IndexOf(hash, _buckets.Length)];
-            while ((node = link) != null)
-            {
-                if (node.Hash == hash && node.Key.Equals(key))
-                {
-                    Volatile.Write(ref link, node.Next);
-                    Count--;
-                    return true;
-                }
+            if (!Unlink(_table, key, hash, null, out node) &&
+                !(_previous is { } previous && Unlink(previous, key, hash, null, out node)))
+                return false;
 
-                link = ref node.Next;
-            }
-
-            return false;
+            Count--;
+            return true;
         }
 
-        /// <summary>Unlinks a stored node; call under the cache lock.</summary>
-        /// <param name="node">The node, found in the store under the same lock hold.</param>
-        /// <exception cref="InvalidOperationException">Thrown when the node is not stored.</exception>
+        /// <summary>Unlinks the exact stored node under the cache lock.</summary>
+        /// <param name="node">The stored node.</param>
+        /// <exception cref="InvalidOperationException">The node has already left the store.</exception>
         internal void RemoveLocked(Node node)
         {
-            ref var link = ref _buckets[IndexOf(node.Hash, _buckets.Length)];
-            while (link is { } current)
-            {
-                if (ReferenceEquals(current, node))
-                {
-                    Volatile.Write(ref link, node.Next);
-                    Count--;
-                    return;
-                }
+            if (!Unlink(_table, node.Key, node.Hash, node, out _) &&
+                !(_previous is { } previous && Unlink(previous, node.Key, node.Hash, node, out _)))
+                throw new InvalidOperationException("The node is not stored.");
 
-                link = ref current.Next;
-            }
-
-            throw new InvalidOperationException("The node is not stored.");
+            Count--;
         }
 
-        /// <summary>Finds the node of a key; call under the cache lock.</summary>
-        /// <param name="key">The key.</param>
-        /// <param name="node">The node found.</param>
-        /// <returns><see langword="true" /> when the key is stored.</returns>
+        /// <summary>Finds the node in either generation under the cache lock.</summary>
+        /// <param name="key">The requested key.</param>
+        /// <param name="node">The matching stored node, if present.</param>
+        /// <returns>Whether the key is stored.</returns>
         internal bool TryGetLocked(CacheKey key, [NotNullWhen(true)] out Node? node)
         {
             var hash = key.GetHashCode();
-            for (node = _buckets[IndexOf(hash, _buckets.Length)]; node != null; node = node.Next)
+            node = Search(_table, key, hash);
+            if (node == null && _previous is { } previous)
+                node = Search(previous, key, hash);
+            return node != null;
+        }
+
+        /// <summary>Charges one unit per node moved or empty bucket passed, including a partially drained collision chain.</summary>
+        internal void AdvanceGrowthLocked()
+        {
+            var table = _table;
+            if (_previous is not { } previous)
+                return;
+
+            var resizing = Interlocked.Increment(ref _resizes);
+            try
             {
-                if (node.Hash == hash && node.Key.Equals(key))
-                    return true;
+                for (var work = 0; work < TransferBudget; work++)
+                {
+                    if (previous.Head(_cursor) is { } node)
+                    {
+                        // Obtain the destination page before unlinking, so allocation failure leaves the node reachable.
+                        ref var destination = ref table.WritableBucket(table.IndexOf(node.Hash));
+                        Volatile.Write(ref previous.WritableBucket(_cursor), node.Next);
+                        Volatile.Write(ref node.Next, destination);
+                        Volatile.Write(ref destination, node);
+                    }
+                    else if (++_cursor == previous.Length)
+                    {
+                        Volatile.Write(ref _previous, null);
+                        _cursor = 0;
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref _resizes, resizing + 1);
+            }
+        }
+
+        private static bool Unlink(BucketTable table, CacheKey key, int hash, Node? expected, [NotNullWhen(true)] out Node? node)
+        {
+            var index = table.IndexOf(hash);
+            if (table.Page(index) is { } page)
+            {
+                ref var link = ref page[BucketTable.Offset(index)];
+                while ((node = link) != null)
+                {
+                    if (expected != null ? ReferenceEquals(expected, node) : node.Hash == hash && node.Key.Equals(key))
+                    {
+                        Volatile.Write(ref link, node.Next);
+                        return true;
+                    }
+
+                    link = ref node.Next;
+                }
             }
 
+            node = null;
             return false;
+        }
+
+        private static Node? Search(BucketTable table, CacheKey key, int hash)
+        {
+            for (var node = table.Head(table.IndexOf(hash)); node != null; node = Volatile.Read(ref node.Next))
+            {
+                if (node.Hash == hash && node.Key.Equals(key))
+                    return node;
+            }
+
+            return null;
         }
 
         /// <summary>Gets the node count at which the store grows: chains stay short, which keeps lookups under the lock cheap.</summary>
         /// <param name="bucketCount">The number of buckets.</param>
         /// <returns>Three quarters of <paramref name="bucketCount" />.</returns>
         private static int GrowThreshold(int bucketCount) => bucketCount - (bucketCount >> FreeBucketShift);
-
-        /// <summary>Gets the bucket of a hash: the top bits of its Fibonacci hash, as many as the power of two <paramref name="bucketCount" /> takes.</summary>
-        /// <param name="hash">The hash code.</param>
-        /// <param name="bucketCount">The number of buckets, a power of two.</param>
-        /// <returns>The bucket index.</returns>
-        private static int IndexOf(int hash, int bucketCount) => unchecked(hash * FibonacciMultiplier) >>> (HashBits - BitOperations.TrailingZeroCount(bucketCount));
 
         /// <summary>Searches for the node of a key without the cache lock.</summary>
         /// <param name="key">The key.</param>
@@ -888,59 +941,88 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         {
             var hash = key.GetHashCode();
             var resizes = Volatile.Read(ref _resizes);
-            var buckets = Volatile.Read(ref _buckets);
-            for (node = Volatile.Read(ref buckets[IndexOf(hash, buckets.Length)]); node != null; node = Volatile.Read(ref node.Next))
+            var table = Volatile.Read(ref _table);
+            node = Search(table, key, hash);
+            if (node == null && Volatile.Read(ref _previous) is { } previous)
+                node = Search(previous, key, hash);
+            if (node == null)
             {
-                if (node.Hash == hash && node.Key.Equals(key))
-                    return ReadOutcome.Present;
+                var stable = (resizes & 1) == 0 && Volatile.Read(ref _resizes) == resizes;
+                return stable ? ReadOutcome.Absent : ReadOutcome.Unsure;
             }
 
-            return (resizes & 1) == 0 && Volatile.Read(ref _resizes) == resizes ? ReadOutcome.Absent : ReadOutcome.Unsure;
+            return ReadOutcome.Present;
         }
 
-        /// <summary>Relinks every node into twice as many buckets; call under the cache lock.</summary>
-        private void Grow()
+        /// <summary>Keeps small indexes in one array and allocates pages on demand for larger indexes.</summary>
+        internal sealed class BucketTable
         {
-            var buckets = _buckets;
-            var grown = new Node?[buckets.Length * 2];
+            private const int PageBits = 13;
+            private const int PageSize = 1 << PageBits;
+            private readonly Node?[]?[] _pages;
+            private readonly Node?[]? _buckets;
+            private readonly int _hashShift;
 
-            // Odd while relinking; the full fence keeps every relinking write after the odd count.
-            var resizing = Interlocked.Increment(ref _resizes);
-            foreach (var head in buckets)
+            internal BucketTable(int length)
             {
-                var node = head;
-                while (node != null)
+                Length = length;
+                _hashShift = HashBits - BitOperations.TrailingZeroCount(length);
+                if (length <= PageSize)
                 {
-                    var next = node.Next;
-                    ref var slot = ref grown[IndexOf(node.Hash, grown.Length)];
-                    Volatile.Write(ref node.Next, slot);
-                    slot = node;
-                    node = next;
+                    _buckets = new Node?[length];
+                    _pages = [];
+                }
+                else
+                {
+                    _pages = new Node?[length >> PageBits][];
                 }
             }
 
-            Volatile.Write(ref _buckets, grown);
-            Volatile.Write(ref _resizes, resizing + 1);
+            internal int Length { get; }
+
+            internal static int Offset(int index) => index & (PageSize - 1);
+
+            internal int IndexOf(int hash) => unchecked(hash * FibonacciMultiplier) >>> _hashShift;
+
+            internal Node?[]? Page(int index) => _buckets ?? Volatile.Read(ref _pages[index >> PageBits]);
+
+            internal Node? Head(int index) => Page(index) is { } page ? Volatile.Read(ref page[Offset(index)]) : null;
+
+            internal ref Node? WritableBucket(int index)
+            {
+                if (_buckets != null)
+                    return ref _buckets[index];
+
+                ref var slot = ref _pages[index >> PageBits];
+                var page = slot;
+                if (page == null)
+                {
+                    page = new Node?[PageSize];
+                    Volatile.Write(ref slot, page);
+                }
+
+                return ref page[Offset(index)];
+            }
         }
 
-        /// <summary>Walks the stored nodes bucket by bucket; use under the cache lock.</summary>
+        /// <summary>Visits the active table and the undrained portion of its predecessor under the cache lock.</summary>
         internal sealed class Enumerator
         {
-            private readonly Node?[] _buckets;
+            private readonly int _previousStart;
+            private BucketTable _table;
+            private BucketTable? _remaining;
             private int _bucket;
             private Node? _current;
 
-            internal Enumerator(Node?[] buckets)
+            internal Enumerator(BucketTable table, BucketTable? previous, int previousStart)
             {
-                _buckets = buckets;
-                _bucket = -1;
+                _table = table;
+                _previousStart = previousStart;
+                _remaining = previous;
             }
 
-            /// <summary>Gets the current node.</summary>
             internal Node Current => _current!;
 
-            /// <summary>Moves to the next node.</summary>
-            /// <returns><see langword="false" /> when every node was visited.</returns>
             internal bool MoveNext()
             {
                 if (_current?.Next is { } next)
@@ -949,17 +1031,23 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     return true;
                 }
 
-                while (++_bucket < _buckets.Length)
+                while (true)
                 {
-                    if (_buckets[_bucket] is not { } head)
-                        continue;
+                    while (_bucket < _table.Length)
+                    {
+                        if (_table.Head(_bucket++) is { } head)
+                        {
+                            _current = head;
+                            return true;
+                        }
+                    }
 
-                    _current = head;
-                    return true;
+                    if (_remaining is not { } previous)
+                        return false;
+                    _table = previous;
+                    _remaining = null;
+                    _bucket = _previousStart;
                 }
-
-                _current = null;
-                return false;
             }
         }
     }
