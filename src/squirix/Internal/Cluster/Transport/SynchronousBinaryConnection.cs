@@ -232,7 +232,8 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         {
             ReadyReply.Publish(ready, ref count);
             ArrayPool<byte>.Shared.Return(buffer);
-            FinishLoop();
+            Dispose();
+            ReleaseUser();
         }
     }
 
@@ -322,14 +323,9 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
-            FinishLoop();
+            Dispose();
+            ReleaseUser();
         }
-    }
-
-    private void FinishLoop()
-    {
-        Dispose();
-        ReleaseUser();
     }
 
     [SuppressMessage("Usage", "MA0045", Justification = "The last blocking transport user owns synchronous cleanup.")]
