@@ -2064,6 +2064,14 @@ jobs:
                     fi
                     echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
 
+            # The Linux action invokes its analyzer through dotnet. Filter only that invocation.
+            -   name: Prepare NDepend Console Filter
+                run: |
+                    filter_dir="$(mktemp -d)"
+                    install -m 755 tools/ci/ndepend-console.sh "$filter_dir/dotnet"
+                    ln -s "$(command -v dotnet)" "$filter_dir/dotnet-original"
+                    echo "$filter_dir" >> "$GITHUB_PATH"
+
             -   name: Run NDepend Analysis
                 uses: ndepend/ndepend-action@be6c2e0830c672a6062cbfa00ac03c1c90d7eaa5 # v2 branch
                 with:
