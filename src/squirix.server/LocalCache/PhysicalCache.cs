@@ -824,7 +824,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         /// <summary>Gets an enumerator over the stored nodes; use under the cache lock.</summary>
         /// <returns>The enumerator.</returns>
-        internal Enumerator GetEnumerator() => new(this, _table, _previous, _cursor);
+        internal Enumerator GetEnumerator() => _slots.GetEnumerator();
 
         /// <summary>Links a node whose key is not stored; call under the cache lock.</summary>
         /// <param name="key">The key.</param>
@@ -1101,57 +1101,43 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             }
         }
 
-        /// <summary>Visits the active table and the undrained portion of its predecessor under the cache lock.</summary>
+        /// <summary>Visits occupied slots in page order under the cache lock, including while buckets are migrating.</summary>
         internal sealed class Enumerator
         {
-            private readonly Store _store;
-            private readonly int _previousStart;
-            private BucketTable _table;
-            private BucketTable? _remaining;
-            private int _bucket;
-            private int _slot;
+            private readonly SlotRecord[]?[] _pages;
+            private readonly int _pageCount;
+            private SlotRecord[]? _page;
+            private int _pageIndex = -1;
+            private int _offset;
 
-            internal Enumerator(Store store, BucketTable table, BucketTable? previous, int previousStart)
+            internal Enumerator(SlotRecord[]?[] pages, int pageCount)
             {
-                _store = store;
-                _table = table;
-                _previousStart = previousStart;
-                _remaining = previous;
+                _pages = pages;
+                _pageCount = pageCount;
             }
 
-            internal Node Current
-            {
-                get
-                {
-                    var page = _store._slots.PageFor(_slot);
-                    return new Node(page, _slot, page[SlotOffset(_slot)].Lifetime);
-                }
-            }
+            internal Node Current { get; private set; }
 
             internal bool MoveNext()
             {
-                if (_slot != 0)
-                {
-                    var page = _store._slots.PageFor(_slot);
-                    _slot = page[SlotOffset(_slot)].Next;
-                    if (_slot != 0)
-                        return true;
-                }
-
                 while (true)
                 {
-                    while (_bucket < _table.Length)
+                    while (_page != null && _offset < _page.Length)
                     {
-                        _slot = _table.Head(_bucket++);
-                        if (_slot != 0)
+                        var offset = _offset++;
+                        var identity = _page[offset].Lifetime;
+                        if (identity > 0)
+                        {
+                            Current = new Node(_page, (_pageIndex * SlotsPerPage) + offset + 1, identity);
                             return true;
+                        }
                     }
 
-                    if (_remaining is not { } previous)
+                    if (++_pageIndex >= _pageCount)
                         return false;
-                    _table = previous;
-                    _remaining = null;
-                    _bucket = _previousStart;
+
+                    _page = _pages[_pageIndex];
+                    _offset = 0;
                 }
             }
         }
@@ -1165,6 +1151,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             private int _available = -1;
             private int _spare = -1;
             private long _lastIdentity;
+
+            internal Enumerator GetEnumerator() => new(_pages, _pageCount);
 
             internal SlotRecord[]? ReadPage(int slot) => Volatile.Read(ref Volatile.Read(ref _pages)[(slot - 1) >> SlotPageBits]);
 
