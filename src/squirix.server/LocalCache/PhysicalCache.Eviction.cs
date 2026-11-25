@@ -10,16 +10,19 @@ namespace Squirix.Server.LocalCache;
 internal sealed partial class PhysicalCache<T>
 {
     [ThreadSafe]
-    private sealed class BoundedNode : Node
+    private sealed class BoundedNode
     {
         private int _position;
         private long _stamp;
 
-        private BoundedNode(CacheKey key, NodeCacheEntry<T> entry, EvictionScope scope)
-            : base(key, entry.Value, entry.ExpiresUtc, entry.Version, entry.Tags)
+        private BoundedNode(EvictionScope scope)
         {
             Scope = scope;
         }
+
+        internal Node Occupant { get; private set; }
+
+        internal CacheKey Key => Occupant.Key;
 
         internal EvictionScope Scope { get; }
 
@@ -37,7 +40,7 @@ internal sealed partial class PhysicalCache<T>
 
         internal static (string Namespace, string Group) ScopeOf(PhysicalCache<T> owner, CacheKey key) => (owner._eviction.EvictOnMemoryPressure ? string.Empty : key.Namespace, owner._groupForKey?.Invoke(key) ?? string.Empty);
 
-        internal static BoundedNode? Create(PhysicalCache<T> owner, CacheKey key, NodeCacheEntry<T> entry)
+        internal static Node Create(PhysicalCache<T> owner, CacheKey key, NodeCacheEntry<T> entry)
         {
             var scopeKey = ScopeOf(owner, key);
             if (!owner._scopes!.TryGetValue(scopeKey, out var scope))
@@ -51,23 +54,33 @@ internal sealed partial class PhysicalCache<T>
             {
                 victim = scope.Victim();
                 if (victim == null)
-                    return null;
+                    return default;
             }
 
-            var node = new BoundedNode(key, entry, scope);
+            var node = new BoundedNode(scope);
             scope.Add(node);
+            try
+            {
+                node.Occupant = owner._store.AddLocked(key, entry, node);
+            }
+            catch
+            {
+                scope.Remove(node);
+                throw;
+            }
+
             if (victim != null)
             {
-                owner._store.RemoveLocked(victim);
-                owner.UntrackLocked(victim);
+                owner._store.RemoveLocked(victim.Occupant);
+                owner.UntrackLocked(victim.Occupant);
             }
 
-            return node;
+            return node.Occupant;
         }
 
         internal static void RecordAccess(Node node)
         {
-            if (node is BoundedNode bounded)
+            if (node.Policy is { } bounded && node.IsStored)
                 bounded.Scope.Touch(bounded);
         }
 

@@ -37,7 +37,7 @@ internal static class EntryMemoryMeasurement
 
         MeasurementOutput.Table(
             "Managed heap per stored entry (bytes)",
-            "| deadline | heap growth | estimate |",
+            "| deadline | heap growth | estimate | retained after 90% removal (bytes/original entry) |",
             rows);
     }
 
@@ -67,8 +67,15 @@ internal static class EntryMemoryMeasurement
         var growth = (HeapAfterFullCollection() - before) / entryCount;
         ILocalCacheStats stats = cache;
         var estimate = stats.EstimatedBytes / entryCount;
+        var remaining = entries / 10;
+        for (var i = remaining; i < entries; i++)
+            cache.Remove(keys[i], CancellationToken.None);
+        if (stats.EntryCount != remaining)
+            throw new InvalidOperationException("Removal did not leave the expected number of entries.");
+
+        var retained = (HeapAfterFullCollection() - before) / entryCount;
         GC.KeepAlive(cache);
         GC.KeepAlive(keys);
-        return $"| {(withDeadline ? "yes" : "no")} | {MeasurementOutput.Fixed2(growth)} | {MeasurementOutput.Fixed2(estimate)} |";
+        return $"| {(withDeadline ? "yes" : "no")} | {MeasurementOutput.Fixed2(growth)} | {MeasurementOutput.Fixed2(estimate)} | {MeasurementOutput.Fixed2(retained)} |";
     }
 }

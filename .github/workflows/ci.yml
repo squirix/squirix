@@ -1161,6 +1161,23 @@ jobs:
                 if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
                 run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json "$BDN_ARTIFACTS/server"
 
+            -   name: Check Physical Cache Table
+                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                timeout-minutes: 2
+                shell: bash
+                run: |
+                    set -o pipefail
+                    project=benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj
+                    results="$BDN_ARTIFACTS/physical-table"
+                    mkdir -p "$results"
+                    dotnet run --project "$project" -c Release --no-build -- \
+                      --filter '*PhysicalCacheTableBenchmarks.*' --inProcess \
+                      --warmupCount 3 --iterationCount 5 --invocationCount 1 --unrollFactor 1 \
+                      --exporters json --artifacts "$results" > "$results/benchmark.log"
+                    dotnet run --project "$project" -c Release --no-build -- entry-memory --entries 32768 \
+                      | tee "$results/retained-memory.md" >> "$GITHUB_STEP_SUMMARY"
+                    python3 tools/ci/check-wire-alloc.py benchmarks/squirix.server.benchmarks/table-alloc-ci-baseline.json "$results"
+
             -   name: Upload Benchmark Artifacts
                 if: ${{ always() && steps.gate.outputs.guard == 'true' }}
                 uses: actions/upload-artifact@v7

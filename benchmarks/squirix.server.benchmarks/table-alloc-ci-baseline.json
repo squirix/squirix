@@ -1,0 +1,11 @@
+{
+  "title": "Physical cache table allocation guard",
+  "tolerance": 0,
+  "bytesPerOperation": {
+    "PhysicalCacheTableBenchmarks.InsertThroughGrowth": 114,
+    "PhysicalCacheTableBenchmarks.RemoveAndRefill": 0,
+    "PhysicalCacheTableBenchmarks.OverwriteDuringGrowth": 2,
+    "PhysicalCacheTableBenchmarks.OverwriteAfterGrowth": 2
+  },
+  "measurement": "Three local Ubuntu WSL2 x64 runs on .NET 10 measured 112 B/insert, 0 B/remove-and-refill pair and 0–1 B/overwrite. The nonzero ceilings include rounding and in-process harness overhead."
+}

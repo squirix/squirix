@@ -220,6 +220,36 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
         _ = await Assert.That((skipped, before, after)).IsEqualTo((0, 0, 1));
     }
 
+    /// <summary>A deadline held for an old occupant cannot expire or list its replacement twice.</summary>
+    /// <param name="sameKey">Whether the replacement reuses the same key.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task OldDeadlineCannotClaimReusedSlot(bool sameKey, CancellationToken cancellationToken)
+    {
+        var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
+        var replacement = sameKey ? "old" : "new";
+        var ttl = TimeSpan.FromSeconds(10);
+        Set(cache, "old", ttl, cancellationToken);
+        _ = cache.Remove(CacheKey.Default("old"), cancellationToken);
+        Set(cache, replacement, ttl, cancellationToken);
+        clock.Advance(ttl);
+        var due = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true);
+        _ = await Assert.That(due.Count).IsEqualTo(1);
+        _ = await Assert.That(due[0]).IsEqualTo(CacheKey.Default(replacement));
+
+        var (local, localClock) = Create(CacheExpiryAuthority.LocalClock);
+        Set(local, "old", ttl, cancellationToken);
+        _ = local.Remove(CacheKey.Default("old"), cancellationToken);
+        Set(local, replacement, ttl + ttl, cancellationToken);
+        localClock.Advance(ttl);
+        _ = await Assert.That(local.ExpiredKeys.RemoveExpired()).IsEqualTo(0);
+        _ = await Assert.That(local.GetValue(CacheKey.Default(replacement), cancellationToken).Found).IsTrue();
+        localClock.Advance(ttl);
+        _ = await Assert.That(local.ExpiredKeys.RemoveExpired()).IsEqualTo(1);
+    }
+
     private static (PhysicalCache<object?> Cache, FakeTimeProvider Clock) Create(CacheExpiryAuthority expiry, CacheEntrySizeEstimator<object?>? estimator = null)
     {
         var clock = new FakeTimeProvider(Start);
