@@ -52,6 +52,7 @@ internal sealed partial class PhysicalCache<T>
 
                 if (renewTo is { } deadline)
                 {
+                    _owner._store.AdvanceGrowthLocked();
                     var previous = node.ExpiresUtc;
                     node.WriteExpiresUtc(deadline);
                     _owner._deadlines.MovedLocked(node, previous);
