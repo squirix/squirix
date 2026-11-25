@@ -188,15 +188,28 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         {
             while (!stopping.IsCancellationRequested)
             {
-                using var client = await _listener.AcceptTcpClientAsync(stopping).ConfigureAwait(false);
-                var stream = client.GetStream();
+                TcpClient client;
                 try
                 {
-                    await ReplyAsync(stream, discovery, jwks, stopping).ConfigureAwait(false);
+                    client = await _listener.AcceptTcpClientAsync(stopping).ConfigureAwait(false);
                 }
-                catch (IOException)
+                catch (SocketException ex) when (stopping.IsCancellationRequested && ex.SocketErrorCode == SocketError.OperationAborted)
                 {
-                    // The HTTP client may abandon a metadata request while the fixture is writing its reply.
+                    // Windows can report a canceled accept as an aborted socket operation.
+                    return;
+                }
+
+                using (client)
+                {
+                    var stream = client.GetStream();
+                    try
+                    {
+                        await ReplyAsync(stream, discovery, jwks, stopping).ConfigureAwait(false);
+                    }
+                    catch (IOException)
+                    {
+                        // The HTTP client may abandon a metadata request while the fixture is writing its reply.
+                    }
                 }
             }
         }
