@@ -23,16 +23,18 @@ internal static class EntryMemoryMeasurement
     private static ReadOnlySpan<bool> DeadlineModes => [false, true];
 
     /// <summary>Runs a warmup round and a measured round per deadline mode and prints a Markdown table.</summary>
-    /// <param name="args">Options: --entries the number of entries per round.</param>
+    /// <param name="args">Options: --entries sets the population; --max-retained-percent caps post-removal storage relative to the populated heap.</param>
     internal static void Run(string[] args)
     {
-        var entries = MeasurementArgs.Parse(args).GetInt("--entries", DefaultEntries);
+        var options = MeasurementArgs.Parse(args);
+        var entries = options.GetInt("--entries", DefaultEntries);
+        var limit = options.GetInt("--max-retained-percent", 0);
         MeasurementOutput.Line($"Entry memory measurement: entries={entries.ToString(CultureInfo.InvariantCulture)}");
         var rows = new List<string>();
         foreach (var withDeadline in DeadlineModes)
         {
             _ = Measure(entries, withDeadline);
-            rows.Add(Measure(entries, withDeadline));
+            rows.Add(Measure(entries, withDeadline, limit));
         }
 
         MeasurementOutput.Table(
@@ -48,8 +50,11 @@ internal static class EntryMemoryMeasurement
         GC.GetTotalMemory(true);
 #pragma warning restore S1215
 
-    private static string Measure(int entries, bool withDeadline)
+    private static string Measure(int entries, bool withDeadline, int limit = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(entries);
+        ArgumentOutOfRangeException.ThrowIfNegative(limit);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, 100);
         var keys = new CacheKey[entries];
         for (var i = 0; i < entries; i++)
             keys[i] = CacheKey.Default("k" + i.ToString("D7", CultureInfo.InvariantCulture));
@@ -74,6 +79,8 @@ internal static class EntryMemoryMeasurement
             throw new InvalidOperationException("Removal did not leave the expected number of entries.");
 
         var retained = (HeapAfterFullCollection() - before) / entryCount;
+        if (limit > 0 && (growth <= 0 || retained > growth * limit / 100))
+            throw new InvalidOperationException($"Retained {retained:F2} of {growth:F2} bytes per original entry (TTL={withDeadline}, limit={limit}%).");
         GC.KeepAlive(cache);
         GC.KeepAlive(keys);
         return $"| {(withDeadline ? "yes" : "no")} | {MeasurementOutput.Fixed2(growth)} | {MeasurementOutput.Fixed2(estimate)} | {MeasurementOutput.Fixed2(retained)} |";

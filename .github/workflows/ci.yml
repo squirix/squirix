@@ -1174,7 +1174,7 @@ jobs:
                       --filter '*PhysicalCacheTableBenchmarks.*' --inProcess \
                       --warmupCount 3 --iterationCount 5 --invocationCount 1 --unrollFactor 1 \
                       --exporters json --artifacts "$results" > "$results/benchmark.log"
-                    dotnet run --project "$project" -c Release --no-build -- entry-memory --entries 32768 \
+                    dotnet run --project "$project" -c Release --no-build -- entry-memory --entries 32768 --max-retained-percent 50 \
                       | tee "$results/retained-memory.md" >> "$GITHUB_STEP_SUMMARY"
                     python3 tools/ci/check-wire-alloc.py benchmarks/squirix.server.benchmarks/table-alloc-ci-baseline.json "$results"
 

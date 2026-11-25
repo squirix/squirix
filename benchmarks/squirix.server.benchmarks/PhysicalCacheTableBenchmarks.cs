@@ -22,7 +22,7 @@ public class PhysicalCacheTableBenchmarks
     private PhysicalCache<string> _cache = CreateCache();
 
     /// <summary>Prepares disjoint sets of short and long keys outside the timed region.</summary>
-    [GlobalSetup(Targets = new[] { nameof(InsertThroughGrowth), nameof(RemoveAndRefill) })]
+    [GlobalSetup(Targets = new[] { nameof(InsertThroughGrowth), nameof(RemoveAndRefill), nameof(ReplaceOneAtATime) })]
     public void PrepareKeys()
     {
         for (var i = 0; i < _keys.Length; i++)
@@ -43,7 +43,7 @@ public class PhysicalCacheTableBenchmarks
     }
 
     /// <summary>Starts each remove/refill batch with the original keys present.</summary>
-    [IterationSetup(Target = nameof(RemoveAndRefill))]
+    [IterationSetup(Targets = new[] { nameof(RemoveAndRefill), nameof(ReplaceOneAtATime) })]
     public void PrepareRemoval() => Populate(KeyCount);
 
     /// <summary>Positions the current incremental table partway through a resize.</summary>
@@ -80,6 +80,21 @@ public class PhysicalCacheTableBenchmarks
 
         for (var i = KeyCount; i < _keys.Length; i++)
             _cache.Set(_keys[i], _replacement, CancellationToken.None, 8);
+        VerifyEntries(KeyCount, _keys[^1], _replacement);
+    }
+
+    /// <summary>Replaces distinct keys one at a time with a steady live count. Each pair can reuse the slot it just freed.</summary>
+    /// <exception cref="InvalidOperationException">An original key was missing.</exception>
+    [Benchmark(OperationsPerInvoke = KeyCount)]
+    public void ReplaceOneAtATime()
+    {
+        for (var i = 0; i < KeyCount; i++)
+        {
+            if (!_cache.Remove(_keys[i], CancellationToken.None))
+                throw new InvalidOperationException("An original key was missing.");
+            _cache.Set(_keys[KeyCount + i], _replacement, CancellationToken.None, 8);
+        }
+
         VerifyEntries(KeyCount, _keys[^1], _replacement);
     }
 

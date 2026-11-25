@@ -36,20 +36,21 @@ A zero-byte budget permits no allocation.
 
 ## Physical cache table on pull requests
 
-The allocation guard also runs four direct, single-writer `PhysicalCache<string>` cases in the existing server benchmark host. Keys and the two eight-byte values are prepared before timing. Keys alternate between 8 and 64 characters. Each timed batch checks the final entry count and a stored value.
+The allocation guard also runs five direct, single-writer `PhysicalCache<string>` cases in the existing server benchmark host. Keys and the two eight-byte values are prepared before timing. Keys alternate between 8 and 64 characters. Each timed batch checks the final entry count and a stored value.
 
 | Case | Work per invocation |
 | --- | --- |
 | `InsertThroughGrowth` | Grow an empty cache to 32,768 distinct keys. The allocation unit is one insert. |
 | `RemoveAndRefill` | Remove all 32,768 keys, then insert 32,768 different keys in the same cache. The unit is one remove/insert pair. |
+| `ReplaceOneAtATime` | Remove one key and immediately insert a different key, repeating 32,768 times. The zero-byte budget guards reuse at constant occupancy. |
 | `OverwriteDuringGrowth` | Populate 25,088 keys, then time 4,096 overwrites of one key with alternating values. With the current growth policy the batch falls inside migration. |
 | `OverwriteAfterGrowth` | Start from the same population and finish migration with untimed overwrites. Time the identical batch. |
 
-The two overwrite cases warm the write path before iteration setup. CI uses one invocation per iteration so every measured batch starts in its specified state. The four allocation ceilings live in [table-alloc-ci-baseline.json](squirix.server.benchmarks/table-alloc-ci-baseline.json). Missing allocation results and excess bytes fail the job. BenchmarkDotNet timings are available as artifacts. Shared-runner timings carry no nanosecond pass/fail threshold.
+The two overwrite cases warm the write path before iteration setup. CI uses one invocation per iteration so every measured batch starts in its specified state. The five allocation ceilings live in [table-alloc-ci-baseline.json](squirix.server.benchmarks/table-alloc-ci-baseline.json). Missing allocation results and excess bytes fail the job. BenchmarkDotNet timings are available as artifacts. Shared-runner timings carry no nanosecond pass/fail threshold.
 
-The same step runs `entry-memory --entries 32768`. Its final column measures retained managed storage after removing 90% of the entries, in bytes per **original** key. The fixture keeps the prebuilt keys and shared value alive across both full collections to isolate storage. Rows distinguish entries with and without deadlines. This column is reported for comparison while the page-release policy evolves.
+The same step runs `entry-memory --entries 32768 --max-retained-percent 50`. Its final column measures retained managed storage after removing 90% of the entries, in bytes per **original** key. The fixture keeps the prebuilt keys and shared value alive across both full collections to isolate storage. Rows distinguish entries with and without deadlines. The last 90% of keys are removed in insertion order, emptying whole storage pages. Each row must retain at most half its populated heap growth. Scattered survivors can keep more pages live.
 
-On Ubuntu WSL2 x64 the four benchmark cases and the retained-memory probe took under three seconds combined after build. The largest measurement process used approximately 102 MiB peak RSS. PRs use the already built server benchmark project. Multi-second GC stalls on hundreds of millions of keys still require the separate capacity workload.
+On Ubuntu WSL2 x64 the five benchmark cases and the retained-memory probe took under four seconds combined after build. The largest measurement process used approximately 104 MiB peak RSS. PRs use the already built server benchmark project. Multi-second GC stalls on hundreds of millions of keys still require the separate capacity workload.
 
 ## Same-runner source comparison
 
