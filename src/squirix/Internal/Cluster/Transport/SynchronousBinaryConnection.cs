@@ -222,18 +222,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         var count = 0;
         try
         {
-            while (IsAvailable)
-            {
-                var read = _tls.Read(buffer);
-                if (read == 0)
-                    break;
-
-                var bytes = buffer.AsSpan(0, read);
-                while (!bytes.IsEmpty)
-                    ReadOneReply(ref bytes, buffer, ready, ref count);
-
-                ReadyReply.Publish(ready, ref count);
-            }
+            ReadReplies(buffer, ready, ref count);
         }
         catch (Exception error) when (error is IOException or ObjectDisposedException or SocketException or InvalidDataException)
         {
@@ -244,6 +233,22 @@ internal sealed class SynchronousBinaryConnection : IDisposable
             ReadyReply.Publish(ready, ref count);
             ArrayPool<byte>.Shared.Return(buffer);
             FinishLoop();
+        }
+    }
+
+    private void ReadReplies(byte[] buffer, ReadyReply[] ready, ref int count)
+    {
+        while (IsAvailable)
+        {
+            var read = _tls.Read(buffer);
+            if (read == 0)
+                break;
+
+            var bytes = buffer.AsSpan(0, read);
+            while (!bytes.IsEmpty)
+                ReadOneReply(ref bytes, buffer, ready, ref count);
+
+            ReadyReply.Publish(ready, ref count);
         }
     }
 
