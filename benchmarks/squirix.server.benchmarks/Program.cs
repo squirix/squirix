@@ -39,6 +39,12 @@ internal static class Program
             return;
         }
 
+        if (args is ["compact-pages", "rewrite", "text" or "binary"])
+        {
+            CompactPageMeasurement.MeasureOverwrites(string.Equals(args[2], "binary", StringComparison.Ordinal));
+            return;
+        }
+
         if (args is ["compact-pages", "current" or "prototype"] or ["compact-pages", "current" or "prototype", "binary"])
         {
             CompactPageMeasurement.Run(string.Equals(args[1], "prototype", StringComparison.Ordinal), args.Length == 3);

@@ -64,6 +64,36 @@ internal static class CompactPageMeasurement
         GC.KeepAlive(store);
     }
 
+    internal static void MeasureOverwrites(bool binary)
+    {
+        var order = BuildOrder();
+        var empty = Live();
+        var store = new Subject(false, binary);
+        for (var i = 0; i < Keys; i++)
+            Insert(store, i);
+        Report("filled", empty, Keys);
+
+        for (var pass = 1; pass <= 2; pass++)
+        {
+            var start = Stopwatch.GetTimestamp();
+            var allocated = GC.GetAllocatedBytesForCurrentThread();
+            foreach (var id in order)
+            {
+                var value = Key(id ^ pass);
+                store.Set(Key(id), binary ? StoredValue.FromBinary(Encoding.ASCII.GetBytes(value)) : StoredValue.FromText(value));
+            }
+
+            allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+            Print("overwrite", $"pass={pass} ops={Keys} seconds={Stopwatch.GetElapsedTime(start).TotalSeconds:F6} allocatedPerSet={double.CreateChecked(allocated) / Keys:F2}");
+            Report("updated", empty, Keys);
+            foreach (var id in order)
+                Verify(store, Key(id), id ^ pass, true);
+        }
+
+        GC.KeepAlive(order);
+        GC.KeepAlive(store);
+    }
+
     private static int[] BuildOrder()
     {
         var order = new int[Keys];
