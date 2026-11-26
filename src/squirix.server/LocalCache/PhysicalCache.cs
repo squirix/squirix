@@ -470,46 +470,29 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// </remarks>
     private struct Cell
     {
-        internal BoundedNode? Policy;
-
         private CacheKey _key;
-        private long _expires;
         private int _sequence;
-        private FrozenDictionary<string, string>? _tags;
         private T? _value;
         private long _version;
 
         /// <summary>Initializes a new instance of the <see cref="Cell" /> struct.</summary>
         /// <param name="key">The key the entry is stored under.</param>
         /// <param name="value">The cached value.</param>
-        /// <param name="expiresUtc">The expiration time.</param>
         /// <param name="version">The version.</param>
-        /// <param name="tags">The tags.</param>
-        internal Cell(CacheKey key, T? value, DateTime? expiresUtc, long version, FrozenDictionary<string, string>? tags)
+        internal Cell(CacheKey key, T? value, long version)
         {
             _key = key;
             _value = value;
-            _expires = EntryDeadline.Encode(expiresUtc);
             _version = version;
-            _tags = tags;
         }
 
         /// <summary>Gets or sets the estimated bytes recorded for this entry; zero once it left the store.</summary>
         internal long Bytes { get; set; }
 
-        /// <summary>Gets the deadline; read under the cache lock.</summary>
-        internal readonly DateTime? ExpiresUtc => EntryDeadline.Decode(_expires);
-
-        /// <summary>Gets or sets the generation of the canonical item: another item of this entry with the same deadline is stale unless it carries this generation.</summary>
-        internal int IndexedGeneration { get; set; }
-
         /// <summary>Gets the key the entry is stored under.</summary>
         internal readonly CacheKey Key => !IsPacked(_value) ? _key : new CacheKey(_key.Namespace, PackedSlotPage.KeyText(_value));
 
         internal readonly T? RawValue => _value;
-
-        /// <summary>Gets the tags; read under the cache lock.</summary>
-        internal readonly FrozenDictionary<string, string>? Tags => _tags;
 
         /// <summary>Gets the value; read under the cache lock.</summary>
         internal readonly T? Value => PackedSlotPage.Unpack(_value);
@@ -544,24 +527,25 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var odd = BeginWrite();
             _key = default;
             StoreValue(default);
-            Volatile.Write(ref _tags, null);
             EndWrite(odd);
         }
 
         /// <summary>Reads the fields under the cache lock.</summary>
         /// <returns>The fields.</returns>
-        internal readonly EntryRead ReadLocked() => new(Value, _version, ExpiresUtc, _tags);
+        /// <param name="node">The slot holding optional metadata.</param>
+        internal readonly EntryRead ReadLocked(in Node node) => new(Value, _version, node.ExpiresUtc, node.Tags);
 
         /// <summary>Reads the fields without the cache lock, retrying while a write overlaps the read.</summary>
+        /// <param name="node">The slot whose optional fields participate in this read or write.</param>
         /// <param name="read">The fields of one write when the outcome is <see cref="ReadOutcome.Present" />.</param>
         /// <returns>
         /// <see cref="ReadOutcome.Present" /> when the snapshot is consistent, or <see cref="ReadOutcome.Unsure" />
         /// when writes kept overlapping the read and the caller must read under the cache lock.
         /// </returns>
-        internal ReadOutcome Read(out EntryRead read)
+        internal ReadOutcome Read(in Node node, out EntryRead read)
         {
             var spinner = default(SpinWait);
-            while (!TryReadOnce(out read))
+            while (!TryReadOnce(in node, out read))
             {
                 if (spinner.NextSpinWillYield)
                     return ReadOutcome.Unsure;
@@ -573,28 +557,30 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
 
         /// <summary>Replaces what a read returns in one write; call under the cache lock.</summary>
+        /// <param name="node">The slot whose optional fields participate in this read or write.</param>
         /// <param name="key">The storage key representation for this value.</param>
         /// <param name="value">The cached value.</param>
         /// <param name="version">The version.</param>
         /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
         /// <param name="tags">The tags.</param>
-        internal void Write(CacheKey key, T? value, long version, DateTime? expiresUtc, FrozenDictionary<string, string>? tags)
+        internal void Write(in Node node, CacheKey key, T? value, long version, DateTime? expiresUtc, FrozenDictionary<string, string>? tags)
         {
             var odd = BeginWrite();
             _key = key;
             StoreValue(value);
             Volatile.Write(ref _version, version);
-            Volatile.Write(ref _expires, EntryDeadline.Encode(expiresUtc));
-            Volatile.Write(ref _tags, tags);
+            node.SetDeadline(expiresUtc);
+            node.SetTags(tags);
             EndWrite(odd);
         }
 
         /// <summary>Replaces the deadline; call under the cache lock.</summary>
+        /// <param name="node">The slot whose optional fields participate in this read or write.</param>
         /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
-        internal void WriteExpiresUtc(DateTime? expiresUtc)
+        internal void WriteExpiresUtc(in Node node, DateTime? expiresUtc)
         {
             var odd = BeginWrite();
-            Volatile.Write(ref _expires, EntryDeadline.Encode(expiresUtc));
+            node.SetDeadline(expiresUtc);
             EndWrite(odd);
         }
 
@@ -639,10 +625,11 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         private void EndWrite(int odd) => Volatile.Write(ref _sequence, odd + 1);
 
         /// <summary>Reads the fields once: the sequence, the fields and the sequence again.</summary>
+        /// <param name="node">The slot whose optional fields participate in this read or write.</param>
         /// <param name="read">The fields of one write, or the default when the read must be retried.</param>
         /// <returns><see langword="false" /> when a write overlapped the read.</returns>
         /// <remarks>Each read is an acquire read, so none moves past the next; a value-type value is read plainly and fenced before the second sequence read.</remarks>
-        private bool TryReadOnce(out EntryRead read)
+        private bool TryReadOnce(in Node node, out EntryRead read)
         {
             read = default;
             var sequence = Volatile.Read(ref _sequence);
@@ -651,15 +638,15 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
             var value = ReadValue();
             var version = Volatile.Read(ref _version);
-            var expires = Volatile.Read(ref _expires);
-            var tags = Volatile.Read(ref _tags);
+            var expires = node.ExpiresUtc;
+            var tags = node.Tags;
             if (typeof(T).IsValueType)
                 Interlocked.MemoryBarrier();
 
             if (Volatile.Read(ref _sequence) != sequence)
                 return false;
 
-            read = new EntryRead(value, version, EntryDeadline.Decode(expires), tags);
+            read = new EntryRead(value, version, expires, tags);
 
             return true;
         }
@@ -701,9 +688,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// <summary>Identifies one occupant of a page position, including after the position is recycled.</summary>
     private readonly struct Node
     {
-        private readonly SlotRecord[] _cells;
+        private readonly SlotPage _cells;
 
-        internal Node(SlotRecord[] cells, int slot, long identity)
+        internal Node(SlotPage cells, int slot, long identity)
         {
             _cells = cells;
             Identity = identity;
@@ -720,7 +707,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal CacheKey Key => Entry.Key;
 
-        internal BoundedNode? Policy => Volatile.Read(ref Entry.Policy);
+        internal BoundedNode? Policy => _cells.Policy(Offset);
 
         internal int Hash => Record.Hash;
 
@@ -732,27 +719,29 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal int IndexedGeneration
         {
-            get => Entry.IndexedGeneration;
-            set => Entry.IndexedGeneration = value;
+            get => _cells.Generation(Offset);
+            set => _cells.SetGeneration(Offset, value);
         }
 
-        internal DateTime? ExpiresUtc => Entry.ExpiresUtc;
+        internal DateTime? ExpiresUtc => _cells.Deadline(Offset);
 
         internal T? Value => Entry.Value;
 
         internal long Version => Entry.Version;
 
-        internal FrozenDictionary<string, string>? Tags => Entry.Tags;
+        internal FrozenDictionary<string, string>? Tags => _cells.Tags(Offset);
 
-        private ref SlotRecord Record => ref _cells[Store.SlotOffset(Slot)];
+        private int Offset => Store.SlotOffset(Slot);
+
+        private ref SlotRecord Record => ref _cells[Offset];
 
         private ref Cell Entry => ref Record.Entry;
 
-        internal EntryRead ReadLocked() => Entry.ReadLocked();
+        internal EntryRead ReadLocked() => Entry.ReadLocked(in this);
 
         internal ReadOutcome Read(out EntryRead read)
         {
-            var result = Entry.Read(out read);
+            var result = Entry.Read(in this, out read);
             if (!IsStored)
                 return ReadOutcome.Unsure;
             if (PackedSlotPage.Typed && result == ReadOutcome.Present)
@@ -761,17 +750,21 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
 
         internal void Write(CacheKey key, T? value, long version, DateTime? expires, FrozenDictionary<string, string>? tags) =>
-            Entry.Write(key, value, version, expires, tags);
+            Entry.Write(in this, key, value, version, expires, tags);
 
         internal void WriteValue(CacheKey key, T? value) => Entry.WriteValue(key, value);
 
-        internal void WriteExpiresUtc(DateTime? expires) => Entry.WriteExpiresUtc(expires);
+        internal void WriteExpiresUtc(DateTime? expires) => Entry.WriteExpiresUtc(in this, expires);
+
+        internal void SetDeadline(DateTime? deadline) => _cells.SetDeadline(Offset, deadline);
+
+        internal void SetTags(FrozenDictionary<string, string>? tags) => _cells.SetTags(Offset, tags);
 
         internal void MarkRemoved()
         {
             _ = Interlocked.Exchange(ref Record.Lifetime, -Identity);
             Entry.MarkRemoved();
-            Volatile.Write(ref Entry.Policy, null);
+            _cells.Clear(Offset);
         }
     }
 
@@ -1164,13 +1157,13 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <summary>Visits occupied slots in page order under the cache lock, including while buckets are migrating.</summary>
         internal sealed class Enumerator
         {
-            private readonly SlotRecord[]?[] _pages;
+            private readonly SlotPage?[] _pages;
             private readonly int _pageCount;
-            private SlotRecord[]? _page;
+            private SlotPage? _page;
             private int _pageIndex = -1;
             private int _offset;
 
-            internal Enumerator(SlotRecord[]?[] pages, int pageCount)
+            internal Enumerator(SlotPage?[] pages, int pageCount)
             {
                 _pages = pages;
                 _pageCount = pageCount;
@@ -1206,7 +1199,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         private sealed class SlotMap
         {
             private const int DeadlineBlockSize = 64;
-            private SlotRecord[]?[] _pages = new SlotRecord[1][];
+            private SlotPage?[] _pages = new SlotPage[1];
             private PageSpace[] _space = new PageSpace[1];
             private int _pageCount;
             private int _available = -1;
@@ -1240,9 +1233,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 block[offset % DeadlineBlockSize] = deadline + 1;
             }
 
-            internal SlotRecord[]? ReadPage(int slot) => Volatile.Read(ref Volatile.Read(ref _pages)[(slot - 1) >> SlotPageBits]);
+            internal SlotPage? ReadPage(int slot) => Volatile.Read(ref Volatile.Read(ref _pages)[(slot - 1) >> SlotPageBits]);
 
-            internal SlotRecord[] PageFor(int slot) => ReadPage(slot)!;
+            internal SlotPage PageFor(int slot) => ReadPage(slot)!;
 
             internal T? Pack(int slot, ref CacheKey key, T? value)
             {
@@ -1250,7 +1243,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     return value;
                 var index = (slot - 1) >> SlotPageBits;
                 var packed = _space[index].Packed;
-                return packed != null ? packed.Pack(_pages[index]!, SlotOffset(slot), ref key, value) : value;
+                return packed != null ? packed.Pack(_pages[index]!.Records, SlotOffset(slot), ref key, value) : value;
             }
 
             internal Node Add(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy, int next, out int slot)
@@ -1263,7 +1256,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 var page = _pages[index];
                 if (page == null)
                 {
-                    page = new SlotRecord[index == 0 ? InitialBucketCount : SlotsPerPage];
+                    page = new SlotPage(index == 0 ? InitialBucketCount : SlotsPerPage);
                     Volatile.Write(ref _pages[index], page);
                 }
 
@@ -1272,7 +1265,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 var identity = checked(++_lastIdentity);
                 ref var record = ref page[offset];
                 if (PackedSlotPage.Typed && space.Packed == null && space.Used + 1 == page.Length)
-                    space.Packed = PackedSlotPage.Seal(page);
+                    space.Packed = PackedSlotPage.Seal(page.Records);
                 var raw = Pack(slot, ref key, entry.Value);
                 if (space.Free == 0)
                     space.Created++;
@@ -1285,14 +1278,17 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
                 record.Hash = hash;
                 Volatile.Write(ref record.Next, next);
-                record.Entry = new Cell(key, raw, entry.ExpiresUtc, entry.Version, entry.Tags) { Policy = policy };
+                record.Entry = new Cell(key, raw, entry.Version);
+                page.SetDeadline(offset, entry.ExpiresUtc);
+                page.SetTags(offset, entry.Tags);
+                page.SetPolicy(offset, policy);
                 Volatile.Write(ref record.Lifetime, identity);
                 return new Node(page, slot, identity);
             }
 
-            internal void ReleasePacked(SlotRecord[] page, int offset, int slot) => _space[(slot - 1) >> SlotPageBits].Packed?.Release(page, offset);
+            internal void ReleasePacked(SlotPage page, int offset, int slot) => _space[(slot - 1) >> SlotPageBits].Packed?.Release(page.Records, offset);
 
-            internal void Release(SlotRecord[] page, int offset, int slot)
+            internal void Release(SlotPage page, int offset, int slot)
             {
                 var index = (slot - 1) >> SlotPageBits;
                 ref var space = ref _space[index];
@@ -1326,7 +1322,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             {
                 if (_pageCount == _pages.Length)
                 {
-                    var grown = new SlotRecord[_pages.Length * 2][];
+                    var grown = new SlotPage[_pages.Length * 2];
                     _pages.CopyTo(grown, 0);
                     Array.Resize(ref _space, grown.Length);
                     Volatile.Write(ref _pages, grown);

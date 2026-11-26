@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -71,7 +73,8 @@ public sealed class StoredValueTests
     {
         var key = CacheKey.Default("shared");
         var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
-        var text = new NodeCacheEntry<StoredValue>(StoredValue.FromText("one"), 1);
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["kind"] = "text" }.ToFrozenDictionary(StringComparer.Ordinal);
+        var text = new NodeCacheEntry<StoredValue>(StoredValue.FromText("one"), 1, DateTime.MaxValue, tags: tags);
         var number = new NodeCacheEntry<StoredValue>(StoredValue.FromInteger(long.MinValue), 2);
         if (packed)
             FillPage(cache, key, cancellationToken);
@@ -83,8 +86,8 @@ public sealed class StoredValueTests
                 cache.Set(key, ((i + worker) & 1) == 0 ? text : number, cancellationToken);
                 var hit = cache.GetEntry(key, cancellationToken)!;
                 var valid = hit.Version == 1
-                    ? hit.Value.Kind == StoredValueKind.Text && hit.Value.Bytes.AsSpan().SequenceEqual("one"u8)
-                    : hit.Version == 2 && hit.Value.Kind == StoredValueKind.Integer && hit.Value.Integer == long.MinValue;
+                    ? hit.ExpiresUtc == DateTime.MaxValue && hit.Tags?.ContainsKey("kind") == true && hit.Value.Kind == StoredValueKind.Text && hit.Value.Bytes.AsSpan().SequenceEqual("one"u8)
+                    : hit.Version == 2 && hit.ExpiresUtc == null && hit.Tags == null && hit.Value.Kind == StoredValueKind.Integer && hit.Value.Integer == long.MinValue;
                 if (!valid)
                     _ = Interlocked.Increment(ref invalid);
             }
