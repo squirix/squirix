@@ -13,13 +13,13 @@ internal static class CompactPageMeasurement
     private const int Keys = 2_000_000;
     private const int Removed = Keys * 9 / 10;
 
-    internal static void Run(bool compact)
+    internal static void Run(bool compact, bool binary)
     {
         var order = BuildOrder();
-        Validate(compact);
+        Validate(compact, binary);
         var empty = Live();
         var initialRss = Environment.WorkingSet;
-        var store = new Subject(compact);
+        var store = new Subject(compact, binary);
         long peakLive = 0;
         for (var i = 0; i < Keys; i++)
         {
@@ -82,7 +82,7 @@ internal static class CompactPageMeasurement
     private static void Insert(Subject store, int id)
     {
         var key = Key(id);
-        store.Set(key, StoredValue.FromText(key));
+        store.Set(key, store.Kind == StoredValueKind.Binary ? StoredValue.FromBinary(Encoding.ASCII.GetBytes(key)) : StoredValue.FromText(key));
     }
 
 #pragma warning disable S1215 // Measurement checkpoints must exclude temporary caller objects.
@@ -105,7 +105,7 @@ internal static class CompactPageMeasurement
             throw new InvalidOperationException("Unexpected key presence.");
         if (!present)
             return;
-        if (result.Value.Kind != StoredValueKind.Text || result.Value.Bytes.Length != 8)
+        if (result.Value.Kind != store.Kind || result.Value.Bytes.Length != 8)
             throw new InvalidOperationException("Unexpected value kind or length.");
         var bytes = result.Value.Bytes.AsSpan();
         for (var i = 7; i >= 0; i--)
@@ -116,9 +116,9 @@ internal static class CompactPageMeasurement
         }
     }
 
-    private static void Validate(bool compact)
+    private static void Validate(bool compact, bool binary)
     {
-        var store = new Subject(compact);
+        var store = new Subject(compact, binary);
         CheckSizesAndOwnership(store);
         Race(store);
     }
@@ -197,7 +197,7 @@ internal static class CompactPageMeasurement
             var result = store.Get(key);
             if (!result.Found)
                 continue;
-            if (result.Value.Kind != StoredValueKind.Text || !result.Value.Bytes.AsSpan().SequenceEqual(Encoding.ASCII.GetBytes(key)))
+            if (result.Value.Kind != store.Kind || !result.Value.Bytes.AsSpan().SequenceEqual(Encoding.ASCII.GetBytes(key)))
                 throw new InvalidOperationException("Reader crossed a slot lifetime.");
             hits++;
         }
@@ -281,13 +281,16 @@ internal static class CompactPageMeasurement
         private readonly PhysicalCache<StoredValue>? _current;
         private readonly CompactPageCache? _compact;
 
-        internal Subject(bool compact)
+        internal Subject(bool compact, bool binary)
         {
+            Kind = binary ? StoredValueKind.Binary : StoredValueKind.Text;
             if (compact)
                 _compact = new CompactPageCache();
             else
                 _current = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
         }
+
+        internal StoredValueKind Kind { get; }
 
         internal void Set(string key, StoredValue value)
         {

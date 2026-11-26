@@ -39,9 +39,9 @@ internal static class Program
             return;
         }
 
-        if (args is ["compact-pages", "current" or "prototype"])
+        if (args is ["compact-pages", "current" or "prototype"] or ["compact-pages", "current" or "prototype", "binary"])
         {
-            CompactPageMeasurement.Run(string.Equals(args[1], "prototype", StringComparison.Ordinal));
+            CompactPageMeasurement.Run(string.Equals(args[1], "prototype", StringComparison.Ordinal), args.Length == 3);
             return;
         }
 
