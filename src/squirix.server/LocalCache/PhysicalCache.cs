@@ -256,8 +256,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
-            _footprint.Resize(in node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
-            node.WriteValue(value);
+            var bytes = _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue);
+            var raw = _store.Pack(node.Slot, ref key, value);
+            _footprint.Resize(in node, bytes);
+            node.WriteValue(key, raw);
             BoundedNode.RecordAccess(in node);
             return true;
         }
@@ -434,9 +436,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (insertOnly)
             return false;
 
+        var raw = _store.Pack(node.Slot, ref key, normalized.Value);
         _footprint.Resize(in node, bytes);
         var previous = node.ExpiresUtc;
-        node.Write(normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
+        node.Write(key, raw, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
         _deadlines.MovedLocked(in node, previous);
         BoundedNode.RecordAccess(in node);
         return false;
@@ -469,6 +472,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     {
         internal BoundedNode? Policy;
 
+        private CacheKey _key;
         private long _expires;
         private int _sequence;
         private FrozenDictionary<string, string>? _tags;
@@ -483,7 +487,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <param name="tags">The tags.</param>
         internal Cell(CacheKey key, T? value, DateTime? expiresUtc, long version, FrozenDictionary<string, string>? tags)
         {
-            Key = key;
+            _key = key;
             _value = value;
             _expires = EntryDeadline.Encode(expiresUtc);
             _version = version;
@@ -500,22 +504,45 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal int IndexedGeneration { get; set; }
 
         /// <summary>Gets the key the entry is stored under.</summary>
-        internal CacheKey Key { get; private set; }
+        internal readonly CacheKey Key => !IsPacked(_value) ? _key : new CacheKey(_key.Namespace, PackedSlotPage.KeyText(_value));
+
+        internal readonly T? RawValue => _value;
 
         /// <summary>Gets the tags; read under the cache lock.</summary>
         internal readonly FrozenDictionary<string, string>? Tags => _tags;
 
         /// <summary>Gets the value; read under the cache lock.</summary>
-        internal readonly T? Value => _value;
+        internal readonly T? Value => PackedSlotPage.Unpack(_value);
 
         /// <summary>Gets the version; read under the cache lock.</summary>
         internal readonly long Version => _version;
+
+        internal readonly bool MatchesLocked(CacheKey key) =>
+            !IsPacked(_value) ? _key.Equals(key) : string.Equals(_key.Namespace, key.Namespace, StringComparison.Ordinal) && PackedSlotPage.Matches(_value, key.Key);
+
+        internal bool MatchesPublished(CacheKey key, ref long lifetime, long identity, ref bool unsure)
+        {
+            if (!PackedSlotPage.Typed)
+                return _key.Equals(key);
+
+            var sequence = Volatile.Read(ref _sequence);
+            var storedKey = _key;
+            var raw = ReadValue();
+            Interlocked.MemoryBarrier();
+            if ((sequence & 1) != 0 || Volatile.Read(ref _sequence) != sequence || Volatile.Read(ref lifetime) != identity)
+            {
+                unsure = true;
+                return false;
+            }
+
+            return !IsPacked(raw) ? storedKey.Equals(key) : string.Equals(storedKey.Namespace, key.Namespace, StringComparison.Ordinal) && PackedSlotPage.Matches(raw, key.Key);
+        }
 
         /// <summary>Clears the key, value and tags after the lifetime has been invalidated; call under the cache lock.</summary>
         internal void MarkRemoved()
         {
             var odd = BeginWrite();
-            Key = default;
+            _key = default;
             StoreValue(default);
             Volatile.Write(ref _tags, null);
             EndWrite(odd);
@@ -523,7 +550,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         /// <summary>Reads the fields under the cache lock.</summary>
         /// <returns>The fields.</returns>
-        internal readonly EntryRead ReadLocked() => new(_value, _version, ExpiresUtc, _tags);
+        internal readonly EntryRead ReadLocked() => new(Value, _version, ExpiresUtc, _tags);
 
         /// <summary>Reads the fields without the cache lock, retrying while a write overlaps the read.</summary>
         /// <param name="read">The fields of one write when the outcome is <see cref="ReadOutcome.Present" />.</param>
@@ -546,13 +573,15 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
 
         /// <summary>Replaces what a read returns in one write; call under the cache lock.</summary>
+        /// <param name="key">The storage key representation for this value.</param>
         /// <param name="value">The cached value.</param>
         /// <param name="version">The version.</param>
         /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
         /// <param name="tags">The tags.</param>
-        internal void Write(T? value, long version, DateTime? expiresUtc, FrozenDictionary<string, string>? tags)
+        internal void Write(CacheKey key, T? value, long version, DateTime? expiresUtc, FrozenDictionary<string, string>? tags)
         {
             var odd = BeginWrite();
+            _key = key;
             StoreValue(value);
             Volatile.Write(ref _version, version);
             Volatile.Write(ref _expires, EntryDeadline.Encode(expiresUtc));
@@ -570,13 +599,24 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
 
         /// <summary>Replaces the value; call under the cache lock.</summary>
+        /// <param name="key">The storage key representation for this value.</param>
         /// <param name="value">The cached value.</param>
-        internal void WriteValue(T? value)
+        internal void WriteValue(CacheKey key, T? value)
+        {
+            var odd = BeginWrite();
+            _key = key;
+            StoreValue(value);
+            EndWrite(odd);
+        }
+
+        internal void Relocate(T? value)
         {
             var odd = BeginWrite();
             StoreValue(value);
             EndWrite(odd);
         }
+
+        private static bool IsPacked(T? raw) => PackedSlotPage.Typed && PackedSlotPage.AsStored(raw).IsPageRecord;
 
         /// <summary>Makes the sequence odd.</summary>
         /// <returns>The odd sequence.</returns>
@@ -713,13 +753,17 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal ReadOutcome Read(out EntryRead read)
         {
             var result = Entry.Read(out read);
-            return IsStored ? result : ReadOutcome.Unsure;
+            if (!IsStored)
+                return ReadOutcome.Unsure;
+            if (PackedSlotPage.Typed && result == ReadOutcome.Present)
+                read = read with { Value = PackedSlotPage.Unpack(read.Value) };
+            return result;
         }
 
-        internal void Write(T? value, long version, DateTime? expires, FrozenDictionary<string, string>? tags) =>
-            Entry.Write(value, version, expires, tags);
+        internal void Write(CacheKey key, T? value, long version, DateTime? expires, FrozenDictionary<string, string>? tags) =>
+            Entry.Write(key, value, version, expires, tags);
 
-        internal void WriteValue(T? value) => Entry.WriteValue(value);
+        internal void WriteValue(CacheKey key, T? value) => Entry.WriteValue(key, value);
 
         internal void WriteExpiresUtc(DateTime? expires) => Entry.WriteExpiresUtc(expires);
 
@@ -907,6 +951,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         {
             var slots = _slots.PageFor(node.Slot);
             var offset = SlotOffset(node.Slot);
+            _slots.ReleasePacked(slots, offset, node.Slot);
             _ = Interlocked.Increment(ref _topologyVersion);
             Volatile.Write(ref link, slots[offset].Next);
             _slots.Release(slots, offset, node.Slot);
@@ -919,6 +964,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <param name="node">The matching stored node, if present.</param>
         /// <returns>Whether the key is stored.</returns>
         internal bool TryGetLocked(CacheKey key, out Node node) => TryGetLocked(key, key.GetHashCode(), out node);
+
+        internal T? Pack(int slot, ref CacheKey key, T? value) => _slots.Pack(slot, ref key, value);
 
         internal long? DeferredDeadline(int slot) => _slots.DeferredDeadline(slot);
 
@@ -933,9 +980,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal bool TryGetLocked(CacheKey key, int hash, out Node node)
         {
             var version = _topologyVersion;
-            node = Search(_table, key, hash, version);
+            var unsure = false;
+            node = Search(_table, key, hash, version, ref unsure);
             if (!node.Exists && _previous is { } previous)
-                node = Search(previous, key, hash, version);
+                node = Search(previous, key, hash, version, ref unsure);
             return node.Exists;
         }
 
@@ -997,7 +1045,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     var slots = _slots.PageFor(slot);
                     var offset = SlotOffset(slot);
                     ref var record = ref slots[offset];
-                    if (identity != 0 ? identity == record.Lifetime : record.Hash == hash && record.Entry.Key.Equals(key))
+                    if (identity != 0 ? identity == record.Lifetime : record.Hash == hash && record.Entry.MatchesLocked(key))
                     {
                         node = new Node(slots, slot, record.Lifetime);
                         return ref link;
@@ -1011,7 +1059,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             return ref Unsafe.NullRef<int>();
         }
 
-        private Node Search(BucketTable table, CacheKey key, int hash, long version)
+        private Node Search(BucketTable table, CacheKey key, int hash, long version, ref bool unsure)
         {
             var slot = table.Head(table.IndexOf(hash));
             while (slot > 0)
@@ -1025,7 +1073,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 var identity = Volatile.Read(ref record.Lifetime);
                 if (identity <= 0)
                     return default;
-                if (record.Hash == hash && record.Entry.Key.Equals(key))
+                if (record.Hash == hash && record.Entry.MatchesPublished(key, ref record.Lifetime, identity, ref unsure))
                     return new Node(page, slot, identity);
                 slot = Volatile.Read(ref record.Next);
 
@@ -1049,12 +1097,13 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var hash = key.GetHashCode();
             var version = Volatile.Read(ref _topologyVersion);
             var table = Volatile.Read(ref _table);
-            node = Search(table, key, hash, version);
+            var unsure = false;
+            node = Search(table, key, hash, version, ref unsure);
             if (!node.Exists && Volatile.Read(ref _previous) is { } previous)
-                node = Search(previous, key, hash, version);
+                node = Search(previous, key, hash, version, ref unsure);
             if (!node.Exists)
             {
-                var stable = (version & 1) == 0 && Volatile.Read(ref _topologyVersion) == version;
+                var stable = !unsure && (version & 1) == 0 && Volatile.Read(ref _topologyVersion) == version;
                 return stable ? ReadOutcome.Absent : ReadOutcome.Unsure;
             }
 
@@ -1195,6 +1244,15 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
             internal SlotRecord[] PageFor(int slot) => ReadPage(slot)!;
 
+            internal T? Pack(int slot, ref CacheKey key, T? value)
+            {
+                if (!PackedSlotPage.Typed)
+                    return value;
+                var index = (slot - 1) >> SlotPageBits;
+                var packed = _space[index].Packed;
+                return packed != null ? packed.Pack(_pages[index]!, SlotOffset(slot), ref key, value) : value;
+            }
+
             internal Node Add(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy, int next, out int slot)
             {
                 if (_available < 0)
@@ -1213,6 +1271,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 slot = checked((index * SlotsPerPage) + offset + 1);
                 var identity = checked(++_lastIdentity);
                 ref var record = ref page[offset];
+                if (PackedSlotPage.Typed && space.Packed == null && space.Used + 1 == page.Length)
+                    space.Packed = PackedSlotPage.Seal(page);
+                var raw = Pack(slot, ref key, entry.Value);
                 if (space.Free == 0)
                     space.Created++;
                 else
@@ -1224,10 +1285,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
                 record.Hash = hash;
                 Volatile.Write(ref record.Next, next);
-                record.Entry = new Cell(key, entry.Value, entry.ExpiresUtc, entry.Version, entry.Tags) { Policy = policy };
+                record.Entry = new Cell(key, raw, entry.ExpiresUtc, entry.Version, entry.Tags) { Policy = policy };
                 Volatile.Write(ref record.Lifetime, identity);
                 return new Node(page, slot, identity);
             }
+
+            internal void ReleasePacked(SlotRecord[] page, int offset, int slot) => _space[(slot - 1) >> SlotPageBits].Packed?.Release(page, offset);
 
             internal void Release(SlotRecord[] page, int offset, int slot)
             {
@@ -1252,6 +1315,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     return;
                 }
 
+                space.Packed = null;
                 space.Deadlines = null;
                 Volatile.Write(ref _pages[index], null);
                 space.Created = 0;
@@ -1281,6 +1345,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 internal int Created;
                 internal int Used;
                 internal long[]?[]? Deadlines;
+                internal PackedSlotPage? Packed;
 
                 internal readonly void ClearDeferredDeadline(int offset)
                 {

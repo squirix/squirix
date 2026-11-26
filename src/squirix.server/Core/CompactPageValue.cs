@@ -1,10 +1,10 @@
 using System;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
-using Squirix.Server.Core;
+using System.Text;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Benchmarks;
+namespace Squirix.Server.Core;
 
 /// <summary>Inline value in a compact page. The tag is followed by a fixed scalar or length-prefixed bytes.</summary>
 internal static class CompactPageValue
@@ -12,12 +12,14 @@ internal static class CompactPageValue
     /// <summary>Escape byte followed by a full 32-bit payload length.</summary>
     private const byte LongLength = byte.MaxValue;
 
+    internal static Encoding KeyEncoding { get; } = new UTF8Encoding(false, true);
+
     internal static int EncodedLength(in StoredValue value) => value.Kind switch
     {
         StoredValueKind.Null => 1,
         StoredValueKind.Boolean => 2,
         StoredValueKind.Integer or StoredValueKind.Double => 1 + sizeof(long),
-        StoredValueKind.Text or StoredValueKind.Binary or StoredValueKind.Json => BlobSize(value.Bytes.Length),
+        StoredValueKind.Text or StoredValueKind.Binary or StoredValueKind.Json => BlobSize(value.Memory.Length),
         _ => throw new InvalidOperationException("Unknown stored value kind."),
     };
 
@@ -40,7 +42,7 @@ internal static class CompactPageValue
             case StoredValueKind.Text:
             case StoredValueKind.Binary:
             case StoredValueKind.Json:
-                WriteBlob(body, value.Bytes);
+                WriteBlob(body, value.Memory.Span);
                 return;
             default:
                 throw new InvalidOperationException("Unknown stored value kind.");
@@ -62,6 +64,19 @@ internal static class CompactPageValue
             StoredValueKind.Json => StoredValue.FromJson(ReadOwnedBlob(body)),
             _ => throw new InvalidOperationException("Unknown compact page value tag."),
         };
+    }
+
+    internal static StoredValue ReadRecord(in StoredValue record, int offset)
+    {
+        var source = record.Memory.Span[offset..];
+        var kind = Unsafe.BitCast<long, StoredValueKind>(source[0]);
+        if (kind is not (StoredValueKind.Text or StoredValueKind.Binary or StoredValueKind.Json))
+            return Read(source);
+
+        var length = source[1];
+        return length == LongLength
+            ? record.ReadSlice(kind, offset + 6, BinaryPrimitives.ReadInt32LittleEndian(source[2..]))
+            : record.ReadSlice(kind, offset + 2, length);
     }
 
     private static int BlobSize(int length) => checked(2 + length + (length < LongLength ? 0 : sizeof(int)));

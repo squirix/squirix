@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,8 +25,12 @@ public sealed class StoredValueTests
     }
 
     /// <summary>The durable entry codec restores both the kind and the exact bytes of a typed value.</summary>
+    /// <param name="packed">Whether to seal the backing page before exercising the entry.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DiskRestoresEachValueKind()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task DiskRestoresEachValueKind(bool packed, CancellationToken cancellationToken)
     {
         StoredValue[] values =
         [
@@ -33,9 +38,17 @@ public sealed class StoredValueTests
             StoredValue.FromDouble(-0d), StoredValue.FromText("é"), StoredValue.FromBinary([0, 255]),
             StoredValue.FromJson(System.Text.Encoding.UTF8.GetBytes("""{ "n": 2, "n": 1 }""")),
         ];
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        var key = CacheKey.Default("shared");
+        if (packed)
+            FillPage(cache, key, cancellationToken);
         foreach (var value in values)
         {
-            var entry = new NodeCacheEntry<StoredValue>(value, 7);
+            var expected = new NodeCacheEntry<StoredValue>(value, 7);
+            cache.Set(key, expected, cancellationToken);
+            var entry = cache.GetEntry(key, cancellationToken)!;
+            if (value.Kind is StoredValueKind.Text or StoredValueKind.Json or StoredValueKind.Binary)
+                _ = await Assert.That(entry.Value.IsSlice).IsEqualTo(packed);
             var bytes = new byte[CacheEntryCodec.ComputeEncodedLength(entry)];
             CacheEntryCodec.Write(entry, bytes);
             _ = await Assert.That(CacheEntryCodec.TryRead<StoredValue>(bytes, out var restored, out var consumed)).IsTrue();
@@ -44,19 +57,24 @@ public sealed class StoredValueTests
             _ = await Assert.That(restored!.Version).IsEqualTo(7L);
             _ = await Assert.That(restored.Value.Kind).IsEqualTo(value.Kind);
             var actual = restored.MapToWire().Value!.ToByteArray();
-            _ = await Assert.That(actual.AsSpan().SequenceEqual(entry.MapToWire().Value!.ToByteArray())).IsTrue();
+            _ = await Assert.That(actual.AsSpan().SequenceEqual(expected.MapToWire().Value!.ToByteArray())).IsTrue();
         }
     }
 
     /// <summary>Concurrent replacements keep the scalar bits, payload reference and version of the same write together.</summary>
+    /// <param name="packed">Whether to seal the backing page before exercising the entry.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ConcurrentReplacementsStayCoherent(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task ConcurrentReplacementsStayCoherent(bool packed, CancellationToken cancellationToken)
     {
         var key = CacheKey.Default("shared");
         var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
         var text = new NodeCacheEntry<StoredValue>(StoredValue.FromText("one"), 1);
         var number = new NodeCacheEntry<StoredValue>(StoredValue.FromInteger(long.MinValue), 2);
+        if (packed)
+            FillPage(cache, key, cancellationToken);
         var invalid = 0;
         _ = Parallel.For(0, 4, new ParallelOptions { CancellationToken = cancellationToken }, worker =>
         {
@@ -114,5 +132,13 @@ public sealed class StoredValueTests
         var value = StoredValue.FromDouble(BitConverter.Int64BitsToDouble(bits));
         _ = await Assert.That(value.Kind).IsEqualTo(StoredValueKind.Double);
         _ = await Assert.That(BitConverter.DoubleToInt64Bits(value.Double)).IsEqualTo(bits);
+    }
+
+    private static void FillPage(PhysicalCache<StoredValue> cache, CacheKey key, CancellationToken cancellationToken)
+    {
+        var value = new NodeCacheEntry<StoredValue>(StoredValue.FromText("seed"));
+        cache.Set(key, value, cancellationToken);
+        for (var i = 0; i < 32; i++)
+            cache.Set(CacheKey.Default(i.ToString(CultureInfo.InvariantCulture)), value, cancellationToken);
     }
 }

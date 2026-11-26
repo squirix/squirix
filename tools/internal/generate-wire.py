@@ -168,7 +168,7 @@ def model(name, fields, models, empty_response=False, status_body=False):
                 }
                 getter, assign = expressions[kind]
                 if name == "CacheValue" and kind == "String":
-                    getter = "_reference as string ?? (EncodedText is { } bytes ? WireReader.Utf8.GetString(bytes) : string.Empty)"
+                    getter = "_reference as string ?? (EncodedTextMemory is { } bytes ? WireReader.Utf8.GetString(bytes.Span) : string.Empty)"
                     assign = "_reference = value;"
                 clear = ("_text = null; " if kind != "String" else "") + ("_bytes = default; " if kind != "Bytes" else "")
                 if name == "CacheValue":
@@ -185,6 +185,18 @@ def model(name, fields, models, empty_response=False, status_body=False):
         add("    internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes };")
         # The reference slot holds text or the exact array of a parsed binary result.
         # Shared byte fields have no owner and retain their independent-copy semantics.
+        add("")
+        add("    internal ReadOnlyMemory<byte>? EncodedTextMemory")
+        add("    {")
+        add("        get")
+        add("        {")
+        add("            if (KindCase != KindOneofCase.StringValue || _reference is string)")
+        add("                return null;")
+        add("            return _reference is byte[] owned ? owned : _bytes;")
+        add("        }")
+        add("    }")
+        add("")
+        add("    internal static CacheValue FromTextSlice(ReadOnlyMemory<byte> bytes) => new() { KindCase = KindOneofCase.StringValue, _bytes = bytes };")
         add("")
         add("    internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bytes = payload, _reference = payload };")
         add("")
@@ -250,7 +262,7 @@ def model(name, fields, models, empty_response=False, status_body=False):
                     add("                else")
                     add(f"                    writer.Bytes({prop});")
                 elif name == "CacheValue" and kind == "String":
-                    add("                if (EncodedText is { } text)")
+                    add("                if (EncodedTextMemory is { } text)")
                     add("                {")
                     add("                    if (tail) writer.TailBytes(text);")
                     add("                    else writer.Bytes(text);")

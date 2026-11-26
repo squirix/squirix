@@ -104,9 +104,10 @@ internal static class ServerWireMapping
         StoredValueKind.Boolean => new CacheValue { BoolValue = value.Boolean },
         StoredValueKind.Integer => new CacheValue { Int64Value = value.Integer },
         StoredValueKind.Double => new CacheValue { DoubleValue = value.Double },
+        StoredValueKind.Text when value.IsSlice => CacheValue.FromTextSlice(value.Memory),
         StoredValueKind.Text => CacheValue.FromText(value.Bytes),
-        StoredValueKind.Binary => CacheValueWire.FromBinary(value.Bytes),
-        StoredValueKind.Json => CacheValueWire.FromJson(value.Bytes),
+        StoredValueKind.Binary => CacheValueWire.FromBinary(value.Memory.Span),
+        StoredValueKind.Json => CacheValueWire.FromJson(value.Memory),
         _ => throw new InvalidOperationException("Invalid stored cache value."),
     };
 
