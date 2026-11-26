@@ -9,7 +9,7 @@ permissions:
 
 jobs:
     e2e-cluster:
-        name: macOS ARM64 quorum fix control (${{ matrix.replica }})
+        name: macOS ARM64 parallelism control (${{ matrix.replica }})
         runs-on: macos-latest
         timeout-minutes: 20
         strategy:
@@ -18,17 +18,12 @@ jobs:
                 replica: [1, 2, 3, 4, 5, 6, 7, 8]
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: 067e9799ebc6edb6b15394961f4aae35a6a4935f
-                  path: quorum-baseline
-                  persist-credentials: false
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
             - name: Ensure Dev HTTPS Certificate
               working-directory: ${{ runner.temp }}
               run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
-            - name: Build the fix test host
+            - name: Build the test host
               uses: ./.github/actions/build-release
               with:
                   artifact-os: macos-latest
@@ -37,39 +32,31 @@ jobs:
                   upload-outputs: "false"
                   net10-runtime: "true"
                   projects: tests/squirix.e2e.tests/Squirix.E2ETests.csproj
-            - name: Build the baseline test host
-              working-directory: quorum-baseline
-              run: |
-                  mkdir -p artifacts/packages
-                  dotnet build tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
-                      --configuration Release --framework net10.0 -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
-            - name: Compare baseline and fix on the same runner
+            - name: Compare default and serial execution on the same runner
               shell: bash
               env:
                   REPLICA: ${{ matrix.replica }}
               run: |
                   set -euo pipefail
-                  root="$RUNNER_TEMP/squirix-quorum-fix"
+                  root="$RUNNER_TEMP/squirix-failover-parallelism"
                   mkdir -p "$root"
                   host=tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests.dll
                   filter='/*/*/(FiveNodeMinorityTests|FiveNodeLeaderStopTests)/(TwoNodeMinorityFailsClosed|RfFiveSurvivesTwoLeaderStops)'
-                  order=(baseline fixed)
-                  if ((REPLICA % 2 == 0)); then order=(fixed baseline); fi
+                  order=(default serial)
+                  if ((REPLICA % 2 == 0)); then order=(serial default); fi
                   printf 'replica=%s\norder=%s\nlogical_cores=%s\n' "$REPLICA" "${order[*]}" "$(sysctl -n hw.logicalcpu)" > "$root/runner.txt"
                   failures=0
                   for variant in "${order[@]}"; do
                       echo "::group::$variant"
                       output="$root/$variant"
                       mkdir -p "$output"
-                      workdir="$GITHUB_WORKSPACE"
-                      if [[ "$variant" == baseline ]]; then workdir="$workdir/quorum-baseline"; fi
+                      set --
+                      if [[ "$variant" == serial ]]; then set -- --maximum-parallel-tests 1; fi
                       export SQUIRIX_FAILOVER_TRACE_DIR="$output"
                       status=0
-                      (
-                          cd "$workdir" || exit 1
-                          dotnet "$host" --treenode-filter "$filter" --detailed-stacktrace \
-                              --report-trx --report-trx-filename failover.trx --results-directory "$output" --timeout 8m
-                      ) 2>&1 | tee "$output/test-output.log" || status=$?
+                      dotnet "$host" "$@" --treenode-filter "$filter" --detailed-stacktrace \
+                          --report-trx --report-trx-filename failover.trx --results-directory "$output" --timeout 8m \
+                          2>&1 | tee "$output/test-output.log" || status=$?
                       printf '%s\n' "$status" > "$output/exit-code.txt"
                       if [[ "$status" != 0 ]] || ! test -s "$output/failover.trx"; then
                           failures=$((failures + 1))
@@ -81,5 +68,5 @@ jobs:
               if: always()
               uses: actions/upload-artifact@v7
               with:
-                  name: quorum-fix-macos-${{ matrix.replica }}
-                  path: ${{ runner.temp }}/squirix-quorum-fix
+                  name: failover-parallelism-macos-${{ matrix.replica }}
+                  path: ${{ runner.temp }}/squirix-failover-parallelism
