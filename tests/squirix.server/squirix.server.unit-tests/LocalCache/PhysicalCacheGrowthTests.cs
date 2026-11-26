@@ -186,6 +186,30 @@ public sealed class PhysicalCacheGrowthTests : ServerUnitTestBase
             _ = await Assert.That(cache.GetValue(keys[i], cancellationToken).Value).IsEqualTo(i % 7 == 0 ? keys[i].Key : "new");
     }
 
+    /// <summary>Only the latest occupant may expire after partially reused pages promote their lifetime metadata.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReuseKeepsOtherSlotLifetimes(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>());
+        var keys = CollidingKeys(63);
+        var shortLived = new NodeCacheEntry<string>("old", 1, null, TimeSpan.FromSeconds(1));
+        var longLived = new NodeCacheEntry<string>("new", 1, null, TimeSpan.FromDays(1));
+        for (var i = 0; i < keys.Length; i++)
+            cache.Set(keys[i], shortLived, cancellationToken);
+        foreach (var index in new[] { 35, 33, 35 })
+        {
+            _ = await Assert.That(cache.Remove(keys[index], cancellationToken)).IsTrue();
+            cache.Set(keys[index], longLived, cancellationToken);
+        }
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        _ = await Assert.That(cache.ExpiredKeys.RemoveExpired()).IsEqualTo(keys.Length - 2);
+        _ = await Assert.That(cache.GetValue(keys[33], cancellationToken).Value).IsEqualTo("new");
+        _ = await Assert.That(cache.GetValue(keys[35], cancellationToken).Value).IsEqualTo("new");
+    }
+
     private static CacheKey[] CollidingKeys(int bucket)
     {
         var keys = new CacheKey[52];

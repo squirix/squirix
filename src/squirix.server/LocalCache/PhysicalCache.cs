@@ -302,12 +302,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     private bool RemoveLocked(CacheKey key)
     {
         _store.AdvanceGrowthLocked();
-        ref var link = ref _store.FindLinkLocked(key, key.GetHashCode(), 0, out var node);
+        var link = _store.FindLinkLocked(key, key.GetHashCode(), 0, out var node);
         if (!node.Exists)
             return false;
 
         var expired = IsExpired(node.ExpiresUtc);
-        _store.UnlinkLocked(ref link, in node);
+        _store.UnlinkLocked(link, in node);
         UntrackLocked(in node);
         return !expired;
     }

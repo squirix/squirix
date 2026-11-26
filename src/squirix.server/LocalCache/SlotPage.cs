@@ -51,7 +51,7 @@ internal sealed class SlotPage<T> : SlotPageBase
 
     internal void PrepareRemove(int offset)
     {
-        PrepareReuse();
+        PrepareReuse(offset);
         _packed?.PrepareRemove(offset);
     }
 

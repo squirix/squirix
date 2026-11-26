@@ -1,6 +1,5 @@
 using System;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Squirix.Server.Attributes;
@@ -106,14 +105,14 @@ internal sealed class SlotStore<T>
     /// <param name="hash">Its previously computed hash.</param>
     /// <param name="identity">The exact occupant lifetime, or zero to match the key.</param>
     /// <param name="node">The occupant, or the default on a miss.</param>
-    /// <returns>The link under the writer lock, or a null reference on a miss.</returns>
-    internal ref int FindLinkLocked(CacheKey key, int hash, long identity, out CacheSlot<T> node)
+    /// <returns>The bucket and table generation under the writer lock.</returns>
+    internal (int Index, bool Previous) FindLinkLocked(CacheKey key, int hash, long identity, out CacheSlot<T> node)
     {
-        ref var link = ref FindLink(_table, key, hash, identity, out node);
+        var index = FindLink(_table, key, hash, identity, out node);
         if (!node.Exists && _previous is { } previous)
-            return ref FindLink(previous, key, hash, identity, out node);
+            return (FindLink(previous, key, hash, identity, out node), true);
 
-        return ref link;
+        return (index, false);
     }
 
     /// <summary>Unlinks the exact stored node under the cache lock.</summary>
@@ -121,23 +120,26 @@ internal sealed class SlotStore<T>
     /// <exception cref="InvalidOperationException">The node has already left the store.</exception>
     internal void RemoveLocked(in CacheSlot<T> node)
     {
-        ref var link = ref FindLinkLocked(default, node.Hash, node.Identity, out var stored);
+        var link = FindLinkLocked(default, node.Hash, node.Identity, out var stored);
         if (!stored.Exists)
             throw new InvalidOperationException("The node is not stored.");
 
-        UnlinkLocked(ref link, in stored);
+        UnlinkLocked(link, in stored);
     }
 
     /// <summary>Detaches the occupant after all potentially throwing expiry checks have completed.</summary>
     /// <param name="link">The link returned by the lookup under the same lock.</param>
     /// <param name="node">The occupant reached through the link.</param>
-    internal void UnlinkLocked(ref int link, in CacheSlot<T> node)
+    internal void UnlinkLocked((int Index, bool Previous) link, in CacheSlot<T> node)
     {
         var slots = _slots.PageFor(node.Slot);
         var offset = SlotPageBase.OffsetOf(node.Slot);
         slots.PrepareRemove(offset);
         _ = Interlocked.Increment(ref _topologyVersion);
-        Volatile.Write(ref link, -1);
+        if (link.Previous)
+            Volatile.Write(ref _previous!.WritableBucket(link.Index), -1);
+        else
+            _table.Remove(link.Index, _slots);
         _slots.Release(slots, offset, node.Slot);
         _ = Interlocked.Increment(ref _topologyVersion);
         Count--;
@@ -224,7 +226,7 @@ internal sealed class SlotStore<T>
         Volatile.Write(ref source[index], -1);
     }
 
-    private ref int FindLink(BucketTable table, CacheKey key, int hash, long identity, out CacheSlot<T> node)
+    private int FindLink(BucketTable table, CacheKey key, int hash, long identity, out CacheSlot<T> node)
     {
         var index = table.IndexOf(hash);
         for (long visited = 0; visited < table.Length; visited++)
@@ -241,7 +243,7 @@ internal sealed class SlotStore<T>
                 if (identity != 0 ? identity == slots.ReadIdentity(offset) : storedHash == hash && slots.ReadPayload(offset).Matches(key))
                 {
                     node = new CacheSlot<T>(slots, slot, slots.ReadIdentity(offset));
-                    return ref table.WritableBucket(index);
+                    return index;
                 }
             }
 
@@ -249,7 +251,7 @@ internal sealed class SlotStore<T>
         }
 
         node = default;
-        return ref Unsafe.NullRef<int>();
+        return -1;
     }
 
     private CacheSlot<T> Search(BucketTable table, CacheKey key, int hash, ref bool unsure)
@@ -334,6 +336,36 @@ internal sealed class SlotStore<T>
         internal int NextIndex(int index) => unchecked(index + 1) & int.CreateTruncating(Length - 1);
 
         internal bool NeedsRebuild(int count) => Used >= Length - (Length >> FreeBucketShift) && (Length < MaximumBuckets || Used - count >= Length / 4);
+
+        internal void Remove(int index, SlotMap slots)
+        {
+            // Close short probe chains in place. A long chain keeps a tombstone for the
+            // incremental rebuild so a single removal has bounded work under the writer lock.
+            var hole = index;
+            var mask = int.CreateTruncating(Length - 1);
+            for (var i = 0; i < TransferBudget; i++)
+            {
+                index = NextIndex(index);
+                var slot = Head(index);
+                if (slot == 0)
+                {
+                    Volatile.Write(ref WritableBucket(hole), 0);
+                    Used--;
+                    return;
+                }
+
+                if (slot < 0)
+                    continue;
+                var hash = slots.PageFor(slot)[SlotPageBase.OffsetOf(slot)];
+                var home = IndexOf(hash);
+                if (((hole - home) & mask) >= ((index - home) & mask))
+                    continue;
+                Volatile.Write(ref WritableBucket(hole), slot);
+                hole = index;
+            }
+
+            Volatile.Write(ref WritableBucket(hole), -1);
+        }
 
         internal ref int InsertPosition(int hash)
         {
@@ -430,7 +462,7 @@ internal sealed class SlotStore<T>
             {
                 var length = index == 0 ? InitialBucketCount : SlotPageBase.Capacity;
                 page = new SlotPage<T>(length, _lastIdentity);
-                _lastIdentity = checked(_lastIdentity + length);
+                _lastIdentity = checked(_lastIdentity + (2L * length));
                 Volatile.Write(ref _pages[index], page);
             }
 
