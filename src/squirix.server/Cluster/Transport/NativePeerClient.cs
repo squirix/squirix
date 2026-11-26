@@ -89,7 +89,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             ClientCertificates = [cert],
             ClientCertificateContext = OperatingSystem.IsWindows() ? null : SslStreamCertificateContext.Create(cert, null, true),
             ApplicationProtocols = [PeerFrames.Protocol],
-            RemoteCertificateValidationCallback = (_, presented, _, _) => presented is X509Certificate2 certificate && verifier.VerifyExpectedPeer(certificate, peer),
+            RemoteCertificateValidationCallback = (sender, presented, _, _) => VerifyPeer(sender, presented, verifier, peer),
         };
     }
 
@@ -193,6 +193,19 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
 
         buffer[0] = value;
         return 1;
+    }
+
+    private static bool VerifyPeer(object sender, X509Certificate? presented, PeerHandshakeVerifier verifier, string peer)
+    {
+        PreVoteTrace.MarkCertificate(sender, "send verify certificate start");
+        try
+        {
+            return presented is X509Certificate2 certificate && verifier.VerifyExpectedPeer(certificate, peer);
+        }
+        finally
+        {
+            PreVoteTrace.MarkCertificate(sender, "send verify certificate end");
+        }
     }
 
     private static long? RemainingBudget()
@@ -377,9 +390,14 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         PeerSession? connection = new(network);
         try
         {
+            if (PreVoteTrace.IsTracing)
+                PreVoteTrace.ObserveCertificates(connection, static phase => PreVoteTrace.Mark(phase));
+
             PreVoteTrace.Mark("send TLS handshake start");
             await connection.AuthenticateAsClientAsync(_tls, handshake.Token).ConfigureAwait(false);
             PreVoteTrace.Mark("send TLS handshake complete");
+            if (network is TlsProbeStream traced)
+                traced.StopTracing();
             if (connection.NegotiatedApplicationProtocol != PeerFrames.Protocol)
                 throw new AuthenticationException("The node did not negotiate the required Squirix peer protocol.");
             var owned = connection;

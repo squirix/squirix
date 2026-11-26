@@ -15,7 +15,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// it. The pool therefore waits until the gate drains before it releases the certificate material.
 /// </remarks>
 [Mutable]
-internal sealed class TrackedConnectionStream : NetworkStream
+internal sealed class TrackedConnectionStream : TlsProbeStream
 {
     private readonly TrackedConnections _connections;
 
@@ -25,7 +25,7 @@ internal sealed class TrackedConnectionStream : NetworkStream
     private int _tracked;
 
     private TrackedConnectionStream(Socket socket, TrackedConnections connections)
-        : base(socket, true)
+        : base(socket, true, PreVoteTrace.IsTracing ? static phase => PreVoteTrace.Mark($"send TLS I/O {phase}") : null)
     {
         _socket = socket;
         _connections = connections;
