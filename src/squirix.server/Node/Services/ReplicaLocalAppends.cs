@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Logging;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -18,6 +20,7 @@ internal sealed class ReplicaLocalAppends
     private ulong _failed;
     private int _inFlight;
     private int _refused;
+    private (Type Type, ulong Appended)? _reportedFault;
     private ulong _started;
 
     /// <summary>How an append ended.</summary>
@@ -79,6 +82,27 @@ internal sealed class ReplicaLocalAppends
         }
 
         _ = Interlocked.Decrement(ref _inFlight);
+    }
+
+    /// <summary>Clears fault deduplication when the committer ends its run, under the commit gate.</summary>
+    internal void ResetFaultReport() => _reportedFault = null;
+
+    /// <summary>Reports a newly failed append under the commit gate, once per fault type and successful append count.</summary>
+    /// <param name="error">The error returned by the commit.</param>
+    /// <param name="failedBefore">The failed append count before the commit.</param>
+    /// <param name="log">The logger for the group committer.</param>
+    /// <param name="groupId">The group whose log received the append.</param>
+    internal void ReportFault(Exception error, ulong failedBefore, IServerLogger log, string groupId)
+    {
+        var progress = Snapshot();
+        if (progress.Failed == failedBefore)
+            return;
+
+        var fault = (error.GetType(), progress.Appended);
+        if (_reportedFault != fault)
+            ReplicaCommitLog.ReplicaLocalAppendFailed(log, error, groupId);
+
+        _reportedFault = fault;
     }
 
     /// <summary>Reads the progress without any gate.</summary>

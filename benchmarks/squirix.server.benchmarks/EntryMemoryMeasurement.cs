@@ -45,7 +45,7 @@ internal static class EntryMemoryMeasurement
 
     /// <summary>Reads the managed heap size after a full blocking collection, so it counts only live objects.</summary>
     /// <returns>The heap size in bytes.</returns>
-    private static long HeapAfterFullCollection() =>
+    internal static long HeapAfterFullCollection() =>
 #pragma warning disable S1215 // The measurement is the live heap, which only a full collection isolates from garbage.
         GC.GetTotalMemory(true);
 #pragma warning restore S1215

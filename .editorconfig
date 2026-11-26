@@ -621,6 +621,10 @@ resharper_csharp_wrap_ternary_expr_style = chop_if_long # SA1143: chop before '?
 # ===========================================================================
 # Scoped overrides
 # ===========================================================================
+[*.cs]
+# Use the trailing commas required by the C# build (SA1413 and MA0007).
+resharper_csharp_trailing_comma_in_multiline_lists = true
+
 [src/**/*.cs]
 dotnet_diagnostic.ZA0503.severity = error # detect boxing arguments outside loops; disabled by default, so category severity does not enable it
 

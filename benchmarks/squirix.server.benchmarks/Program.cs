@@ -4,6 +4,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
+using Squirix.Server.Benchmarks.CompactPages;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -30,6 +31,24 @@ internal static class Program
         if (args.Length > 0 && string.Equals(args[0], "entry-memory", StringComparison.Ordinal))
         {
             EntryMemoryMeasurement.Run(args[1..]);
+            return;
+        }
+
+        if (args is ["compact-pages", "verify"])
+        {
+            CompactPageVerification.Run();
+            return;
+        }
+
+        if (args is ["compact-pages", "rewrite", "text" or "binary"])
+        {
+            CompactPageMeasurement.MeasureOverwrites(string.Equals(args[2], "binary", StringComparison.Ordinal));
+            return;
+        }
+
+        if (args is ["compact-pages", "current" or "prototype"] or ["compact-pages", "current" or "prototype", "binary"])
+        {
+            CompactPageMeasurement.Run(string.Equals(args[1], "prototype", StringComparison.Ordinal), args.Length == 3);
             return;
         }
 

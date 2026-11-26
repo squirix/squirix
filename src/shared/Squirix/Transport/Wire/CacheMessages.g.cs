@@ -79,7 +79,7 @@ internal sealed class CacheValue : WireMessage
     }
     internal string StringValue
     {
-        get => _reference as string ?? (EncodedText is { } bytes ? WireReader.Utf8.GetString(bytes) : string.Empty);
+        get => _reference as string ?? (EncodedTextMemory is { } bytes ? WireReader.Utf8.GetString(bytes.Span) : string.Empty);
         set { _bytes = default; _reference = value; KindCase = KindOneofCase.StringValue; }
     }
     internal long Int64Value
@@ -110,6 +110,18 @@ internal sealed class CacheValue : WireMessage
     internal byte[]? EncodedText => KindCase == KindOneofCase.StringValue ? _reference as byte[] : null;
     internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes };
 
+    internal ReadOnlyMemory<byte>? EncodedTextMemory
+    {
+        get
+        {
+            if (KindCase != KindOneofCase.StringValue || _reference is string)
+                return null;
+            return _reference is byte[] owned ? owned : _bytes;
+        }
+    }
+
+    internal static CacheValue FromTextSlice(ReadOnlyMemory<byte> bytes) => new() { KindCase = KindOneofCase.StringValue, _bytes = bytes };
+
     internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bytes = payload, _reference = payload };
 
     internal byte[] TakeBinaryValue()
@@ -132,7 +144,7 @@ internal sealed class CacheValue : WireMessage
         switch (KindCase)
         {
             case KindOneofCase.StringValue:
-                if (EncodedText is { } text)
+                if (EncodedTextMemory is { } text)
                 {
                     if (tail) writer.TailBytes(text);
                     else writer.Bytes(text);

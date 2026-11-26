@@ -63,11 +63,11 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
 
         var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
         var result = refresh ? default(ReadOnlyMemory<byte>?) : payload;
-        if (policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry))
+        if (policy.SlidingTicks != null && !_physical.CanReadWithoutRenewal(entry))
         {
             result = _durable is { } durable
                 ? await durable.DistributedAccess.AccessDistributedAsync(string.Empty, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
-                : _physical.DistributedAccess.AccessDistributed(new CacheKey(cacheName, key), refresh, cancellationToken);
+                : _physical.AccessDistributed(new CacheKey(cacheName, key), refresh, cancellationToken);
         }
 
         return result;

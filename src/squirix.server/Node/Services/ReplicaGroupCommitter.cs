@@ -48,7 +48,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaMemberPressure? _memberPressure;
     private ReplicaGroupCommitPipeline? _pipeline;
     private volatile bool _recovered;
-    private (Type Type, ulong Appended)? _reportedAppendFault;
     private (Type Type, ulong AppliedIndex)? _reportedApplyFault;
     private volatile bool _retiring;
 
@@ -329,7 +328,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         Volatile.Write(ref _pipeline, null);
         _factory = null;
         _reportedApplyFault = null;
-        _reportedAppendFault = null;
+        LocalAppends.ResetFaultReport();
         DropStartedState();
     }
 
@@ -409,18 +408,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// append and is not reported. The same fault repeats on every write, so it is logged again only when its type changes or after an
     /// append that succeeded.
     /// </remarks>
-    internal void ReportLocalAppendFault(Exception error, ulong failedBefore)
-    {
-        var progress = LocalAppends.Snapshot();
-        if (progress.Failed == failedBefore)
-            return;
-
-        var fault = (error.GetType(), progress.Appended);
-        if (_reportedAppendFault != fault)
-            ReplicaCommitLog.ReplicaLocalAppendFailed(Log, error, GroupId);
-
-        _reportedAppendFault = fault;
-    }
+    internal void ReportLocalAppendFault(Exception error, ulong failedBefore) => LocalAppends.ReportFault(error, failedBefore, Log, GroupId);
 
     /// <summary>Fences the retiring tenure under the commit gate. Normal disposal drains committed entries.</summary>
     /// <param name="term">The term the election driver retired.</param>
