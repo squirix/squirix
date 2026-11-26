@@ -20,27 +20,6 @@ jobs:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
-            - name: Watch the failover test host for native profiling
-              shell: bash
-              run: |
-                  output="$RUNNER_TEMP/squirix-tls-native"
-                  mkdir -p "$output"
-                  nohup /bin/bash -c '
-                      output="$1"
-                      pattern="dotnet.*Squirix[.]E2ETests[.]dll.*ProcessChaosTests"
-                      for ((i = 0; i < 900; i++)); do
-                          pid="$(/usr/bin/pgrep -f "$pattern" | head -n 1)"
-                          if [[ -n "$pid" ]]; then break; fi
-                          sleep 1
-                      done
-                      if [[ -z "$pid" ]]; then exit 1; fi
-                      /bin/ps -p "$pid" -o command=
-                      for ((i = 1; i <= 10; i++)); do
-                          if ! /bin/ps -p "$pid" -o command= | /usr/bin/grep -Eq "$pattern"; then break; fi
-                          date -u "+%Y-%m-%dT%H:%M:%SZ native sample $i"
-                          /usr/bin/sample "$pid" 4 10 -file "$output/$(printf "%02d" "$i").sample.txt"
-                      done
-                  ' _ "$output" > "$output/monitor.log" 2>&1 < /dev/null &
             - name: Run CI cluster suites
               uses: ./.github/actions/run-test-suite
               with:
@@ -48,9 +27,3 @@ jobs:
                   suite: e2e-cluster
                   framework: net10.0
                   build: "true"
-            - name: Archive native profiles
-              if: always()
-              uses: actions/upload-artifact@v7
-              with:
-                  name: tls-native-macos-${{ matrix.attempt }}
-                  path: ${{ runner.temp }}/squirix-tls-native/

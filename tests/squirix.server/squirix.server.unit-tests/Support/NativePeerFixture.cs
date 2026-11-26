@@ -65,11 +65,16 @@ internal sealed class NativePeerFixture : IDisposable
         return (frame.Operation, transmitted, frame.Body);
     }
 
-    internal static async Task ReplyAsync(SslStream stream, CancellationToken cancellationToken)
+    internal static Task ReplyAsync(SslStream stream, CancellationToken cancellationToken) =>
+        ReplyAsync(stream, ReadOnlyMemory<byte>.Empty, cancellationToken);
+
+    internal static async Task ReplyAsync(SslStream stream, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         var header = GC.AllocateUninitializedArray<byte>(PeerFrames.ReplyBytes);
-        PeerFrames.WriteReply(header, 0, 0);
+        PeerFrames.WriteReply(header, 0, payload.Length);
         await stream.WriteAsync(header, cancellationToken);
+        if (!payload.IsEmpty)
+            await stream.WriteAsync(payload, cancellationToken);
     }
 
     internal async Task<(PeerOperation Operation, string Fingerprint, int Length)> ExchangePingAsync(IPeerClient client, CancellationToken cancellationToken)
@@ -102,7 +107,9 @@ internal sealed class NativePeerFixture : IDisposable
 
     internal Task<TcpClient> AcceptTcpAsync(CancellationToken cancellationToken) => _listener.AcceptTcpClientAsync(cancellationToken).AsTask();
 
-    internal async Task<SslStream> AcceptTlsAsync(CancellationToken cancellationToken)
+    internal Task<SslStream> AcceptTlsAsync(CancellationToken cancellationToken) => AcceptTlsAsync(null, cancellationToken);
+
+    internal async Task<SslStream> AcceptTlsAsync(Action? beforeAuthenticate, CancellationToken cancellationToken)
     {
         var socket = await _listener.AcceptSocketAsync(cancellationToken);
         var stream = new SslStream(new NetworkStream(socket, true));
@@ -115,6 +122,7 @@ internal sealed class NativePeerFixture : IDisposable
                 ApplicationProtocols = [PeerFrames.Protocol],
                 RemoteCertificateValidationCallback = (_, cert, _, _) => cert is X509Certificate2 presented && _verifier.VerifyExpectedPeer(presented, "node-a"),
             };
+            beforeAuthenticate?.Invoke();
             await stream.AuthenticateAsServerAsync(options, cancellationToken);
             return stream;
         }
