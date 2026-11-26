@@ -105,12 +105,17 @@ internal sealed class NativeTlsListener
 
     private async Task ServeAsync(Socket socket, ChannelWriter<int> slots, int slot, CancellationToken graceful, CancellationToken abort)
     {
+        (int Client, int Server) ports = default;
         try
         {
             using var owner = socket;
             socket.NoDelay = true;
             if (socket.RemoteEndPoint is not IPEndPoint remote)
                 return;
+            if (PreVoteTrace.HasTlsObservers && socket.LocalEndPoint is IPEndPoint local)
+                ports = (remote.Port, local.Port);
+
+            PreVoteTrace.MarkTls(ports, "receive socket accepted");
             var network = new NetworkStream(socket, false);
             await using var networkLifetime = network.ConfigureAwait(false);
             var tls = new SslStream(network, true);
@@ -119,13 +124,20 @@ internal sealed class NativeTlsListener
             using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(graceful, abort))
             {
                 handshake.CancelAfter(TimeSpan.FromSeconds(5));
-                await tls.AuthenticateAsServerAsync(_tls(remote), handshake.Token).ConfigureAwait(false);
+                PreVoteTrace.MarkTls(ports, "receive TLS options start");
+                var options = _tls(remote);
+                PreVoteTrace.MarkTls(ports, "receive TLS handshake start");
+                await tls.AuthenticateAsServerAsync(options, handshake.Token).ConfigureAwait(false);
+                PreVoteTrace.MarkTls(ports, "receive TLS handshake complete");
             }
 
             await _serve(tls, remote, graceful, abort).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or SocketException or AuthenticationException or OperationCanceledException || (abort.IsCancellationRequested && exception is ObjectDisposedException))
         {
+            if (ports != default)
+                PreVoteTrace.MarkTls(ports, $"receive socket error {exception.GetType().Name}: {exception.Message}");
+
             LogConnectionFailure(_log, exception);
         }
 #pragma warning disable CA1031 // Isolate an unexpected session failure from other connections and the accept loop.

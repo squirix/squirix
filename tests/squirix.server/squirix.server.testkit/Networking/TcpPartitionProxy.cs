@@ -64,6 +64,8 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
         _acceptLoop = AcceptLoopAsync();
     }
 
+    internal static event EventHandler<BridgeEventArgs>? BridgeObserved;
+
     /// <summary>Gets the number of connections bridged to <see cref="Upstream" /> since start, including closed ones.</summary>
     public long AcceptedConnections => _counters.Accepted;
 
@@ -216,6 +218,14 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
         return tasks;
     }
 
+    private static void ObserveBridge(Socket client, Socket upstream)
+    {
+        var observer = BridgeObserved;
+        if (observer != null && client.RemoteEndPoint is IPEndPoint sender && client.LocalEndPoint is IPEndPoint proxy &&
+            upstream.LocalEndPoint is IPEndPoint relay && upstream.RemoteEndPoint is IPEndPoint receiver)
+            observer(null, new BridgeEventArgs((sender.Port, proxy.Port), (relay.Port, receiver.Port)));
+    }
+
     private async Task AcceptLoopAsync()
     {
         var token = _stopping.Token;
@@ -296,6 +306,7 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
                 // The pumps start under the gate so a concurrent partition snapshot always sees a started
                 // connection whose completion it can await. The pumps' first socket read returns pending on
                 // a live socket; a pump that ends synchronously re-enters this gate to remove itself.
+                ObserveBridge(client, upstream);
                 var connection = new ProxiedConnection(client, upstream);
                 _ = _connections.Add(connection);
                 _counters.CountAccepted();
@@ -376,6 +387,19 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             _ = _connections.Remove(connection);
 
         _changed.Pulse();
+    }
+
+    internal sealed class BridgeEventArgs : EventArgs
+    {
+        internal BridgeEventArgs((int Client, int Server) downstream, (int Client, int Server) upstream)
+        {
+            Downstream = downstream;
+            Upstream = upstream;
+        }
+
+        internal (int Client, int Server) Downstream { get; }
+
+        internal (int Client, int Server) Upstream { get; }
     }
 
     /// <summary>Socket teardown and write helpers shared by the accept loop, the pumps, and the connections.</summary>
