@@ -121,7 +121,7 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
     }
 
     private static string TextOf(NodeCacheEntry<StoredValue>? entry) =>
-        entry?.Value is { Kind: StoredValue.ValueKind.Json } json ? Encoding.UTF8.GetString(json.Bytes) : "<not a JSON value>";
+        entry?.Value is { Kind: StoredValueKind.Json } json ? Encoding.UTF8.GetString(json.Bytes) : "<not a JSON value>";
 
     private async Task<(string Leader, string Follower, string Recovered)> ApplyEverywhereAsync(JsonUtf8Value value, CancellationToken cancellationToken)
     {

@@ -41,6 +41,6 @@ public sealed class BenchmarkNodeReadSurface
     public async ValueTask<string?> GetValueOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
         var result = await _cacheApi.GetValueAsync(key, cancellationToken).ConfigureAwait(false);
-        return result.Found && result.Value.Kind == StoredValue.ValueKind.Text ? Encoding.UTF8.GetString(result.Value.Bytes) : null;
+        return result.Found && result.Value.Kind == StoredValueKind.Text ? Encoding.UTF8.GetString(result.Value.Bytes) : null;
     }
 }

@@ -149,7 +149,7 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         var follower = cluster["node-c"].GetRequiredService<PhysicalCache<StoredValue>>();
         var expected = $"{Writes}:{large}";
         await (Cache: follower, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
-            static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is { Kind: StoredValue.ValueKind.Text } text && string.Equals(System.Text.Encoding.UTF8.GetString(text.Bytes), state.Expected, StringComparison.Ordinal)),
+            static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is { Kind: StoredValueKind.Text } text && string.Equals(System.Text.Encoding.UTF8.GetString(text.Bytes), state.Expected, StringComparison.Ordinal)),
             Bound,
             cancellationToken);
         var held = follower.GetValue(new CacheKey(CacheName, key), cancellationToken);

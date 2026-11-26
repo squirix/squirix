@@ -50,7 +50,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
 
         _ = await Assert.That(entry).IsNotNull();
         var stored = entry!.Value;
-        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValueKind.Json);
         await SequenceAssert.EqualAsync(value.Bytes.ToArray(), stored.Bytes);
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(1UL);
     }

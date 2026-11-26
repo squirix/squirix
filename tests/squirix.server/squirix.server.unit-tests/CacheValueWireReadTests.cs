@@ -27,11 +27,11 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
     public async Task StoredScalarsRoundTrip()
     {
         var integer = new NodeCacheEntry<StoredValue>(StoredValue.FromInteger(long.MinValue)).MapToWire().MapFromWire<StoredValue>().Value;
-        _ = await Assert.That(integer.Kind).IsEqualTo(StoredValue.ValueKind.Integer);
+        _ = await Assert.That(integer.Kind).IsEqualTo(StoredValueKind.Integer);
         _ = await Assert.That(integer.Integer).IsEqualTo(long.MinValue);
         _ = await Assert.That(ServerWireMapping.MapCacheValue<StoredValue>(new CacheValue { DoubleValue = 2.5d }).Double).IsEqualTo(2.5d);
         _ = await Assert.That(ServerWireMapping.MapCacheValue<StoredValue>(new CacheValue { BoolValue = true }).Boolean).IsTrue();
-        _ = await Assert.That(ServerWireMapping.MapCacheValue<StoredValue>(CacheValueWireNull()).Kind).IsEqualTo(StoredValue.ValueKind.Null);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<StoredValue>(CacheValueWireNull()).Kind).IsEqualTo(StoredValueKind.Null);
     }
 
     /// <summary>A JSON value keeps the full owned request array and its original text.</summary>
@@ -40,7 +40,7 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
     {
         var wire = JsonValueKit.Wire(ObjectText);
         var value = ServerWireMapping.MapCacheValue<StoredValue>(wire);
-        _ = await Assert.That(value.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+        _ = await Assert.That(value.Kind).IsEqualTo(StoredValueKind.Json);
         _ = await Assert.That(Encoding.UTF8.GetString(value.Bytes)).IsEqualTo(ObjectText);
         _ = await Assert.That(wire.JsonUtf8.Span.Overlaps(value.Bytes, out var offset)).IsTrue();
         _ = await Assert.That(offset).IsEqualTo(0);
@@ -125,7 +125,7 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
         buffer.AsSpan().Fill(byte.MaxValue);
 
         var json = entry.Value;
-        _ = await Assert.That(json.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+        _ = await Assert.That(json.Kind).IsEqualTo(StoredValueKind.Json);
         _ = await Assert.That(Encoding.UTF8.GetString(json.Bytes)).IsEqualTo(ObjectText);
     }
 
@@ -186,7 +186,7 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
 
         _ = await Assert.That(wire.MapFromWire<decimal>().Value).IsEqualTo(precise);
         var stored = wire.MapFromWire<StoredValue>().Value;
-        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValueKind.Json);
         _ = await Assert.That(JsonElement.Parse(stored.Bytes).GetDecimal()).IsEqualTo(precise);
     }
 

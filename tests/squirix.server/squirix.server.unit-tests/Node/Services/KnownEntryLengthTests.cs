@@ -149,7 +149,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
                 await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
             var stored = chain.Physical.GetEntry(new CacheKey(CacheName, "dup"), cancellationToken);
-            _ = await Assert.That(stored!.Value.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+            _ = await Assert.That(stored!.Value.Kind).IsEqualTo(StoredValueKind.Json);
             _ = await Assert.That(System.Text.Encoding.UTF8.GetString(stored.Value.Bytes)).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
             accounted = BytesOf(chain.Physical);
             walked = await WalkedBytesAsync(chain.Physical, estimator, cancellationToken);

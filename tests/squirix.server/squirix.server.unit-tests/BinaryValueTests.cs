@@ -33,7 +33,7 @@ public sealed class BinaryValueTests : ServerUnitTestBase
         source[0] = 42;
         var decoded = ServerWireMapping.MapCacheValue<byte[]>(wire.Value)!;
         var stored = ServerWireMapping.MapCacheValue<StoredValue>(wire.Value);
-        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValue.ValueKind.Binary);
+        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValueKind.Binary);
         _ = await Assert.That(decoded.AsSpan().SequenceEqual(new byte[] { 0, 255, 128, 34, 0 })).IsTrue();
         decoded[1] = 42;
         stored.Bytes[2] = 42;

@@ -130,7 +130,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
         await WriteAsync(owner, key, writes + laterWrites + 1, 1, cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [(FollowerId, restarted)], cancellationToken);
         await AwaitAppliedAsync(restarted, (await GroupLog(owner).GetStatusAsync(cancellationToken)).LastLogIndex - 1, cancellationToken);
-        var value = (await LocalChain(restarted).GetEntryAsync(CacheName, key, cancellationToken))?.Value is { Kind: StoredValue.ValueKind.Text } text ? System.Text.Encoding.UTF8.GetString(text.Bytes) : null;
+        var value = (await LocalChain(restarted).GetEntryAsync(CacheName, key, cancellationToken))?.Value is { Kind: StoredValueKind.Text } text ? System.Text.Encoding.UTF8.GetString(text.Bytes) : null;
         var expected = string.Equals(value, Value(writes + laterWrites), StringComparison.Ordinal) ||
                        string.Equals(value, Value(writes + laterWrites + 1), StringComparison.Ordinal);
         _ = await Assert.That(expected).IsTrue().Because($"The restarted follower must apply the committed entries above its snapshot; value {value}.");

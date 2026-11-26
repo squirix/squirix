@@ -33,7 +33,7 @@ public sealed class JsonValueOwnershipTests : IsolatedStorageTestBase
         var response = await harness.Adapter.Reads.GetValueAsync(new GetValueAsyncRequest { CacheName = FusedWriteHarness.CacheName, Key = FusedWriteHarness.Key }, CancellationToken.None);
 
         var value = stored.Value;
-        _ = await Assert.That(value.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+        _ = await Assert.That(value.Kind).IsEqualTo(StoredValueKind.Json);
         _ = await Assert.That(value.Bytes.AsSpan().Overlaps(request.Entry.Value.JsonUtf8.Span, out var storedOffset)).IsTrue();
         _ = await Assert.That(storedOffset).IsEqualTo(0);
         _ = await Assert.That(response.Value!.JsonUtf8.Span.Overlaps(value.Bytes.AsSpan(), out var answeredOffset)).IsTrue();

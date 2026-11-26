@@ -28,9 +28,9 @@ internal static partial class CacheEntryCodec
 
         internal static int StoredLength(in StoredValue stored) => stored.Kind switch
         {
-            StoredValue.ValueKind.Null => 1,
-            StoredValue.ValueKind.Boolean => 2,
-            StoredValue.ValueKind.Integer or StoredValue.ValueKind.Double => 9,
+            StoredValueKind.Null => 1,
+            StoredValueKind.Boolean => 2,
+            StoredValueKind.Integer or StoredValueKind.Double => 9,
             _ => 5 + stored.Bytes.Length,
         };
 
@@ -63,13 +63,13 @@ internal static partial class CacheEntryCodec
 
         internal static int WriteStored(in StoredValue value, Span<byte> destination) => value.Kind switch
         {
-            StoredValue.ValueKind.Null => CacheEntryValueWriteCodec.WriteNull(destination),
-            StoredValue.ValueKind.Boolean => CacheEntryValueWriteCodec.WriteBool(value.Boolean, destination),
-            StoredValue.ValueKind.Integer => CacheEntryValueWriteCodec.WriteBits(ValueKind.Int64, value.Integer, destination),
-            StoredValue.ValueKind.Double => CacheEntryValueWriteCodec.WriteBits(ValueKind.Double, value.Integer, destination),
-            StoredValue.ValueKind.Text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, value.Bytes, destination),
-            StoredValue.ValueKind.Binary => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, value.Bytes, destination),
-            StoredValue.ValueKind.Json => CacheEntryValueWriteCodec.WritePayload(ValueKind.Json, value.Bytes, destination),
+            StoredValueKind.Null => CacheEntryValueWriteCodec.WriteNull(destination),
+            StoredValueKind.Boolean => CacheEntryValueWriteCodec.WriteBool(value.Boolean, destination),
+            StoredValueKind.Integer => CacheEntryValueWriteCodec.WriteBits(ValueKind.Int64, value.Integer, destination),
+            StoredValueKind.Double => CacheEntryValueWriteCodec.WriteBits(ValueKind.Double, value.Integer, destination),
+            StoredValueKind.Text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, value.Bytes, destination),
+            StoredValueKind.Binary => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, value.Bytes, destination),
+            StoredValueKind.Json => CacheEntryValueWriteCodec.WritePayload(ValueKind.Json, value.Bytes, destination),
             _ => throw new InvalidOperationException("Invalid stored cache value."),
         };
 

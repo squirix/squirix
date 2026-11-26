@@ -37,7 +37,7 @@ internal static class FencedReads
             {
                 try
                 {
-                    state.Read.Value = (await state.Cache.GetEntryAsync(state.CacheName, state.Key, token))?.Value is { Kind: Squirix.Server.Core.StoredValue.ValueKind.Text } text ? System.Text.Encoding.UTF8.GetString(text.Bytes) : null;
+                    state.Read.Value = (await state.Cache.GetEntryAsync(state.CacheName, state.Key, token))?.Value is { Kind: Squirix.Server.Core.StoredValueKind.Text } text ? System.Text.Encoding.UTF8.GetString(text.Bytes) : null;
                     return true;
                 }
                 catch (ServerCallException exception) when (exception.StatusCode is FrameStatus.Unavailable)

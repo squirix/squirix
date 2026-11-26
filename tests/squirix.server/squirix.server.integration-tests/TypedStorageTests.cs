@@ -31,7 +31,7 @@ public sealed class TypedStorageTests : NodeIntegrationTestBase
 
         foreach (var entry in new[] { fromDocument, fromElement })
         {
-            _ = await Assert.That(entry.Value.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+            _ = await Assert.That(entry.Value.Kind).IsEqualTo(StoredValueKind.Json);
             _ = await Assert.That(System.Text.Encoding.UTF8.GetString(entry.Value.Bytes)).IsEqualTo(json);
         }
     }

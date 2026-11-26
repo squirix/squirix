@@ -65,8 +65,8 @@ public sealed class StoredValueTests
                 cache.Set(key, ((i + worker) & 1) == 0 ? text : number, cancellationToken);
                 var hit = cache.GetEntry(key, cancellationToken)!;
                 var valid = hit.Version == 1
-                    ? hit.Value.Kind == StoredValue.ValueKind.Text && hit.Value.Bytes.AsSpan().SequenceEqual("one"u8)
-                    : hit.Version == 2 && hit.Value.Kind == StoredValue.ValueKind.Integer && hit.Value.Integer == long.MinValue;
+                    ? hit.Value.Kind == StoredValueKind.Text && hit.Value.Bytes.AsSpan().SequenceEqual("one"u8)
+                    : hit.Version == 2 && hit.Value.Kind == StoredValueKind.Integer && hit.Value.Integer == long.MinValue;
                 if (!valid)
                     _ = Interlocked.Increment(ref invalid);
             }
@@ -100,7 +100,7 @@ public sealed class StoredValueTests
         var frame = System.Text.Encoding.UTF8.GetBytes("xx[0]yy");
         var value = StoredValue.FromJson(frame.AsMemory(2, 3));
         Array.Clear(frame);
-        _ = await Assert.That(value.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+        _ = await Assert.That(value.Kind).IsEqualTo(StoredValueKind.Json);
         _ = await Assert.That(value.Bytes.AsSpan().SequenceEqual("[0]"u8)).IsTrue();
     }
 
@@ -112,7 +112,7 @@ public sealed class StoredValueTests
     public async Task DoublePreservesBits(long bits)
     {
         var value = StoredValue.FromDouble(BitConverter.Int64BitsToDouble(bits));
-        _ = await Assert.That(value.Kind).IsEqualTo(StoredValue.ValueKind.Double);
+        _ = await Assert.That(value.Kind).IsEqualTo(StoredValueKind.Double);
         _ = await Assert.That(BitConverter.DoubleToInt64Bits(value.Double)).IsEqualTo(bits);
     }
 }

@@ -271,7 +271,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         {
             var local = cluster[id].GetRequiredService<PhysicalCache<StoredValue>>();
             await (Cache: local, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
-                static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is { Kind: StoredValue.ValueKind.Binary } binary && binary.Bytes.AsSpan().SequenceEqual(state.Expected)),
+                static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is { Kind: StoredValueKind.Binary } binary && binary.Bytes.AsSpan().SequenceEqual(state.Expected)),
                 WipedCluster.Bound,
                 cancellationToken);
         }

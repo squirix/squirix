@@ -100,13 +100,13 @@ internal static class ServerWireMapping
 
     private static CacheValue ToWire(in StoredValue value) => value.Kind switch
     {
-        StoredValue.ValueKind.Null => CacheValueWire.Null(),
-        StoredValue.ValueKind.Boolean => new CacheValue { BoolValue = value.Boolean },
-        StoredValue.ValueKind.Integer => new CacheValue { Int64Value = value.Integer },
-        StoredValue.ValueKind.Double => new CacheValue { DoubleValue = value.Double },
-        StoredValue.ValueKind.Text => CacheValue.FromText(value.Bytes),
-        StoredValue.ValueKind.Binary => CacheValueWire.FromBinary(value.Bytes),
-        StoredValue.ValueKind.Json => CacheValueWire.FromJson(value.Bytes),
+        StoredValueKind.Null => CacheValueWire.Null(),
+        StoredValueKind.Boolean => new CacheValue { BoolValue = value.Boolean },
+        StoredValueKind.Integer => new CacheValue { Int64Value = value.Integer },
+        StoredValueKind.Double => new CacheValue { DoubleValue = value.Double },
+        StoredValueKind.Text => CacheValue.FromText(value.Bytes),
+        StoredValueKind.Binary => CacheValueWire.FromBinary(value.Bytes),
+        StoredValueKind.Json => CacheValueWire.FromJson(value.Bytes),
         _ => throw new InvalidOperationException("Invalid stored cache value."),
     };
 
