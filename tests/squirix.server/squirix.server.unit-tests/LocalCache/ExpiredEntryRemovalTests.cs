@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
 using TUnit.Assertions;
@@ -18,6 +19,27 @@ namespace Squirix.Server.UnitTests.LocalCache;
 public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
 {
     private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    /// <summary>A failed expiry check leaves the slot, index and memory accounting intact for a retry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemovalCanRetryAfterClockFailure(CancellationToken cancellationToken)
+    {
+        var clock = new FaultingClock();
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>());
+        var key = CacheKey.Default("retry");
+        cache.Set(key, new NodeCacheEntry<string>("original", 1, Start.AddMinutes(1).UtcDateTime), cancellationToken);
+        ILocalCacheStats stats = cache;
+        var bytes = stats.EstimatedBytes;
+        clock.Fail = true;
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.Remove(CacheKey.Default("retry"), CancellationToken.None));
+        clock.Fail = false;
+
+        _ = await Assert.That((stats.EntryCount, stats.EstimatedBytes)).IsEqualTo((1, bytes));
+        _ = await Assert.That(cache.GetValue(key, cancellationToken).Value).IsEqualTo("original");
+        _ = await Assert.That(cache.Remove(key, cancellationToken)).IsTrue();
+        _ = await Assert.That((stats.EntryCount, stats.EstimatedBytes)).IsEqualTo((0, 0L));
+    }
 
     /// <summary>Expired entries leave memory with their bytes, and an entry without a deadline stays.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -278,4 +300,11 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
 
     private static void Set(PhysicalCache<object?> cache, string key, TimeSpan ttl, CancellationToken cancellationToken) =>
         cache.Set(CacheKey.Default(key), new NodeCacheEntry<object?>("v", 1, null, ttl), cancellationToken);
+
+    private sealed class FaultingClock : TimeProvider
+    {
+        internal bool Fail { get; set; }
+
+        public override DateTimeOffset GetUtcNow() => Fail ? throw new InvalidOperationException("Clock failed.") : Start;
+    }
 }

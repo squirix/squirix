@@ -325,10 +325,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     private bool RemoveLocked(CacheKey key)
     {
         _store.AdvanceGrowthLocked();
-        if (!_store.RemoveLocked(key, out var node))
+        ref var link = ref _store.FindLinkLocked(key, key.GetHashCode(), 0, out var node);
+        if (!node.Exists)
             return false;
 
         var expired = IsExpired(node.ExpiresUtc);
+        _store.UnlinkLocked(ref link, in node);
         UntrackLocked(in node);
         return !expired;
     }
@@ -871,19 +873,19 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             return outcome;
         }
 
-        /// <summary>Unlinks the node of a key; call under the cache lock.</summary>
-        /// <param name="key">The key.</param>
-        /// <param name="node">The node unlinked.</param>
-        /// <returns><see langword="true" /> when the key was stored.</returns>
-        internal bool RemoveLocked(CacheKey key, out Node node)
+        /// <summary>Finds the link to an occupant under the cache lock. Only use the link when the node exists.</summary>
+        /// <param name="key">The requested key.</param>
+        /// <param name="hash">Its previously computed hash.</param>
+        /// <param name="identity">The exact occupant lifetime, or zero to match the key.</param>
+        /// <param name="node">The occupant, or the default on a miss.</param>
+        /// <returns>The link under the writer lock, or a null reference on a miss.</returns>
+        internal ref int FindLinkLocked(CacheKey key, int hash, long identity, out Node node)
         {
-            var hash = key.GetHashCode();
-            if (!Unlink(_table, key, hash, default, out node) &&
-                !(_previous is { } previous && Unlink(previous, key, hash, default, out node)))
-                return false;
+            ref var link = ref FindLink(_table, key, hash, identity, out node);
+            if (!node.Exists && _previous is { } previous)
+                return ref FindLink(previous, key, hash, identity, out node);
 
-            Count--;
-            return true;
+            return ref link;
         }
 
         /// <summary>Unlinks the exact stored node under the cache lock.</summary>
@@ -891,10 +893,24 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <exception cref="InvalidOperationException">The node has already left the store.</exception>
         internal void RemoveLocked(in Node node)
         {
-            if (!Unlink(_table, node.Key, node.Hash, in node, out _) &&
-                !(_previous is { } previous && Unlink(previous, node.Key, node.Hash, in node, out _)))
+            ref var link = ref FindLinkLocked(node.Key, node.Hash, node.Identity, out var stored);
+            if (!stored.Exists)
                 throw new InvalidOperationException("The node is not stored.");
 
+            UnlinkLocked(ref link, in stored);
+        }
+
+        /// <summary>Detaches the occupant after all potentially throwing expiry checks have completed.</summary>
+        /// <param name="link">The link returned by the lookup under the same lock.</param>
+        /// <param name="node">The occupant reached through the link.</param>
+        internal void UnlinkLocked(ref int link, in Node node)
+        {
+            var slots = _slots.PageFor(node.Slot);
+            var offset = SlotOffset(node.Slot);
+            _ = Interlocked.Increment(ref _topologyVersion);
+            Volatile.Write(ref link, slots[offset].Next);
+            _slots.Release(slots, offset, node.Slot);
+            _ = Interlocked.Increment(ref _topologyVersion);
             Count--;
         }
 
@@ -969,7 +985,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <returns>Three quarters of <paramref name="bucketCount" />.</returns>
         private static int GrowThreshold(int bucketCount) => bucketCount - (bucketCount >> FreeBucketShift);
 
-        private bool Unlink(BucketTable table, CacheKey key, int hash, in Node expected, out Node node)
+        private ref int FindLink(BucketTable table, CacheKey key, int hash, long identity, out Node node)
         {
             var index = table.IndexOf(hash);
             if (table.Page(index) is { } page)
@@ -981,14 +997,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     var slots = _slots.PageFor(slot);
                     var offset = SlotOffset(slot);
                     ref var record = ref slots[offset];
-                    if (expected.Exists ? expected.Identity == record.Lifetime : record.Hash == hash && record.Entry.Key.Equals(key))
+                    if (identity != 0 ? identity == record.Lifetime : record.Hash == hash && record.Entry.Key.Equals(key))
                     {
-                        _ = Interlocked.Increment(ref _topologyVersion);
                         node = new Node(slots, slot, record.Lifetime);
-                        Volatile.Write(ref link, record.Next);
-                        _slots.Release(slots, offset, slot);
-                        _ = Interlocked.Increment(ref _topologyVersion);
-                        return true;
+                        return ref link;
                     }
 
                     link = ref record.Next;
@@ -996,7 +1008,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             }
 
             node = default;
-            return false;
+            return ref Unsafe.NullRef<int>();
         }
 
         private Node Search(BucketTable table, CacheKey key, int hash, long version)
