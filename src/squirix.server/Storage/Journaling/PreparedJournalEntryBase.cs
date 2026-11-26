@@ -8,9 +8,9 @@ namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Journal put payload materialized once for sizing and encode.</summary>
 [Immutable]
-internal abstract class PreparedJournalEntry
+internal abstract class PreparedJournalEntryBase
 {
-    private PreparedJournalEntry(int encodedLength)
+    private PreparedJournalEntryBase(int encodedLength)
     {
         EncodedLength = encodedLength;
     }
@@ -22,13 +22,13 @@ internal abstract class PreparedJournalEntry
     /// <param name="version">The entry version.</param>
     /// <param name="tags">The entry tags.</param>
     /// <returns>The measured entry for the mutation payload.</returns>
-    internal static PreparedJournalEntry ForReplicaUpsert(in StoredValue value, long version, FrozenDictionary<string, string>? tags)
+    internal static PreparedJournalEntryBase ForReplicaUpsert(in StoredValue value, long version, FrozenDictionary<string, string>? tags)
     {
         EntryTagsGuard.EnsureWithinLimits(tags);
         return From(new NodeCacheEntry<StoredValue>(value, version, tags: tags));
     }
 
-    internal static PreparedJournalEntry From<T>(NodeCacheEntry<T> entry) => Prepare(entry, null);
+    internal static PreparedJournalEntryBase From<T>(NodeCacheEntry<T> entry) => Prepare(entry, null);
 
     /// <summary>Prepares an entry whose journal-encoded length the caller already knows, without measuring the value again.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
@@ -36,7 +36,7 @@ internal abstract class PreparedJournalEntry
     /// <param name="encodedLength">The encoded length of <paramref name="entry" />, as <see cref="From{T}(NodeCacheEntry{T})" /> would measure it.</param>
     /// <returns>The prepared entry.</returns>
     /// <exception cref="InvalidOperationException">The entry has a relative expiration.</exception>
-    internal static PreparedJournalEntry From<T>(NodeCacheEntry<T> entry, int encodedLength) => Prepare(entry, encodedLength);
+    internal static PreparedJournalEntryBase From<T>(NodeCacheEntry<T> entry, int encodedLength) => Prepare(entry, encodedLength);
 
     /// <summary>Measures the encoded length the journal frame of <paramref name="entry" /> will have, before its expiration is resolved.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
@@ -52,7 +52,7 @@ internal abstract class PreparedJournalEntry
 
     internal abstract int WriteTo(Span<byte> destination);
 
-    private static PreparedJournalEntry Prepare<T>(NodeCacheEntry<T> entry, int? encodedLength)
+    private static PreparedJournalEntryBase Prepare<T>(NodeCacheEntry<T> entry, int? encodedLength)
     {
         var expires = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
         if (entry is NodeCacheEntry<StoredValue> stored)
@@ -68,7 +68,7 @@ internal abstract class PreparedJournalEntry
     }
 
     [Immutable]
-    private sealed class EncodedPayload : PreparedJournalEntry
+    private sealed class EncodedPayload : PreparedJournalEntryBase
     {
         private readonly byte[] _bytes;
 
@@ -88,7 +88,7 @@ internal abstract class PreparedJournalEntry
     }
 
     [Immutable]
-    private sealed class StoredPayload : PreparedJournalEntry
+    private sealed class StoredPayload : PreparedJournalEntryBase
     {
         private readonly NodeCacheEntry<StoredValue> _entry;
 

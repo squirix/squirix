@@ -31,7 +31,7 @@ internal static class ReplicaMutationDecisions
 
         var outcome = access.RenewTo != null ? ReplicaOutcomeCodec.Applied : ReplicaOutcomeCodec.NotApplied;
         return access.RenewTo is { } deadline
-            ? new ReplicaDecision(PreparedJournalEntry.ForReplicaUpsert(current!.Value, current.Version, current.Tags), outcome, deadline.Ticks)
+            ? new ReplicaDecision(PreparedJournalEntryBase.ForReplicaUpsert(current!.Value, current.Version, current.Tags), outcome, deadline.Ticks)
             : new ReplicaDecision(null, outcome, 0);
     }
 
@@ -167,7 +167,7 @@ internal static class ReplicaMutationDecisions
     /// </remarks>
     private static ReplicaDecision Upsert(in StoredValue value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks)
     {
-        var prepared = PreparedJournalEntry.ForReplicaUpsert(in value, version, tags);
+        var prepared = PreparedJournalEntryBase.ForReplicaUpsert(in value, version, tags);
         return new ReplicaDecision(prepared, ReplicaOutcomeCodec.Applied, expiresUtcTicks);
     }
 
@@ -177,10 +177,10 @@ internal static class ReplicaMutationDecisions
     /// <param name="ExpiresUtcTicks">The pinned absolute deadline of the written entry, or zero.</param>
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    internal readonly record struct ReplicaDecision(PreparedJournalEntry? Entry, ReadOnlyMemory<byte> Outcome, long ExpiresUtcTicks)
+    internal readonly record struct ReplicaDecision(PreparedJournalEntryBase? Entry, ReadOnlyMemory<byte> Outcome, long ExpiresUtcTicks)
     {
         /// <summary>Gets the entry an upserting record writes, or null when the effect is a delete or nothing.</summary>
-        internal PreparedJournalEntry? Entry { get; } = Entry;
+        internal PreparedJournalEntryBase? Entry { get; } = Entry;
 
         /// <summary>Gets the canonical outcome the client, the log and the idempotency state share.</summary>
         internal ReadOnlyMemory<byte> Outcome { get; } = Outcome;

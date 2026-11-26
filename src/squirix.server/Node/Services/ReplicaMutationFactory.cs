@@ -411,7 +411,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <returns>The prepared mutation, carrying the outcome of the record.</returns>
     /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
     /// <exception cref="ServerCallException">The insertion and its eviction exceed the replication message budget.</exception>
-    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, PreparedJournalEntry? entry = null)
+    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, PreparedJournalEntryBase? entry = null)
     {
         if (SelectCapacityVictim != null && key != null && entry != null &&
             (string.Equals(record.MutationKind, ReplicaMutationKinds.Set, StringComparison.Ordinal) || string.Equals(record.MutationKind, ReplicaMutationKinds.TryAdd, StringComparison.Ordinal)))

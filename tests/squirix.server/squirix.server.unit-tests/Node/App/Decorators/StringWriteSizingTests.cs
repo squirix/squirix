@@ -106,13 +106,13 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var empty = new NodeCacheEntry<StoredValue>(StoredValue.FromText(string.Empty), 1, deadline, TimeSpan.FromMinutes(1), tags);
-        var length = EntryLimitKit.LargeFixtureBytes - PreparedJournalEntry.MeasureEncodedLength(empty);
+        var length = EntryLimitKit.LargeFixtureBytes - PreparedJournalEntryBase.MeasureEncodedLength(empty);
         var value = unicode ? new string('\u754c', length / 3) + new string('x', length % 3) : new string('x', length);
         var fitting = new NodeCacheEntry<StoredValue>(StoredValue.FromText(value), 1, deadline, TimeSpan.FromMinutes(1), tags);
         var oversized = new NodeCacheEntry<StoredValue>(StoredValue.FromText(value + "x"), 1, deadline, TimeSpan.FromMinutes(1), tags);
 
-        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(fitting)).IsEqualTo(EntryLimitKit.LargeFixtureBytes);
-        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(oversized)).IsEqualTo(EntryLimitKit.LargeFixtureBytes + 1);
+        _ = await Assert.That(PreparedJournalEntryBase.MeasureEncodedLength(fitting)).IsEqualTo(EntryLimitKit.LargeFixtureBytes);
+        _ = await Assert.That(PreparedJournalEntryBase.MeasureEncodedLength(oversized)).IsEqualTo(EntryLimitKit.LargeFixtureBytes + 1);
     }
 
     private static MemoryAdmissionCacheDecorator<StoredValue> Create(PhysicalCache<StoredValue> physical, Meter meter, long limit, EvictionOptions? options = null)

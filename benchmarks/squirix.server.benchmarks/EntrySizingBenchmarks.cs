@@ -24,5 +24,5 @@ public class EntrySizingBenchmarks
     /// <summary>Measures the encoded entry length.</summary>
     /// <returns>The encoded entry length.</returns>
     [Benchmark]
-    public int Measure() => PreparedJournalEntry.MeasureEncodedLength(_entry);
+    public int Measure() => PreparedJournalEntryBase.MeasureEncodedLength(_entry);
 }

@@ -76,7 +76,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
 
         long expected = 0;
         await foreach (var (_, entry) in chain.Physical.EnumerateLiveAsync(cancellationToken))
-            expected += PreparedJournalEntry.MeasureEncodedLength(entry);
+            expected += PreparedJournalEntryBase.MeasureEncodedLength(entry);
 
         _ = await Assert.That(CountOf(chain.Physical)).IsEqualTo(3);
         _ = await Assert.That(BytesOf(chain.Physical)).IsEqualTo(expected);
@@ -102,7 +102,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             var isDecoded = JournalEntryPayload.TryDecodeWithDeadline<object?>(payload, ticks, out var entry, out var length);
 
             _ = await Assert.That(isDecoded).IsTrue();
-            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntry.MeasureEncodedLength(entry!));
+            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntryBase.MeasureEncodedLength(entry!));
             _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc));
             _ = await Assert.That(entry.Expiration).IsNull();
             _ = await Assert.That(entry.Version).IsEqualTo(3L);
@@ -346,7 +346,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         {
             var (key, entry) = loaded.Entries[i];
             var length = loaded.EncodedLengths[i];
-            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntry.MeasureEncodedLength(entry));
+            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntryBase.MeasureEncodedLength(entry));
             await replayed.InsertRecoveryAsync(key, entry, cancellationToken, length);
             expected += estimator.EstimateBytes(key, entry, false);
         }
@@ -360,7 +360,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     public async Task WrongHintFallsBackToMeasuredLength()
     {
         var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, Tags());
-        var measured = PreparedJournalEntry.MeasureEncodedLength(entry);
+        var measured = PreparedJournalEntryBase.MeasureEncodedLength(entry);
 
         foreach (var hint in new[] { measured - 5, measured + 5, 1 })
         {
@@ -371,7 +371,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             var isDecoded = JournalEntryPayload.TryDecode<StoredValue>(payload.Memory.Span, out var decoded, out var bytesRead);
             _ = await Assert.That(isDecoded).IsTrue();
             _ = await Assert.That(bytesRead).IsEqualTo(measured);
-            _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(decoded!)).IsEqualTo(measured);
+            _ = await Assert.That(PreparedJournalEntryBase.MeasureEncodedLength(decoded!)).IsEqualTo(measured);
         }
     }
 

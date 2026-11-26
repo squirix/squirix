@@ -141,7 +141,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string cacheName,
         string key,
         NodeCacheEntry<T> entry,
-        PreparedJournalEntry prepared,
+        PreparedJournalEntryBase prepared,
         CancellationToken cancellationToken)
     {
         using var payload = JournalEntryPayload.Encode(in prepared);
@@ -199,7 +199,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string cacheName,
         string key,
         NodeCacheEntry<T> entry,
-        PreparedJournalEntry prepared,
+        PreparedJournalEntryBase prepared,
         CancellationToken cancellationToken)
     {
         var cacheKey = new CacheKey(cacheName, key);
@@ -282,7 +282,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string CacheName,
         string Key,
         NodeCacheEntry<T> Entry,
-        PreparedJournalEntry Prepared,
+        PreparedJournalEntryBase Prepared,
         CacheKey CacheKey);
 
     [Immutable]

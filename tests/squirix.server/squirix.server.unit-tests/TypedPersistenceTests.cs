@@ -63,7 +63,7 @@ public sealed class TypedPersistenceTests
     {
         var typed = new NodeCacheEntry<StoredValue>(StoredValue.FromText("value"));
         var reference = new Tuple<int, NodeCacheEntry<StoredValue>>[Count];
-        var retained = new PreparedJournalEntry[Count];
+        var retained = new PreparedJournalEntryBase[Count];
         _ = MeasurePreparation(typed, retained);
         _ = MeasureHolders(typed, reference);
 
@@ -82,7 +82,7 @@ public sealed class TypedPersistenceTests
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
-    private static long MeasurePreparation(NodeCacheEntry<StoredValue> entry, PreparedJournalEntry[] retained)
+    private static long MeasurePreparation(NodeCacheEntry<StoredValue> entry, PreparedJournalEntryBase[] retained)
     {
         var before = GC.GetAllocatedBytesForCurrentThread();
         for (var i = 0; i < retained.Length; i++)
@@ -112,7 +112,7 @@ public sealed class TypedPersistenceTests
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
-    private static long MeasureWrites(PreparedJournalEntry prepared, byte[] destination)
+    private static long MeasureWrites(PreparedJournalEntryBase prepared, byte[] destination)
     {
         var before = GC.GetAllocatedBytesForCurrentThread();
         for (var i = 0; i < Count; i++)
