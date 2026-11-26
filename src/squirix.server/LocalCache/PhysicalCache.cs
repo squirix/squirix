@@ -935,7 +935,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             {
                 for (var work = 0; work < TransferBudget; work++)
                 {
-                    var slot = previous.Head(_cursor);
+                    var source = previous.Page(_cursor);
+                    var index = BucketTable.Offset(_cursor);
+                    var slot = source?[index] ?? 0;
                     if (slot != 0)
                     {
                         // Obtain the destination page before unlinking, so allocation failure leaves the node reachable.
@@ -943,8 +945,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                         var offset = SlotOffset(slot);
                         ref var record = ref page[offset];
                         ref var destination = ref table.WritableBucket(table.IndexOf(record.Hash));
-                        Volatile.Write(ref previous.WritableBucket(_cursor), record.Next);
-                        Volatile.Write(ref record.Next, destination);
+                        Volatile.Write(ref source![index], record.Next);
+                        if (record.Next != destination)
+                            Volatile.Write(ref record.Next, destination);
                         Volatile.Write(ref destination, slot);
                     }
                     else if (++_cursor == previous.Length)
