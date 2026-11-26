@@ -77,6 +77,8 @@ internal sealed class CacheEviction<T>
         catch
         {
             scope.Remove(node);
+            if (scope.Count == 0)
+                _ = _scopes.Remove(scopeKey);
             throw;
         }
 

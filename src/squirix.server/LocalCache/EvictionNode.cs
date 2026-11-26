@@ -32,5 +32,16 @@ internal sealed class EvictionNode<T>
 
     internal long Stamp => Volatile.Read(ref _stamp);
 
-    internal void MarkRecent() => Volatile.Write(ref _stamp, Stopwatch.GetTimestamp());
+    internal void MarkRecent()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var seen = Stamp;
+        while (seen < now)
+        {
+            var previous = Interlocked.CompareExchange(ref _stamp, now, seen);
+            if (previous == seen)
+                return;
+            seen = previous;
+        }
+    }
 }

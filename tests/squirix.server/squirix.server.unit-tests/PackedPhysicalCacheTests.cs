@@ -108,6 +108,9 @@ public sealed class PackedPhysicalCacheTests
         for (var i = 0; i < count; i++)
             saved[i] = cache.GetValue(keys[i], cancellationToken).Value;
 
+        _ = await Assert.That(saved[0].IsSlice).IsTrue();
+        _ = await Assert.That(saved[16].IsSlice).IsTrue();
+
         for (var i = count - 1; i >= 0; i--)
         {
             var bytes = new byte[originals[i].Memory.Length];
@@ -116,17 +119,17 @@ public sealed class PackedPhysicalCacheTests
         }
 
         // Force a change of representation after the rewrites and recheck all other values.
-        cache.Set(keys[^1], new NodeCacheEntry<StoredValue>(StoredValue.FromText("different length")), cancellationToken);
+        cache.Set(keys[0], new NodeCacheEntry<StoredValue>(StoredValue.FromText("different length")), cancellationToken);
         for (var i = 0; i < count; i++)
         {
             _ = await Assert.That(saved[i].Memory.Span.SequenceEqual(originals[i].Memory.Span)).IsTrue();
-            if (i == count - 1)
+            if (i == 0)
                 continue;
             var current = cache.GetValue(keys[i], cancellationToken).Value;
             _ = await Assert.That(current.Memory.Length).IsEqualTo(originals[i].Memory.Length);
             _ = await Assert.That(current.Memory.Span.ContainsAnyExcept(byte.CreateTruncating(i + 1))).IsFalse();
         }
 
-        _ = await Assert.That(cache.GetValue(keys[^1], cancellationToken).Value.Memory.Span.SequenceEqual("different length"u8)).IsTrue();
+        _ = await Assert.That(cache.GetValue(keys[0], cancellationToken).Value.Memory.Span.SequenceEqual("different length"u8)).IsTrue();
     }
 }

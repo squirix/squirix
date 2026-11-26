@@ -84,6 +84,8 @@ internal sealed class EvictionScope<T>
         }
 
         var count = _sample.Count;
+        if (count == 0)
+            return null;
         var samples = Math.Min(count, SampleSize);
         var position = _cursor < count ? _cursor : 0;
         var oldest = _sample[position];

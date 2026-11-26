@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Text;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -26,7 +27,7 @@ internal static class CompactPageMeasurement
         {
             Insert(store, i);
 
-            // Sample before, during and after the last index doubling as well as at regular intervals.
+            // Sample retained memory after inserts, with additional checkpoints near the last index doubling.
             if ((i + 1) % 125000 == 0 || i + 1 is 1560000 or 1572864 or 1585000 or 1600000)
                 peakLive = Math.Max(peakLive, EntryMemoryMeasurement.HeapAfterFullCollection() - empty);
         }
@@ -139,9 +140,9 @@ internal static class CompactPageMeasurement
             throw new InvalidOperationException("Unexpected key presence.");
         if (!present)
             return;
-        if (result.Value.Kind != store.Kind || result.Value.Bytes.Length != 8)
+        var bytes = result.Value.Memory.Span;
+        if (result.Value.Kind != store.Kind || bytes.Length != 8)
             throw new InvalidOperationException("Unexpected value kind or length.");
-        var bytes = result.Value.Bytes.AsSpan();
         for (var i = 7; i >= 0; i--)
         {
             if (bytes[i] != "0123456789ABCDEF"[expected & 15])
@@ -215,28 +216,69 @@ internal static class CompactPageMeasurement
 
     private static int RaceWorker(Subject store, Barrier gate, int worker)
     {
-        gate.SignalAndWait(CancellationToken.None);
-        var hits = 0;
-        for (var i = 0; i < 120000; i++)
+        const int keys = 97;
+        if (worker == 0)
         {
-            var id = (i + worker) % 97;
-            var key = Key(id);
-            if (worker == 0)
-            {
-                store.Remove(key);
+            for (var id = 0; id < keys; id++)
                 Insert(store, id);
-                continue;
-            }
+        }
 
-            var result = store.Get(key);
+        var hits = 0;
+        for (var round = 1; round <= 1200; round++)
+        {
+            Synchronize(gate);
+            if (worker == 0)
+                ReplaceGeneration(store, round, keys);
+            else
+                hits += ReadGeneration(store, round, keys, worker);
+
+            Synchronize(gate);
+            if (worker == 0)
+                continue;
+            var id = (round + worker) % keys;
+            Verify(store, Key(id), (round * keys) + id, true);
+            hits++;
+        }
+
+        return hits;
+    }
+
+    private static void ReplaceGeneration(Subject store, int round, int keys)
+    {
+        for (var id = 0; id < keys; id++)
+        {
+            var key = Key(id);
+            store.Remove(key);
+            var payload = Key((round * keys) + id);
+            store.Set(key, store.Kind == StoredValueKind.Binary ? StoredValue.FromBinary(Encoding.ASCII.GetBytes(payload)) : StoredValue.FromText(payload));
+        }
+    }
+
+    private static int ReadGeneration(Subject store, int round, int keys, int worker)
+    {
+        var hits = 0;
+        for (var i = 0; i < keys; i++)
+        {
+            var id = (i + worker) % keys;
+            var result = store.Get(Key(id));
             if (!result.Found)
                 continue;
-            if (result.Value.Kind != store.Kind || !result.Value.Bytes.AsSpan().SequenceEqual(Encoding.ASCII.GetBytes(key)))
+            var bytes = result.Value.Memory.Span;
+            var current = (round * keys) + id;
+            if (result.Value.Kind != store.Kind || bytes.Length != 8 ||
+                !Utf8Parser.TryParse(bytes, out int generation, out var consumed, 'X') || consumed != bytes.Length ||
+                (generation != current && generation != current - keys))
                 throw new InvalidOperationException("Reader crossed a slot lifetime.");
             hits++;
         }
 
         return hits;
+    }
+
+    private static void Synchronize(Barrier gate)
+    {
+        if (!gate.SignalAndWait(TimeSpan.FromSeconds(30), CancellationToken.None))
+            throw new TimeoutException("Concurrent verification stalled.");
     }
 
     private sealed class ReadMeasurement

@@ -113,7 +113,7 @@ internal static class CompactPageVerification
             var held = default(StoredValue);
             if (!cache.Access(key, CompactPageCache.Operation.Get, ref held))
                 throw new InvalidOperationException("Expected binary value.");
-            value = default;
+            value = StoredValue.FromBinary(new byte[size]);
             cache.Access(key, CompactPageCache.Operation.Set, ref value);
             if (held.Kind != StoredValueKind.Binary || held.Bytes.Length != size || held.Bytes.AsSpan().IndexOfAnyExcept(byte.MaxValue) >= 0)
                 throw new InvalidOperationException("Binary value lost ownership across replacement.");
