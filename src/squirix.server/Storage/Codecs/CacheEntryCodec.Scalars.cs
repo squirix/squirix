@@ -37,16 +37,16 @@ internal static partial class CacheEntryCodec
         internal static bool TryReadValue<T>(ReadOnlySpan<byte> source, bool materialize, out T? value, out int bytesRead)
         {
             value = default;
-            if (typeof(T) == typeof(StoredValue) && materialize)
+            if (typeof(T) != typeof(StoredValue) || !materialize)
             {
-                if (!TryReadStored(source, out var stored, out bytesRead))
-                    return false;
-                value = Unsafe.As<StoredValue, T>(ref stored);
-                return true;
+                return TryReadInternal(source, materialize, out var decoded, out bytesRead) &&
+                       (!materialize || TryCoerceTo(decoded, out value));
             }
 
-            return TryReadInternal(source, materialize, out var decoded, out bytesRead) &&
-                   (!materialize || TryCoerceTo(decoded, out value));
+            if (!TryReadStored(source, out var stored, out bytesRead))
+                return false;
+            value = Unsafe.As<StoredValue, T>(ref stored);
+            return true;
         }
 
         internal static int WriteInternal(object? value, Span<byte> destination) => value switch

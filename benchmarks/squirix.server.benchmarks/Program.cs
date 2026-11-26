@@ -4,6 +4,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
+using Squirix.Server.Benchmarks.CompactPages;
 
 namespace Squirix.Server.Benchmarks;
 

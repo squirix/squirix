@@ -6,8 +6,9 @@ using System.Threading;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 
-namespace Squirix.Server.Benchmarks;
+namespace Squirix.Server.Benchmarks.CompactPages;
 
+/// <summary>Measures the heap through fill → random removal → refill, then checks concurrent reads.</summary>
 internal static class CompactPageMeasurement
 {
     private const int Keys = 2_000_000;
@@ -17,7 +18,7 @@ internal static class CompactPageMeasurement
     {
         var order = BuildOrder();
         Validate(compact, binary);
-        var empty = Live();
+        var empty = EntryMemoryMeasurement.HeapAfterFullCollection();
         var initialRss = Environment.WorkingSet;
         var store = new Subject(compact, binary);
         long peakLive = 0;
@@ -27,7 +28,7 @@ internal static class CompactPageMeasurement
 
             // Sample before, during and after the last index doubling as well as at regular intervals.
             if ((i + 1) % 125000 == 0 || i + 1 is 1560000 or 1572864 or 1585000 or 1600000)
-                peakLive = Math.Max(peakLive, Live() - empty);
+                peakLive = Math.Max(peakLive, EntryMemoryMeasurement.HeapAfterFullCollection() - empty);
         }
 
         using (var process = Process.GetCurrentProcess())
@@ -67,7 +68,7 @@ internal static class CompactPageMeasurement
     internal static void MeasureOverwrites(bool binary)
     {
         var order = BuildOrder();
-        var empty = Live();
+        var empty = EntryMemoryMeasurement.HeapAfterFullCollection();
         var store = new Subject(false, binary);
         for (var i = 0; i < Keys; i++)
             Insert(store, i);
@@ -100,10 +101,17 @@ internal static class CompactPageMeasurement
         for (var i = 0; i < Keys; i++)
             order[i] = i;
 
-        // Deterministic Fisher-Yates workload, independent of each process's hash seed.
-#pragma warning disable S2245, CA5394
-        new Random(12194).Shuffle(order);
-#pragma warning restore S2245, CA5394
+        // Shuffle with a fixed sequence so separate benchmark processes visit the same slots.
+        uint state = 12194;
+        for (var i = order.Length - 1; i > 0; i--)
+        {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            var j = int.CreateChecked((ulong.CreateChecked(state) * uint.CreateChecked(i + 1)) >> 32);
+            (order[i], order[j]) = (order[j], order[i]);
+        }
+
         return order;
     }
 
@@ -115,13 +123,9 @@ internal static class CompactPageMeasurement
         store.Set(key, store.Kind == StoredValueKind.Binary ? StoredValue.FromBinary(Encoding.ASCII.GetBytes(key)) : StoredValue.FromText(key));
     }
 
-#pragma warning disable S1215 // Measurement checkpoints must exclude temporary caller objects.
-    private static long Live() => GC.GetTotalMemory(true);
-#pragma warning restore S1215
-
     private static void Report(string phase, long empty, int count)
     {
-        var live = Live() - empty;
+        var live = EntryMemoryMeasurement.HeapAfterFullCollection() - empty;
         Print(phase, $"entries={count} live={live} bytesPerEntry={double.CreateChecked(live) / count:F3}");
     }
 
@@ -333,7 +337,7 @@ internal static class CompactPageMeasurement
         internal bool Remove(string key)
         {
             StoredValue unused = default;
-            return _compact != null ? _compact.Access(key, CompactPageCache.Operation.Remove, ref unused) : _current!.Remove(CacheKey.Default(key), CancellationToken.None);
+            return _compact?.Access(key, CompactPageCache.Operation.Remove, ref unused) ?? _current!.Remove(CacheKey.Default(key), CancellationToken.None);
         }
 
         internal NodeCacheValueResult<StoredValue> Get(string key)

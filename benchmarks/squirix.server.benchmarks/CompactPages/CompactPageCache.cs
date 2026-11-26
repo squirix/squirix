@@ -6,9 +6,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Core;
 
-namespace Squirix.Server.Benchmarks;
+namespace Squirix.Server.Benchmarks.CompactPages;
 
-/// <summary>Experimental physical storage for ordinary typed entries in one namespace.</summary>
+/// <summary>Experimental store for one namespace. A key’s UTF-8 hash selects the shard that owns its record.</summary>
 internal sealed class CompactPageCache
 {
     private const int ShardBits = 6;
@@ -36,7 +36,7 @@ internal sealed class CompactPageCache
     internal bool Access(string key, Operation operation, ref StoredValue value)
     {
         var length = Utf8.GetByteCount(key);
-        Span<byte> bytes = length <= 256 ? stackalloc byte[length] : new byte[length];
+        var bytes = length <= 256 ? stackalloc byte[length] : new byte[length];
         Utf8.GetBytes(key, bytes);
         var hash = KeyHash(bytes);
         var shard = _shards[hash & (_shards.Length - 1)];

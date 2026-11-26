@@ -6,7 +6,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Core;
 
-/// <summary>Inline value in a compact page. The tag is followed by a fixed scalar or length-prefixed bytes.</summary>
+/// <summary>Encodes a value as kind → fixed-width scalar or length-prefixed bytes.</summary>
 internal static class CompactPageValue
 {
     /// <summary>Escape byte followed by a full 32-bit payload length.</summary>

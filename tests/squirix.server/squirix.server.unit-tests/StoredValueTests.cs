@@ -87,7 +87,7 @@ public sealed class StoredValueTests
                 var hit = cache.GetEntry(key, cancellationToken)!;
                 var valid = hit.Version == 1
                     ? hit.ExpiresUtc == DateTime.MaxValue && hit.Tags?.ContainsKey("kind") == true && hit.Value.Kind == StoredValueKind.Text && hit.Value.Bytes.AsSpan().SequenceEqual("one"u8)
-                    : hit.Version == 2 && hit.ExpiresUtc == null && hit.Tags == null && hit.Value.Kind == StoredValueKind.Integer && hit.Value.Integer == long.MinValue;
+                    : hit is { Version: 2, ExpiresUtc: null, Tags: null, Value: { Kind: StoredValueKind.Integer, Integer: long.MinValue } };
                 if (!valid)
                     _ = Interlocked.Increment(ref invalid);
             }

@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 
-namespace Squirix.Server.Benchmarks;
+namespace Squirix.Server.Benchmarks.CompactPages;
 
 /// <summary>Checks mixed typed values in compact storage without collecting performance measurements.</summary>
 internal static class CompactPageVerification
