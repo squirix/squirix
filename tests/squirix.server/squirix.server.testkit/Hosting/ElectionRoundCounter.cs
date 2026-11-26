@@ -22,6 +22,8 @@ internal sealed class ElectionRoundCounter
 
     internal Action<string, string, string, string, ulong>? Observe { get; init; }
 
+    internal Action<string, string, string, ulong, string>? ObservePreVoteResult { get; init; }
+
     internal bool DropHints { get; init; }
 
     internal string[]? BroadcastMembers { get; init; }
@@ -109,7 +111,14 @@ internal sealed class ElectionRoundCounter
             _counter.Observe?.Invoke(header.GroupId, header.SenderNodeId, nodeId, header.TransferSource == null ? "pre-vote" : "transfer-pre-vote", header.Term);
             try
             {
-                return await _inner.PreVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
+                var reply = await _inner.PreVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
+                _counter.ObservePreVoteResult?.Invoke(header.GroupId, header.SenderNodeId, nodeId, header.Term, $"granted={reply.Granted}, replyTerm={reply.CurrentTerm}, refusal={reply.RefusalCode}");
+                return reply;
+            }
+            catch (Exception exception) when (_counter.ObservePreVoteResult != null)
+            {
+                _counter.ObservePreVoteResult(header.GroupId, header.SenderNodeId, nodeId, header.Term, $"{exception.GetType().Name}: {exception.Message}");
+                throw;
             }
             finally
             {

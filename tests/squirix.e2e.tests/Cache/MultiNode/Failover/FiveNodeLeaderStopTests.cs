@@ -38,7 +38,8 @@ public sealed class FiveNodeLeaderStopTests
     public async Task RfFiveSurvivesTwoLeaderStops(CancellationToken cancellationToken)
     {
         const string testName = nameof(RfFiveSurvivesTwoLeaderStops);
-        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, replicaCount: 5), true, cancellationToken);
+        using var diagnostics = new FailoverDiagnostics(Group, static line => TestContext.Current?.Output.WriteLine(line));
+        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, services: diagnostics.Register, replicaCount: 5), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (first, firstTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.FiveNodes, FailoverSteps.Bound, cancellationToken);
         var timeline = FailoverTimeline<ClusterStartOptions>.Start(cluster.Cluster, Group);
@@ -48,7 +49,7 @@ public sealed class FiveNodeLeaderStopTests
             try
             {
                 var fourSurvivors = FailoverSteps.Except(FailoverSteps.FiveNodes, first);
-                var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.FiveNode);
+                var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.FiveNode) { Diagnostics = diagnostics };
                 var one = await FailoverFault.RunAsync(scene, fourSurvivors, "first", (first, $"leader {first} stops", null), cancellationToken);
                 _ = await Assert.That(one.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(one.Attempts));
                 var (second, secondTerm) = await probe.WaitForStableLeaderAsync(Group, fourSurvivors, FailoverSteps.Bound, cancellationToken);

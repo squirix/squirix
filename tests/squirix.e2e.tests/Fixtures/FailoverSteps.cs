@@ -151,6 +151,7 @@ internal static class FailoverSteps
     /// <param name="faultStarted">When the fault started, in <see cref="Stopwatch" /> ticks.</param>
     /// <param name="attempts">Receives one entry per attempt.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="diagnostics">Records the status of each probe write when provided.</param>
     /// <returns>The value read back, and the time from the start of the fault until it was read.</returns>
     internal static async Task<(CacheValueResult<long> Read, TimeSpan Elapsed)> RecoverAsync(
         ICache<long> cache,
@@ -158,20 +159,34 @@ internal static class FailoverSteps
         long value,
         long faultStarted,
         List<EventualAttempt> attempts,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        FailoverDiagnostics? diagnostics = null)
     {
         // The bound leaves room past the recovery bound, so a slow recovery fails the bound assertion with its timeline, not this wait.
         var read = await Eventually.SucceedsAsync(
-            (Cache: cache, Key: key, Value: value),
+            (Cache: cache, Key: key, Value: value, Diagnostics: diagnostics),
             static async (s, token) =>
             {
                 try
                 {
+                    s.Diagnostics?.Record($"probe write {s.Key} started");
                     await s.Cache.SetAsync(s.Key, s.Value, cancellationToken: token);
+                    s.Diagnostics?.Record($"probe write {s.Key} accepted");
                 }
                 catch (CommitOutcomeUnknownException exception)
                 {
+                    s.Diagnostics?.Record($"probe write {s.Key} {exception}");
                     throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "The commit outcome of the probe write is unknown; writing it again is idempotent.", exception));
+                }
+                catch (SquirixTransportException exception)
+                {
+                    s.Diagnostics?.Record($"probe write {s.Key} status={exception.StatusCode}, detail={exception.Message}, payloadTooLarge={exception.Status.PayloadTooLarge}, cause={exception.InnerException}");
+                    throw;
+                }
+                catch (Exception exception) when (s.Diagnostics != null)
+                {
+                    s.Diagnostics.Record($"probe write {s.Key} {exception}");
+                    throw;
                 }
 
                 return await s.Cache.GetValueAsync(s.Key, token);

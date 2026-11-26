@@ -1,0 +1,29 @@
+name: macOS failover diagnostics
+
+on:
+    push:
+        branches: [ test/macos-failover-diagnostics ]
+
+permissions:
+    contents: read
+
+jobs:
+    e2e-cluster:
+        name: macOS ARM64 failover (${{ matrix.attempt }})
+        runs-on: macos-latest
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                attempt: [1, 2, 3]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Verify architecture
+              run: test "$(uname -m)" = arm64
+            - name: Run CI cluster suites
+              uses: ./.github/actions/run-test-suite
+              with:
+                  os: macos-latest-${{ matrix.attempt }}
+                  suite: e2e-cluster
+                  framework: net10.0
+                  build: "true"

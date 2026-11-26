@@ -65,6 +65,7 @@ internal static class FailoverFault
 
             var started = Stopwatch.GetTimestamp();
             scene.Timeline.Mark(fault.What);
+            scene.Diagnostics?.Record(fault.What);
             stopping = fault.Stop is { } stop ? stop(scene.Cluster, fault.NodeId).AsTask() : scene.Cluster.StopNodeAsync(fault.NodeId).AsTask();
             await stopping;
             var down = Stopwatch.GetTimestamp();
@@ -72,7 +73,7 @@ internal static class FailoverFault
 
             // The probe starts only once the node is down, so a stopped leader cannot acknowledge it in its own term.
             var attempts = new List<EventualAttempt>();
-            var (read, elapsed) = await FailoverSteps.RecoverAsync(writer, probeKey, 1L, started, attempts, cancellationToken);
+            var (read, elapsed) = await FailoverSteps.RecoverAsync(writer, probeKey, 1L, started, attempts, cancellationToken, scene.Diagnostics);
             var acked = ledger.Observe();
             var stoppedWhileAcked = !scene.Cluster.Cluster.TryGetNode(fault.NodeId, out _);
             scene.Timeline.Mark($"a write and a read through {clientNodes[0]} succeed under {acked.NodeId} in term {acked.Term}");
@@ -107,7 +108,10 @@ internal static class FailoverFault
         FailoverTimeline<ClusterStartOptions> Timeline,
         string CacheName,
         string Group,
-        TestKeyOwnerHelper Ring);
+        TestKeyOwnerHelper Ring)
+    {
+        internal FailoverDiagnostics? Diagnostics { get; init; }
+    }
 
     /// <summary>What one fault under a register workload recorded.</summary>
     /// <param name="Workload">The workload, with its history.</param>
