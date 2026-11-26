@@ -42,7 +42,7 @@ public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
         if (string.Equals(kind, "append", StringComparison.Ordinal))
             state.RecordFollowerReply(1, new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0UL, 0UL));
         else
-            ReplicaReadinessProbe.RecordContacts(state, [default, new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0), default], 2UL);
+            ReplicaReadinessProbe.RecordReply(state, 1, 2UL, new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0UL, 0UL));
 
         _ = await Assert.That(unseeded).IsFalse();
         _ = await Assert.That(state.HasQuorumContact(0, Options.ElectionTimeout)).IsTrue();

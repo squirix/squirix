@@ -9,6 +9,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Logging;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
 using TUnit.Assertions;
@@ -85,6 +86,51 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             registry,
             static served => _ = new ReplicaVerificationProbe(served, new FixedLocator(), new IReplicaRpcGatewayCreateExpectations().Instance(), ("n1", "n9"), Fingerprint, 1, NullLogger.Instance));
+    }
+
+    /// <summary>Periodic verification renews quorum contact before admitting any follower to the write quorum.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerificationRenewsQuorumContact(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-verification-contact");
+        string[] groups = ["n1"];
+        await SeededLogs.SeedGroupsAsync(dir, groups, cancellationToken);
+        var clock = new FakeTimeProvider();
+        await using var registry = new ReplicaGroupRegistry(dir, groups, 3, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
+        {
+            ElectionClock = clock,
+        };
+        await registry.OpenAsync(cancellationToken);
+        ReplicaReadinessProbe.UnverifyFollowers(registry.EligibilityFor("n1"), 1);
+        var ready = new FollowerLogStatus("n1", Fingerprint, 1, 2, string.Empty, 1, 2, 0, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
+        var log = new IFollowerLogCreateExpectations();
+        _ = log.Setups.GetCommitReadinessAsync(2UL, cancellationToken)
+               .ReturnValue(new ValueTask<(FollowerLogStatus Status, bool CanCommit)>((ready, true)));
+
+        var state = registry.StateFor("n1");
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(2UL);
+        clock.Advance(state.Options.ElectionTimeout);
+        _ = await Assert.That(state.HasQuorumContact(1, state.Options.ElectionTimeout)).IsFalse();
+
+        var gateway = new ScriptedGateway();
+        gateway.Set("n1", FollowerMode.Mismatch);
+        gateway.Set("n3", FollowerMode.Mismatch);
+        var probe = new ReplicaVerificationProbe(registry, new FixedLocator(), gateway, ("n1", "n2"), Fingerprint, 1, NullLogger.Instance);
+        var leaderLog = log.Instance();
+        _ = await probe.ProbeAsync(leaderLog, 2UL, false, cancellationToken);
+
+        _ = await Assert.That(gateway.Requests).IsEqualTo(2);
+        _ = await Assert.That(state.HasQuorumContact(1, state.Options.ElectionTimeout)).IsTrue();
+        _ = await Assert.That(registry.EligibilityFor("n1").CanCountInWriteQuorum(0)).IsFalse();
+
+        _ = state.BecomeLeader(3UL);
+        clock.Advance(state.Options.ElectionTimeout);
+        _ = await probe.ProbeAsync(leaderLog, 2UL, false, cancellationToken);
+
+        _ = await Assert.That(gateway.Requests).IsEqualTo(4);
+        _ = await Assert.That(state.HasQuorumContact(1, state.Options.ElectionTimeout)).IsFalse();
     }
 
     /// <summary>The senders of a leader at slot 1 serve slots 0 and 2, in slot order.</summary>

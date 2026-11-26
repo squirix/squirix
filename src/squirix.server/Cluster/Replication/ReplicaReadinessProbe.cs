@@ -20,25 +20,17 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal static class ReplicaReadinessProbe
 {
-    /// <summary>Records every follower that answered a probe from its log as in contact with an elected leadership, like a heartbeat reply.</summary>
-    /// <param name="election">The election state of the group, or <see langword="null" /> for a group led statically.</param>
-    /// <param name="results">Per-slot probe outcomes.</param>
-    /// <param name="term">The led term the probes carried; a follower answers from its log only at or below it.</param>
-    /// <remarks>
-    /// The contact is recorded when the probes end; a probe given up before it answered records none. A copy that answered incomplete is a
-    /// contact too: it is alive, under repair, and has not moved to a higher term.
-    /// </remarks>
-    internal static void RecordContacts(ReplicaGroupState? election, ReplicaProbeResult[] results, ulong term)
+    /// <summary>Records a completed probe reply as contact or observes the term it returned, independently of the rest of the round.</summary>
+    /// <param name="election">The election state of the group.</param>
+    /// <param name="replicaIndex">The slot of the replying follower.</param>
+    /// <param name="requestTerm">The leader term in the probe request.</param>
+    /// <param name="reply">The reply from the follower.</param>
+    internal static void RecordReply(ReplicaGroupState election, int replicaIndex, ulong requestTerm, in FollowerLogAppendResult reply)
     {
-        ArgumentNullException.ThrowIfNull(results);
-        if (election == null)
-            return;
-
-        for (var i = 0; i < results.Length; i++)
-        {
-            if (results[i].Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch or ReplicaProbeKind.Incomplete)
-                _ = election.RecordFollowerContact(i, term);
-        }
+        if (reply.ShowsLeader(requestTerm))
+            _ = election.RecordFollowerContact(replicaIndex, reply.CurrentTerm, requestTerm);
+        else
+            election.ObserveHigherTerm(reply.CurrentTerm);
     }
 
     /// <summary>Applies the probe verdict of every follower slot.</summary>
@@ -153,30 +145,35 @@ internal static class ReplicaReadinessProbe
 
     /// <summary>Probes the selected follower slots in parallel.</summary>
     /// <param name="gateway">Follower replication RPCs.</param>
-    /// <param name="candidates">Per-slot flags selecting the slots to probe; the leader slot is never selected.</param>
-    /// <param name="members">Ordered group members, in slot order.</param>
+    /// <param name="targets">Ordered group members and flags selecting the slots to probe; the leader slot is never selected.</param>
     /// <param name="header">Replication envelope identity.</param>
     /// <param name="leader">Leader log status naming the entry the followers must hold.</param>
     /// <param name="budget">
     /// Per-probe timeout and the answers after which the probes still pending are given up. Only an accepted probe and a log mismatch count: an
     /// incomplete follower answered but cannot take part in a majority, so it does not end the round.
     /// </param>
+    /// <param name="election">The election state of the group, or <see langword="null" /> for a group led statically.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Per-slot outcomes; unselected and given-up slots carry the default unreachable verdict.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="targets" /> contains a null array.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="budget" /> asks for fewer than one answer.</exception>
     /// <remarks>No probe outlives the call: the ones given up are canceled and awaited.</remarks>
     internal static async Task<ReplicaProbeResult[]> ProbeAllAsync(
         IReplicaRpcGateway gateway,
-        bool[] candidates,
-        string[] members,
+        (bool[] Candidates, string[] Members) targets,
         ReplicaRpcHeader header,
         FollowerLogStatus leader,
         ReplicaProbeBudget budget,
+        ReplicaGroupState? election,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(candidates);
-        ArgumentNullException.ThrowIfNull(members);
+        ArgumentNullException.ThrowIfNull(gateway);
+        var (candidates, members) = targets;
+        if (candidates == null || members == null)
+            throw new ArgumentNullException(nameof(targets));
+
         ArgumentOutOfRangeException.ThrowIfLessThan(budget.AnswersNeeded, 1);
+        var batch = new FollowerBatch([], header.LeaderNodeId, header.Term, leader.LastLogIndex, leader.LastLogTerm, leader.CommitIndex);
         var results = new ReplicaProbeResult[candidates.Length];
         var slots = new List<int>(candidates.Length);
         var probes = new List<Task<ReplicaProbeResult>>(candidates.Length);
@@ -187,7 +184,7 @@ internal static class ReplicaReadinessProbe
                 continue;
 
             slots.Add(i);
-            probes.Add(ProbeAsync(gateway, members[i], in header, in leader, budget.Timeout, cancellationToken, linked.Token));
+            probes.Add(SendAsync(gateway, (members[i], i), header, batch, budget.Timeout, election, (cancellationToken, linked.Token)));
         }
 
         var pending = new List<Task<ReplicaProbeResult>>(probes);
@@ -279,49 +276,23 @@ internal static class ReplicaReadinessProbe
             _ => new ReplicaProbeResult(ReplicaProbeKind.Refused, 0),
         };
 
-    /// <summary>Sends one empty Log Matching append to a follower.</summary>
-    /// <param name="gateway">Follower replication RPCs.</param>
-    /// <param name="nodeId">Target follower node identifier.</param>
-    /// <param name="header">Replication envelope identity.</param>
-    /// <param name="leader">Leader log status naming the entry the follower must hold.</param>
-    /// <param name="timeout">Per-probe budget.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation propagates.</param>
-    /// <param name="giveUp">
-    /// Token linked to <paramref name="cancellationToken" /> that also ends the probe when its outcome is no longer needed;
-    /// the probe is then reported as unreachable.
-    /// </param>
-    /// <returns>The probe outcome; transport failures, timeouts and given-up probes are reported as <see cref="ReplicaProbeKind.Unreachable" />.</returns>
-    private static Task<ReplicaProbeResult> ProbeAsync(
-        IReplicaRpcGateway gateway,
-        string nodeId,
-        in ReplicaRpcHeader header,
-        in FollowerLogStatus leader,
-        TimeSpan timeout,
-        CancellationToken cancellationToken,
-        CancellationToken giveUp)
-    {
-        ArgumentNullException.ThrowIfNull(gateway);
-        var batch = new FollowerBatch([], header.LeaderNodeId, header.Term, leader.LastLogIndex, leader.LastLogTerm, leader.CommitIndex);
-        return SendAsync(gateway, nodeId, header, batch, timeout, cancellationToken, giveUp);
-    }
-
     private static async Task<ReplicaProbeResult> SendAsync(
         IReplicaRpcGateway gateway,
-        string nodeId,
+        (string NodeId, int Slot) target,
         ReplicaRpcHeader header,
         FollowerBatch batch,
         TimeSpan timeout,
-        CancellationToken cancellationToken,
-        CancellationToken giveUp)
+        ReplicaGroupState? election,
+        (CancellationToken Caller, CancellationToken GiveUp) cancellation)
     {
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(giveUp);
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellation.GiveUp);
         bounded.CancelAfter(timeout);
+        FollowerLogAppendResult response;
         try
         {
-            var response = await gateway.AppendEntriesAsync(nodeId, header, batch, bounded.Token).ConfigureAwait(false);
-            return Classify(in response);
+            response = await gateway.AppendEntriesAsync(target.NodeId, header, batch, bounded.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (!cancellation.Caller.IsCancellationRequested)
         {
             return new ReplicaProbeResult(ReplicaProbeKind.Unreachable, 0);
         }
@@ -330,6 +301,11 @@ internal static class ReplicaReadinessProbe
             // A dead or slow follower is not a fault of the leader: the slot simply stays out of the quorum.
             return new ReplicaProbeResult(ReplicaProbeKind.Unreachable, 0);
         }
+
+        if (election != null)
+            RecordReply(election, target.Slot, header.Term, in response);
+
+        return Classify(in response);
     }
 
     private static ReplicaProgress TailProgress(in FollowerLogStatus leader, ReadOnlyMemory<byte> fingerprint, ulong generation) =>
