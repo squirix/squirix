@@ -104,12 +104,43 @@ internal sealed class ElectionRoundCounter
             return Task.WhenAll(calls);
         }
 
-        public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
+        public Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken) =>
+            PreVoteCoreAsync(nodeId, header, (lastLogIndex, lastLogTerm), null, cancellationToken);
+
+        public Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
+        {
+            ObserveVote(nodeId, in header);
+            return _inner.RequestVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
+        }
+
+        public Task<FollowerLogVoteResult> AskVoteAsync(
+            bool preVote,
+            string nodeId,
+            ReplicaRpcHeader header,
+            (ulong Index, ulong Term) last,
+            (TimeSpan Timeout, TimeProvider Clock) replyBudget,
+            CancellationToken cancellationToken)
+        {
+            if (preVote)
+                return PreVoteCoreAsync(nodeId, header, last, replyBudget, cancellationToken);
+
+            ObserveVote(nodeId, in header);
+            return _inner.AskVoteAsync(false, nodeId, header, last, replyBudget, cancellationToken);
+        }
+
+        private async Task<FollowerLogVoteResult> PreVoteCoreAsync(
+            string nodeId,
+            ReplicaRpcHeader header,
+            (ulong Index, ulong Term) last,
+            (TimeSpan Timeout, TimeProvider Clock)? replyBudget,
+            CancellationToken cancellationToken)
         {
             _counter.Observe?.Invoke(header.GroupId, header.SenderNodeId, nodeId, header.TransferSource == null ? "pre-vote" : "transfer-pre-vote", header.Term);
             try
             {
-                return await _inner.PreVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
+                return replyBudget is { } budget
+                    ? await _inner.AskVoteAsync(true, nodeId, header, last, budget, cancellationToken)
+                    : await _inner.PreVoteAsync(nodeId, header, last.Index, last.Term, cancellationToken);
             }
             finally
             {
@@ -117,11 +148,8 @@ internal sealed class ElectionRoundCounter
             }
         }
 
-        public Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
-        {
+        private void ObserveVote(string nodeId, in ReplicaRpcHeader header) =>
             _counter.Observe?.Invoke(header.GroupId, header.SenderNodeId, nodeId, "vote", header.Term);
-            return _inner.RequestVoteAsync(nodeId, header, lastLogIndex, lastLogTerm, cancellationToken);
-        }
 
         private Task SendHintAsync(string target, in ReplicaRpcHeader header, CancellationToken cancellationToken)
         {

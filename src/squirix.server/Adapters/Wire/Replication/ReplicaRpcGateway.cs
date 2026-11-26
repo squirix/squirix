@@ -40,26 +40,22 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     }
 
     /// <inheritdoc />
-    public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var request = MapVoteRequest(in header, lastLogIndex, lastLogTerm);
-        var transfer = header.TransferSource != null;
-        if (transfer)
-            request.Header!.LeaderNodeId = header.TransferSource!;
-        var response = await lease.Client.SendAsync(transfer ? PeerOperation.TransferPreVote : PeerOperation.PreVote, request, ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
-        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
-    }
+    public Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken) =>
+        SendBallotAsync(true, nodeId, header, (lastLogIndex, lastLogTerm), null, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var response = await lease.Client.SendAsync(PeerOperation.RequestVote, MapVoteRequest(in header, lastLogIndex, lastLogTerm), ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
-        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
-    }
+    public Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken) =>
+        SendBallotAsync(false, nodeId, header, (lastLogIndex, lastLogTerm), null, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<FollowerLogVoteResult> AskVoteAsync(
+        bool preVote,
+        string nodeId,
+        ReplicaRpcHeader header,
+        (ulong Index, ulong Term) last,
+        (TimeSpan Timeout, TimeProvider Clock) replyBudget,
+        CancellationToken cancellationToken) =>
+        SendBallotAsync(preVote, nodeId, header, last, replyBudget, cancellationToken);
 
     /// <summary>Maps the replication envelope identity to its wire message.</summary>
     /// <param name="header">The envelope identity.</param>
@@ -115,5 +111,33 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
             LastLogIndex = lastLogIndex,
             LastLogTerm = lastLogTerm,
         };
+    }
+
+    private async Task<FollowerLogVoteResult> SendBallotAsync(
+        bool preVote,
+        string nodeId,
+        ReplicaRpcHeader header,
+        (ulong Index, ulong Term) last,
+        (TimeSpan Timeout, TimeProvider Clock)? replyBudget,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
+        var request = MapVoteRequest(in header, last.Index, last.Term);
+        var operation = PeerOperation.RequestVote;
+        if (preVote)
+        {
+            operation = PeerOperation.PreVote;
+            if (header.TransferSource is { } source)
+            {
+                request.Header!.LeaderNodeId = source;
+                operation = PeerOperation.TransferPreVote;
+            }
+        }
+
+        var response = replyBudget is { } budget
+            ? await lease.Client.SendElectionAsync(operation, request, ReplicaVoteResponse.Parser, budget, lease.Token).ConfigureAwait(false)
+            : await lease.Client.SendAsync(operation, request, ReplicaVoteResponse.Parser, lease.Token).ConfigureAwait(false);
+        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
     }
 }

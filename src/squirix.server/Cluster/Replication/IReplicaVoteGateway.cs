@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
@@ -12,6 +13,29 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal interface IReplicaVoteGateway
 {
+    /// <summary>Dispatches one election ballot with its reply budget and the round's cancellation token.</summary>
+    /// <param name="preVote">Whether to ask for a pre-vote.</param>
+    /// <param name="nodeId">The target voter.</param>
+    /// <param name="header">The replication envelope.</param>
+    /// <param name="last">The index and term of the candidate's last durable log entry.</param>
+    /// <param name="replyBudget">The duration and clock for the ballot exchange.</param>
+    /// <param name="cancellationToken">The token for the whole call, including connection establishment.</param>
+    /// <returns>The voter's reply.</returns>
+    async Task<FollowerLogVoteResult> AskVoteAsync(
+        bool preVote,
+        string nodeId,
+        ReplicaRpcHeader header,
+        (ulong Index, ulong Term) last,
+        (TimeSpan Timeout, TimeProvider Clock) replyBudget,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = new CancellationTokenSource(replyBudget.Timeout, replyBudget.Clock);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        return preVote
+            ? await PreVoteAsync(nodeId, header, last.Index, last.Term, linked.Token).ConfigureAwait(false)
+            : await RequestVoteAsync(nodeId, header, last.Index, last.Term, linked.Token).ConfigureAwait(false);
+    }
+
     Task SendTransferAsync(string target, ReplicaRpcHeader header, CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>Asks one voter whether it would grant a vote for the term the candidate proposes, without changing the voter.</summary>
