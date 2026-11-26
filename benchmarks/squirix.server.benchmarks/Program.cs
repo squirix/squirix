@@ -33,6 +33,18 @@ internal static class Program
             return;
         }
 
+        if (args is ["compact-pages", "verify"])
+        {
+            CompactPageVerification.Run();
+            return;
+        }
+
+        if (args is ["compact-pages", "current" or "prototype"])
+        {
+            CompactPageMeasurement.Run(string.Equals(args[1], "prototype", StringComparison.Ordinal));
+            return;
+        }
+
         // Mutate attributed jobs too, so smoke validation never adds a full measurement job.
         var config = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_BENCHMARK_SMOKE"), "1", StringComparison.Ordinal)
             ? ManualConfig.Create(DefaultConfig.Instance).AddJob(Job.Dry.WithToolchain(InProcessEmitToolchain.Instance).DontEnforcePowerPlan().AsMutator())
