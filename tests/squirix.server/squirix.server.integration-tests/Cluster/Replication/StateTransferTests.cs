@@ -492,9 +492,9 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     {
         public int AllocateIndex(int publishedIndex) => publishedIndex + 1;
 
-        public ValueTask<string> WriteAsync(
+        public ValueTask<string> WriteAsync<T>(
             int index,
-            IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+            IReadOnlyList<(CacheKey Key, NodeCacheEntry<T> Entry)> items,
             IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
             CancellationToken cancellationToken) =>
             throw new IOException("The test fails every snapshot.");

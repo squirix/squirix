@@ -38,7 +38,7 @@ public sealed class WriterByteLayoutTests : IsolatedStorageTestBase
     {
         var writer = new SnapshotWriter(Dir);
 
-        var path = await writer.WriteAsync(1, [], [], cancellationToken);
+        var path = await writer.WriteAsync<object?>(1, [], [], cancellationToken);
 
         _ = await Assert.That(await HashAsync(path, cancellationToken)).IsEqualTo(EmptySnapshotSha256);
     }

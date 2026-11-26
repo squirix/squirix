@@ -166,13 +166,13 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>(options)!;
         var capture = new ISnapshotEntryCaptureCreateExpectations();
-        _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+        _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                    .ReturnValue(default);
         var writer = new ISnapshotWriterCreateExpectations();
         _ = writer.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
         _ = writer.Setups.WriteAsync(
             Arg.Any<int>(),
-            Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
+            Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(),
             Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
             Arg.Any<CancellationToken>()).Callback((_, _, _, token) => gate?.WaitAsync(token) ?? ValueTask.FromResult("snap-test-path"));
         return new Coordinator(

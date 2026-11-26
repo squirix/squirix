@@ -16,13 +16,7 @@ internal static partial class CacheEntryCodec
     {
         internal static int ComputeLength(object? value) => value switch
         {
-            StoredValue stored => stored.Kind switch
-            {
-                StoredValue.ValueKind.Null => 1,
-                StoredValue.ValueKind.Boolean => 2,
-                StoredValue.ValueKind.Integer or StoredValue.ValueKind.Double => 9,
-                _ => 5 + stored.Bytes.Length,
-            },
+            StoredValue stored => StoredLength(in stored),
             null => 1,
             bool => 2,
             StoredText text => 5 + text.Bytes.Length,
@@ -32,6 +26,29 @@ internal static partial class CacheEntryCodec
             float or double => 1 + 8,
             _ => ComputeDecimalOrStructuredLength(value),
         };
+
+        internal static int StoredLength(in StoredValue stored) => stored.Kind switch
+        {
+            StoredValue.ValueKind.Null => 1,
+            StoredValue.ValueKind.Boolean => 2,
+            StoredValue.ValueKind.Integer or StoredValue.ValueKind.Double => 9,
+            _ => 5 + stored.Bytes.Length,
+        };
+
+        internal static bool TryReadValue<T>(ReadOnlySpan<byte> source, bool materialize, out T? value, out int bytesRead)
+        {
+            value = default;
+            if (typeof(T) == typeof(StoredValue) && materialize)
+            {
+                if (!TryReadStored(source, out var stored, out bytesRead))
+                    return false;
+                value = Unsafe.As<StoredValue, T>(ref stored);
+                return true;
+            }
+
+            return TryReadInternal<T>(source, materialize, out var decoded, out bytesRead) &&
+                   (!materialize || TryCoerceTo(decoded, out value));
+        }
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
         {
@@ -62,7 +79,32 @@ internal static partial class CacheEntryCodec
             return true;
         }
 
-        internal static bool TryReadInternal<T>(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
+        internal static int WriteInternal(object? value, Span<byte> destination) => value switch
+        {
+            StoredValue stored => WriteStored(in stored, destination),
+            null => CacheEntryValueWriteCodec.WriteNull(destination),
+            bool b => CacheEntryValueWriteCodec.WriteBool(b, destination),
+            StoredText text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, text.Bytes, destination),
+            string s => CacheEntryValueWriteCodec.WriteString(s, destination),
+            byte[] bytes => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, bytes, destination),
+            sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
+            float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
+            _ => WriteDecimalOrStructuredValue(value, destination),
+        };
+
+        internal static int WriteStored(in StoredValue value, Span<byte> destination) => value.Kind switch
+        {
+            StoredValue.ValueKind.Null => CacheEntryValueWriteCodec.WriteNull(destination),
+            StoredValue.ValueKind.Boolean => CacheEntryValueWriteCodec.WriteBool(value.Boolean, destination),
+            StoredValue.ValueKind.Integer => CacheEntryValueWriteCodec.WriteBits(ValueKind.Int64, value.Integer, destination),
+            StoredValue.ValueKind.Double => CacheEntryValueWriteCodec.WriteBits(ValueKind.Double, value.Integer, destination),
+            StoredValue.ValueKind.Text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, value.Bytes, destination),
+            StoredValue.ValueKind.Binary => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, value.Bytes, destination),
+            StoredValue.ValueKind.Json => CacheEntryValueWriteCodec.WritePayload(ValueKind.Json, value.Bytes, destination),
+            _ => throw new InvalidOperationException("Invalid stored cache value."),
+        };
+
+        private static bool TryReadInternal<T>(ReadOnlySpan<byte> source, bool materialize, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -80,30 +122,57 @@ internal static partial class CacheEntryCodec
             };
         }
 
-        internal static int WriteInternal(object? value, Span<byte> destination) => value switch
+        private static bool TryReadStored(ReadOnlySpan<byte> source, out StoredValue value, out int bytesRead)
         {
-            StoredValue stored => WriteStored(in stored, destination),
-            null => CacheEntryValueWriteCodec.WriteNull(destination),
-            bool b => CacheEntryValueWriteCodec.WriteBool(b, destination),
-            StoredText text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, text.Bytes, destination),
-            string s => CacheEntryValueWriteCodec.WriteString(s, destination),
-            byte[] bytes => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, bytes, destination),
-            sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
-            float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
-            _ => WriteDecimalOrStructuredValue(value, destination),
-        };
+            value = default;
+            bytesRead = 0;
+            if (source.IsEmpty)
+                return false;
 
-        private static int WriteStored(in StoredValue value, Span<byte> destination) => value.Kind switch
+            switch (source[0])
+            {
+                case ValueKind.Null:
+                    bytesRead = 1;
+                    return true;
+                case ValueKind.Bool when source.Length >= 2:
+                    value = StoredValue.FromBoolean(source[1] != 0);
+                    bytesRead = 2;
+                    return true;
+                case ValueKind.Int64 when source.Length >= 9:
+                    value = StoredValue.FromInteger(BinaryPrimitives.ReadInt64LittleEndian(source[1..]));
+                    bytesRead = 9;
+                    return true;
+                case ValueKind.Double when source.Length >= 9:
+                    value = StoredValue.FromDouble(BinaryPrimitives.ReadDoubleLittleEndian(source[1..]));
+                    bytesRead = 9;
+                    return true;
+                case ValueKind.Bytes:
+                case ValueKind.String:
+                case ValueKind.Json:
+                    return TryReadStoredPayload(source, out value, out bytesRead);
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryReadStoredPayload(ReadOnlySpan<byte> source, out StoredValue value, out int bytesRead)
         {
-            StoredValue.ValueKind.Null => CacheEntryValueWriteCodec.WriteNull(destination),
-            StoredValue.ValueKind.Boolean => CacheEntryValueWriteCodec.WriteBool(value.Boolean, destination),
-            StoredValue.ValueKind.Integer => CacheEntryValueWriteCodec.WriteBits(ValueKind.Int64, value.Integer, destination),
-            StoredValue.ValueKind.Double => CacheEntryValueWriteCodec.WriteBits(ValueKind.Double, value.Integer, destination),
-            StoredValue.ValueKind.Text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, value.Bytes, destination),
-            StoredValue.ValueKind.Binary => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, value.Bytes, destination),
-            StoredValue.ValueKind.Json => CacheEntryValueWriteCodec.WritePayload(ValueKind.Json, value.Bytes, destination),
-            _ => throw new InvalidOperationException("Invalid stored cache value."),
-        };
+            value = default;
+            bytesRead = 0;
+            if (!TagEncoding.TryReadUtf32Prefixed(source[1..], out var payload, out var length) ||
+                (source[0] == ValueKind.Json && !JsonUtf8Validator.IsValid(payload)))
+                return false;
+            value = source[0] switch
+            {
+                ValueKind.Json => StoredValue.FromJson(BufferEx.CopyToOwned(payload)),
+                ValueKind.Bytes => StoredValue.FromBinary(BufferEx.CopyToOwned(payload)),
+                _ => System.Text.Unicode.Utf8.IsValid(payload)
+                    ? StoredValue.FromText(BufferEx.CopyToOwned(payload))
+                    : StoredValue.FromText(Encoding.UTF8.GetString(payload)),
+            };
+            bytesRead = 1 + length;
+            return true;
+        }
 
         private static int ComputeDecimalOrStructuredLength(object value) => value switch
         {
@@ -309,7 +378,7 @@ internal static partial class CacheEntryCodec
 
             if (materialize)
             {
-                value = (typeof(T) == typeof(object) || typeof(T) == typeof(StoredValue)) && System.Text.Unicode.Utf8.IsValid(stringBytes)
+                value = typeof(T) == typeof(object) && System.Text.Unicode.Utf8.IsValid(stringBytes)
                     ? new StoredText(Squirix.Transport.Wire.Codec.WireReader.CopyBytes(stringBytes))
                     : Encoding.UTF8.GetString(stringBytes);
             }

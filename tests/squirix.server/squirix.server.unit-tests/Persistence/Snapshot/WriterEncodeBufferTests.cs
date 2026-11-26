@@ -24,7 +24,7 @@ public sealed class WriterEncodeBufferTests : IsolatedStorageTestBase
     {
         var writer = new SnapshotWriter(Dir);
 
-        var path = await writer.WriteAsync(1, [], [], cancellationToken);
+        var path = await writer.WriteAsync<object?>(1, [], [], cancellationToken);
 
         _ = await Assert.That(File.Exists(path)).IsTrue();
         var loaded = await LoadEntriesAsync(path);

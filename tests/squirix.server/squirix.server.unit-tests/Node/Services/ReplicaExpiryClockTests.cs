@@ -150,8 +150,8 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         clock.Advance(Ttl);
         _ = await leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken);
 
-        var captured = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>();
-        await new LocalCacheSnapshotCapture<StoredValue>(leader.Physical, CacheExpiryAuthority.CommittedRecords).CaptureEntriesAsync(captured, clock.GetUtcNow().UtcDateTime, cancellationToken);
+        var captured = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>();
+        await new LocalCacheSnapshotCapture(leader.Physical, CacheExpiryAuthority.CommittedRecords).CaptureEntriesAsync(captured, clock.GetUtcNow().UtcDateTime, cancellationToken);
 
         var (capturedKey, _) = await Assert.That(captured).HasSingleItem();
         _ = await Assert.That(capturedKey.Key).IsEqualTo("other");

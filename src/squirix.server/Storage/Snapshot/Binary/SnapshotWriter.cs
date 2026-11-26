@@ -37,9 +37,9 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         return highest + 1;
     }
 
-    public async ValueTask<string> WriteAsync(
+    public async ValueTask<string> WriteAsync<T>(
         int index,
-        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<T> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken)
     {
@@ -64,9 +64,9 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         }
     }
 
-    private static async Task WriteSnapshotTempFileAsync(
+    private static async Task WriteSnapshotTempFileAsync<T>(
         string tmp,
-        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<T> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         int[] bodyLengths,
         byte[] writeBuffer,

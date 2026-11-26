@@ -7,17 +7,19 @@ using Squirix.Server.Storage.Codecs;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>A normalized cache value prepared for entry assembly without repeated serialization.</summary>
-/// <remarks>Immutable JSON is retained directly; other values own a pooled encoding until disposal.</remarks>
+/// <remarks>Stored values and immutable JSON are retained directly. Other inputs own a pooled encoding until disposal.</remarks>
 [Immutable]
 internal sealed class PreparedJournalValue : IDisposable
 {
     private readonly byte[]? _buffer;
+    private readonly StoredValue _stored;
     private readonly JsonUtf8Value? _json;
     private int _disposed;
 
-    private PreparedJournalValue(byte[]? buffer, JsonUtf8Value? json, int encodedLength)
+    private PreparedJournalValue(byte[]? buffer, in StoredValue stored, int encodedLength, JsonUtf8Value? json = null)
     {
         _buffer = buffer;
+        _stored = stored;
         _json = json;
         EncodedLength = encodedLength;
     }
@@ -34,6 +36,8 @@ internal sealed class PreparedJournalValue : IDisposable
             PayloadBuffer.Release(buffer);
     }
 
+    internal static PreparedJournalValue FromStored(in StoredValue value) => new(null, in value, CacheEntryCodec.ComputeValueLength(value));
+
     /// <summary>Retains immutable JSON or snapshots another normalized value into a pooled encoding.</summary>
     /// <param name="normalizedValue">The normalized value.</param>
     /// <returns>The prepared value.</returns>
@@ -41,13 +45,13 @@ internal sealed class PreparedJournalValue : IDisposable
     {
         var length = CacheEntryCodec.ComputeValueLength(normalizedValue);
         if (normalizedValue is JsonUtf8Value json)
-            return new PreparedJournalValue(null, json, length);
+            return new PreparedJournalValue(null, default, length, json);
 
         var buffer = PayloadBuffer.Rent(length);
         try
         {
-            CacheEntryCodec.WriteValue(normalizedValue, buffer);
-            return new PreparedJournalValue(buffer, null, length);
+            _ = CacheEntryCodec.WriteValue(normalizedValue, buffer);
+            return new PreparedJournalValue(buffer, default, length);
         }
         catch
         {
@@ -61,7 +65,9 @@ internal sealed class PreparedJournalValue : IDisposable
     internal void WriteTo(Span<byte> destination)
     {
         if (_json is { } json)
-            CacheEntryCodec.WriteValue(json, destination);
+            _ = CacheEntryCodec.WriteValue(json, destination);
+        else if (_buffer == null)
+            _ = CacheEntryCodec.WriteValue(_stored, destination);
         else
             _buffer.AsSpan(0, EncodedLength).CopyTo(destination);
     }

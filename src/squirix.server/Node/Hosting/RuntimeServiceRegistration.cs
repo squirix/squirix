@@ -52,7 +52,7 @@ internal static class RuntimeServiceRegistration
                 _ = services.AddMetricsHostedServices();
             _ = services.Own<ILocalCacheRecovery<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
             _ = services.Own<ILocalCacheSnapshotReader<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
-            _ = services.Own<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<StoredValue>(
+            _ = services.Own<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture(
                 sp.Require<ILocalCacheSnapshotReader<StoredValue>>(),
                 sp.Require<CacheExpiryAuthority>()));
 

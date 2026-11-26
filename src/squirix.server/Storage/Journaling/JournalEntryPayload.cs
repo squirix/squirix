@@ -22,13 +22,13 @@ internal static class JournalEntryPayload
         {
             var length = prepared.EncodedLength;
             pooledBuffer = PayloadBuffer.Rent(length);
-            if (WriteWithin(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) == length)
+            if (WriteWithin(prepared, pooledBuffer.AsSpan(0, length)) == length)
                 return new PooledJournalPayload(pooledBuffer, length);
             PayloadBuffer.Release(pooledBuffer);
             pooledBuffer = null;
-            length = CacheEntryCodec.ComputeEncodedLength(prepared.ObjectEntry);
+            length = prepared.Measure();
             pooledBuffer = PayloadBuffer.Rent(length);
-            return CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length
+            return prepared.WriteTo(pooledBuffer.AsSpan(0, length)) != length
                 ? throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.")
                 : new PooledJournalPayload(pooledBuffer, length);
         }
@@ -100,7 +100,9 @@ internal static class JournalEntryPayload
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="value">The value to prepare.</param>
     /// <returns>The prepared value; the caller disposes it.</returns>
-    internal static PreparedJournalValue PrepareValue<T>(T? value) => PreparedJournalValue.Create(NodeCacheEntry<T>.NormalizeValue(value));
+    internal static PreparedJournalValue PrepareValue<T>(T? value) => value is StoredValue stored
+        ? PreparedJournalValue.FromStored(in stored)
+        : PreparedJournalValue.Create(NodeCacheEntry<T>.NormalizeValue(value));
 
     /// <summary>Decodes a journal entry payload and reports how many bytes it spans.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
@@ -151,18 +153,18 @@ internal static class JournalEntryPayload
     /// <exception cref="InvalidOperationException">The encoded length differs from the destination length.</exception>
     internal static void WritePrepared(in PreparedJournalEntry prepared, Span<byte> destination)
     {
-        if (CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, destination) != destination.Length)
+        if (prepared.WriteTo(destination) != destination.Length)
             throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.");
     }
 
     private static InvalidOperationException CreateRelativeExpirationException() =>
         new("A journal entry assembled around a prepared value must carry an absolute deadline, not a relative expiration.");
 
-    private static int WriteWithin(NodeCacheEntry<object?> entry, Span<byte> destination)
+    private static int WriteWithin(PreparedJournalEntry entry, Span<byte> destination)
     {
         try
         {
-            return CacheEntryCodec.WriteMeasured(entry, destination);
+            return entry.WriteTo(destination);
         }
         catch (Exception error) when (error is ArgumentException or IndexOutOfRangeException)
         {

@@ -167,7 +167,7 @@ internal static class ReplicaMutationDecisions
     /// </remarks>
     private static ReplicaDecision Upsert(in StoredValue value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks)
     {
-        var prepared = PreparedJournalEntry.ForReplicaUpsert(value, version, tags);
+        var prepared = PreparedJournalEntry.ForReplicaUpsert(in value, version, tags);
         return new ReplicaDecision(prepared, ReplicaOutcomeCodec.Applied, expiresUtcTicks);
     }
 

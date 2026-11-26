@@ -75,8 +75,8 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     public async Task SnapshotPublishesWhileMemoryIsCritical(CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
-        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v")), cancellationToken);
         var pressure = new CriticalMemoryPressureReader(new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1 }), new MemoryUsageAccounting(cache));
         var snapshots = CreateCoordinator(journal, cache);
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
@@ -94,12 +94,12 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     public async Task CaptureBuffersAreEmptyAfterPublish(CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        List<(CacheKey Key, NodeCacheEntry<object?> Entry)>? items = null;
+        List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>? items = null;
         var capture = new ISnapshotEntryCaptureCreateExpectations();
-        _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+        _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                    .Callback((buffer, _, _) =>
                     {
-                        buffer.Add((CacheKey.Default("k"), new NodeCacheEntry<object?>("v")));
+                        buffer.Add((CacheKey.Default("k"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"))));
                         items = buffer;
                         return ValueTask.CompletedTask;
                     });
@@ -160,13 +160,13 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
     }
 
-    private static Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<object?>? existingCache = null)
+    private static Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<StoredValue>? existingCache = null)
     {
         var persistence = journal.Journal.Options;
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
-        var cache = existingCache ?? new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
+        var cache = existingCache ?? new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
         var deps = new CoordinatorDependencies(
-            new LocalCacheSnapshotCapture<object?>(cache),
+            new LocalCacheSnapshotCapture(cache),
             StoreFactory.CreateWriter(persistence),
             journal.Ledger,
             "n",
