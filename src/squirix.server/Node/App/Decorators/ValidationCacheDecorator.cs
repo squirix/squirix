@@ -68,7 +68,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        ValidateLocalValue(entry.RawValue, entry.PendingWrite);
+        ValidateLocalValue(entry.Value, entry.PendingWrite);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -86,7 +86,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        ValidateLocalValue(entry.RawValue, entry.PendingWrite);
+        ValidateLocalValue(entry.Value, entry.PendingWrite);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -96,7 +96,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        ValidateLocalValue(entry.RawValue, entry.PendingWrite);
+        ValidateLocalValue(entry.Value, entry.PendingWrite);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.AddOrGetAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -123,7 +123,6 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         byte[] bytes => bytes.Length,
         JsonUtf8Value json => json.Length,
-        StoredText text => text.Bytes.Length,
         string text when text.Length > _valueLimit / 3 => Encoding.UTF8.GetByteCount(text),
         _ => 0,
     };

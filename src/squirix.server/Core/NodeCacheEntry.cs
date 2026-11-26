@@ -71,7 +71,7 @@ public sealed class NodeCacheEntry<T>
     public FrozenDictionary<string, string>? Tags => _tagsOrWrite as FrozenDictionary<string, string>;
 
     /// <summary>Gets the value to store. May be <see langword="null" />.</summary>
-    public required T? Value { get => StoredText.Unpack(RawValue); init => RawValue = value; }
+    public required T? Value { get; init; }
 
     /// <summary>
     /// Gets the monotonic entry version used by extension packages for optimistic concurrency.
@@ -92,8 +92,6 @@ public sealed class NodeCacheEntry<T>
 
     internal DistributedCacheWrite? PendingWrite => _tagsOrWrite as DistributedCacheWrite;
 
-    internal T? RawValue { get; private init; }
-
     /// <summary>Normalizes a value to a form the durable codecs store directly.</summary>
     /// <param name="value">The value to normalize.</param>
     /// <returns>The value itself when it is a primitive or already a JSON value, a primitive for a scalar JSON element, otherwise its JSON bytes.</returns>
@@ -106,7 +104,7 @@ public sealed class NodeCacheEntry<T>
         };
     }
 
-    internal object? Normalize() => NormalizeValue(RawValue);
+    internal object? Normalize() => NormalizeValue(Value);
 
     /// <summary>Normalizes a non-primitive cache value.</summary>
     /// <param name="value">The value.</param>
@@ -117,7 +115,7 @@ public sealed class NodeCacheEntry<T>
     /// </remarks>
     private static object? NormalizeStructured(T value) => value switch
     {
-        JsonUtf8Value or StoredText or StoredValue => value,
+        JsonUtf8Value or StoredValue => value,
         JsonElement element => NormalizeElement(element),
         DistributedCacheWrite write => write.Envelope,
         _ => ServerJsonSerializer.SerializeToJsonValue<object?>(value),

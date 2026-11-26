@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
@@ -31,6 +32,6 @@ public sealed class NodeHostCacheLifetimeTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("nodeA", cancellationToken: cancellationToken);
         var host = cluster["nodeA"];
         await cluster.StopNodeAsync("nodeA");
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(host, static value => _ = value.GetRequiredService<IInboundEndpointCacheOperations<object?>>());
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(host, static value => _ = value.GetRequiredService<IInboundEndpointCacheOperations<StoredValue>>());
     }
 }

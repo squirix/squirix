@@ -32,10 +32,11 @@ public sealed class JsonValueOwnershipTests : IsolatedStorageTestBase
         var stored = harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
         var response = await harness.Adapter.Reads.GetValueAsync(new GetValueAsyncRequest { CacheName = FusedWriteHarness.CacheName, Key = FusedWriteHarness.Key }, CancellationToken.None);
 
-        var value = (await Assert.That(stored.Value).IsTypeOf<JsonUtf8Value>())!;
-        _ = await Assert.That(value.Bytes.Span.Overlaps(request.Entry.Value.JsonUtf8.Span, out var storedOffset)).IsTrue();
+        var value = stored.Value;
+        _ = await Assert.That(value.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+        _ = await Assert.That(value.Bytes.AsSpan().Overlaps(request.Entry.Value.JsonUtf8.Span, out var storedOffset)).IsTrue();
         _ = await Assert.That(storedOffset).IsEqualTo(0);
-        _ = await Assert.That(response.Value!.JsonUtf8.Span.Overlaps(value.Bytes.Span, out var answeredOffset)).IsTrue();
+        _ = await Assert.That(response.Value!.JsonUtf8.Span.Overlaps(value.Bytes.AsSpan(), out var answeredOffset)).IsTrue();
         _ = await Assert.That(answeredOffset).IsEqualTo(0);
         _ = await Assert.That(Encoding.UTF8.GetString(response.Value.JsonUtf8.Span)).IsEqualTo(ObjectText);
     }

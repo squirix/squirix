@@ -61,7 +61,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         if (entry == null)
             return null;
 
-        var payload = DistributedCacheAccess.ReadPayload(entry.RawValue, out var policy);
+        var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
         var result = refresh ? default(ReadOnlyMemory<byte>?) : payload;
         if (policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry))
         {

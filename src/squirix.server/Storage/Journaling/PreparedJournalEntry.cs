@@ -46,7 +46,7 @@ internal abstract class PreparedJournalEntry
         JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration),
         null,
         entry.Tags,
-        entry is NodeCacheEntry<StoredValue> stored ? CacheEntryCodec.ComputeValueLength(stored.RawValue) : CacheEntryCodec.ComputeValueLength(entry.Normalize()));
+        entry is NodeCacheEntry<StoredValue> stored ? CacheEntryCodec.ComputeValueLength(stored.Value) : CacheEntryCodec.ComputeValueLength(entry.Normalize()));
 
     internal abstract int Measure();
 
@@ -56,20 +56,41 @@ internal abstract class PreparedJournalEntry
     {
         var expires = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
         if (entry is NodeCacheEntry<StoredValue> stored)
-            return new Payload<StoredValue>(stored, encodedLength);
+            return new StoredPayload(stored, encodedLength);
 
-        var normalized = entry.Normalize();
-        var durable = entry is NodeCacheEntry<object?> original && ReferenceEquals(normalized, original.RawValue)
-            ? original
-            : new NodeCacheEntry<object?>(normalized, entry.Version, expires, null, entry.Tags);
-        return new Payload<object?>(durable, encodedLength);
+        var value = entry.Normalize();
+        var valueLength = CacheEntryCodec.ComputeValueLength(value);
+        var length = CacheEntryCodec.ComputeEncodedLength(expires, null, entry.Tags, valueLength);
+        var bytes = GC.AllocateUninitializedArray<byte>(length);
+        var offset = CacheEntryCodec.WriteHeader(expires, null, entry.Version, entry.Tags, bytes);
+        _ = CacheEntryCodec.WriteValue(value, bytes.AsSpan(offset));
+        return new EncodedPayload(bytes, encodedLength ?? length);
     }
 
-    private sealed class Payload<T> : PreparedJournalEntry
+    private sealed class EncodedPayload : PreparedJournalEntry
     {
-        private readonly NodeCacheEntry<T> _entry;
+        private readonly byte[] _bytes;
 
-        internal Payload(NodeCacheEntry<T> entry, int? encodedLength)
+        internal EncodedPayload(byte[] bytes, int encodedLength)
+            : base(encodedLength)
+        {
+            _bytes = bytes;
+        }
+
+        internal override int Measure() => _bytes.Length;
+
+        internal override int WriteTo(Span<byte> destination)
+        {
+            _bytes.CopyTo(destination);
+            return _bytes.Length;
+        }
+    }
+
+    private sealed class StoredPayload : PreparedJournalEntry
+    {
+        private readonly NodeCacheEntry<StoredValue> _entry;
+
+        internal StoredPayload(NodeCacheEntry<StoredValue> entry, int? encodedLength)
             : base(encodedLength ?? CacheEntryCodec.ComputeEncodedLength(entry))
         {
             _entry = entry;

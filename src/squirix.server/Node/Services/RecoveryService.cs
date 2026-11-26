@@ -25,7 +25,7 @@ namespace Squirix.Server.Node.Services;
 /// whose final deadline has passed is dropped, and never resurrected after restart, unless expiry is left to committed records.
 /// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
-/// <typeparam name="T">The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).</typeparam>
+/// <typeparam name="T">The value type of the target cache. The server restores <see cref="StoredValue" /> entries.</typeparam>
 internal sealed class RecoveryService<T> : INodeService
 {
     private readonly INodeLifetime? _applicationLifetime;

@@ -314,7 +314,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     expires = relativeDeadline;
             }
 
-            candidate = new NodeCacheEntry<T>(candidate.RawValue, version, expires, candidate.Expiration, candidate.Tags);
+            candidate = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
         }
 
         var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, candidate, length) : _footprint.Estimate(key, candidate);
@@ -417,7 +417,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (node == null)
         {
             node = _scopes == null
-                ? new Node(key, normalized.RawValue, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
+                ? new Node(key, normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
                 : BoundedNode.Create(this, key, normalized);
             if (node == null)
                 return true;
@@ -434,7 +434,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         _footprint.Resize(node, bytes);
         var previous = node.ExpiresUtc;
-        node.Write(normalized.RawValue, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
+        node.Write(normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
         _deadlines.MovedLocked(node, previous);
         BoundedNode.RecordAccess(node);
         return false;
@@ -484,8 +484,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal void ResizeForDeadline(CacheKey key, Node node, DateTime? expiresUtc)
         {
-            if (_estimator is CacheEntrySizeEstimator<T> ||
-                (_estimator is ObjectCacheEntrySizeEstimator && !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(node.Value)))
+            if (_estimator is CacheEntrySizeEstimator<T>)
             {
                 const int deadlineBytes = CacheEntryDeadlineSize.IndexBytes;
                 Resize(node, node.Bytes + (expiresUtc != null ? deadlineBytes : -deadlineBytes));

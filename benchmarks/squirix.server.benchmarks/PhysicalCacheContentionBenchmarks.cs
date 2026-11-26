@@ -27,11 +27,12 @@ public class PhysicalCacheContentionBenchmarks
     private const int WriteEvery = 20;
     private const int WorkerStride = 104729;
     private const int KeyStride = 7919;
+    private static readonly StoredValue SmallText = StoredValue.FromText("v");
     private static readonly TimeSpan EntryTtl = TimeSpan.FromDays(1);
-    private static readonly NodeCacheEntry<object?> Template = new("v", 1, null, EntryTtl);
-    private ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>> _baseline = new();
-    private PhysicalCache<object?>? _bounded;
-    private PhysicalCache<object?>? _cache;
+    private static readonly NodeCacheEntry<StoredValue> Template = new(SmallText, 1, null, EntryTtl);
+    private ConcurrentDictionary<CacheKey, NodeCacheEntry<StoredValue>> _baseline = new();
+    private PhysicalCache<StoredValue>? _bounded;
+    private PhysicalCache<StoredValue>? _cache;
     private CacheKey[] _keys = [];
 
     private enum WorkerMode
@@ -90,12 +91,12 @@ public class PhysicalCacheContentionBenchmarks
             _keys[i] = CacheKey.Default(string.Create(CultureInfo.InvariantCulture, $"k{i}"));
 
         var expiry = CommittedRecords ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock;
-        var estimator = new CacheEntrySizeEstimator<object?>();
-        var cache = new PhysicalCache<object?>(TimeProvider.System, estimator, expiry: expiry);
-        var bounded = new PhysicalCache<object?>(TimeProvider.System, estimator, new EvictionOptions { Capacity = KeyCount * 2, Policy = EvictionPolicyType.Lru }, expiry);
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, estimator, expiry: expiry);
+        var bounded = new PhysicalCache<StoredValue>(TimeProvider.System, estimator, new EvictionOptions { Capacity = KeyCount * 2, Policy = EvictionPolicyType.Lru }, expiry);
         _cache = cache;
         _bounded = bounded;
-        _baseline = new ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>>();
+        _baseline = new ConcurrentDictionary<CacheKey, NodeCacheEntry<StoredValue>>();
         foreach (var key in _keys)
         {
             cache.Set(key, Template, CancellationToken.None);
@@ -119,7 +120,7 @@ public class PhysicalCacheContentionBenchmarks
             var key = _keys[(offset + (i * KeyStride)) % _keys.Length];
             if (Mixed && i % WriteEvery == 0)
             {
-                map[key] = new NodeCacheEntry<object?>("v", 1, null, EntryTtl);
+                map[key] = new NodeCacheEntry<StoredValue>(SmallText, 1, null, EntryTtl);
                 done++;
             }
             else if (map.ContainsKey(key))
@@ -131,7 +132,7 @@ public class PhysicalCacheContentionBenchmarks
         return done;
     }
 
-    private int CacheWorker(PhysicalCache<object?> cache, int worker)
+    private int CacheWorker(PhysicalCache<StoredValue> cache, int worker)
     {
         var offset = worker * WorkerStride;
         var done = 0;
@@ -140,7 +141,7 @@ public class PhysicalCacheContentionBenchmarks
             var key = _keys[(offset + (i * KeyStride)) % _keys.Length];
             if (Mixed && i % WriteEvery == 0)
             {
-                cache.Set(key, new NodeCacheEntry<object?>("v", 1, null, EntryTtl), CancellationToken.None);
+                cache.Set(key, new NodeCacheEntry<StoredValue>(SmallText, 1, null, EntryTtl), CancellationToken.None);
                 done++;
             }
             else if (cache.GetEntry(key, CancellationToken.None) != null)

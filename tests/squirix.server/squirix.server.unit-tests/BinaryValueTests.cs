@@ -32,14 +32,15 @@ public sealed class BinaryValueTests : ServerUnitTestBase
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.BinaryValue);
         source[0] = 42;
         var decoded = ServerWireMapping.MapCacheValue<byte[]>(wire.Value)!;
-        var untyped = (await Assert.That(ServerWireMapping.MapCacheValue<object>(wire.Value)).IsTypeOf<byte[]>())!;
+        var stored = ServerWireMapping.MapCacheValue<StoredValue>(wire.Value);
+        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValue.ValueKind.Binary);
         _ = await Assert.That(decoded.AsSpan().SequenceEqual(new byte[] { 0, 255, 128, 34, 0 })).IsTrue();
         decoded[1] = 42;
-        untyped[2] = 42;
+        stored.Bytes[2] = 42;
         _ = await Assert.That(wire.Value.BinaryValue.Span[0]).IsEqualTo(byte.MinValue);
         _ = await Assert.That(wire.Value.BinaryValue.Span[1]).IsEqualTo(byte.MaxValue);
         _ = await Assert.That(wire.Value.BinaryValue.Span[2]).IsEqualTo(byte.CreateChecked(128));
-        _ = await Assert.That(untyped[1]).IsEqualTo(byte.MaxValue);
+        _ = await Assert.That(stored.Bytes[1]).IsEqualTo(byte.MaxValue);
     }
 
     /// <summary>Empty binary retains its discriminator across binary serialization.</summary>

@@ -46,7 +46,7 @@ public sealed class TypedPersistenceTests
         _ = ConstructMany(text, expected.Bytes.Length, retained);
 
         var allocated = DecodeMany(encoded, retained);
-        var decoded = retained[^1]!.RawValue;
+        var decoded = retained[^1]!.Value;
         var minimum = ConstructMany(text, expected.Bytes.Length, retained);
         Array.Clear(encoded);
         _ = await Assert.That(allocated).IsEqualTo(minimum);
@@ -62,19 +62,27 @@ public sealed class TypedPersistenceTests
     public async Task PreparingTypedEntryOnlyAllocatesHolder()
     {
         var typed = new NodeCacheEntry<StoredValue>(StoredValue.FromText("value"));
-        var normalized = new NodeCacheEntry<object?>("value");
+        var reference = new Tuple<int, NodeCacheEntry<StoredValue>>[Count];
         var retained = new PreparedJournalEntry[Count];
         _ = MeasurePreparation(typed, retained);
-        _ = MeasurePreparation(normalized, retained);
+        _ = MeasureHolders(typed, reference);
 
         var typedBytes = MeasurePreparation(typed, retained);
-        var encodedLength = retained[^1].EncodedLength;
-        var referenceBytes = MeasurePreparation(normalized, retained);
+        var referenceBytes = MeasureHolders(typed, reference);
         _ = await Assert.That(typedBytes).IsEqualTo(referenceBytes);
-        _ = await Assert.That(encodedLength).IsEqualTo(retained[^1].EncodedLength);
+        _ = await Assert.That(retained[^1].EncodedLength).IsEqualTo(CacheEntryCodec.ComputeEncodedLength(typed));
     }
 
-    private static long MeasurePreparation<T>(NodeCacheEntry<T> entry, PreparedJournalEntry[] retained)
+    private static long MeasureHolders(NodeCacheEntry<StoredValue> entry, Tuple<int, NodeCacheEntry<StoredValue>>[] retained)
+    {
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < retained.Length; i++)
+            retained[i] = Tuple.Create(i, entry);
+
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
+
+    private static long MeasurePreparation(NodeCacheEntry<StoredValue> entry, PreparedJournalEntry[] retained)
     {
         var before = GC.GetAllocatedBytesForCurrentThread();
         for (var i = 0; i < retained.Length; i++)

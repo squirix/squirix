@@ -17,8 +17,9 @@ namespace Squirix.Server.Benchmarks;
 public class LocalClockTtlWriteBenchmarks
 {
     private const int WritesPerInvocation = 100_000;
+    private static readonly StoredValue SmallText = StoredValue.FromText("v");
     private CacheKey[] _keys = [];
-    private PhysicalCache<object?>? _cache;
+    private PhysicalCache<StoredValue>? _cache;
 
     /// <summary>Gets or sets the number of stored entries, every one with a deadline.</summary>
     [Params(100_000, 1_000_000)]
@@ -32,19 +33,19 @@ public class LocalClockTtlWriteBenchmarks
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
         var ttl = TimeSpan.FromDays(1);
         for (var i = 0; i < WritesPerInvocation; i++)
-            cache.Set(_keys[i % _keys.Length], new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None);
+            cache.Set(_keys[i % _keys.Length], new NodeCacheEntry<StoredValue>(SmallText, 1, null, ttl), CancellationToken.None);
     }
 
     /// <summary>Stores the entries, each with a deadline a day away.</summary>
     [GlobalSetup]
     public void Setup()
     {
-        _cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
+        _cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
         _keys = new CacheKey[Stored];
         for (var i = 0; i < Stored; i++)
         {
             _keys[i] = CacheKey.Default("k" + i.ToString(CultureInfo.InvariantCulture));
-            _cache.Set(_keys[i], new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromDays(1)), CancellationToken.None);
+            _cache.Set(_keys[i], new NodeCacheEntry<StoredValue>(SmallText, 1, null, TimeSpan.FromDays(1)), CancellationToken.None);
         }
     }
 }

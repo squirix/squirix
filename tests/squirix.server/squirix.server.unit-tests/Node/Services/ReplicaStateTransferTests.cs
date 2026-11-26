@@ -285,9 +285,9 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     {
         var reference = new PhysicalCache<StoredValue>(harness.Clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         reference.Set(new CacheKey(CacheName, "other-1"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("old")), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<StoredValue>(StoredValue.FromText(new StoredText(Encoding.UTF8.GetBytes("v1")).Bytes)), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<StoredValue>(StoredValue.FromText(new StoredText(Encoding.UTF8.GetBytes("v2")).Bytes), 1, now.AddHours(1)), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<StoredValue>(StoredValue.FromText(new StoredText(Encoding.UTF8.GetBytes("v3")).Bytes), 1, now.AddHours(-1)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1")), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v2"), 1, now.AddHours(1)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v3"), 1, now.AddHours(-1)), cancellationToken);
         return BytesOf(reference);
     }
 }

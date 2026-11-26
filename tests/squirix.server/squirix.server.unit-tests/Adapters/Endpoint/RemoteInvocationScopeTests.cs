@@ -33,9 +33,9 @@ public sealed class RemoteInvocationScopeTests : ServerUnitTestBase
     [Test]
     public async Task NestedPublicScopeEnforcesPayloadLimit()
     {
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
-        var cache = new ValidationCacheDecorator<object?>(new ClientCache<object?>(physical, physical), 3);
-        var entry = new NodeCacheEntry<object?>(new StoredText([0xe7, 0x95, 0x8c, 0x78]));
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        var cache = new ValidationCacheDecorator<StoredValue>(new ClientCache<StoredValue>(physical, physical), 3);
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromText([0xe7, 0x95, 0x8c, 0x78]));
 
         using var owner = RemoteInvocationContext.EnterRemoteInvocation(true);
         using (RemoteInvocationContext.EnterRemoteInvocation())
@@ -50,23 +50,23 @@ public sealed class RemoteInvocationScopeTests : ServerUnitTestBase
         await cache.SetEntryAsync("op", "default", "key", entry, CancellationToken.None);
         var stored = await cache.GetValueAsync("default", "key", CancellationToken.None);
         _ = await Assert.That(stored.Found).IsTrue();
-        _ = await Assert.That(stored.RawValue).IsSameReferenceAs(entry.RawValue);
+        _ = await Assert.That(stored.Value.Bytes).IsSameReferenceAs(entry.Value.Bytes);
     }
 
     /// <summary>A public distributed write can use the full payload budget with an expiration envelope.</summary>
     [Test]
     public async Task PublicDistributedWriteAtLimit()
     {
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
-        var cache = new ValidationCacheDecorator<object?>(new ClientCache<object?>(physical, physical), 3);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        var cache = new ValidationCacheDecorator<StoredValue>(new ClientCache<StoredValue>(physical, physical), 3);
         var policy = new DistributedCachePolicy(null, null);
         var write = new DistributedCacheWrite(in policy, [1, 2, 3], TimeSpan.FromMinutes(1).Ticks);
 
         using var scope = RemoteInvocationContext.EnterRemoteInvocation();
-        await cache.SetEntryAsync("op", "default", "key", new NodeCacheEntry<object?>(write.Envelope, write), CancellationToken.None);
+        await cache.SetEntryAsync("op", "default", "key", new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(write.Envelope), write), CancellationToken.None);
 
         var stored = await cache.GetValueAsync("default", "key", CancellationToken.None);
-        _ = await Assert.That(stored.RawValue).IsSameReferenceAs(write.Envelope);
+        _ = await Assert.That(stored.Value.Bytes).IsSameReferenceAs(write.Envelope);
     }
 
     /// <summary>A public invocation nested inside an owner call clears the owner flag, then restores it.</summary>

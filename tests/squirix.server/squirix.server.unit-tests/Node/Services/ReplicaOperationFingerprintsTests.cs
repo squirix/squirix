@@ -113,10 +113,10 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     [Arguments(10_000)]
     public async Task UpdateFingerprintMatchesSerializedBytes(int jsonLength)
     {
-        object value = jsonLength == 0 ? 42L : JsonValueKit.Create(ArrayOfOnes(jsonLength));
+        var value = jsonLength == 0 ? StoredValue.FromInteger(42L) : StoredValue.FromJson(JsonValueKit.Create(ArrayOfOnes(jsonLength)).Bytes);
         var bytes = ServerWireMapping.CacheValueToWire(value).ToByteArray();
 
-        var fingerprint = ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, StoredValue.FromDecoded(value));
+        var fingerprint = ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, in value);
 
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.Update, bytes), fingerprint);
     }

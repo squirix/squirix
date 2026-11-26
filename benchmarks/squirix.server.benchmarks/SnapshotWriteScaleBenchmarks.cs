@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -21,7 +20,7 @@ public class SnapshotWriteScaleBenchmarks
     private const int JsonVariantCount = 16;
 
     private TempDirectory? _dir;
-    private List<(CacheKey Key, NodeCacheEntry<object?> Entry)>? _items;
+    private List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>? _items;
     private int _nextIndex;
     private SnapshotWriter? _writer;
 
@@ -48,25 +47,22 @@ public class SnapshotWriteScaleBenchmarks
     {
         _dir = new TempDirectory("snapshot-write-scale");
         _writer = new SnapshotWriter(_dir);
-        var jsonValues = new JsonElement[JsonVariantCount];
+        var jsonValues = new StoredValue[JsonVariantCount];
         for (var i = 0; i < jsonValues.Length; i++)
-        {
-            using var document = JsonDocument.Parse($$"""{"id":{{i}},"name":"item-{{i}}","tags":["a","b"],"price":{{i}}.5}""");
-            jsonValues[i] = document.RootElement.Clone();
-        }
+            jsonValues[i] = StoredValue.FromJson(System.Text.Encoding.UTF8.GetBytes($$"""{"id":{{i}},"name":"item-{{i}}","tags":["a","b"],"price":{{i}}.5}"""));
 
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(EntryCount);
+        var items = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>(EntryCount);
         for (var i = 0; i < EntryCount; i++)
         {
-            object? value = JsonValues
+            var value = JsonValues
                 ? jsonValues[i % JsonVariantCount]
                 : (i % 3) switch
                 {
-                    0 => $"value-{NodeInvariantIndexStrings.Format(i)}",
-                    1 => i,
-                    _ => i * 1.5d,
+                    0 => StoredValue.FromText($"value-{NodeInvariantIndexStrings.Format(i)}"),
+                    1 => StoredValue.FromInteger(i),
+                    _ => StoredValue.FromDouble(i * 1.5d),
                 };
-            items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+            items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<StoredValue> { Value = value, Version = 1 }));
         }
 
         _items = items;

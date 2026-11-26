@@ -31,8 +31,8 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
     [Test]
     public async Task OversizedObjectUsageRejectedPastLimit(CancellationToken cancellationToken)
     {
-        var estimator = new ObjectCacheEntrySizeEstimator();
-        var physical = new PhysicalCache<object?>(TimeProvider.System, estimator);
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, estimator);
         var accounting = new MemoryUsageAccounting(physical);
         var options = new PressureOptions
         {
@@ -41,9 +41,9 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
             CriticalPressureThresholdPercent = 95,
         };
         var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
-        var inner = new ClientCache<object?>(physical, physical);
-        var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator);
-        var entry = new NodeCacheEntry<object?> { Value = new AdmissionDataPayload { Data = new string('y', 250_000) }, Version = 1 };
+        var inner = new ClientCache<StoredValue>(physical, physical);
+        var cache = new MemoryAdmissionCacheDecorator<StoredValue>(inner, gate, estimator);
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromJson(System.Text.Encoding.UTF8.GetBytes($$"""{"Data":"{{new string('y', 250_000)}}"}""")), Version = 1 };
 
         _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, cancellationToken)).IsTrue();
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -55,13 +55,13 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
     [Test]
     public async Task RemoveExpirationSkipsRead(CancellationToken cancellationToken)
     {
-        var estimator = new ObjectCacheEntrySizeEstimator();
-        var physical = new PhysicalCache<object?>(TimeProvider.System, estimator);
-        var inner = new ClientCache<object?>(physical, physical);
-        await inner.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<object?>("value", 1, DateTime.UtcNow.AddHours(1)), cancellationToken);
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, estimator);
+        var inner = new ClientCache<StoredValue>(physical, physical);
+        await inner.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<StoredValue>(StoredValue.FromText("value"), 1, DateTime.UtcNow.AddHours(1)), cancellationToken);
         var options = new PressureOptions { MaxEstimatedCacheBytes = 1, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
         var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<object?>(
+        var cache = new MemoryAdmissionCacheDecorator<StoredValue>(
             inner,
             gate,
             estimator,

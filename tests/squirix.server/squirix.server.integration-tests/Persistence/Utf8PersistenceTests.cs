@@ -92,7 +92,7 @@ public sealed class Utf8PersistenceTests : NodeIntegrationTestBase
 
         _ = await Assert.That(response.Updated).IsTrue();
         var hit = node.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey(cacheName, key), cancellationToken);
-        _ = await Assert.That(hit.RawValue.Bytes).IsSameReferenceAs(bytes);
+        _ = await Assert.That(hit.Value.Bytes).IsSameReferenceAs(bytes);
         _ = await Assert.That(System.Text.Encoding.UTF8.GetString(hit.Value.Bytes)).IsEqualTo(replacement);
     }
 }

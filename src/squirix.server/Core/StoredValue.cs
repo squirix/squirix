@@ -87,17 +87,4 @@ internal readonly struct StoredValue
         var bytes = MemoryMarshal.TryGetArray(json, out var slice) && slice.Array is { } array && slice.Count == array.Length ? array : json.ToArray();
         return new StoredValue(bytes, Unsafe.BitCast<ValueKind, long>(ValueKind.Json));
     }
-
-    internal static StoredValue FromDecoded(object? value) => value switch
-    {
-        null => default,
-        bool flag => FromBoolean(flag),
-        long number => FromInteger(number),
-        double number => FromDouble(number),
-        StoredText text => FromText(text.Bytes),
-        string text => FromText(text),
-        byte[] bytes => FromBinary(bytes),
-        JsonUtf8Value json => FromJson(json.Bytes),
-        _ => throw new InvalidOperationException("Unsupported stored cache value."),
-    };
 }

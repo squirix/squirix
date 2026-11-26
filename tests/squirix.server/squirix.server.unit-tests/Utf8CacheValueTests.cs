@@ -15,7 +15,7 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Verifies UTF-8 text storage and serialization.</summary>
-public sealed class StoredTextTests
+public sealed class Utf8CacheValueTests
 {
     /// <summary>Replacing a borrowed frame cannot change a stored text value.</summary>
     [Test]
@@ -56,10 +56,10 @@ public sealed class StoredTextTests
     [Test]
     [Arguments("")]
     [Arguments("abcЖ漢😀")]
-    public async Task StoredTextUsesOriginalJournalEncoding(string input)
+    public async Task Utf8UsesOriginalJournalEncoding(string input)
     {
         var expected = new NodeCacheEntry<object?>(input, 13);
-        var stored = new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes(input)), 13);
+        var stored = new NodeCacheEntry<StoredValue>(StoredValue.FromText(input), 13);
         var original = new byte[CacheEntryCodec.ComputeEncodedLength(expected)];
         var encoded = new byte[CacheEntryCodec.ComputeEncodedLength(stored)];
         CacheEntryCodec.Write(expected, original);
@@ -90,38 +90,37 @@ public sealed class StoredTextTests
         _ = await Assert.That(allocated).IsLessThan((Convert.ToInt64(input.Length) * sizeof(char)) + 1024);
     }
 
-    /// <summary>Replacing a local value retains the supplied string without encoding it.</summary>
+    /// <summary>Replacing a local value retains the supplied UTF-8 bytes.</summary>
     [Test]
-    public async Task ReplacementRetainsLocalString()
+    public async Task ReplacementRetainsUtf8Bytes()
     {
-        var cache = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
         var key = CacheKey.Default("test");
-        cache.Set(key, new NodeCacheEntry<object?>("first"), CancellationToken.None);
-        var value = new string('x', 4096);
-        cache.Set(key, new NodeCacheEntry<object?>(value), CancellationToken.None);
+        cache.Set(key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("first")), CancellationToken.None);
+        var value = StoredValue.FromText(new string('x', 4096));
+        cache.Set(key, new NodeCacheEntry<StoredValue>(value), CancellationToken.None);
         var hit = cache.GetValue(key, CancellationToken.None);
         _ = await Assert.That(hit.Found).IsTrue();
-        _ = await Assert.That(hit.RawValue).IsSameReferenceAs(value);
-        _ = await Assert.That(hit.Value).IsSameReferenceAs(value);
-        _ = await Assert.That(cache.GetEntry(key, CancellationToken.None)!.Value).IsSameReferenceAs(value);
+        _ = await Assert.That(hit.Value.Bytes).IsSameReferenceAs(value.Bytes);
+        _ = await Assert.That(cache.GetEntry(key, CancellationToken.None)!.Value.Bytes).IsSameReferenceAs(value.Bytes);
     }
 
     /// <summary>Updating with encoded text preserves its identity and exposes the new logical string.</summary>
     [Test]
-    public async Task UpdateReusesStoredText()
+    public async Task UpdateReusesUtf8Bytes()
     {
-        var cache = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
         var key = CacheKey.Default("test");
-        cache.Set(key, new NodeCacheEntry<object?>("first"), CancellationToken.None);
+        cache.Set(key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("first")), CancellationToken.None);
         const string replacement = "Ж漢😀";
-        var stored = new StoredText(Encoding.UTF8.GetBytes(replacement));
+        var stored = StoredValue.FromText(replacement);
 
         var updated = cache.Update(key, stored, CancellationToken.None);
 
         _ = await Assert.That(updated).IsTrue();
         var hit = cache.GetValue(key, CancellationToken.None);
         _ = await Assert.That(hit.Found).IsTrue();
-        _ = await Assert.That(hit.RawValue).IsSameReferenceAs(stored);
-        _ = await Assert.That(hit.Value as string).IsEqualTo(replacement);
+        _ = await Assert.That(hit.Value.Bytes).IsSameReferenceAs(stored.Bytes);
+        _ = await Assert.That(Encoding.UTF8.GetString(hit.Value.Bytes)).IsEqualTo(replacement);
     }
 }

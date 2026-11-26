@@ -14,7 +14,7 @@ public class KeyValidationBenchmarks
 {
     private const string CacheName = "orders-cache";
     private string _key = string.Empty;
-    private InboundEndpointCacheOperations<object?>? _operations;
+    private InboundEndpointCacheOperations<StoredValue>? _operations;
 
     /// <summary>Gets or sets the key length in characters.</summary>
     [Params(16, 128, 1024)]
@@ -25,8 +25,8 @@ public class KeyValidationBenchmarks
     public void Setup()
     {
         _key = new string('k', KeyLength);
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        _operations = new InboundEndpointCacheOperations<object?>(new ClientCache<object?>(physical, physical));
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        _operations = new InboundEndpointCacheOperations<StoredValue>(new ClientCache<StoredValue>(physical, physical));
         _ = _operations.ForCache(CacheName);
     }
 

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -44,34 +43,33 @@ public class SnapshotLoadBenchmarks
     /// <summary>Loads 100k small entries.</summary>
     /// <returns>The number of loaded entries.</returns>
     [Benchmark]
-    public async Task<int> LoadSmall100KAsync() => (await StoreFactory.CreateReader().LoadStrictAsync<object?>(_smallPath, null, CancellationToken.None).ConfigureAwait(false)).Entries.Count;
+    public async Task<int> LoadSmall100KAsync() => (await StoreFactory.CreateReader().LoadStrictAsync<StoredValue>(_smallPath, null, CancellationToken.None).ConfigureAwait(false)).Entries.Count;
 
     /// <summary>Loads 1M small entries.</summary>
     /// <returns>The number of loaded entries.</returns>
     [Benchmark]
-    public async Task<int> LoadSmall1MAsync() => (await StoreFactory.CreateReader().LoadStrictAsync<object?>(_largePath, null, CancellationToken.None).ConfigureAwait(false)).Entries.Count;
+    public async Task<int> LoadSmall1MAsync() => (await StoreFactory.CreateReader().LoadStrictAsync<StoredValue>(_largePath, null, CancellationToken.None).ConfigureAwait(false)).Entries.Count;
 
     /// <summary>Loads 100k JSON-valued entries.</summary>
     /// <returns>The number of loaded entries.</returns>
     [Benchmark]
-    public async Task<int> LoadJson100KAsync() => (await StoreFactory.CreateReader().LoadStrictAsync<object?>(_jsonPath, null, CancellationToken.None).ConfigureAwait(false)).Entries.Count;
+    public async Task<int> LoadJson100KAsync() => (await StoreFactory.CreateReader().LoadStrictAsync<StoredValue>(_jsonPath, null, CancellationToken.None).ConfigureAwait(false)).Entries.Count;
 
-    private static List<(CacheKey Key, NodeCacheEntry<object?> Entry)> BuildJson(int count)
+    private static List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> BuildJson(int count)
     {
-        using var document = JsonDocument.Parse(JsonText);
-        var value = document.RootElement.Clone();
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(count);
+        var value = StoredValue.FromJson(System.Text.Encoding.UTF8.GetBytes(JsonText));
+        var items = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>(count);
         for (var i = 0; i < count; i++)
-            items.Add((CacheKey.Default($"key-{i}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+            items.Add((CacheKey.Default($"key-{i}"), new NodeCacheEntry<StoredValue> { Value = value, Version = 1 }));
 
         return items;
     }
 
-    private static List<(CacheKey Key, NodeCacheEntry<object?> Entry)> BuildSmall(int count)
+    private static List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> BuildSmall(int count)
     {
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(count);
+        var items = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>(count);
         for (var i = 0; i < count; i++)
-            items.Add((CacheKey.Default($"key-{i}"), new NodeCacheEntry<object?> { Value = $"value-{i}", Version = 1 }));
+            items.Add((CacheKey.Default($"key-{i}"), new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"value-{i}"), Version = 1 }));
 
         return items;
     }

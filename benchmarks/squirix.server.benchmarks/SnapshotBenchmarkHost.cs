@@ -14,11 +14,11 @@ namespace Squirix.Server.Benchmarks;
 internal sealed class SnapshotBenchmarkHost : IDisposable
 {
     private readonly TempDirectory _dir;
-    private readonly IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
+    private readonly IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> _items;
     private readonly ISnapshotWriter _writer;
     private int _nextIndex;
 
-    private SnapshotBenchmarkHost(TempDirectory dir, PersistenceOptions options, IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items)
+    private SnapshotBenchmarkHost(TempDirectory dir, PersistenceOptions options, IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> items)
     {
         _dir = dir;
         _items = items;
@@ -37,16 +37,16 @@ internal sealed class SnapshotBenchmarkHost : IDisposable
 
         var dir = new TempDirectory(tempDirectoryPrefix);
         var persistence = options with { DataDir = dir };
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(entryCount);
+        var items = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>(entryCount);
         for (var i = 0; i < entryCount; i++)
         {
-            object? value = (i % 3) switch
+            var value = (i % 3) switch
             {
-                0 => $"value-{NodeInvariantIndexStrings.Format(i)}",
-                1 => i,
-                _ => i * 1.5d,
+                0 => StoredValue.FromText($"value-{NodeInvariantIndexStrings.Format(i)}"),
+                1 => StoredValue.FromInteger(i),
+                _ => StoredValue.FromDouble(i * 1.5d),
             };
-            items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+            items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<StoredValue> { Value = value, Version = 1 }));
         }
 
         return Task.FromResult(new SnapshotBenchmarkHost(dir, persistence, items));

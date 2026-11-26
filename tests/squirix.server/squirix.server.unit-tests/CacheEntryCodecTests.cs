@@ -38,29 +38,29 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     /// <summary>Numeric and JsonElement coercions used by typed journal reads succeed.</summary>
     [Test]
-    public async Task MapEntryCoercesNumericAndJsonValues()
+    public async Task ReadCoercesNumericAndJsonValues()
     {
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(42L), out var asInt)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<int>(JournalEntryPayloadKit.EncodePut(42L), out var asInt, out _)).IsTrue();
         _ = await Assert.That(asInt!.Value).IsEqualTo(42);
 
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<long>(new NodeCacheEntry<object?>(99L), out var asLong)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<long>(JournalEntryPayloadKit.EncodePut(99L), out var asLong, out _)).IsTrue();
         _ = await Assert.That(asLong!.Value).IsEqualTo(99L);
 
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<float>(new NodeCacheEntry<object?>(1.5d), out var asFloat)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<float>(JournalEntryPayloadKit.EncodePut(1.5d), out var asFloat, out _)).IsTrue();
         _ = await Assert.That(asFloat!.Value).IsEqualTo(1.5f);
 
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<double>(new NodeCacheEntry<object?>(2.5d), out var asDouble)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<double>(JournalEntryPayloadKit.EncodePut(2.5d), out var asDouble, out _)).IsTrue();
         _ = await Assert.That(asDouble!.Value).IsEqualTo(2.5d);
 
         using var document = JsonDocument.Parse("""{"k":1}""");
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<JsonElement>(new NodeCacheEntry<object?>(document.RootElement.Clone()), out var asJson)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<JsonElement>(JournalEntryPayloadKit.EncodePut(document.RootElement.Clone()), out var asJson, out _)).IsTrue();
         _ = await Assert.That(asJson!.Value.GetProperty("k").GetInt32()).IsEqualTo(1);
 
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<JsonElement>(new NodeCacheEntry<object?>(JsonValueKit.Create("""{"k":2}""")), out var fromBytes)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<JsonElement>(JournalEntryPayloadKit.EncodePut(JsonValueKit.Create("""{"k":2}""")), out var fromBytes, out _)).IsTrue();
         _ = await Assert.That(fromBytes!.Value.GetProperty("k").GetInt32()).IsEqualTo(2);
 
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>("nope"), out _)).IsFalse();
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<string>(new NodeCacheEntry<object?>(null), out var asNull)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<int>(JournalEntryPayloadKit.EncodePut("nope"), out _, out _)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryRead<string>(JournalEntryPayloadKit.EncodePut(null), out var asNull, out _)).IsTrue();
         _ = await Assert.That(asNull!.Value).IsNull();
     }
 

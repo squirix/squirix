@@ -55,7 +55,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T>
             if (renewTo is not { } deadline)
                 return DurableMutationCondition<ValueTuple<ReadOnlyMemory<byte>?>>.Skip(result);
 
-            var entry = new NodeCacheEntry<T>(current!.RawValue, current.Version, deadline, tags: current.Tags);
+            var entry = new NodeCacheEntry<T>(current!.Value, current.Version, deadline, tags: current.Tags);
             state.Upsert.Set(entry, EncodeWhole(entry));
             return DurableMutationCondition<ValueTuple<ReadOnlyMemory<byte>?>>.Apply();
         }
@@ -64,7 +64,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T>
         {
             var entry = state.Upsert.Entry ?? ThrowHelper.Throw<NodeCacheEntry<T>>(new InvalidOperationException("The distributed renewal was not prepared."));
             await state.Self._inner.SetEntryAsync(state.OperationId, state.CacheName, state.Key, entry, state.Upsert.Payload.Length, cancellationToken).ConfigureAwait(false);
-            return ValueTuple.Create(state.Refresh ? default(ReadOnlyMemory<byte>?) : DistributedCacheAccess.ReadPayload(entry.RawValue, out _));
+            return ValueTuple.Create(state.Refresh ? default(ReadOnlyMemory<byte>?) : DistributedCacheAccess.ReadPayload(entry.Value, out _));
         }
 
         [Immutable]

@@ -16,7 +16,7 @@ internal static partial class CacheEntryCodec
     private const byte True = 1;
 
     internal static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) =>
-        ComputeEncodedLength(entry.ExpiresUtc, entry.Expiration, entry.Tags, ComputeValueLength(entry.RawValue));
+        ComputeEncodedLength(entry.ExpiresUtc, entry.Expiration, entry.Tags, ComputeValueLength(entry.Value));
 
     /// <summary>Computes the encoded length of an entry whose value is already measured.</summary>
     /// <param name="expiresUtc">The absolute deadline, or <see langword="null" />.</param>
@@ -55,18 +55,6 @@ internal static partial class CacheEntryCodec
         ? CacheEntryValueEncoding.WriteStored(Unsafe.As<T, StoredValue>(ref normalizedValue), destination)
         : CacheEntryValueEncoding.WriteInternal(normalizedValue, destination);
 
-    internal static bool TryMapEntry<T>(NodeCacheEntry<object?> entry, out NodeCacheEntry<T>? mapped)
-    {
-        if (!CacheEntryValueEncoding.TryCoerceTo<T>(entry.RawValue, out var typedValue))
-        {
-            mapped = null;
-            return false;
-        }
-
-        mapped = new NodeCacheEntry<T>(typedValue, entry.Version, entry.ExpiresUtc, entry.Expiration, entry.Tags);
-        return true;
-    }
-
     /// <summary>Decodes an entry; a valid entry expired by the optional cutoff succeeds with a null entry and its consumed length.</summary>
     /// <typeparam name="T">The requested value type.</typeparam>
     /// <param name="source">The encoded entry bytes.</param>
@@ -101,7 +89,7 @@ internal static partial class CacheEntryCodec
     /// <returns>Whether the entry decodes.</returns>
     internal static bool IsWellFormed(ReadOnlySpan<byte> source)
     {
-        if (!TryReadEnvelope<object?>(source, false, out var envelope))
+        if (!TryReadEnvelope<StoredValue>(source, false, out var envelope))
             return false;
 
         // Preserve the constructor's version rejection, after the whole entry has decoded.
@@ -127,7 +115,7 @@ internal static partial class CacheEntryCodec
     internal static int WriteMeasured<T>(NodeCacheEntry<T> entry, Span<byte> destination)
     {
         var offset = WriteHeader(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, destination);
-        return offset + WriteValue(entry.RawValue, destination[offset..]);
+        return offset + WriteValue(entry.Value, destination[offset..]);
     }
 
     /// <summary>Writes entry metadata and returns the offset reserved for its value.</summary>

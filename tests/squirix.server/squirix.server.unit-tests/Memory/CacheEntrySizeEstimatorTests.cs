@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -34,10 +33,10 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
         _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, null, TimeSpan.FromMinutes(1)), false) - withoutDeadline).IsEqualTo(64L);
 
         // A JSON value weighs its bytes, so the deadline adds the index share alone.
-        var json = JsonElement.Parse("""{"a":[1,"b"]}""");
-        var objects = new ObjectCacheEntrySizeEstimator();
-        var jsonWithoutDeadline = objects.EstimateBytes(key, new NodeCacheEntry<object?>(json), false);
-        _ = await Assert.That(objects.EstimateBytes(key, new NodeCacheEntry<object?>(json, 1, deadline), false) - jsonWithoutDeadline).IsEqualTo(64L);
+        var json = StoredValue.FromJson(System.Text.Encoding.UTF8.GetBytes("""{"a":[1,"b"]}"""));
+        var objects = new CacheEntrySizeEstimator<StoredValue>();
+        var jsonWithoutDeadline = objects.EstimateBytes(key, new NodeCacheEntry<StoredValue>(json), false);
+        _ = await Assert.That(objects.EstimateBytes(key, new NodeCacheEntry<StoredValue>(json, 1, deadline), false) - jsonWithoutDeadline).IsEqualTo(64L);
     }
 
     /// <summary>Each payload kind maps to its documented golden size.</summary>

@@ -1,19 +1,21 @@
 using System;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 
-/// <summary>Reads cache values through the server-side gRPC adapter pipeline without HTTP/2 or the public client SDK.</summary>
+/// <summary>Reads cache values through the inbound server cache pipeline in process.</summary>
 [Immutable]
 public sealed class BenchmarkNodeReadSurface
 {
-    private readonly ICacheApi<object?> _cacheApi;
+    private readonly ICacheApi<StoredValue> _cacheApi;
 
-    private BenchmarkNodeReadSurface(ICacheApi<object?> cacheApi)
+    private BenchmarkNodeReadSurface(ICacheApi<StoredValue> cacheApi)
     {
         ArgumentNullException.ThrowIfNull(cacheApi);
         _cacheApi = cacheApi;
@@ -28,7 +30,7 @@ public sealed class BenchmarkNodeReadSurface
         ArgumentNullException.ThrowIfNull(host);
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheName);
 
-        var operations = host.GetRequiredService<IInboundEndpointCacheOperations<object?>>();
+        var operations = host.GetRequiredService<IInboundEndpointCacheOperations<StoredValue>>();
         return new BenchmarkNodeReadSurface(operations.ForCache(cacheName));
     }
 
@@ -39,6 +41,6 @@ public sealed class BenchmarkNodeReadSurface
     public async ValueTask<string?> GetValueOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
         var result = await _cacheApi.GetValueAsync(key, cancellationToken).ConfigureAwait(false);
-        return result.Found ? result.Value as string : null;
+        return result.Found && result.Value.Kind == StoredValue.ValueKind.Text ? Encoding.UTF8.GetString(result.Value.Bytes) : null;
     }
 }

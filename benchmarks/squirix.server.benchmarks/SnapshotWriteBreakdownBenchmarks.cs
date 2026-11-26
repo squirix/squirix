@@ -77,14 +77,14 @@ public class SnapshotWriteBreakdownBenchmarks
     {
         private readonly TempDirectory _dir;
         private readonly int[] _bodyLengths;
-        private readonly List<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
+        private readonly List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> _items;
         private readonly Ledger _manifestStore;
         private readonly SnapshotWriter _writer;
         private int _nextFileIndex = 10_000;
         private int _nextPublishIndex = 1;
         private int _nextSnapshotIndex = 1;
 
-        private Session(TempDirectory dir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, int[] bodyLengths, SnapshotWriter writer, Ledger manifestStore)
+        private Session(TempDirectory dir, List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> items, int[] bodyLengths, SnapshotWriter writer, Ledger manifestStore)
         {
             _dir = dir;
             _items = items;
@@ -105,16 +105,16 @@ public class SnapshotWriteBreakdownBenchmarks
         internal static async Task<Session> CreateAsync(int entryCount)
         {
             var dir = new TempDirectory("snapshot-breakdown");
-            var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(entryCount);
+            var items = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>(entryCount);
             for (var i = 0; i < entryCount; i++)
             {
-                object? value = (i % 3) switch
+                var value = (i % 3) switch
                 {
-                    0 => $"value-{NodeInvariantIndexStrings.Format(i)}",
-                    1 => i,
-                    _ => i * 1.5d,
+                    0 => StoredValue.FromText($"value-{NodeInvariantIndexStrings.Format(i)}"),
+                    1 => StoredValue.FromInteger(i),
+                    _ => StoredValue.FromDouble(i * 1.5d),
                 };
-                items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+                items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<StoredValue> { Value = value, Version = 1 }));
             }
 
             var bodyLengths = new int[entryCount];

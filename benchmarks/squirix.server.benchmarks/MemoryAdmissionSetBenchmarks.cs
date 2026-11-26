@@ -23,7 +23,9 @@ public class MemoryAdmissionSetBenchmarks
     private const string Key = "key";
     private const string NodeId = "n1";
     private const int OperationsPerInvoke = 100_000;
-    private MemoryAdmissionCacheDecorator<object?>? _admission;
+    private static readonly StoredValue ResidentText = StoredValue.FromText("stored");
+    private static readonly StoredValue ValueText = StoredValue.FromText("value");
+    private MemoryAdmissionCacheDecorator<StoredValue>? _admission;
     private Meter? _meter;
 
     /// <summary>Releases the meter created during setup.</summary>
@@ -35,11 +37,11 @@ public class MemoryAdmissionSetBenchmarks
     public void Setup()
     {
         _meter = new Meter("Squirix.Benchmarks.AdmissionSet");
-        var estimator = new CacheEntrySizeEstimator<object?>();
-        var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
+        var accounting = new MemoryUsageAccounting(new PhysicalCache<StoredValue>(TimeProvider.System, estimator));
         var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
         var gate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
-        _admission = new MemoryAdmissionCacheDecorator<object?>(new StoredCache(), gate, estimator);
+        _admission = new MemoryAdmissionCacheDecorator<StoredValue>(new StoredCache(), gate, estimator);
     }
 
     /// <summary>Runs Sets that replace a stored entry.</summary>
@@ -48,32 +50,32 @@ public class MemoryAdmissionSetBenchmarks
     public async Task SetAsync()
     {
         var admission = ThrowHelper.Required(_admission, "Benchmark decorator was not initialized.");
-        var entry = new NodeCacheEntry<object?>("value");
+        var entry = new NodeCacheEntry<StoredValue>(ValueText);
         for (var i = 0; i < OperationsPerInvoke; i++)
             await admission.SetEntryAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Inner cache that holds one entry and completes every call at once.</summary>
     [Immutable]
-    private sealed class StoredCache : ILogicalNamespacedCache<object?>
+    private sealed class StoredCache : ILogicalNamespacedCache<StoredValue>
     {
-        private readonly NodeCacheEntry<object?> _stored = new("stored");
+        private readonly NodeCacheEntry<StoredValue> _stored = new(ResidentText);
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<NodeCacheEntry<object?>?>(_stored);
+        public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<NodeCacheEntry<StoredValue>?>(_stored);
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

@@ -26,7 +26,6 @@ internal static class ServerWireMapping
         {
             StoredValue stored => ToWire(in stored),
             null => CacheValueWire.Null(),
-            StoredText text => CacheValue.FromText(text.Bytes),
             string text => new CacheValue { StringValue = text },
             int number => new CacheValue { Int64Value = number },
             long number => new CacheValue { Int64Value = number },
@@ -50,7 +49,7 @@ internal static class ServerWireMapping
             return Unsafe.As<StoredValue, T>(ref stored);
         }
 
-        return typeof(T) == typeof(object) ? Coerce<T>(ReadObject(present)) : ReadTyped<T>(present);
+        return ReadTyped<T>(present);
     }
 
     internal static NodeCacheEntry<T> MapFromWire<T>(this RpcEntry? entry) => new()
@@ -62,7 +61,7 @@ internal static class ServerWireMapping
 
     internal static RpcEntry MapToWire<T>(this NodeCacheEntry<T> e, bool includeDeadline = true) => new()
     {
-        Value = CacheValueToWire(e.RawValue),
+        Value = CacheValueToWire(e.Value),
         ExpiresUtc = includeDeadline ? e.ExpiresUtc : null,
         Expiration = e.Expiration,
     };
@@ -77,8 +76,6 @@ internal static class ServerWireMapping
 
     private static TOut CastScalar<TOut, TIn>(TIn input)
         where TIn : struct => Unsafe.As<TIn, TOut>(ref input);
-
-    private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
     private static T? DeserializeScalar<T>(CacheValue wire)
     {
@@ -98,7 +95,7 @@ internal static class ServerWireMapping
     };
 
     private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
-        ? Coerce<T>(wire.BinaryValue.ToArray())
+        ? CastReference<T, byte[]>(wire.BinaryValue.ToArray())
         : throw new ServerCallException(FrameStatus.InvalidArgument, IncompatibleBinaryDetail);
 
     private static CacheValue ToWire(in StoredValue value) => value.Kind switch
@@ -123,20 +120,6 @@ internal static class ServerWireMapping
         CacheValue.KindOneofCase.BinaryValue => StoredValue.FromBinary(value.BinaryValue.ToArray()),
         CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(value.JsonUtf8.Span) => StoredValue.FromJson(value.JsonUtf8),
         CacheValue.KindOneofCase.JsonUtf8 => throw new ServerCallException(FrameStatus.InvalidArgument, InvalidJsonDetail),
-        _ => throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail),
-    };
-
-    private static object? ReadObject(CacheValue wire) => wire.KindCase switch
-    {
-        CacheValue.KindOneofCase.StringValue => wire.EncodedText is { } bytes ? new StoredText(bytes) : wire.StringValue,
-        CacheValue.KindOneofCase.BoolValue => wire.BoolValue,
-        CacheValue.KindOneofCase.Int64Value => wire.Int64Value,
-        CacheValue.KindOneofCase.DoubleValue => wire.DoubleValue,
-        CacheValue.KindOneofCase.NullValue => null,
-        CacheValue.KindOneofCase.BinaryValue => wire.BinaryValue.ToArray(),
-        CacheValue.KindOneofCase.JsonUtf8 => JsonUtf8Value.TryCreate(wire.JsonUtf8, out var json)
-            ? json
-            : throw new ServerCallException(FrameStatus.InvalidArgument, InvalidJsonDetail),
         _ => throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail),
     };
 
