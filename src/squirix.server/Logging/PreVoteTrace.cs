@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 
 namespace Squirix.Server.Logging;
 
@@ -10,6 +11,8 @@ internal static class PreVoteTrace
 {
     internal const string Operation = "squirix.peer.pre-vote";
 
+    private static readonly ConditionalWeakTable<object, Action<string>> CertificateObservers = [];
+
     internal static event EventHandler<StageEventArgs>? Observed;
 
     internal static event EventHandler<TlsEventArgs>? TlsObserved;
@@ -17,6 +20,16 @@ internal static class PreVoteTrace
     internal static bool HasObservers => Observed != null;
 
     internal static bool HasTlsObservers => TlsObserved != null;
+
+    internal static bool IsTracing => HasObservers && string.Equals(Activity.Current?.OperationName, Operation, StringComparison.Ordinal);
+
+    internal static void ObserveCertificates(object stream, Action<string> observer) => CertificateObservers.Add(stream, observer);
+
+    internal static void MarkCertificate(object stream, string phase)
+    {
+        if (HasTlsObservers && CertificateObservers.TryGetValue(stream, out var observer))
+            observer(phase);
+    }
 
     internal static Activity? Accept(string? parent)
     {

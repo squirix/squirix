@@ -2,6 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit.Logging;
@@ -9,7 +12,7 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
 
-internal sealed class FailoverDiagnostics : IDisposable
+internal sealed class FailoverDiagnostics : IAsyncDisposable
 {
     private readonly ConcurrentQueue<string> _events = new();
     private readonly ConcurrentDictionary<ActivityTraceId, string> _traces = new();
@@ -19,18 +22,30 @@ internal sealed class FailoverDiagnostics : IDisposable
     private readonly string _group;
     private readonly Action<string> _output;
     private readonly long _started = Stopwatch.GetTimestamp();
+    private readonly ManualResetEventSlim _stopSampling = new();
+    private readonly Task _sampler;
 
     internal FailoverDiagnostics(string group, Action<string> output)
     {
         _group = group;
         _output = output;
+        ThreadPool.GetMinThreads(out var minimum, out var ioMinimum);
+        if (int.TryParse(Environment.GetEnvironmentVariable("SQUIRIX_TRACE_MIN_WORKERS"), CultureInfo.InvariantCulture, out var requested) && requested > minimum)
+            _ = ThreadPool.SetMinThreads(requested, ioMinimum);
+
+        ThreadPool.GetMinThreads(out minimum, out _);
+        Record($"thread pool configuration processors={Environment.ProcessorCount}, minWorkers={minimum}");
+        _sampler = Task.Factory.StartNew(SampleThreadPool, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         PreVoteTrace.Observed += RecordTrace;
         PreVoteTrace.TlsObserved += RecordTls;
         TcpPartitionProxy.BridgeObserved += RecordBridge;
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        _stopSampling.Set();
+        await _sampler.ConfigureAwait(false);
+        _stopSampling.Dispose();
         PreVoteTrace.Observed -= RecordTrace;
         PreVoteTrace.TlsObserved -= RecordTls;
         TcpPartitionProxy.BridgeObserved -= RecordBridge;
@@ -52,6 +67,25 @@ internal sealed class FailoverDiagnostics : IDisposable
     }
 
     internal void Record(string message) => _events.Enqueue($"{Stopwatch.GetElapsedTime(_started).TotalMilliseconds:F0} ms {message}");
+
+    private void SampleThreadPool()
+    {
+        while (!_stopSampling.Wait(200, CancellationToken.None))
+        {
+            var queued = Stopwatch.GetTimestamp();
+            var pending = ThreadPool.PendingWorkItemCount;
+            var threads = ThreadPool.ThreadCount;
+            _ = ThreadPool.UnsafeQueueUserWorkItem(
+                static state =>
+                {
+                    var delay = Stopwatch.GetElapsedTime(state.Queued);
+                    if (delay >= TimeSpan.FromMilliseconds(50))
+                        state.Owner.Record($"thread pool sentinel delay={delay.TotalMilliseconds:F0} ms, pendingAtQueue={state.Pending}, workersAtQueue={state.Threads}");
+                },
+                (Owner: this, Queued: queued, Pending: pending, Threads: threads),
+                false);
+        }
+    }
 
     private void RecordTrace(object? sender, PreVoteTrace.StageEventArgs stage)
     {

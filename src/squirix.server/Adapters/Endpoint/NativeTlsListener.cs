@@ -116,7 +116,10 @@ internal sealed class NativeTlsListener
                 ports = (remote.Port, local.Port);
 
             PreVoteTrace.MarkTls(ports, "receive socket accepted");
-            var network = new NetworkStream(socket, false);
+            var endpoints = ports;
+            var network = endpoints == default
+                ? new NetworkStream(socket, false)
+                : new TlsProbeStream(socket, false, phase => PreVoteTrace.MarkTls(endpoints, $"receive TLS I/O {phase}"));
             await using var networkLifetime = network.ConfigureAwait(false);
             var tls = new SslStream(network, true);
             await using var tlsLifetime = tls.ConfigureAwait(false);
@@ -126,10 +129,16 @@ internal sealed class NativeTlsListener
                 handshake.CancelAfter(TimeSpan.FromSeconds(5));
                 PreVoteTrace.MarkTls(ports, "receive TLS options start");
                 var options = _tls(remote);
+                if (endpoints != default)
+                    PreVoteTrace.ObserveCertificates(tls, phase => PreVoteTrace.MarkTls(endpoints, phase));
+
                 PreVoteTrace.MarkTls(ports, "receive TLS handshake start");
                 await tls.AuthenticateAsServerAsync(options, handshake.Token).ConfigureAwait(false);
                 PreVoteTrace.MarkTls(ports, "receive TLS handshake complete");
             }
+
+            if (network is TlsProbeStream traced)
+                traced.StopTracing();
 
             await _serve(tls, remote, graceful, abort).ConfigureAwait(false);
         }

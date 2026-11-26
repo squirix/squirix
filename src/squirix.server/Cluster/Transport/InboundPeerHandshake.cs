@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -41,8 +42,21 @@ internal sealed class InboundPeerHandshake
         ServerCertificateContext = _serverCertificateContext,
         ClientCertificateRequired = true,
         ApplicationProtocols = [PeerFrames.Protocol],
-        RemoteCertificateValidationCallback = (_, certificate, _, _) => certificate != null && Verify(certificate, remoteEndpoint),
+        RemoteCertificateValidationCallback = (sender, certificate, _, _) => VerifyWithTrace(sender, certificate, remoteEndpoint),
     };
+
+    private bool VerifyWithTrace(object sender, X509Certificate? certificate, EndPoint? remoteEndpoint)
+    {
+        PreVoteTrace.MarkCertificate(sender, "receive verify certificate start");
+        try
+        {
+            return certificate != null && Verify(certificate, remoteEndpoint);
+        }
+        finally
+        {
+            PreVoteTrace.MarkCertificate(sender, "receive verify certificate end");
+        }
+    }
 
     private bool Verify(X509Certificate certificate, EndPoint? remoteEndpoint)
     {
