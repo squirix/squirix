@@ -394,17 +394,15 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
 
         ThrowIfRecentDialTimedOut();
 
-        // An election's cold budget covers DNS, TCP and TLS together. Other calls retain their shorter dial bound.
+        // Allow a cold election connection time for TLS while preserving the dial timeout.
         using var coldDeadline = StartTimeout(ElectionConnectTimeout, electionClock);
         using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, coldDeadline?.Token ?? default);
-        using var dial = electionClock == null ? CancellationTokenSource.CreateLinkedTokenSource(handshake.Token) : null;
-        if (dial != null)
-        {
+        if (coldDeadline == null)
             handshake.CancelAfter(TimeSpan.FromSeconds(5));
-            dial.CancelAfter(_dial);
-        }
 
-        var dialToken = dial?.Token ?? handshake.Token;
+        using var dial = CancellationTokenSource.CreateLinkedTokenSource(handshake.Token);
+        dial.CancelAfter(_dial);
+        var dialToken = dial.Token;
         Stream network;
         try
         {
