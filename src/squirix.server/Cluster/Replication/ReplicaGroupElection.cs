@@ -122,6 +122,9 @@ internal sealed class ReplicaGroupElection
     /// <summary>Gets the replica group identifier.</summary>
     internal string GroupId => _header.GroupId;
 
+    /// <summary>Initializes the diagnostic observer notified before a leader steps down for lost quorum contact.</summary>
+    internal Action<string, ulong, TimeSpan>? QuorumLost { private get; init; }
+
     /// <summary>Gets how long the caller waits before the next step unless the group state wakes it first.</summary>
     /// <returns>The heartbeat interval while leading, retiring, or not started; otherwise the time left until this node may campaign.</returns>
     internal TimeSpan NextDelay() =>
@@ -286,7 +289,12 @@ internal sealed class ReplicaGroupElection
     /// <remarks>The apply and append progress are read only by a leader with authority that no higher term or silent majority deposes.</remarks>
     private LeaderExit LeaderVerdict(ulong term)
     {
-        var deposed = _state.HighestObservedTerm > term || !_state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout);
+        var higherTerm = _state.HighestObservedTerm > term;
+        var lostQuorum = !higherTerm && !_state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout);
+        if (lostQuorum)
+            QuorumLost?.Invoke(GroupId, term, _state.Options.ElectionTimeout);
+
+        var deposed = higherTerm || lostQuorum;
 
         // The apply and append windows are judged only in the tick that observed the progress: a higher term seen meanwhile revokes the
         // authority, and the next tick then deposes the leader instead of timing it out.

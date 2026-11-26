@@ -54,8 +54,9 @@ public sealed class FiveNodeMinorityTests
     public async Task TwoNodeMinorityFailsClosed(CancellationToken cancellationToken)
     {
         const string testName = nameof(TwoNodeMinorityFailsClosed);
+        using var diagnostics = new FailoverDiagnostics(Group, static line => TestContext.Current?.Output.WriteLine(line));
         await using var fabric = new PartitionFabric();
-        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric, replicaCount: 5, timing: FailoverTiming.ForRefusal(testName)), true, cancellationToken);
+        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric, services: diagnostics.Register, replicaCount: 5, timing: FailoverTiming.ForRefusal(testName)), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.FiveNodes, FailoverSteps.Bound, cancellationToken);
         var others = FailoverSteps.Except(FailoverSteps.FiveNodes, former);
@@ -87,7 +88,7 @@ public sealed class FiveNodeMinorityTests
                 "the workload makes progress",
                 cancellationToken);
 
-            var split = await SplitAsync((fabric, probe, (former, formerTerm), minority, majority), (cutLeader, cutFollower, writer), (leaderWire, followerWire), singles, recovered, cancellationToken);
+            var split = await SplitAsync((fabric, probe, (former, formerTerm), minority, majority), (cutLeader, cutFollower, writer), (leaderWire, followerWire), singles, recovered, diagnostics, cancellationToken);
             await running;
             await safety;
 
@@ -175,6 +176,7 @@ public sealed class FiveNodeMinorityTests
     /// <param name="wires">The wire clients of the cut-off leader and follower, which read once without the SDK retries.</param>
     /// <param name="singles">The keys of the stale read, of the two refused writes and of the recovery probe.</param>
     /// <param name="recovered">Completed once the majority serves, so the workload ends after its tail.</param>
+    /// <param name="diagnostics">Records the installed split and the recovery RPC results.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>What the split recorded.</returns>
     private static async Task<Split> SplitAsync(
@@ -183,6 +185,7 @@ public sealed class FiveNodeMinorityTests
         (WireClient Leader, WireClient Follower) wires,
         (string Stale, string LostByLeader, string LostByFollower, string Probe) singles,
         TaskCompletionSource recovered,
+        FailoverDiagnostics diagnostics,
         CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
@@ -192,8 +195,9 @@ public sealed class FiveNodeMinorityTests
                 cuts.Add(scene.Fabric.PartitionAsync(inside, outside));
 
         await Task.WhenAll(cuts);
+        diagnostics.Record($"partition installed: minority={string.Join(',', scene.Minority)}, majority={string.Join(',', scene.Majority)}");
         var attempts = new List<EventualAttempt>();
-        var recovery = FailoverSteps.RecoverAsync(caches.Writer, singles.Probe, 1L, started, attempts, cancellationToken);
+        var recovery = FailoverSteps.RecoverAsync(caches.Writer, singles.Probe, 1L, started, attempts, cancellationToken, diagnostics);
 
         // The cut-off leader may still hold authority right after the cut, so it must refuse by itself: no quorum confirms its read or commits
         // its write. Every call starts before any is awaited, so the reads are issued while the leader can still believe it leads.

@@ -122,7 +122,10 @@ internal sealed class ReplicaElectionService : NodeWorkerBase
     {
         var members = new string[_locator.ReplicaCount];
         _locator.GetReplicaGroup(groupId, members);
-        return new ReplicaGroupElection(_registry.StateFor(groupId), log, _votes, _leadership, members, _header with { GroupId = groupId });
+        return new ReplicaGroupElection(_registry.StateFor(groupId), log, _votes, _leadership, members, _header with { GroupId = groupId })
+        {
+            QuorumLost = (group, term, window) => ReplicaElectionLog.ReplicaElectionQuorumLost(_log, group, term, window),
+        };
     }
 
     /// <summary>Steps the driver of one group until the host stops.</summary>
