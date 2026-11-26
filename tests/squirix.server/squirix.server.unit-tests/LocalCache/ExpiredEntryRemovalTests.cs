@@ -250,6 +250,26 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
         _ = await Assert.That(local.ExpiredKeys.RemoveExpired()).IsEqualTo(1);
     }
 
+    /// <summary>A replacement that acquires a TTL must not inherit the removed occupant's deferred schedule.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReusedSlotSchedulesItsOwnDeadline(CancellationToken cancellationToken)
+    {
+        var (cache, clock) = Create(CacheExpiryAuthority.LocalClock);
+        var oldKey = CacheKey.Default("old");
+        Set(cache, oldKey.Key, TimeSpan.FromSeconds(1), cancellationToken);
+        _ = await Assert.That(cache.Touch(oldKey, TimeSpan.FromHours(1), cancellationToken)).IsTrue();
+        _ = await Assert.That(cache.Remove(oldKey, cancellationToken)).IsTrue();
+
+        var replacement = CacheKey.Default("new");
+        cache.Set(replacement, new NodeCacheEntry<object?>("value"), cancellationToken);
+        _ = await Assert.That(cache.Touch(replacement, TimeSpan.FromSeconds(5), cancellationToken)).IsTrue();
+        clock.Advance(TimeSpan.FromSeconds(1));
+        _ = await Assert.That(cache.ExpiredKeys.RemoveExpired()).IsEqualTo(0);
+        clock.Advance(TimeSpan.FromSeconds(4));
+        _ = await Assert.That(cache.ExpiredKeys.RemoveExpired()).IsEqualTo(1);
+    }
+
     private static (PhysicalCache<object?> Cache, FakeTimeProvider Clock) Create(CacheExpiryAuthority expiry, CacheEntrySizeEstimator<object?>? estimator = null)
     {
         var clock = new FakeTimeProvider(Start);

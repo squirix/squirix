@@ -189,15 +189,16 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
-            var hadDeadline = node.ExpiresUtc != null;
-            if (hadDeadline)
+            var previous = node.ExpiresUtc;
+            if (previous != null)
             {
                 _footprint.ResizeForDeadline(key, in node, null);
                 node.WriteExpiresUtc(null);
+                _deadlines.MovedLocked(in node, previous);
             }
 
             BoundedNode.RecordAccess(in node);
-            return hadDeadline;
+            return previous != null;
         }
     }
 
@@ -493,9 +494,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <summary>Gets the deadline; read under the cache lock.</summary>
         internal readonly DateTime? ExpiresUtc => EntryDeadline.Decode(_expires);
 
-        /// <summary>Gets or sets the deadline, in UTC ticks, of the one canonical item the deadline index holds for this entry; <see cref="long.MaxValue" /> when it holds none.</summary>
-        internal long IndexedTicks { get; set; } = long.MaxValue;
-
         /// <summary>Gets or sets the generation of the canonical item: another item of this entry with the same deadline is stale unless it carries this generation.</summary>
         internal int IndexedGeneration { get; set; }
 
@@ -688,12 +686,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         {
             get => Entry.Bytes;
             set => Entry.Bytes = value;
-        }
-
-        internal long IndexedTicks
-        {
-            get => Entry.IndexedTicks;
-            set => Entry.IndexedTicks = value;
         }
 
         internal int IndexedGeneration
@@ -911,6 +903,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <param name="node">The matching stored node, if present.</param>
         /// <returns>Whether the key is stored.</returns>
         internal bool TryGetLocked(CacheKey key, out Node node) => TryGetLocked(key, key.GetHashCode(), out node);
+
+        internal long? DeferredDeadline(int slot) => _slots.DeferredDeadline(slot);
+
+        internal void SetDeferredDeadline(int slot, long? ticks) => _slots.SetDeferredDeadline(slot, ticks);
 
         internal Node ResolveSlotLocked(int slot, long identity)
         {
@@ -1145,6 +1141,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <summary>Owns stable slot numbers. Zero terminates a bucket chain; released slots are reused under the writer lock.</summary>
         private sealed class SlotMap
         {
+            private const int DeadlineBlockSize = 64;
             private SlotRecord[]?[] _pages = new SlotRecord[1][];
             private PageSpace[] _space = new PageSpace[1];
             private int _pageCount;
@@ -1153,6 +1150,31 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             private long _lastIdentity;
 
             internal Enumerator GetEnumerator() => new(_pages, _pageCount);
+
+            internal long? DeferredDeadline(int slot)
+            {
+                var offset = SlotOffset(slot);
+                var encoded = _space[(slot - 1) >> SlotPageBits].Deadlines?[offset / DeadlineBlockSize]?[offset % DeadlineBlockSize] ?? 0;
+                return encoded == 0 ? null : encoded - 1;
+            }
+
+            internal void SetDeferredDeadline(int slot, long? ticks)
+            {
+                var index = (slot - 1) >> SlotPageBits;
+                var offset = SlotOffset(slot);
+                ref var space = ref _space[index];
+                if (ticks is not { } deadline)
+                {
+                    space.ClearDeferredDeadline(offset);
+                    return;
+                }
+
+                var blocks = space.Deadlines ??= new long[index == 0 ? 1 : SlotsPerPage / DeadlineBlockSize][];
+                var block = blocks[offset / DeadlineBlockSize] ??= new long[index == 0 ? InitialBucketCount : DeadlineBlockSize];
+
+                // Zero means no saved deadline, including in a newly allocated block. UTC tick zero is valid.
+                block[offset % DeadlineBlockSize] = deadline + 1;
+            }
 
             internal SlotRecord[]? ReadPage(int slot) => Volatile.Read(ref Volatile.Read(ref _pages)[(slot - 1) >> SlotPageBits]);
 
@@ -1196,6 +1218,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             {
                 var index = (slot - 1) >> SlotPageBits;
                 ref var space = ref _space[index];
+                space.ClearDeferredDeadline(offset);
                 if (space.Used-- == page.Length)
                 {
                     space.Next = _available;
@@ -1214,6 +1237,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     return;
                 }
 
+                space.Deadlines = null;
                 Volatile.Write(ref _pages[index], null);
                 space.Created = 0;
                 space.Free = 0;
@@ -1241,6 +1265,13 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 internal int Free;
                 internal int Created;
                 internal int Used;
+                internal long[]?[]? Deadlines;
+
+                internal readonly void ClearDeferredDeadline(int offset)
+                {
+                    if (Deadlines?[offset / DeadlineBlockSize] is { } block)
+                        block[offset % DeadlineBlockSize] = 0;
+                }
             }
         }
     }
@@ -1317,8 +1348,13 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (previous == expiresUtc)
                 return;
 
-            if (expiresUtc is { } moved && moved.Ticks < node.IndexedTicks)
+            // Until a deadline diverges, the previous entry deadline is also the date in the heap.
+            var saved = _owner._store.DeferredDeadline(node.Slot);
+            var scheduled = saved ?? previous?.Ticks;
+            if (expiresUtc is { } moved && (scheduled == null || moved.Ticks < scheduled))
                 RecordLocked(in node);
+            else if (saved == null && scheduled != null)
+                _owner._store.SetDeferredDeadline(node.Slot, scheduled);
         }
 
         /// <summary>Records the deadline just set on an entry, rebuilding the heap once stale items outnumber the entries.</summary>
@@ -1362,15 +1398,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             {
                 var stored = nodes.Current;
                 stored.IndexedGeneration++;
+                _owner._store.SetDeferredDeadline(stored.Slot, null);
                 if (stored.ExpiresUtc is { } expires)
-                {
-                    stored.IndexedTicks = expires.Ticks;
                     yield return (new Deadline(stored.Identity, expires.Ticks, stored.Slot, stored.IndexedGeneration), expires.Ticks);
-                }
-                else
-                {
-                    stored.IndexedTicks = long.MaxValue;
-                }
             }
         }
 
@@ -1379,7 +1409,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <param name="ticks">The deadline of the item, in UTC ticks.</param>
         private void Index(in Node node, long ticks)
         {
-            node.IndexedTicks = ticks;
+            _owner._store.SetDeferredDeadline(node.Slot, null);
             node.IndexedGeneration++;
             _heap.Enqueue(new Deadline(node.Identity, ticks, node.Slot, node.IndexedGeneration), ticks);
         }
@@ -1399,7 +1429,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
             if (node.ExpiresUtc is not { } expires)
             {
-                node.IndexedTicks = long.MaxValue;
+                _owner._store.SetDeferredDeadline(node.Slot, null);
                 node.IndexedGeneration++;
                 return false;
             }
