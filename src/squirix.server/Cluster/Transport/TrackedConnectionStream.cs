@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -46,6 +47,7 @@ internal sealed class TrackedConnectionStream : NetworkStream
                 await socket.ConnectAsync(addresses, dns.Port, cancellationToken).ConfigureAwait(false);
             else
                 await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+            PreVoteTrace.MarkClientSocket(socket);
             var stream = new TrackedConnectionStream(socket, connections);
             created = true;
             return stream;

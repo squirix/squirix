@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit.Logging;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -11,6 +13,9 @@ internal sealed class FailoverDiagnostics : IDisposable
 {
     private readonly ConcurrentQueue<string> _events = new();
     private readonly ConcurrentDictionary<ActivityTraceId, string> _traces = new();
+    private readonly ConcurrentDictionary<(int Client, int Server), ActivityTraceId> _connections = new();
+    private readonly ConcurrentDictionary<(int Client, int Server), (int Client, int Server)> _bridges = new();
+    private readonly ConcurrentQueue<((int Client, int Server) Ports, double At, string Phase)> _tlsEvents = new();
     private readonly string _group;
     private readonly Action<string> _output;
     private readonly long _started = Stopwatch.GetTimestamp();
@@ -20,13 +25,24 @@ internal sealed class FailoverDiagnostics : IDisposable
         _group = group;
         _output = output;
         PreVoteTrace.Observed += RecordTrace;
+        PreVoteTrace.TlsObserved += RecordTls;
+        TcpPartitionProxy.BridgeObserved += RecordBridge;
     }
 
     public void Dispose()
     {
         PreVoteTrace.Observed -= RecordTrace;
+        PreVoteTrace.TlsObserved -= RecordTls;
+        TcpPartitionProxy.BridgeObserved -= RecordBridge;
         foreach (var entry in _events)
             _output($"[failover {_group}] {entry}");
+
+        foreach (var (ports, at, phase) in _tlsEvents)
+        {
+            var senderPorts = _bridges.GetValueOrDefault(ports, ports);
+            if (_connections.TryGetValue(senderPorts, out var traceId) && _traces.TryGetValue(traceId, out var peer))
+                _output($"[failover {_group}] {at:F0} ms pre-vote trace={traceId} {peer} {phase}");
+        }
     }
 
     internal void Register(string nodeId, TestServiceCollection services)
@@ -39,9 +55,20 @@ internal sealed class FailoverDiagnostics : IDisposable
 
     private void RecordTrace(object? sender, PreVoteTrace.StageEventArgs stage)
     {
-        if (_traces.TryGetValue(stage.TraceId, out var peer))
-            Record($"pre-vote trace={stage.TraceId} {peer} {stage.Phase}");
+        if (!_traces.TryGetValue(stage.TraceId, out var peer))
+            return;
+
+        if (stage.Ports != default)
+            _ = _connections.TryAdd(stage.Ports, stage.TraceId);
+
+        Record($"pre-vote trace={stage.TraceId} {peer} {stage.Phase}");
     }
+
+    private void RecordTls(object? sender, PreVoteTrace.TlsEventArgs stage) =>
+        _tlsEvents.Enqueue((stage.Ports, Stopwatch.GetElapsedTime(_started).TotalMilliseconds, stage.Phase));
+
+    private void RecordBridge(object? sender, TcpPartitionProxy.BridgeEventArgs bridge) =>
+        _ = _bridges.TryAdd(bridge.Upstream, bridge.Downstream);
 
     private Activity? StartPreVote(string groupId, string sender, string target, ulong term)
     {
