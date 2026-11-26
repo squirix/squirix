@@ -10,6 +10,7 @@ namespace Squirix.Server.TestKit.Hosting;
 internal sealed class FailoverDiagnostics : IDisposable
 {
     private readonly ConcurrentQueue<string> _events = new();
+    private readonly ConcurrentDictionary<ActivityTraceId, string> _traces = new();
     private readonly string _group;
     private readonly Action<string> _output;
     private readonly long _started = Stopwatch.GetTimestamp();
@@ -18,10 +19,12 @@ internal sealed class FailoverDiagnostics : IDisposable
     {
         _group = group;
         _output = output;
+        PreVoteTrace.Observed += RecordTrace;
     }
 
     public void Dispose()
     {
+        PreVoteTrace.Observed -= RecordTrace;
         foreach (var entry in _events)
             _output($"[failover {_group}] {entry}");
     }
@@ -29,10 +32,28 @@ internal sealed class FailoverDiagnostics : IDisposable
     internal void Register(string nodeId, TestServiceCollection services)
     {
         _ = services.RemoveAll<IServerLoggerFactory>().AddSingleton<IServerLoggerFactory>(new ElectionLogger(this, nodeId));
-        new ElectionRoundCounter { ObservePreVoteResult = PreVoteCompleted, Observe = ElectionRequest }.Register(services);
+        new ElectionRoundCounter { ObservePreVoteResult = PreVoteCompleted, Observe = ElectionRequest, TracePreVote = StartPreVote }.Register(services);
     }
 
     internal void Record(string message) => _events.Enqueue($"{Stopwatch.GetElapsedTime(_started).TotalMilliseconds:F0} ms {message}");
+
+    private void RecordTrace(object? sender, PreVoteTrace.StageEventArgs stage)
+    {
+        if (_traces.TryGetValue(stage.TraceId, out var peer))
+            Record($"pre-vote trace={stage.TraceId} {peer} {stage.Phase}");
+    }
+
+    private Activity? StartPreVote(string groupId, string sender, string target, ulong term)
+    {
+        if (!string.Equals(groupId, _group, StringComparison.Ordinal))
+            return null;
+
+        var trace = new Activity(PreVoteTrace.Operation);
+        _ = trace.SetParentId(ActivityTraceId.CreateRandom(), ActivitySpanId.CreateRandom(), ActivityTraceFlags.Recorded);
+        _ = trace.Start();
+        _ = _traces.TryAdd(trace.TraceId, $"{sender} -> {target} term={term}");
+        return trace;
+    }
 
     private void ElectionRequest(string groupId, string sender, string target, string kind, ulong term)
     {

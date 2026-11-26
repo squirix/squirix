@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 using Squirix.Transport.Binary;
@@ -233,22 +234,33 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         PeerSession? stream = null;
         try
         {
+            PreVoteTrace.Mark("send rent start");
             stream = await RentAsync(cancellationToken).ConfigureAwait(false);
+            PreVoteTrace.Mark("send rent complete");
             var budget = RemainingBudget();
             var frame = new PeerFrames.Request(size, budget ?? -1, operation, _fingerprint.Length, parentBytes, stateBytes, _fingerprintIsDigest, binaryParent);
             var metadata = new RequestMetadata(parent, state, context);
             cancellationToken.ThrowIfCancellationRequested();
             stream.RequestStarted = Stopwatch.GetTimestamp();
             sent = true;
+            PreVoteTrace.Mark("send frame write start");
             await WriteRequestAsync(stream, request, frame, metadata, cancellationToken).ConfigureAwait(false);
+            PreVoteTrace.Mark("send frame written; awaiting reply");
 
             var reply = await ReadReplyAsync(stream, parser, stream.ReplyHeader, cancellationToken).ConfigureAwait(false);
+            PreVoteTrace.Mark("send reply read");
             await ReturnAsync(stream).ConfigureAwait(false);
             stream = null;
             return reply;
         }
+        catch (OperationCanceledException)
+        {
+            PreVoteTrace.Mark("send canceled");
+            throw;
+        }
         catch (Exception error) when (error is IOException or SocketException or AuthenticationException)
         {
+            PreVoteTrace.Mark("send transport error");
             throw new ServerCallException(FrameStatus.Unavailable, "Peer request failed.", sent ? null : new HttpRequestException(HttpRequestError.ConnectionError, "Could not establish the peer connection.", error));
         }
         finally
@@ -334,7 +346,10 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     {
         var idle = TakeIdle();
         if (idle != null)
+        {
+            PreVoteTrace.Mark("send reused TLS session");
             return idle;
+        }
 
         ThrowIfRecentDialTimedOut();
 
@@ -347,7 +362,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         {
             var endpoint = _resolveEndpoint == null ? _addresses.Endpoint : await _resolveEndpoint(dial.Token).ConfigureAwait(false);
             var addresses = _resolveEndpoint == null ? await _addresses.ResolveAsync(dial.Token).ConfigureAwait(false) : null;
+            PreVoteTrace.Mark("send TCP connect start");
             network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dial.Token, addresses).ConfigureAwait(false);
+            PreVoteTrace.Mark("send TCP connected");
             _ = Interlocked.Exchange(ref _lastDialTimeout, 0);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -360,7 +377,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         PeerSession? connection = new(network);
         try
         {
+            PreVoteTrace.Mark("send TLS handshake start");
             await connection.AuthenticateAsClientAsync(_tls, handshake.Token).ConfigureAwait(false);
+            PreVoteTrace.Mark("send TLS handshake complete");
             if (connection.NegotiatedApplicationProtocol != PeerFrames.Protocol)
                 throw new AuthenticationException("The node did not negotiate the required Squirix peer protocol.");
             var owned = connection;
