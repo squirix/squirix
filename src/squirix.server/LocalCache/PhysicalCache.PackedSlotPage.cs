@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
@@ -13,40 +14,44 @@ internal sealed partial class PhysicalCache<T>
     {
         private const int SmallestPage = 256;
         private const int LargestRecord = 16384;
-        private byte[] _bytes = [];
+        private readonly string _namespace;
+        private Layout _layout;
+        private string?[]? _namespaces;
+        private Payload[]? _fallback;
+        private int _fallbackCount;
         private int _end;
         private int _live;
-        private string? _namespace;
+
+        private PackedSlotPage(int slots, int capacity, string primaryNamespace)
+        {
+            _namespace = primaryNamespace;
+            _layout = new Layout(slots, capacity);
+        }
 
         internal static bool Typed => typeof(T) == typeof(StoredValue);
 
         private static Encoding Utf8 => CompactPageValue.KeyEncoding;
 
-        internal static PackedSlotPage Seal(SlotRecord[] slots)
+        internal static PackedSlotPage Seal(SlotPage page, Payload[] plain)
         {
-            var writer = new PackedSlotPage();
             var needed = 0;
-            foreach (ref var slot in slots.AsSpan())
+            string? primaryNamespace = null;
+            for (var i = 0; i < plain.Length; i++)
             {
-                if (slot.Lifetime > 0)
-                    needed += RecordSize(slot.Entry.Key.Key, AsStored(slot.Entry.RawValue), out _);
+                if (page[i].Lifetime <= 0)
+                    continue;
+                primaryNamespace ??= plain[i].Key.Namespace;
+                needed += RecordSize(plain[i].Key.Key, AsStored(plain[i].Value), out _);
             }
 
-            writer._bytes = GC.AllocateUninitializedArray<byte>(Math.Max(SmallestPage, needed + (needed / 4)));
-            for (var i = 0; i < slots.Length; i++)
+            var packed = new PackedSlotPage(plain.Length, needed, primaryNamespace ?? string.Empty);
+            for (var i = 0; i < plain.Length; i++)
             {
-                ref var slot = ref slots[i];
-                if (slot.Lifetime <= 0)
-                    continue;
-                var key = slot.Entry.Key;
-                var raw = slot.Entry.RawValue;
-                if (RecordSize(key.Key, AsStored(raw), out _) == 0)
-                    continue;
-                raw = writer.Pack(slots, i, ref key, raw);
-                slot.Entry.WriteValue(key, raw);
+                if (page[i].Lifetime > 0)
+                    packed.Write(i, plain[i]);
             }
 
-            return writer;
+            return packed;
         }
 
         internal static StoredValue AsStored(T? value) => Unsafe.As<T?, StoredValue>(ref value);
@@ -76,47 +81,80 @@ internal sealed partial class PhysicalCache<T>
                 chars[..written].SequenceEqual(key);
         }
 
-        internal T? Pack(SlotRecord[] slots, int offset, ref CacheKey key, T? logical)
+        internal Payload Read(int slot)
         {
-            var original = AsStored(logical);
-            var size = RecordSize(key.Key, in original, out var keyLength);
+            // Buffer and range directory belong to the same generation across relocation.
+            var layout = Volatile.Read(ref _layout);
+            var range = Volatile.Read(ref layout.Ranges[slot]);
+            if (range == 0)
+                return Volatile.Read(ref _fallback)?[slot] ?? default;
+            var ns = Volatile.Read(ref _namespaces)?[slot] ?? _namespace;
+            var record = StoredValue.FromPage(StoredValueKind.Binary, layout.Bytes, Offset(range), Size(range), true);
+            return new Payload(new CacheKey(ns, string.Empty), AsGeneric(record));
+        }
+
+        internal void Write(int slot, Payload payload)
+        {
+            var original = AsStored(payload.Value);
+            var size = RecordSize(payload.Key.Key, in original, out var keyLength);
+            var oldSize = Size(_layout.Ranges[slot]);
             if (size == 0)
             {
-                Release(slots, offset);
-                return logical;
+                PrepareRemove(slot);
+                var fallback = _fallback;
+                if (fallback == null)
+                {
+                    fallback = new Payload[_layout.Ranges.Length];
+                    Volatile.Write(ref _fallback, fallback);
+                }
+
+                if (fallback[slot].Key.Key == null)
+                    _fallbackCount++;
+                fallback[slot] = payload;
+                Volatile.Write(ref _layout.Ranges[slot], 0);
+                _namespaces?[slot] = null;
+                _live -= oldSize;
+                return;
             }
 
-            var retained = _live - Occupied(slots, offset);
-            if (size > _bytes.Length - _end)
-                Rebuild(slots, offset, retained + size);
-            var record = _bytes.AsSpan(_end, size);
+            if (!string.Equals(_namespace, payload.Key.Namespace, StringComparison.Ordinal) && _namespaces == null)
+                Volatile.Write(ref _namespaces, new string?[_layout.Ranges.Length]);
+            if (size > _layout.Bytes.Length - _end)
+                Rebuild(_live + size);
+
+            var record = _layout.Bytes.AsSpan(_end, size);
             BinaryPrimitives.WriteUInt16LittleEndian(record, ushort.CreateChecked(keyLength));
-            _ = Utf8.GetBytes(key.Key, record[sizeof(ushort)..]);
+            _ = Utf8.GetBytes(payload.Key.Key, record[sizeof(ushort)..]);
             CompactPageValue.Write(record[(sizeof(ushort) + keyLength)..], in original);
-            var value = StoredValue.FromPage(StoredValueKind.Binary, _bytes, _end, size, true);
+            _namespaces?[slot] = string.Equals(payload.Key.Namespace, _namespace, StringComparison.Ordinal) ? null : payload.Key.Namespace;
+            Volatile.Write(ref _layout.Ranges[slot], Range(_end, size));
             _end += size;
-            _live = retained + size;
-            if (!string.Equals(_namespace, key.Namespace, StringComparison.Ordinal))
-                _namespace = key.Namespace;
-            key = new CacheKey(_namespace ?? key.Namespace, string.Empty);
-            return AsGeneric(value);
+            _live += size - oldSize;
+            ClearFallback(slot);
         }
 
-        internal void Release(SlotRecord[] slots, int offset)
+        internal void Remove(int slot)
         {
-            var retained = _live - Occupied(slots, offset);
-            if (retained == 0)
-            {
-                _bytes = [];
-                _end = 0;
-            }
-            else if (_bytes.Length > SmallestPage && retained < _bytes.Length / 4)
-            {
-                Rebuild(slots, offset, retained);
-            }
-
-            _live = retained;
+            _live -= Size(_layout.Ranges[slot]);
+            Volatile.Write(ref _layout.Ranges[slot], 0);
+            ClearFallback(slot);
+            _namespaces?[slot] = null;
         }
+
+        /// <summary>Reclaims sparse storage before unlinking so that removal itself needs no allocation.</summary>
+        /// <param name="slot">The occupant scheduled for removal.</param>
+        internal void PrepareRemove(int slot)
+        {
+            var remaining = _live - Size(_layout.Ranges[slot]);
+            if (_layout.Bytes.Length > SmallestPage && remaining < _layout.Bytes.Length / 4 && _live < _layout.Bytes.Length / 2)
+                Rebuild(_live);
+        }
+
+        private static long Range(int offset, int size) => (long.CreateChecked(offset) << 32) | uint.CreateChecked(size);
+
+        private static int Size(long range) => int.CreateTruncating(range);
+
+        private static int Offset(long range) => int.CreateChecked(range >> 32);
 
         private static T? AsGeneric(StoredValue value) => Unsafe.As<StoredValue, T?>(ref value);
 
@@ -150,33 +188,46 @@ internal sealed partial class PhysicalCache<T>
             }
         }
 
-        private static int Occupied(SlotRecord[] slots, int offset)
+        private void ClearFallback(int slot)
         {
-            if (slots[offset].Lifetime <= 0)
-                return 0;
-            var record = AsStored(slots[offset].Entry.RawValue);
-            return record.IsPageRecord ? record.Memory.Length : 0;
+            if (_fallback == null || _fallback[slot].Key.Key == null)
+                return;
+            _fallback[slot] = default;
+            if (--_fallbackCount == 0)
+                Volatile.Write(ref _fallback, null);
         }
 
-        private void Rebuild(SlotRecord[] slots, int except, int needed)
+        private void Rebuild(int capacity)
         {
-            var next = GC.AllocateUninitializedArray<byte>(Math.Max(SmallestPage, needed + (needed / 4)));
+            var old = _layout;
+            var next = new Layout(old.Ranges.Length, capacity);
             var end = 0;
-            for (var i = 0; i < slots.Length; i++)
+            for (var i = 0; i < old.Ranges.Length; i++)
             {
-                if (i == except || slots[i].Lifetime <= 0)
+                var range = old.Ranges[i];
+                if (range == 0)
                     continue;
-                var record = AsStored(slots[i].Entry.RawValue);
-                if (!record.IsPageRecord)
-                    continue;
-                var data = record.Memory;
-                data.Span.CopyTo(next.AsSpan(end));
-                slots[i].Entry.Relocate(AsGeneric(StoredValue.FromPage(StoredValueKind.Binary, next, end, data.Length, true)));
-                end += data.Length;
+                var size = Size(range);
+                old.Bytes.AsSpan(Offset(range), size).CopyTo(next.Bytes.AsSpan(end));
+                next.Ranges[i] = Range(end, size);
+                end += size;
             }
 
-            _bytes = next;
             _end = end;
+            Volatile.Write(ref _layout, next);
+        }
+
+        private sealed class Layout
+        {
+            internal Layout(int slots, int capacity)
+            {
+                Ranges = new long[slots];
+                Bytes = GC.AllocateUninitializedArray<byte>(Math.Max(SmallestPage, capacity + (capacity / 4)));
+            }
+
+            internal long[] Ranges { get; }
+
+            internal byte[] Bytes { get; }
         }
     }
 }
