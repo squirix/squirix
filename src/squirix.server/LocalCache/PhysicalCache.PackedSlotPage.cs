@@ -22,35 +22,39 @@ internal sealed partial class PhysicalCache<T>
         private int _end;
         private int _live;
 
-        private PackedSlotPage(int slots, int capacity, string primaryNamespace)
+        private PackedSlotPage(Layout layout, string primaryNamespace)
         {
             _namespace = primaryNamespace;
-            _layout = new Layout(slots, capacity);
+            _layout = layout;
         }
 
         internal static bool Typed => typeof(T) == typeof(StoredValue);
 
         private static Encoding Utf8 => CompactPageValue.KeyEncoding;
 
-        internal static PackedSlotPage Seal(SlotPage page, Payload[] plain)
+        internal static PackedSlotPage Seal(Payload[] plain, int offset, Payload incoming)
         {
-            var needed = 0;
-            string? primaryNamespace = null;
+            Span<int> sizes = stackalloc int[plain.Length];
+            Span<int> keyLengths = stackalloc int[plain.Length];
             for (var i = 0; i < plain.Length; i++)
             {
-                if (page[i].Lifetime <= 0)
-                    continue;
-                primaryNamespace ??= plain[i].Key.Namespace;
-                needed += RecordSize(plain[i].Key.Key, AsStored(plain[i].Value), out _);
+                var payload = i == offset ? incoming : plain[i];
+                sizes[i] = RecordSize(payload.Key.Key, AsStored(payload.Value), out keyLengths[i]);
             }
 
-            var packed = new PackedSlotPage(plain.Length, needed, primaryNamespace ?? string.Empty);
+            var layout = new Layout(sizes);
+            var packed = new PackedSlotPage(layout, offset == 0 ? incoming.Key.Namespace : plain[0].Key.Namespace);
             for (var i = 0; i < plain.Length; i++)
             {
-                if (page[i].Lifetime > 0)
-                    packed.Write(i, plain[i]);
+                var payload = i == offset ? incoming : plain[i];
+                if (sizes[i] == 0)
+                    packed.StoreFallback(i, payload);
+                else
+                    packed.Encode(i, payload, keyLengths[i], layout.Bytes.AsSpan(packed._end, sizes[i]));
+                packed._end += sizes[i];
             }
 
+            packed._live = packed._end;
             return packed;
         }
 
@@ -85,7 +89,7 @@ internal sealed partial class PhysicalCache<T>
         {
             // Buffer and range directory belong to the same generation across relocation.
             var layout = Volatile.Read(ref _layout);
-            var range = Volatile.Read(ref layout.Ranges[slot]);
+            var range = layout.Read(slot);
             if (range == 0)
                 return Volatile.Read(ref _fallback)?[slot] ?? default;
             var ns = Volatile.Read(ref _namespaces)?[slot] ?? _namespace;
@@ -97,37 +101,23 @@ internal sealed partial class PhysicalCache<T>
         {
             var original = AsStored(payload.Value);
             var size = RecordSize(payload.Key.Key, in original, out var keyLength);
-            var oldSize = Size(_layout.Ranges[slot]);
+            var oldSize = Size(_layout.Read(slot));
             if (size == 0)
             {
                 PrepareRemove(slot);
-                var fallback = _fallback;
-                if (fallback == null)
-                {
-                    fallback = new Payload[_layout.Ranges.Length];
-                    Volatile.Write(ref _fallback, fallback);
-                }
-
-                if (fallback[slot].Key.Key == null)
-                    _fallbackCount++;
-                fallback[slot] = payload;
-                Volatile.Write(ref _layout.Ranges[slot], 0);
+                StoreFallback(slot, payload);
+                _layout.Set(slot, 0);
                 _namespaces?[slot] = null;
                 _live -= oldSize;
                 return;
             }
 
-            if (!string.Equals(_namespace, payload.Key.Namespace, StringComparison.Ordinal) && _namespaces == null)
-                Volatile.Write(ref _namespaces, new string?[_layout.Ranges.Length]);
             if (size > _layout.Bytes.Length - _end)
                 Rebuild(_live + size);
 
-            var record = _layout.Bytes.AsSpan(_end, size);
-            BinaryPrimitives.WriteUInt16LittleEndian(record, ushort.CreateChecked(keyLength));
-            _ = Utf8.GetBytes(payload.Key.Key, record[sizeof(ushort)..]);
-            CompactPageValue.Write(record[(sizeof(ushort) + keyLength)..], in original);
-            _namespaces?[slot] = string.Equals(payload.Key.Namespace, _namespace, StringComparison.Ordinal) ? null : payload.Key.Namespace;
-            Volatile.Write(ref _layout.Ranges[slot], Range(_end, size));
+            _layout.PrepareWrite(size);
+            Encode(slot, payload, keyLength, _layout.Bytes.AsSpan(_end, size));
+            _layout.Set(slot, Range(_end, size));
             _end += size;
             _live += size - oldSize;
             ClearFallback(slot);
@@ -135,8 +125,8 @@ internal sealed partial class PhysicalCache<T>
 
         internal void Remove(int slot)
         {
-            _live -= Size(_layout.Ranges[slot]);
-            Volatile.Write(ref _layout.Ranges[slot], 0);
+            _live -= Size(_layout.Read(slot));
+            _layout.Set(slot, 0);
             ClearFallback(slot);
             _namespaces?[slot] = null;
         }
@@ -145,9 +135,10 @@ internal sealed partial class PhysicalCache<T>
         /// <param name="slot">The occupant scheduled for removal.</param>
         internal void PrepareRemove(int slot)
         {
-            var remaining = _live - Size(_layout.Ranges[slot]);
+            var remaining = _live - Size(_layout.Read(slot));
             if (_layout.Bytes.Length > SmallestPage && remaining < _layout.Bytes.Length / 4 && _live < _layout.Bytes.Length / 2)
                 Rebuild(_live);
+            _layout.PrepareWrite(0);
         }
 
         private static long Range(int offset, int size) => (long.CreateChecked(offset) << 32) | uint.CreateChecked(size);
@@ -188,6 +179,33 @@ internal sealed partial class PhysicalCache<T>
             }
         }
 
+        private void Encode(int slot, Payload payload, int keyLength, Span<byte> record)
+        {
+            var primary = string.Equals(_namespace, payload.Key.Namespace, StringComparison.Ordinal);
+            if (!primary && _namespaces == null)
+                Volatile.Write(ref _namespaces, new string?[_layout.Slots]);
+
+            BinaryPrimitives.WriteUInt16LittleEndian(record, ushort.CreateChecked(keyLength));
+            _ = Utf8.GetBytes(payload.Key.Key, record[sizeof(ushort)..]);
+            var value = AsStored(payload.Value);
+            CompactPageValue.Write(record[(sizeof(ushort) + keyLength)..], in value);
+            _namespaces?[slot] = primary ? null : payload.Key.Namespace;
+        }
+
+        private void StoreFallback(int slot, Payload payload)
+        {
+            var fallback = _fallback;
+            if (fallback == null)
+            {
+                fallback = new Payload[_layout.Slots];
+                Volatile.Write(ref _fallback, fallback);
+            }
+
+            if (fallback[slot].Key.Key == null)
+                _fallbackCount++;
+            fallback[slot] = payload;
+        }
+
         private void ClearFallback(int slot)
         {
             if (_fallback == null || _fallback[slot].Key.Key == null)
@@ -200,16 +218,16 @@ internal sealed partial class PhysicalCache<T>
         private void Rebuild(int capacity)
         {
             var old = _layout;
-            var next = new Layout(old.Ranges.Length, capacity);
+            var next = new Layout(old.Slots, capacity, old.FixedSize);
             var end = 0;
-            for (var i = 0; i < old.Ranges.Length; i++)
+            for (var i = 0; i < old.Slots; i++)
             {
-                var range = old.Ranges[i];
+                var range = old.Read(i);
                 if (range == 0)
                     continue;
                 var size = Size(range);
                 old.Bytes.AsSpan(Offset(range), size).CopyTo(next.Bytes.AsSpan(end));
-                next.Ranges[i] = Range(end, size);
+                next.Set(i, Range(end, size));
                 end += size;
             }
 
@@ -217,17 +235,102 @@ internal sealed partial class PhysicalCache<T>
             Volatile.Write(ref _layout, next);
         }
 
+        /// <summary>Sealed pages derive immutable ranges from record lengths. On mutation, equal-length records need only a position;
+        /// arbitrary replacements use atomic offset/length pairs. Readers may retain slices from any published buffer.</summary>
         private sealed class Layout
         {
-            internal Layout(int slots, int capacity)
+            private readonly int _stride;
+            private readonly int[]? _ends;
+            private ushort[]? _positions;
+            private long[]? _ranges;
+
+            internal Layout(ReadOnlySpan<int> sizes)
             {
-                Ranges = new long[slots];
+                Slots = sizes.Length;
+                _stride = sizes[0];
+                var capacity = Slots * _stride;
+                if (sizes.ContainsAnyExcept(_stride))
+                {
+                    _ends = new int[Slots];
+                    capacity = 0;
+                    for (var i = 0; i < Slots; i++)
+                    {
+                        capacity += sizes[i];
+                        _ends[i] = capacity;
+                    }
+                }
+
+                Bytes = GC.AllocateUninitializedArray<byte>(capacity);
+            }
+
+            internal Layout(int slots, int capacity, int stride)
+            {
+                Slots = slots;
+                _stride = stride;
+                if (stride > 0)
+                    _positions = new ushort[slots];
+                else
+                    _ranges = new long[slots];
                 Bytes = GC.AllocateUninitializedArray<byte>(Math.Max(SmallestPage, capacity + (capacity / 4)));
             }
 
-            internal long[] Ranges { get; }
+            internal int Slots { get; }
 
             internal byte[] Bytes { get; }
+
+            internal int FixedSize => _ends == null && _ranges == null ? _stride : 0;
+
+            internal long Read(int slot)
+            {
+                if (Volatile.Read(ref _ranges) is { } ranges)
+                    return Volatile.Read(ref ranges[slot]);
+                if (Volatile.Read(ref _positions) is not { } positions)
+                    return InitialRange(slot);
+
+                var position = Volatile.Read(ref positions[slot]);
+                return position == 0 ? 0 : Range((position - 1) * _stride, _stride);
+            }
+
+            internal void Set(int slot, long range)
+            {
+                if (_ranges is { } ranges)
+                    Volatile.Write(ref ranges[slot], range);
+                else
+                    Volatile.Write(ref _positions![slot], ushort.CreateChecked(range == 0 ? 0 : (Offset(range) / _stride) + 1));
+            }
+
+            internal void PrepareWrite(int size)
+            {
+                if (_ranges != null)
+                    return;
+
+                if (FixedSize > 0 && (size == 0 || size == _stride))
+                {
+                    if (_positions != null)
+                        return;
+
+                    var positions = new ushort[Slots];
+                    for (var i = 0; i < positions.Length; i++)
+                        positions[i] = ushort.CreateChecked(i + 1);
+                    Volatile.Write(ref _positions, positions);
+                    return;
+                }
+
+                var ranges = new long[Slots];
+                for (var i = 0; i < ranges.Length; i++)
+                    ranges[i] = Read(i);
+                Volatile.Write(ref _ranges, ranges);
+            }
+
+            private long InitialRange(int slot)
+            {
+                if (_ends == null)
+                    return Range(slot * _stride, _stride);
+
+                var start = slot == 0 ? 0 : _ends[slot - 1];
+                var length = _ends[slot] - start;
+                return length == 0 ? 0 : Range(start, length);
+            }
         }
     }
 }

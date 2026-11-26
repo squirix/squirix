@@ -18,9 +18,87 @@ internal sealed partial class PhysicalCache<T>
             : Key.Equals(key);
     }
 
+    /// <summary>First occupants use the page's reserved identity range. A recycled page records every subsequent occupant explicitly.</summary>
+    private struct PageLifetimes
+    {
+        private readonly long _identityBase;
+        private volatile long[]? _identities;
+        private volatile int _published;
+
+        internal PageLifetimes(long identityBase)
+        {
+            _identityBase = identityBase;
+        }
+
+        internal readonly long Read(int offset)
+        {
+            var identities = _identities;
+            return identities != null ? Volatile.Read(ref identities[offset]) : InitialIdentity(offset);
+        }
+
+        internal readonly long Next(int offset, ref long lastIdentity) =>
+            _identities == null ? _identityBase + offset + 1 : checked(++lastIdentity);
+
+        internal void Publish(int offset, long identity)
+        {
+            if (_identities is { } identities)
+                Volatile.Write(ref identities[offset], identity);
+            else
+                _published = offset + 1;
+        }
+
+        internal void PrepareReuse(int length)
+        {
+            if (_identities != null)
+                return;
+
+            var identities = new long[length];
+            for (var i = 0; i < _published; i++)
+                identities[i] = _identityBase + i + 1;
+            _identities = identities;
+        }
+
+        internal readonly void Retire(int offset) => Interlocked.Exchange(ref _identities![offset], 0);
+
+        private readonly long InitialIdentity(int offset) => offset < _published ? _identityBase + offset + 1 : 0;
+    }
+
+    private struct PageCharges
+    {
+        private long[]? _charges;
+        private long _commonCharge;
+        private bool _hasCharge;
+
+        internal readonly long Get(int offset) => _charges is { } charges ? charges[offset] : _commonCharge;
+
+        internal void Set(int offset, long bytes, int length)
+        {
+            if (!_hasCharge)
+            {
+                _commonCharge = bytes;
+                _hasCharge = true;
+            }
+
+            if (_charges == null)
+            {
+                if (bytes == _commonCharge)
+                    return;
+
+                _charges = new long[length];
+                Array.Fill(_charges, _commonCharge);
+            }
+
+            _charges[offset] = bytes;
+        }
+    }
+
     /// <summary>Stable page shared by readers. Each optional column is allocated by the writer on its first use.</summary>
     private sealed class SlotPage
     {
+        private readonly int[] _hashes;
+        private Cell _entry;
+        private PageCharges _charges;
+        private PageLifetimes _lifetimes;
         private Payload[]? _plain;
         private PackedSlotPage? _packed;
         private long[]? _versions;
@@ -29,19 +107,22 @@ internal sealed partial class PhysicalCache<T>
         private BoundedNode?[]? _policies;
         private FrozenDictionary<string, string>?[]? _tags;
 
-        internal SlotPage(int length)
+        internal SlotPage(int length, long identityBase)
         {
-            Records = new SlotRecord[length];
+            _lifetimes = new PageLifetimes(identityBase);
+            _hashes = new int[length];
             _plain = new Payload[length];
         }
 
-        internal PageCharges Charges { get; } = new();
+        internal ref PageCharges Charges => ref _charges;
 
-        internal SlotRecord[] Records { get; }
+        internal ref PageLifetimes Lifetimes => ref _lifetimes;
 
-        internal int Length => Records.Length;
+        internal ref Cell Entry => ref _entry;
 
-        internal ref SlotRecord this[int offset] => ref Records[offset];
+        internal int Length => _hashes.Length;
+
+        internal ref int this[int offset] => ref _hashes[offset];
 
         internal Payload ReadPayload(int offset)
         {
@@ -51,15 +132,29 @@ internal sealed partial class PhysicalCache<T>
             return Volatile.Read(ref _packed) is { } packed ? packed.Read(offset) : plain![offset];
         }
 
-        internal void StorePayload(int offset, Payload payload)
+        internal void StorePayload(int offset, Payload payload, bool full = false)
         {
             if (_packed is { } packed)
+            {
                 packed.Write(offset, payload);
+            }
+            else if (full && PackedSlotPage.Typed)
+            {
+                var sealedPage = PackedSlotPage.Seal(_plain!, offset, payload);
+                Volatile.Write(ref _packed, sealedPage);
+                Volatile.Write(ref _plain, null);
+            }
             else
+            {
                 _plain![offset] = payload;
+            }
         }
 
-        internal void PrepareRemove(int offset) => _packed?.PrepareRemove(offset);
+        internal void PrepareRemove(int offset)
+        {
+            Lifetimes.PrepareReuse(Length);
+            _packed?.PrepareRemove(offset);
+        }
 
         internal void RemovePayload(int offset)
         {
@@ -67,15 +162,6 @@ internal sealed partial class PhysicalCache<T>
                 packed.Remove(offset);
             else
                 _plain![offset] = default;
-        }
-
-        internal void Seal()
-        {
-            if (!PackedSlotPage.Typed || _packed != null)
-                return;
-            var packed = PackedSlotPage.Seal(this, _plain!);
-            Volatile.Write(ref _packed, packed);
-            Volatile.Write(ref _plain, null);
         }
 
         internal long Version(int offset)
@@ -155,35 +241,6 @@ internal sealed partial class PhysicalCache<T>
             if (needed && column == null)
                 Volatile.Write(ref column, new TField[Length]);
             return column;
-        }
-    }
-
-    private sealed class PageCharges
-    {
-        private long[]? _charges;
-        private long _commonCharge;
-        private bool _hasCharge;
-
-        internal long Get(int offset) => _charges is { } charges ? charges[offset] : _commonCharge;
-
-        internal void Set(int offset, long bytes, int length)
-        {
-            if (!_hasCharge)
-            {
-                _commonCharge = bytes;
-                _hasCharge = true;
-            }
-
-            if (_charges == null)
-            {
-                if (bytes == _commonCharge)
-                    return;
-
-                _charges = new long[length];
-                Array.Fill(_charges, _commonCharge);
-            }
-
-            _charges[offset] = bytes;
         }
     }
 }

@@ -81,4 +81,52 @@ public sealed class PackedPhysicalCacheTests
         _ = await Assert.That(held.Memory.Span[0]).IsEqualTo(second);
         _ = await Assert.That(fallback.Memory.Span[0]).IsEqualTo(marker);
     }
+
+    /// <summary>Same-length rewrites preserve every previously returned slice, including after switching from fixed to variable record lengths.</summary>
+    /// <param name="mixed">Whether the page contains variable length records and a fallback value.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RewritesPreserveSealedPageSlices(bool mixed, CancellationToken cancellationToken)
+    {
+        const int count = 272;
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        var keys = new CacheKey[count];
+        var originals = new StoredValue[count];
+        var saved = new StoredValue[count];
+        for (var i = 0; i < count; i++)
+        {
+            keys[i] = CacheKey.Default(i.ToString("X4", CultureInfo.InvariantCulture));
+            var size = mixed ? 1 + (i % 7) : 4;
+            var bytes = new byte[mixed && i == 32 ? 20_000 : size];
+            Array.Fill(bytes, byte.CreateTruncating(i));
+            originals[i] = StoredValue.FromBinary(bytes);
+            cache.Set(keys[i], new NodeCacheEntry<StoredValue>(originals[i]), cancellationToken);
+        }
+
+        for (var i = 0; i < count; i++)
+            saved[i] = cache.GetValue(keys[i], cancellationToken).Value;
+
+        for (var i = count - 1; i >= 0; i--)
+        {
+            var bytes = new byte[originals[i].Memory.Length];
+            Array.Fill(bytes, byte.CreateTruncating(i + 1));
+            _ = await Assert.That(cache.Update(keys[i], StoredValue.FromBinary(bytes), cancellationToken)).IsTrue();
+        }
+
+        // Force a change of representation after the rewrites and recheck all other values.
+        cache.Set(keys[^1], new NodeCacheEntry<StoredValue>(StoredValue.FromText("different length")), cancellationToken);
+        for (var i = 0; i < count; i++)
+        {
+            _ = await Assert.That(saved[i].Memory.Span.SequenceEqual(originals[i].Memory.Span)).IsTrue();
+            if (i == count - 1)
+                continue;
+            var current = cache.GetValue(keys[i], cancellationToken).Value;
+            _ = await Assert.That(current.Memory.Length).IsEqualTo(originals[i].Memory.Length);
+            _ = await Assert.That(current.Memory.Span.ContainsAnyExcept(byte.CreateTruncating(i + 1))).IsFalse();
+        }
+
+        _ = await Assert.That(cache.GetValue(keys[^1], cancellationToken).Value.Memory.Span.SequenceEqual("different length"u8)).IsTrue();
+    }
 }
