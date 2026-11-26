@@ -24,6 +24,7 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
     private readonly ConcurrentDictionary<(int Client, int Server), ActivityTraceId> _connections = new();
     private readonly ConcurrentDictionary<(int Client, int Server), (int Client, int Server)> _bridges = new();
     private readonly ConcurrentQueue<((int Client, int Server) Ports, double At, string Phase)> _tlsEvents = new();
+    private readonly ConcurrentQueue<((int Client, int Server) Ports, double At, ProxyDirection Direction, int Size, bool Forwarded)> _proxyEvents = new();
     private readonly string _group;
     private readonly Action<string> _output;
     private readonly string _testName;
@@ -46,6 +47,7 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         PreVoteTrace.Observed += RecordTrace;
         PreVoteTrace.TlsObserved += RecordTls;
         TcpPartitionProxy.BridgeObserved += RecordBridge;
+        TcpPartitionProxy.BytesObserved += RecordProxyBytes;
     }
 
     public async ValueTask DisposeAsync()
@@ -56,6 +58,7 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         PreVoteTrace.Observed -= RecordTrace;
         PreVoteTrace.TlsObserved -= RecordTls;
         TcpPartitionProxy.BridgeObserved -= RecordBridge;
+        TcpPartitionProxy.BytesObserved -= RecordProxyBytes;
         var directory = Environment.GetEnvironmentVariable("SQUIRIX_FAILOVER_TRACE_DIR");
         if (string.IsNullOrEmpty(directory))
         {
@@ -87,12 +90,21 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         foreach (var entry in _events)
             output($"[failover {_group}] {entry}");
 
+        foreach (var (ports, at, direction, size, forwarded) in _proxyEvents)
+            output($"[failover {_group}] {at:F0} ms proxy socket={ports.Client}:{ports.Server} direction={direction} phase={(forwarded ? "forwarded" : "read")} bytes={size}");
+
         foreach (var (ports, at, phase) in _tlsEvents)
         {
             var senderPorts = _bridges.GetValueOrDefault(ports, ports);
             if (_connections.TryGetValue(senderPorts, out var traceId) && _traces.TryGetValue(traceId, out var peer))
                 output($"[failover {_group}] {at:F0} ms peer trace={traceId} {peer} {phase}");
         }
+    }
+
+    private void RecordProxyBytes(object? sender, TcpPartitionProxy.BytesEventArgs stage)
+    {
+        if (_connections.ContainsKey(stage.Ports))
+            _proxyEvents.Enqueue((stage.Ports, Stopwatch.GetElapsedTime(_started).TotalMilliseconds, stage.Direction, stage.Size, stage.Forwarded));
     }
 
     private void SampleThreadPool()
@@ -122,7 +134,8 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         if (stage.Ports != default)
             _ = _connections.TryAdd(stage.Ports, stage.TraceId);
 
-        Record($"peer trace={stage.TraceId} {peer} {stage.Phase}");
+        var socket = stage.Ports == default ? string.Empty : $" socket={stage.Ports.Client}:{stage.Ports.Server}";
+        Record($"peer trace={stage.TraceId} {peer} {stage.Phase}{socket}");
     }
 
     private void RecordTls(object? sender, PreVoteTrace.TlsEventArgs stage) =>

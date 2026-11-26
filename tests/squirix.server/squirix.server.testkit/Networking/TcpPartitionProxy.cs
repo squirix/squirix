@@ -66,6 +66,8 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
 
     internal static event EventHandler<BridgeEventArgs>? BridgeObserved;
 
+    internal static event EventHandler<BytesEventArgs>? BytesObserved;
+
     /// <summary>Gets the number of connections bridged to <see cref="Upstream" /> since start, including closed ones.</summary>
     public long AcceptedConnections => _counters.Accepted;
 
@@ -355,10 +357,12 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
                     return;
                 }
 
+                BytesObserved?.Invoke(null, new BytesEventArgs(connection.Ports, direction, read, false));
                 if (!await gate.WaitOpenAsync(connection).ConfigureAwait(false))
                     return;
 
                 await SocketOps.SendAllAsync(destination, buffer.AsMemory(0, read)).ConfigureAwait(false);
+                BytesObserved?.Invoke(null, new BytesEventArgs(connection.Ports, direction, read, true));
                 _counters.AddForwarded(direction, read);
                 _changed.Pulse();
             }
@@ -387,6 +391,22 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
             _ = _connections.Remove(connection);
 
         _changed.Pulse();
+    }
+
+    internal sealed class BytesEventArgs : EventArgs
+    {
+        internal BytesEventArgs((int Client, int Server) ports, ProxyDirection direction, int size, bool forwarded)
+        {
+            Ports = ports;
+            Direction = direction;
+            Size = size;
+            Forwarded = forwarded;
+        }
+
+        internal (int Client, int Server) Ports { get; }
+        internal ProxyDirection Direction { get; }
+        internal int Size { get; }
+        internal bool Forwarded { get; }
     }
 
     internal sealed class BridgeEventArgs : EventArgs
@@ -610,7 +630,11 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
         {
             _client = client;
             _upstream = upstream;
+            if (BytesObserved != null && client.RemoteEndPoint is IPEndPoint sender && client.LocalEndPoint is IPEndPoint proxy)
+                Ports = (sender.Port, proxy.Port);
         }
+
+        internal (int Client, int Server) Ports { get; }
 
         /// <summary>Gets a task that completes once the connection is aborted; pumps parked on a held gate race it against the gate.</summary>
         internal Task Aborted => _aborted.Task;

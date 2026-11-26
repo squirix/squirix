@@ -24,6 +24,7 @@ public sealed class PartitionFabric : IAsyncDisposable
     private readonly Lock _gate = new();
     private readonly HashSet<TaskCompletionSource> _hungDials = [];
     private readonly Dictionary<ProxyKey, TcpPartitionProxy> _proxies = [];
+    private HashSet<string>? _directMembers;
     private int _disposed;
 
     /// <summary>Gets the proxy carrying the connections <paramref name="from" /> dials towards <paramref name="to" />.</summary>
@@ -186,12 +187,35 @@ public sealed class PartitionFabric : IAsyncDisposable
         this[to, from].Release(ProxyDirection.UpstreamToClient);
     }
 
+    internal Task BypassWithinAsync(string[] members)
+    {
+        var direct = new HashSet<string>(members, StringComparer.Ordinal);
+        var retire = new List<Task>();
+        lock (_gate)
+        {
+            _directMembers = direct;
+            foreach (var (link, proxy) in _proxies)
+            {
+                if (direct.Contains(link.From) && direct.Contains(link.To))
+                    retire.Add(proxy.PartitionAsync());
+            }
+        }
+
+        return Task.WhenAll(retire);
+    }
+
     internal async ValueTask<EndPoint> ResolveEndpointAsync(string from, string to, CancellationToken cancellationToken)
     {
         if (IsBlackHoled(to))
             await WaitForDialFailureAsync(cancellationToken).ConfigureAwait(false);
 
-        return this[from, to].ListenEndPoint;
+        lock (_gate)
+        {
+            var proxy = this[from, to];
+            return _directMembers is { } direct && direct.Contains(from) && direct.Contains(to)
+                ? proxy.Upstream
+                : proxy.ListenEndPoint;
+        }
     }
 
     private static InvalidOperationException UpstreamMismatch(ProxyKey key, TcpPartitionProxy existing, IPEndPoint requested) =>

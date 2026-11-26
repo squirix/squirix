@@ -9,23 +9,25 @@ permissions:
 
 jobs:
     e2e-cluster:
-        name: macOS ARM64 failover (${{ matrix.attempt }})
+        name: macOS ARM64 ${{ matrix.route }} (${{ matrix.attempt }})
         runs-on: macos-latest
         timeout-minutes: 25
         strategy:
             fail-fast: false
             matrix:
-                attempt: [1, 2, 3, 4, 5, 6]
+                route: [proxy, direct]
+                attempt: [1, 2, 3, 4]
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
             - name: Run CI cluster suites
               env:
+                  SQUIRIX_FAILOVER_ROUTE: ${{ matrix.route }}
                   SQUIRIX_FAILOVER_TRACE_DIR: ${{ runner.temp }}/squirix-failover-traces
               uses: ./.github/actions/run-test-suite
               with:
-                  os: macos-latest-${{ matrix.attempt }}
+                  os: macos-latest-${{ matrix.route }}-${{ matrix.attempt }}
                   suite: e2e-cluster
                   framework: net10.0
                   build: "true"
@@ -33,5 +35,5 @@ jobs:
               if: always()
               uses: actions/upload-artifact@v7
               with:
-                  name: failover-traces-macos-${{ matrix.attempt }}
+                  name: failover-traces-macos-${{ matrix.route }}-${{ matrix.attempt }}
                   path: ${{ runner.temp }}/squirix-failover-traces

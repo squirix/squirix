@@ -62,6 +62,11 @@ public sealed class FiveNodeMinorityTests
         var others = FailoverSteps.Except(FailoverSteps.FiveNodes, former);
         string[] minority = [former, others[0]];
         var majority = FailoverSteps.Except(others, others[0]);
+        var direct = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_FAILOVER_ROUTE"), "direct", StringComparison.Ordinal);
+        if (direct)
+            await fabric.BypassWithinAsync(majority);
+
+        diagnostics.Record($"routing majority={(direct ? "direct" : "proxy")}; members={string.Join(',', majority)}");
         var cutLeader = await cluster.GetCacheAsync<long>(CacheName, former, cancellationToken);
         var cutFollower = await cluster.GetCacheAsync<long>(CacheName, minority[1], cancellationToken);
         var writer = await cluster.GetCacheAsync<long>(CacheName, majority[0], cancellationToken);

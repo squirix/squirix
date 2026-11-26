@@ -273,7 +273,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         {
             PreVoteTrace.Mark(traceId, "send rent start");
             stream = await RentAsync(replyBudget?.Clock, traceId, cancellationToken).ConfigureAwait(false);
-            PreVoteTrace.Mark(traceId, "send rent complete");
+            PreVoteTrace.Mark(traceId, "send rent complete", traceId == default ? default : stream.Ports);
             using var replyTimeout = StartTimeout(replyBudget?.Timeout ?? default, replyBudget?.Clock);
             using var exchange = replyTimeout == null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, replyTimeout.Token);
             var token = exchange?.Token ?? cancellationToken;
@@ -544,6 +544,11 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
                 }
             }
         }
+
+        internal (int Client, int Server) Ports =>
+            InnerStream is NetworkStream network && network.Socket.LocalEndPoint is IPEndPoint client && network.Socket.RemoteEndPoint is IPEndPoint server
+                ? (client.Port, server.Port)
+                : default;
 
         internal Memory<byte> ReplyHeader { get; } = new byte[PeerFrames.ReplyBytes];
 

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Exceptions;
 using TUnit.Assertions.Extensions;
@@ -39,7 +40,10 @@ public sealed class FiveNodeLeaderStopTests
     {
         const string testName = nameof(RfFiveSurvivesTwoLeaderStops);
         await using var diagnostics = new FailoverDiagnostics(Group, testName, static line => TestContext.Current?.Output.WriteLine(line));
-        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, services: diagnostics.Register, replicaCount: 5), true, cancellationToken);
+        var proxied = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_FAILOVER_ROUTE"), "proxy", StringComparison.Ordinal);
+        await using var fabric = proxied ? new PartitionFabric() : null;
+        diagnostics.Record($"routing cluster={(proxied ? "proxy" : "direct")}");
+        await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric, services: diagnostics.Register, replicaCount: 5), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (first, firstTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.FiveNodes, FailoverSteps.Bound, cancellationToken);
         var timeline = FailoverTimeline<ClusterStartOptions>.Start(cluster.Cluster, Group);
