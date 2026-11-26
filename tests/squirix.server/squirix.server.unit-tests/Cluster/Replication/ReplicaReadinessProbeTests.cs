@@ -63,6 +63,30 @@ public sealed class ReplicaReadinessProbeTests
         _ = await Assert.That(state.HasQuorumContact(0, options.ElectionTimeout)).IsTrue();
     }
 
+    /// <summary>An incomplete follower can renew contact only for a probe whose term is at least the follower's term.</summary>
+    /// <param name="replyTerm">The durable term returned by the follower.</param>
+    /// <param name="expectedContact">Whether the probe should renew contact.</param>
+    [Test]
+    [Arguments(1UL, true)]
+    [Arguments(2UL, false)]
+    public async Task IncompleteProbeHonorsReplyTerm(ulong replyTerm, bool expectedContact)
+    {
+        var time = new FakeTimeProvider();
+        var options = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), JitterSeed = 5UL };
+        var state = new ReplicaGroupState(3, options, time);
+        state.SetElectionDriven(true);
+        _ = state.BecomeLeader(1UL);
+        time.Advance(options.ElectionTimeout);
+        var followers = new ScriptedFollowers();
+        followers.Answer("n2", new FollowerLogAppendResult(false, RefusalCodes.Incomplete, replyTerm, 0));
+
+        var results = await ProbeAsync(followers, [false, true, false], 1, CancellationToken.None);
+        ReplicaReadinessProbe.RecordContacts(state, results, 1UL);
+
+        _ = await Assert.That((results[1].Kind, state.HasQuorumContact(0, options.ElectionTimeout)))
+                        .IsEqualTo((ReplicaProbeKind.Incomplete, expectedContact));
+    }
+
     /// <summary>The probes still pending are given up and canceled once enough followers answered from their logs.</summary>
     /// <returns>An asynchronous operation.</returns>
     [Test]

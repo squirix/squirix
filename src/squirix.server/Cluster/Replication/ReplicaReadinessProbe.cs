@@ -36,7 +36,9 @@ internal static class ReplicaReadinessProbe
 
         for (var i = 0; i < results.Length; i++)
         {
-            if (results[i].Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch or ReplicaProbeKind.Incomplete)
+            var result = results[i];
+            if (result.Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch ||
+                (result.Kind == ReplicaProbeKind.Incomplete && result.ReplyTerm <= term))
                 _ = election.RecordFollowerContact(i, term, term);
         }
     }
@@ -274,7 +276,7 @@ internal static class ReplicaReadinessProbe
         {
             (true, _) => new ReplicaProbeResult(ReplicaProbeKind.Accepted, response.LastLogIndex),
             (false, RefusalCodes.LogMismatch) => new ReplicaProbeResult(ReplicaProbeKind.LogMismatch, response.LastLogIndex),
-            (false, RefusalCodes.Incomplete) => new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0),
+            (false, RefusalCodes.Incomplete) => new ReplicaProbeResult(ReplicaProbeKind.Incomplete, 0, response.CurrentTerm),
             (false, RefusalCodes.Unseeded) => new ReplicaProbeResult(ReplicaProbeKind.Unseeded, 0),
             _ => new ReplicaProbeResult(ReplicaProbeKind.Refused, 0),
         };
