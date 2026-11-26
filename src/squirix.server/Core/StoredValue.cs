@@ -7,7 +7,7 @@ namespace Squirix.Server.Core;
 
 /// <summary>The value of one server entry. Scalars live inline and variable-length payloads own their bytes.</summary>
 [StructLayout(LayoutKind.Auto)]
-internal readonly struct StoredValue
+internal readonly record struct StoredValue
 {
     /// <summary>Identifies an inline integer whose full 64 bits are available for data.</summary>
     private static readonly byte[] IntegerMarker = new byte[1];
