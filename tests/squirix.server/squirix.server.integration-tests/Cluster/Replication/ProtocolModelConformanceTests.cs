@@ -248,7 +248,7 @@ public sealed class ProtocolModelConformanceTests
     /// a silent drift between the verified model and production is a conformance failure.
     /// </remarks>
     [Test]
-    public async Task ProtocolVersionMatchesModelManifest() => _ = await Assert.That(ExploreRunner.ModelVersionHash).IsEqualTo("28f95126e146e442");
+    public async Task ProtocolVersionMatchesModelManifest() => _ = await Assert.That(ExploreRunner.ModelVersionHash).IsEqualTo("fa7052de3dc8d330");
 
     /// <summary>Commits the leader-term entry of a won term at the first index, as a promotion does.</summary>
     /// <param name="coordinator">The commit coordinator.</param>

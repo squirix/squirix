@@ -20,6 +20,9 @@ internal static class ExploreRunner
 
     internal static string ModelVersionHash { get; } = ComputeModelVersionHash();
 
+    internal static (QuorumContactState Healthy, QuorumContactState Broken, int SeenStates) ExploreQuorumContact() =>
+        QuorumContactSearch.FindDroppedContact();
+
     internal static bool AcceptsCommitTrace(IReadOnlyList<ModelCommitTracePoint> trace)
     {
         ArgumentNullException.ThrowIfNull(trace);
@@ -111,7 +114,8 @@ internal static class ExploreRunner
                                 "-leader-completeness-all-leaders-commit-decision-history" + "-leader-contact-transfer-hint-serving-eligibility-retirement-keeps-its-vote" +
                                 "-hint-names-every-tied-successor-hint-reception-guards-emission-policy" +
                                 "-election-history-survives-retirement-retirement-closes-admission-until-restart" + "-hint-attributed-to-the-leader-the-receiver-knows" +
-                                "-hint-emission-history-per-term" + "-established-violation-marks-its-state-apart-from-clean-ones";
+                                "-hint-emission-history-per-term" + "-established-violation-marks-its-state-apart-from-clean-ones" +
+                                "-bounded-quorum-probe-contact";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
