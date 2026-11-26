@@ -9,21 +9,26 @@ permissions:
 
 jobs:
     e2e-cluster:
-        name: macOS ARM64 matched runner (${{ matrix.replica }})
+        name: macOS ARM64 quorum fix control (${{ matrix.replica }})
         runs-on: macos-latest
-        timeout-minutes: 25
+        timeout-minutes: 20
         strategy:
             fail-fast: false
             matrix:
                 replica: [1, 2, 3, 4, 5, 6, 7, 8]
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: 067e9799ebc6edb6b15394961f4aae35a6a4935f
+                  path: quorum-baseline
+                  persist-credentials: false
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
             - name: Ensure Dev HTTPS Certificate
               working-directory: ${{ runner.temp }}
               run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
-            - name: Build the E2E test host
+            - name: Build the fix test host
               uses: ./.github/actions/build-release
               with:
                   artifact-os: macos-latest
@@ -32,84 +37,49 @@ jobs:
                   upload-outputs: "false"
                   net10-runtime: "true"
                   projects: tests/squirix.e2e.tests/Squirix.E2ETests.csproj
-            - name: Compare all four conditions on this runner
+            - name: Build the baseline test host
+              working-directory: quorum-baseline
+              run: |
+                  mkdir -p artifacts/packages
+                  dotnet build tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
+                      --configuration Release --framework net10.0 -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+            - name: Compare baseline and fix on the same runner
               shell: bash
               env:
                   REPLICA: ${{ matrix.replica }}
               run: |
                   set -euo pipefail
-
-                  # A balanced Williams design gives each condition every position and balances carryover.
-                  case $(( (REPLICA - 1) % 4 )) in
-                      0) order=(direct-idle proxy-idle proxy-loaded direct-loaded) ;;
-                      1) order=(proxy-idle direct-loaded direct-idle proxy-loaded) ;;
-                      2) order=(direct-loaded proxy-loaded proxy-idle direct-idle) ;;
-                      3) order=(proxy-loaded direct-idle direct-loaded proxy-idle) ;;
-                  esac
-
-                  root="$RUNNER_TEMP/squirix-matched-failover"
+                  root="$RUNNER_TEMP/squirix-quorum-fix"
                   mkdir -p "$root"
-                  cores="$(sysctl -n hw.logicalcpu)"
-                  workers="$(( (cores + 1) / 2 ))"
-                  printf 'replica=%s\norder=%s\nlogical_cores=%s\nload_workers=%s\n' \
-                      "$REPLICA" "${order[*]}" "$cores" "$workers" > "$root/runner.txt"
-                  sw_vers >> "$root/runner.txt"
-                  dotnet --info >> "$root/runner.txt"
-
                   host=tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests.dll
                   filter='/*/*/(FiveNodeMinorityTests|FiveNodeLeaderStopTests)/(TwoNodeMinorityFailsClosed|RfFiveSurvivesTwoLeaderStops)'
+                  order=(baseline fixed)
+                  if ((REPLICA % 2 == 0)); then order=(fixed baseline); fi
+                  printf 'replica=%s\norder=%s\nlogical_cores=%s\n' "$REPLICA" "${order[*]}" "$(sysctl -n hw.logicalcpu)" > "$root/runner.txt"
                   failures=0
-
-                  run_condition() (
-                      local condition="$1" output="$root/$1" status=0
-                      local -a workers_pids=()
-                      local pid_list=""
-                      cleanup() {
-                          if test -n "$pid_list"; then
-                              kill "${workers_pids[@]}" 2>/dev/null || true
-                              wait "${workers_pids[@]}" 2>/dev/null || true
-                          fi
-                      }
-                      trap cleanup EXIT
-                      trap 'exit 130' INT
-                      trap 'exit 143' TERM
-                      mkdir -p "$output" || return 1
-                      if [[ "$condition" == *-loaded ]]; then
-                          for ((i = 0; i < workers; i++)); do
-                              /usr/bin/yes > /dev/null &
-                              workers_pids+=("$!")
-                          done
-                          pid_list="$(IFS=,; echo "${workers_pids[*]}")"
-                      fi
-                      sleep 2
-                      if test -n "$pid_list"; then
-                          ps -p "$pid_list" -o pid,%cpu,time > "$output/cpu-start.txt" || return 1
-                      fi
-                      export SQUIRIX_FAILOVER_ROUTE="${condition%-*}"
+                  for variant in "${order[@]}"; do
+                      echo "::group::$variant"
+                      output="$root/$variant"
+                      mkdir -p "$output"
+                      workdir="$GITHUB_WORKSPACE"
+                      if [[ "$variant" == baseline ]]; then workdir="$workdir/quorum-baseline"; fi
                       export SQUIRIX_FAILOVER_TRACE_DIR="$output"
-                      printf '%s %s\n' "$condition" "$(date -u +%FT%TZ)" | tee "$output/condition.txt"
-                      dotnet "$host" --treenode-filter "$filter" --detailed-stacktrace \
-                          --report-trx --report-trx-filename failover.trx --results-directory "$output" \
-                          --timeout 8m 2>&1 | tee "$output/test-output.log" || status=$?
-                      if test -n "$pid_list"; then
-                          ps -p "$pid_list" -o pid,%cpu,time > "$output/cpu-end.txt" || return 1
-                      fi
+                      status=0
+                      (
+                          cd "$workdir" || exit 1
+                          dotnet "$host" --treenode-filter "$filter" --detailed-stacktrace \
+                              --report-trx --report-trx-filename failover.trx --results-directory "$output" --timeout 8m
+                      ) 2>&1 | tee "$output/test-output.log" || status=$?
                       printf '%s\n' "$status" > "$output/exit-code.txt"
-                      test -s "$output/failover.trx" && return "$status"
-                      return 1
-                  )
-
-                  for condition in "${order[@]}"; do
-                      echo "::group::$condition"
-                      if ! run_condition "$condition"; then
+                      if [[ "$status" != 0 ]] || ! test -s "$output/failover.trx"; then
                           failures=$((failures + 1))
                       fi
                       echo "::endgroup::"
                   done
                   test "$failures" -eq 0
-            - name: Archive matched TRX and traces
+            - name: Archive TRX and full traces
               if: always()
               uses: actions/upload-artifact@v7
               with:
-                  name: failover-matched-macos-${{ matrix.replica }}
-                  path: ${{ runner.temp }}/squirix-matched-failover
+                  name: quorum-fix-macos-${{ matrix.replica }}
+                  path: ${{ runner.temp }}/squirix-quorum-fix
