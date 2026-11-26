@@ -9,31 +9,107 @@ permissions:
 
 jobs:
     e2e-cluster:
-        name: macOS ARM64 ${{ matrix.route }} (${{ matrix.attempt }})
+        name: macOS ARM64 matched runner (${{ matrix.replica }})
         runs-on: macos-latest
         timeout-minutes: 25
         strategy:
             fail-fast: false
             matrix:
-                route: [proxy, direct]
-                attempt: [1, 2, 3, 4]
+                replica: [1, 2, 3, 4, 5, 6, 7, 8]
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
-            - name: Run CI cluster suites
-              env:
-                  SQUIRIX_FAILOVER_ROUTE: ${{ matrix.route }}
-                  SQUIRIX_FAILOVER_TRACE_DIR: ${{ runner.temp }}/squirix-failover-traces
-              uses: ./.github/actions/run-test-suite
+            - name: Ensure Dev HTTPS Certificate
+              working-directory: ${{ runner.temp }}
+              run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
+            - name: Build the E2E test host
+              uses: ./.github/actions/build-release
               with:
-                  os: macos-latest-${{ matrix.route }}-${{ matrix.attempt }}
-                  suite: e2e-cluster
+                  artifact-os: macos-latest
                   framework: net10.0
-                  build: "true"
-            - name: Archive full failover traces
+                  analyzers: "false"
+                  upload-outputs: "false"
+                  net10-runtime: "true"
+                  projects: tests/squirix.e2e.tests/Squirix.E2ETests.csproj
+            - name: Compare all four conditions on this runner
+              shell: bash
+              env:
+                  REPLICA: ${{ matrix.replica }}
+              run: |
+                  set -euo pipefail
+
+                  # A balanced Williams design gives each condition every position and balances carryover.
+                  case $(( (REPLICA - 1) % 4 )) in
+                      0) order=(direct-idle proxy-idle proxy-loaded direct-loaded) ;;
+                      1) order=(proxy-idle direct-loaded direct-idle proxy-loaded) ;;
+                      2) order=(direct-loaded proxy-loaded proxy-idle direct-idle) ;;
+                      3) order=(proxy-loaded direct-idle direct-loaded proxy-idle) ;;
+                  esac
+
+                  root="$RUNNER_TEMP/squirix-matched-failover"
+                  mkdir -p "$root"
+                  cores="$(sysctl -n hw.logicalcpu)"
+                  workers="$(( (cores + 1) / 2 ))"
+                  printf 'replica=%s\norder=%s\nlogical_cores=%s\nload_workers=%s\n' \
+                      "$REPLICA" "${order[*]}" "$cores" "$workers" > "$root/runner.txt"
+                  sw_vers >> "$root/runner.txt"
+                  dotnet --info >> "$root/runner.txt"
+
+                  host=tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests.dll
+                  filter='/*/*/(FiveNodeMinorityTests|FiveNodeLeaderStopTests)/(TwoNodeMinorityFailsClosed|RfFiveSurvivesTwoLeaderStops)'
+                  failures=0
+
+                  run_condition() (
+                      local condition="$1" output="$root/$1" status=0
+                      local -a workers_pids=()
+                      local pid_list=""
+                      cleanup() {
+                          if test -n "$pid_list"; then
+                              kill "${workers_pids[@]}" 2>/dev/null || true
+                              wait "${workers_pids[@]}" 2>/dev/null || true
+                          fi
+                      }
+                      trap cleanup EXIT
+                      trap 'exit 130' INT
+                      trap 'exit 143' TERM
+                      mkdir -p "$output" || return 1
+                      if [[ "$condition" == *-loaded ]]; then
+                          for ((i = 0; i < workers; i++)); do
+                              /usr/bin/yes > /dev/null &
+                              workers_pids+=("$!")
+                          done
+                          pid_list="$(IFS=,; echo "${workers_pids[*]}")"
+                      fi
+                      sleep 2
+                      if test -n "$pid_list"; then
+                          ps -p "$pid_list" -o pid,%cpu,time > "$output/cpu-start.txt" || return 1
+                      fi
+                      export SQUIRIX_FAILOVER_ROUTE="${condition%-*}"
+                      export SQUIRIX_FAILOVER_TRACE_DIR="$output"
+                      printf '%s %s\n' "$condition" "$(date -u +%FT%TZ)" | tee "$output/condition.txt"
+                      dotnet "$host" --treenode-filter "$filter" --detailed-stacktrace \
+                          --report-trx --report-trx-filename failover.trx --results-directory "$output" \
+                          --timeout 8m 2>&1 | tee "$output/test-output.log" || status=$?
+                      if test -n "$pid_list"; then
+                          ps -p "$pid_list" -o pid,%cpu,time > "$output/cpu-end.txt" || return 1
+                      fi
+                      printf '%s\n' "$status" > "$output/exit-code.txt"
+                      test -s "$output/failover.trx" && return "$status"
+                      return 1
+                  )
+
+                  for condition in "${order[@]}"; do
+                      echo "::group::$condition"
+                      if ! run_condition "$condition"; then
+                          failures=$((failures + 1))
+                      fi
+                      echo "::endgroup::"
+                  done
+                  test "$failures" -eq 0
+            - name: Archive matched TRX and traces
               if: always()
               uses: actions/upload-artifact@v7
               with:
-                  name: failover-traces-macos-${{ matrix.route }}-${{ matrix.attempt }}
-                  path: ${{ runner.temp }}/squirix-failover-traces
+                  name: failover-matched-macos-${{ matrix.replica }}
+                  path: ${{ runner.temp }}/squirix-matched-failover
