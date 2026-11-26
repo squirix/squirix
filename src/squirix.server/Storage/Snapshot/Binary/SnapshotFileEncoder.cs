@@ -76,9 +76,13 @@ internal static class SnapshotFileEncoder
         RandomAccess.SetLength(destination, totalFileSize);
 
         long offset = 0;
+
+        // The file checksum covers the version byte followed by the encoded records, in file order.
         var crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
         WriteFileHeader(destination, ref offset);
 
+        // The buffer fits the largest measured record. A record always starts and ends in the same batch.
+        // Offset points to the first pending byte on disk, so it advances only after a successful write.
         var pending = 0;
         for (var i = 0; i < items.Count; i++)
         {
@@ -96,6 +100,7 @@ internal static class SnapshotFileEncoder
             pending += recordLength;
         }
 
+        // The measurements follow the on-disk order: idempotency records start after all cache entries.
         for (var i = 0; i < idempotencyRecords.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
