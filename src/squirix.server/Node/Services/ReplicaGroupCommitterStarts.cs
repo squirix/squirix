@@ -98,9 +98,8 @@ internal static class ReplicaGroupCommitterStarts
             ReplicaReadinessProbe.MarkLeaderReady(eligibility, leaderIndex, in status, committer.Topology.Fingerprint, committer.Topology.Generation);
             var answersNeeded = tenure is { Authorized: false } ? eligibility.AnswersForMajority(leaderIndex) : int.MaxValue;
             var results = eligibility.CanCountInWriteQuorum(leaderIndex)
-                ? await ReplicaReadinessProbe.ProbeAllAsync(committer.Gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members, header, status, new ReplicaProbeBudget(ReplicaVerificationProbe.ProbeTimeout, answersNeeded), cancellationToken).ConfigureAwait(false)
+                ? await ReplicaReadinessProbe.ProbeAllAsync(committer.Gateway, (ReplicaReadinessProbe.NonReadyFollowers(eligibility, leaderIndex), members), header, status, new ReplicaProbeBudget(ReplicaVerificationProbe.ProbeTimeout, answersNeeded), committer.Election, cancellationToken).ConfigureAwait(false)
                 : [];
-            ReplicaReadinessProbe.RecordContacts(committer.Election, results, term);
 
             // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
             var lagging = new ReplicaLaggingFollowers(committer.GroupId, eligibility, committer.Probe.Repairs, committer.Log);

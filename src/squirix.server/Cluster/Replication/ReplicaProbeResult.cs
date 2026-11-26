@@ -6,10 +6,9 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Outcome of one leader-side Log Matching probe against a follower.</summary>
 /// <param name="Kind">Probe verdict.</param>
 /// <param name="LastLogIndex">Follower last log index reported with the verdict; zero when none was reported.</param>
-/// <param name="ReplyTerm">Follower term returned with an incomplete verdict.</param>
 [Immutable]
 [StructLayout(LayoutKind.Auto)]
-internal readonly record struct ReplicaProbeResult(ReplicaProbeKind Kind, ulong LastLogIndex, ulong ReplyTerm = 0)
+internal readonly record struct ReplicaProbeResult(ReplicaProbeKind Kind, ulong LastLogIndex)
 {
     /// <summary>Gets a value indicating whether the follower answered the probe from its copy, which makes it a member that is reachable and a catch-up target.</summary>
     internal bool Answered => Kind is ReplicaProbeKind.Accepted or ReplicaProbeKind.LogMismatch or ReplicaProbeKind.Incomplete or ReplicaProbeKind.Unseeded;

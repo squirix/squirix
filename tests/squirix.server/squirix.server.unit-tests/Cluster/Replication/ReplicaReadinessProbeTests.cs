@@ -40,53 +40,6 @@ public sealed class ReplicaReadinessProbeTests
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
     }
 
-    /// <summary>
-    /// A follower that answered a start probe from its log counts as in contact with the elected leader; an unreachable or refusing one
-    /// does not.
-    /// </summary>
-    /// <returns>An asynchronous operation.</returns>
-    [Test]
-    public async Task ProbeAnswersCountAsContact()
-    {
-        var time = new FakeTimeProvider();
-        var options = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), JitterSeed = 5UL };
-        var state = new ReplicaGroupState(5, options, time);
-        state.SetElectionDriven(true);
-        _ = state.BecomeLeader(2UL);
-        time.Advance(options.ElectionTimeout);
-
-        ReplicaReadinessProbe.RecordContacts(state, [default, new ReplicaProbeResult(ReplicaProbeKind.Refused, 0), new ReplicaProbeResult(ReplicaProbeKind.Unreachable, 0), default, default], 2UL);
-        var silent = state.HasQuorumContact(0, options.ElectionTimeout);
-        ReplicaReadinessProbe.RecordContacts(state, [default, new ReplicaProbeResult(ReplicaProbeKind.Accepted, 3), new ReplicaProbeResult(ReplicaProbeKind.LogMismatch, 1), default, default], 2UL);
-
-        _ = await Assert.That(silent).IsFalse();
-        _ = await Assert.That(state.HasQuorumContact(0, options.ElectionTimeout)).IsTrue();
-    }
-
-    /// <summary>An incomplete follower can renew contact only for a probe whose term is at least the follower's term.</summary>
-    /// <param name="replyTerm">The durable term returned by the follower.</param>
-    /// <param name="expectedContact">Whether the probe should renew contact.</param>
-    [Test]
-    [Arguments(1UL, true)]
-    [Arguments(2UL, false)]
-    public async Task IncompleteProbeHonorsReplyTerm(ulong replyTerm, bool expectedContact)
-    {
-        var time = new FakeTimeProvider();
-        var options = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), JitterSeed = 5UL };
-        var state = new ReplicaGroupState(3, options, time);
-        state.SetElectionDriven(true);
-        _ = state.BecomeLeader(1UL);
-        time.Advance(options.ElectionTimeout);
-        var followers = new ScriptedFollowers();
-        followers.Answer("n2", new FollowerLogAppendResult(false, RefusalCodes.Incomplete, replyTerm, 0));
-
-        var results = await ProbeAsync(followers, [false, true, false], 1, CancellationToken.None);
-        ReplicaReadinessProbe.RecordContacts(state, results, 1UL);
-
-        _ = await Assert.That((results[1].Kind, state.HasQuorumContact(0, options.ElectionTimeout)))
-                        .IsEqualTo((ReplicaProbeKind.Incomplete, expectedContact));
-    }
-
     /// <summary>The probes still pending are given up and canceled once enough followers answered from their logs.</summary>
     /// <returns>An asynchronous operation.</returns>
     [Test]
@@ -278,8 +231,7 @@ public sealed class ReplicaReadinessProbeTests
         _ = followers.Hang("n4");
         _ = followers.Hang("n5");
 
-        var results = await ProbeAsync(followers, [false, true, true, true, true], 1, CancellationToken.None);
-        ReplicaReadinessProbe.RecordContacts(state, results, 2UL);
+        _ = await ProbeAsync(followers, [false, true, true, true, true], 1, CancellationToken.None, state, 2UL);
         var givenUp = state.HasQuorumContact(0, options.ElectionTimeout);
         _ = state.RecordFollowerContact(2, 2UL);
 
@@ -335,6 +287,21 @@ public sealed class ReplicaReadinessProbeTests
         _ = await Assert.That((eligibility.CanCountInWriteQuorum(1), eligibility.CanCountInWriteQuorum(2))).IsEqualTo((false, true));
     }
 
+    internal static Task<ReplicaProbeResult[]> ProbeAsync(ScriptedFollowers followers, bool[] candidates, int answersNeeded, CancellationToken cancellationToken, ReplicaGroupState? election = null, ulong term = 1UL)
+    {
+        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
+        var header = new ReplicaRpcHeader(GroupId, Fingerprint, 1, term, "n1", "n1");
+        var members = new string[candidates.Length];
+        for (var i = 0; i < members.Length; i++)
+            members[i] = string.Create(CultureInfo.InvariantCulture, $"n{i + 1}");
+
+        var budget = new ReplicaProbeBudget(NeverTimeout, answersNeeded);
+        var probing = ReplicaReadinessProbe.ProbeAllAsync(followers.Gateway, (candidates, members), header, leader, budget, election, cancellationToken);
+
+        // A regression that waits for a silent follower must fail the test instead of hanging it.
+        return probing.WaitAsync(HangGuard, TimeProvider.System, CancellationToken.None);
+    }
+
     private static ReplicaEligibility ReadyLeader(int replicaCount)
     {
         var eligibility = new ReplicaEligibility(replicaCount);
@@ -343,23 +310,8 @@ public sealed class ReplicaReadinessProbeTests
         return eligibility;
     }
 
-    private static Task<ReplicaProbeResult[]> ProbeAsync(ScriptedFollowers followers, bool[] candidates, int answersNeeded, CancellationToken cancellationToken)
-    {
-        var leader = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
-        var header = new ReplicaRpcHeader(GroupId, Fingerprint, 1, 1, "n1", "n1");
-        var members = new string[candidates.Length];
-        for (var i = 0; i < members.Length; i++)
-            members[i] = string.Create(CultureInfo.InvariantCulture, $"n{i + 1}");
-
-        var budget = new ReplicaProbeBudget(NeverTimeout, answersNeeded);
-        var probing = ReplicaReadinessProbe.ProbeAllAsync(followers.Gateway, candidates, members, header, leader, budget, cancellationToken);
-
-        // A regression that waits for a silent follower must fail the test instead of hanging it.
-        return probing.WaitAsync(HangGuard, TimeProvider.System, CancellationToken.None);
-    }
-
     /// <summary>Answers each follower probe as scripted: at once, with a transport fault, or never until completed or canceled.</summary>
-    private sealed class ScriptedFollowers
+    internal sealed class ScriptedFollowers
     {
         private readonly FollowerLogAppendResult?[] _answers = new FollowerLogAppendResult?[8];
         private readonly bool[] _faulty = new bool[8];

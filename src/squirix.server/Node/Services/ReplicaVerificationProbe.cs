@@ -100,7 +100,7 @@ internal sealed class ReplicaVerificationProbe
         // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
         // an older tail, so the slots that answered are probed again against the current one.
         if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ProbeFollowersAsync(snapshot.Answered, snapshot.Members, snapshot.Header, current, int.MaxValue, cancellationToken).ConfigureAwait(false);
+            probed = await ProbeFollowersAsync(snapshot.Answered, snapshot.Members, snapshot.Header, in current, int.MaxValue, cancellationToken).ConfigureAwait(false);
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
@@ -171,7 +171,7 @@ internal sealed class ReplicaVerificationProbe
 
         var (members, header) = BuildMembership(term);
         var answersNeeded = untilMajority ? eligibility.AnswersForMajority(LeaderReplicaIndex) : int.MaxValue;
-        var probed = await ProbeFollowersAsync(ReplicaReadinessProbe.NonReadyFollowers(eligibility, LeaderReplicaIndex), members, header, status, answersNeeded, cancellationToken)
+        var probed = await ProbeFollowersAsync(ReplicaReadinessProbe.NonReadyFollowers(eligibility, LeaderReplicaIndex), members, in header, in status, answersNeeded, cancellationToken)
                                                .ConfigureAwait(false);
         var answered = new bool[probed.Length];
         var anyAnswered = false;
@@ -224,21 +224,21 @@ internal sealed class ReplicaVerificationProbe
     private static bool BlocksVerification(in FollowerLogStatus status, ulong leaderTerm) =>
         status.Readiness != FollowerLogReadiness.Ready || status.MemberState != GroupMemberState.Complete || (leaderTerm != 0 && status.CurrentTerm > leaderTerm);
 
-    private async Task<ReplicaProbeResult[]> ProbeFollowersAsync(
+    private Task<ReplicaProbeResult[]> ProbeFollowersAsync(
         bool[] candidates,
         string[] members,
-        ReplicaRpcHeader header,
-        FollowerLogStatus leader,
+        in ReplicaRpcHeader header,
+        in FollowerLogStatus leader,
         int answersNeeded,
-        CancellationToken cancellationToken)
-    {
-        var results = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, candidates, members, header, leader, new ReplicaProbeBudget(ProbeTimeout, answersNeeded), cancellationToken)
-                                                 .ConfigureAwait(false);
-
-        // Log-mismatch replies prove contact even while the follower still needs catch-up before joining the write quorum.
-        ReplicaReadinessProbe.RecordContacts(_registry.StateFor(_groupId), results, header.Term);
-        return results;
-    }
+        CancellationToken cancellationToken) =>
+        ReplicaReadinessProbe.ProbeAllAsync(
+            _gateway,
+            (candidates, members),
+            header,
+            leader,
+            new ReplicaProbeBudget(ProbeTimeout, answersNeeded),
+            _registry.StateFor(_groupId),
+            cancellationToken);
 
     private bool ReportBlockedTail(BlockedTail? blocked)
     {
