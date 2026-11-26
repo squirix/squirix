@@ -80,7 +80,7 @@ runs:
       env:
         RUNS: ${{ steps.select.outputs.runs }}
       run: |
-        list="$(cut -f2 <<< "$RUNS" | sed '/^$/d' | sort -u | paste -sd ' ')"
+        list="$(cut -f2 <<< "$RUNS" | sed '/^$/d' | sort -u | paste -sd ' ' -)"
         if [ -z "$list" ]; then
           echo "Suite '${{ inputs.suite }}' names no project to build." >&2
           exit 1
