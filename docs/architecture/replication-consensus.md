@@ -112,8 +112,10 @@ elects a replacement.
   read or written.", or the stale-owner refusal naming the leader this node knows.
 - **Heartbeats and step-down.** A leader sends an empty append to every idle follower each heartbeat interval. It steps
   down once fewer than a majority, itself included, answered within one election timeout, and at once on a higher term
-  in any reply. A new leader gets one timeout of grace. A follower that answered the probes of the start counts as
-  answered, and a leader without authority whose promotion held its driver for a heartbeat interval or more, such as a
+  in any reply. A new leader gets one timeout of grace. A valid answer to a start or periodic verification probe counts
+  at the time the answer is received. A log mismatch can refresh contact, while the replica still needs to verify the
+  log before it can count toward a write quorum. A reply to a request from a previous tenure does not refresh contact.
+  A leader without authority whose promotion held its driver for a heartbeat interval or more, such as a
   start that waited for followers that gave no answer, gets the grace again once the promotion returns. Authority is
   revoked before the leader retires its pipeline. A leader that got no authority within 30 seconds of its first promotion
   attempt steps down the same way, and its node does not campaign for the election timeout plus the largest jitter plus
@@ -275,6 +277,13 @@ Documented explorer bounds for M8-01 full profile:
   what an entry of an earlier term needs to be lost to a later leader: written alone in term 1, overwritten on another
   member in term 2, carried to a majority in term 3, and missing on the leader of term 4. Resends and one-step elections
   are outside the other profiles, whose leaders send each entry once, when it is appended.
+- Quorum contact (#1877) uses a separate projection of a leader's tenure, with RF=3 or RF=5, terms 2 and 3, four
+  logical ticks, and a two-tick window for grace and each replica's contact. Already-decided elections enter the
+  projection as tenure changes. Probe replies carry the request term and reply term separately. Contact and permission
+  to count toward a write quorum are tracked independently. An RF=5 breadth-first search starts with two log-mismatch
+  replies in flight and two silent followers. It explores the order of replies, loss and clock ticks within a 50,000-state
+  budget, and finds a schedule where dropping valid contacts deposes a leader that should remain in office. The other
+  explorer profiles keep their original state and timing assumptions.
 - Per sub-profile BFS cap: **`MaxStates = 50_000`** (symmetric reduction on). Hitting the cap without a safety violation
   is within these documented bounds: `summary.json` reports `fixedPointReached=false` and the CLI exits **4** (distinct
   from exit **0** = fixed point with no violation). It is residual risk inside the finite envelope, not a
@@ -306,13 +315,16 @@ Additional negative modes (local term inflation, commit-across-gap) are optional
 
 ### Model rules and product tests
 
-The product and the model are tied in three ways:
+Product tests, conformance traces and a pinned model version tie the product to the model.
 
 - The tables below name the product tests for each model rule; a deliberate break of the rule in the product shows that the
   named test fails.
 - `ProtocolModelConformanceTests` runs real product components (vote and read rounds, replication, recovered log tail)
   through `ConformanceTestKit`, records what the product did (leader, votes, acknowledgements, commit index, served reads)
   and asks the model whether an honest run of the protocol can reach the same trace. A trace the model rejects fails the test.
+- `QuorumContactConformanceTests` feeds the production readiness probes two same-term log mismatches in an RF=5 group.
+  It compares write eligibility and election-driver outcomes with the contact projection while those replies are fresh
+  and after they expire.
 - `ProtocolVersionMatchesModelManifest` pins the model version, so a change of the model rules fails a product test until
   the product side is reviewed.
 
