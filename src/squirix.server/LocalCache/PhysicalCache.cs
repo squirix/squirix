@@ -341,6 +341,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             _eviction.Remove(in node, bounded);
 
         node.MarkRemoved();
+        _deadlines.CompactLocked();
     }
 
     private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
@@ -476,15 +477,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// an entry, canonical when its generation equals <see cref="CacheSlot{T}.IndexedGeneration" />, is pushed when the entry is stored and when its deadline appears
     /// or moves before that, never when it moves later. When an item reaches the top, it is dropped when its entry left the store, was replaced or
     /// has another canonical item; it is dropped when the entry lost its deadline; it is put back with the later deadline of its entry; otherwise
-    /// the entry is due. The heap is rebuilt from the store once it holds <c language="csharp">2 * store.Count + 1024</c> items. Every member but <see cref="ListExpired" /> and <see cref="RemoveExpired" /> runs under the cache lock.
+    /// the entry is due. An oversized heap is drained incrementally into a new heap on writes and removals. Both heaps remain ordered by their original priorities.
+    /// Every member but <see cref="ListExpired" /> and <see cref="RemoveExpired" /> runs under the cache lock.
     /// </remarks>
     [ThreadSafe]
     private sealed class DeadlineIndex : ILocalCacheExpiredKeys
     {
         private const int RemoveBatchSize = 1024;
 
-        private readonly PriorityQueue<Deadline, long> _heap = new();
+        private const int CompactionBatchSize = 8;
+
         private readonly PhysicalCache<T> _owner;
+        private PriorityQueue<Deadline, long> _heap = new();
+        private PriorityQueue<Deadline, long>? _draining;
 
         internal DeadlineIndex(PhysicalCache<T> owner)
         {
@@ -507,7 +512,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 return [];
 
             lock (_owner._lock)
-                return ListDueLocked(_heap, nowUtc.Ticks, max, include);
+                return ListDueLocked(nowUtc.Ticks, max, include);
         }
 
         /// <inheritdoc />
@@ -550,51 +555,64 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 _owner._store.SetDeferredDeadline(node.Slot, scheduled);
         }
 
-        /// <summary>Records the deadline just set on an entry, rebuilding the heap once stale items outnumber the entries.</summary>
-        /// <param name="node">The entry; one without a deadline is not recorded.</param>
+        /// <summary>Records the current deadline and advances compaction under the cache lock.</summary>
+        /// <param name="node">The stored entry.</param>
         internal void RecordLocked(in CacheSlot<T> node)
         {
             if (node.ExpiresUtc is not { } deadline)
                 return;
+            Index(in node, deadline.Ticks);
+            CompactLocked();
+        }
 
-            var store = _owner._store;
-            if (_heap.Count < (2 * store.Count) + 1024)
+        /// <summary>Reclaims an oversized deadline heap a bounded number of records at a time under the write lock.</summary>
+        internal void CompactLocked()
+        {
+            if (_heap.Capacity == 0 && _draining == null)
+                return;
+
+            var live = _owner._store.Count;
+            if (live == 0)
             {
-                Index(in node, deadline.Ticks);
+                _draining = null;
+                _heap = new PriorityQueue<Deadline, long>();
                 return;
             }
 
-            // The rebuild reads the current deadline of every entry, this one included.
-            _heap.Clear();
-            _heap.EnqueueRange(CurrentDeadlines());
+            var source = _draining;
+            if (source == null)
+            {
+                if (_heap.Capacity <= (2L * live) + RemoveBatchSize)
+                    return;
+                source = _heap;
+                _heap = new PriorityQueue<Deadline, long>();
+                _draining = source;
+            }
+
+            for (var i = 0; i < CompactionBatchSize && source.TryDequeue(out var item, out var priority); i++)
+            {
+                var slot = _owner._store.ResolveSlotLocked(item.Slot, item.Identity);
+                if (slot.Exists && slot.IndexedGeneration == item.Generation)
+                    _heap.Enqueue(item, priority);
+            }
+
+            if (source.Count == 0)
+                _draining = null;
         }
 
-        /// <summary>Pops the top item when it is due.</summary>
-        /// <param name="heap">The heap.</param>
-        /// <param name="nowTicks">The current time, in UTC ticks.</param>
-        /// <param name="item">The item popped.</param>
-        /// <param name="priority">The priority it had.</param>
-        /// <returns><see langword="false" /> when the heap is empty or its top is not due.</returns>
-        private static bool TryPopDue(PriorityQueue<Deadline, long> heap, long nowTicks, out Deadline item, out long priority)
+        private bool TryPopDue(long nowTicks, out Deadline item, out long priority)
         {
+            var heap = _heap;
+            if (_draining is { } source && source.TryPeek(out _, out var oldPriority) &&
+                (!heap.TryPeek(out _, out var newPriority) || oldPriority < newPriority))
+                heap = source;
+
             if (!heap.TryPeek(out item, out priority) || priority > nowTicks)
                 return false;
-
             _ = heap.Dequeue();
+            if (heap.Count == 0 && heap == _draining)
+                _draining = null;
             return true;
-        }
-
-        private IEnumerable<(Deadline Element, long Priority)> CurrentDeadlines()
-        {
-            var nodes = _owner._store.GetEnumerator();
-            while (nodes.MoveNext())
-            {
-                var stored = nodes.Current;
-                stored.IndexedGeneration++;
-                _owner._store.SetDeferredDeadline(stored.Slot, null);
-                if (stored.ExpiresUtc is { } expires)
-                    yield return (new Deadline(stored.Identity, expires.Ticks, stored.Slot, stored.IndexedGeneration), expires.Ticks);
-            }
         }
 
         /// <summary>Pushes the canonical item of an entry, which makes every other item of the entry stale.</summary>
@@ -642,7 +660,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         {
             var examined = 0;
             var removed = 0;
-            while (examined < max && TryPopDue(_heap, nowTicks, out var item, out _))
+            while (examined < max && TryPopDue(nowTicks, out var item, out _))
             {
                 examined++;
                 if (!TryResolve(in item, out var node))
@@ -657,17 +675,16 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         /// <summary>Lists the due keys the caller includes and pushes every due item that is still current back, as <see cref="ListExpired" /> tells.</summary>
-        /// <param name="heap">The heap.</param>
         /// <param name="nowTicks">The current time, in UTC ticks.</param>
         /// <param name="max">The most keys to list.</param>
         /// <param name="include">Tells whether the caller can expire a key.</param>
         /// <returns>The keys listed.</returns>
-        private List<CacheKey> ListDueLocked(PriorityQueue<Deadline, long> heap, long nowTicks, int max, Func<CacheKey, bool> include)
+        private List<CacheKey> ListDueLocked(long nowTicks, int max, Func<CacheKey, bool> include)
         {
             var budget = Math.Min(max, int.MaxValue / 4) * 4;
             var listed = new List<CacheKey>();
             List<(Deadline Item, long Priority)>? due = null;
-            for (var popped = 0; popped < budget && listed.Count < max && TryPopDue(heap, nowTicks, out var item, out var priority); popped++)
+            for (var popped = 0; popped < budget && listed.Count < max && TryPopDue(nowTicks, out var item, out var priority); popped++)
             {
                 if (!TryResolve(in item, out var node))
                     continue;
@@ -681,13 +698,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 (due ??= []).Add((item, included ? priority : nowTicks));
             }
 
-            if (due == null)
-                return listed;
-
-            foreach (var (item, priority) in due)
-                heap.Enqueue(item, priority);
-
+            if (due != null)
+                Requeue(due);
             return listed;
+        }
+
+        private void Requeue(List<(Deadline Item, long Priority)> due)
+        {
+            foreach (var (item, priority) in CollectionsMarshal.AsSpan(due))
+                _heap.Enqueue(item, priority);
         }
 
         /// <summary>An item of the heap: the entry a deadline was recorded for, and the deadline then.</summary>

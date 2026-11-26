@@ -44,10 +44,6 @@ internal sealed class SlotStore<T>
     /// <summary>Gets the number of stored nodes; read under the cache lock.</summary>
     internal int Count { get; private set; }
 
-    /// <summary>Gets an enumerator over the stored nodes; use under the cache lock.</summary>
-    /// <returns>The enumerator.</returns>
-    internal SlotEnumerator<T> GetEnumerator() => _slots.GetEnumerator();
-
     /// <summary>Links a node whose key is not stored; call under the cache lock.</summary>
     /// <param name="key">The key.</param>
     /// <param name="hash">The hash used to look for the key.</param>
@@ -83,7 +79,7 @@ internal sealed class SlotStore<T>
 
         var keys = new CacheKey[Count];
         var index = 0;
-        var nodes = GetEnumerator();
+        var nodes = _slots.GetEnumerator();
         while (nodes.MoveNext())
             keys[index++] = nodes.Current.Key;
 

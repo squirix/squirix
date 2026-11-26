@@ -124,6 +124,28 @@ public sealed class ExpiredKeyListingTests : ServerUnitTestBase
         _ = await Assert.That(cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 10, static _ => true).Count).IsEqualTo(0);
     }
 
+    /// <summary>Listing merges both deadline queues in order while bulk deletion and slot reuse compact the index.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DueOrderSurvivesBulkDeletion(CancellationToken cancellationToken)
+    {
+        var (cache, clock) = Create(CacheExpiryAuthority.CommittedRecords);
+        for (var i = 0; i < 2048; i++)
+            Set(cache, i.ToString(CultureInfo.InvariantCulture), TimeSpan.FromSeconds(i + 1), cancellationToken);
+        for (var i = 510; i < 2048; i++)
+            _ = cache.Remove(CacheKey.Default(i.ToString(CultureInfo.InvariantCulture)), cancellationToken);
+
+        _ = cache.Remove(CacheKey.Default("40"), cancellationToken);
+        Set(cache, "40", TimeSpan.FromDays(1), cancellationToken);
+        Set(cache, "new", TimeSpan.FromMilliseconds(40500), cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(50));
+
+        var keys = Keys(cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, 64, static _ => true));
+        _ = await Assert.That(keys.Length).IsEqualTo(50);
+        for (var i = 0; i < keys.Length; i++)
+            _ = await Assert.That(keys[i]).IsEqualTo(i == 40 ? "new" : i.ToString(CultureInfo.InvariantCulture));
+    }
+
     private static (PhysicalCache<object?> Cache, FakeTimeProvider Clock) Create(CacheExpiryAuthority expiry)
     {
         var clock = new FakeTimeProvider(Start);
