@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -24,15 +25,15 @@ internal sealed class TrackedConnectionStream : TlsProbeStream
     /// <summary>One while the stream holds its connection entry; set only once the base constructor succeeded, so the finalizer of a half-built stream releases nothing.</summary>
     private int _tracked;
 
-    private TrackedConnectionStream(Socket socket, TrackedConnections connections)
-        : base(socket, true, PreVoteTrace.IsTracing ? static phase => PreVoteTrace.Mark($"send TLS I/O {phase}") : null)
+    private TrackedConnectionStream(Socket socket, TrackedConnections connections, ActivityTraceId traceId)
+        : base(socket, true, traceId == default ? null : phase => PreVoteTrace.Mark(traceId, $"send TLS I/O {phase}"))
     {
         _socket = socket;
         _connections = connections;
         _tracked = 1;
     }
 
-    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, EndPoint endpoint, CancellationToken cancellationToken, IPAddress[]? addresses = null)
+    internal static async ValueTask<Stream> ConnectAsync(TrackedConnections connections, EndPoint endpoint, CancellationToken cancellationToken, IPAddress[]? addresses = null, ActivityTraceId traceId = default)
     {
         if (!connections.TryEnter())
             throw new ObjectDisposedException(nameof(ServerClientPool), "The server client pool is disposing and admits no new connection.");
@@ -47,8 +48,8 @@ internal sealed class TrackedConnectionStream : TlsProbeStream
                 await socket.ConnectAsync(addresses, dns.Port, cancellationToken).ConfigureAwait(false);
             else
                 await socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
-            PreVoteTrace.MarkClientSocket(socket);
-            var stream = new TrackedConnectionStream(socket, connections);
+            PreVoteTrace.MarkClientSocket(socket, traceId);
+            var stream = new TrackedConnectionStream(socket, connections, traceId);
             created = true;
             return stream;
         }

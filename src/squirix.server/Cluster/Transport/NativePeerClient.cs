@@ -266,13 +266,14 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         var parentBytes = WireTraceParent.ByteCount;
         var parent = binaryParent ? string.Empty : TraceText(activity?.Id, Frames.MaxTraceParentLength, out parentBytes);
         var state = TraceText(activity?.TraceStateString, Frames.MaxTraceStateLength, out var stateBytes);
+        var traceId = PreVoteTrace.CurrentTraceId;
         var sent = false;
         PeerSession? stream = null;
         try
         {
-            PreVoteTrace.Mark("send rent start");
-            stream = await RentAsync(replyBudget?.Clock, cancellationToken).ConfigureAwait(false);
-            PreVoteTrace.Mark("send rent complete");
+            PreVoteTrace.Mark(traceId, "send rent start");
+            stream = await RentAsync(replyBudget?.Clock, traceId, cancellationToken).ConfigureAwait(false);
+            PreVoteTrace.Mark(traceId, "send rent complete");
             using var replyTimeout = StartTimeout(replyBudget?.Timeout ?? default, replyBudget?.Clock);
             using var exchange = replyTimeout == null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, replyTimeout.Token);
             var token = exchange?.Token ?? cancellationToken;
@@ -283,25 +284,24 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             token.ThrowIfCancellationRequested();
             stream.RequestStarted = Stopwatch.GetTimestamp();
             sent = true;
-            PreVoteTrace.Mark("send frame write start");
             await WriteRequestAsync(stream, request, frame, metadata, token).ConfigureAwait(false);
-            PreVoteTrace.Mark("send frame written; awaiting reply");
+            PreVoteTrace.Mark(traceId, "send frame written; awaiting reply");
 
             var reply = await ReadReplyAsync(stream, parser, stream.ReplyHeader, token).ConfigureAwait(false);
-            PreVoteTrace.Mark("send reply read");
+            PreVoteTrace.Mark(traceId, "send reply read");
             await ReturnAsync(stream).ConfigureAwait(false);
             stream = null;
             return reply;
         }
         catch (OperationCanceledException)
         {
-            PreVoteTrace.Mark("send canceled");
+            PreVoteTrace.Mark(traceId, "send canceled");
             throw;
         }
         catch (Exception error) when (error is IOException or SocketException or AuthenticationException)
         {
-            if (PreVoteTrace.IsTracing)
-                PreVoteTrace.Mark($"send transport error {error.GetType().Name}: {error.Message}");
+            if (traceId != default)
+                PreVoteTrace.Mark(traceId, $"send transport error {error.GetType().Name}: {error.Message}");
             throw new ServerCallException(FrameStatus.Unavailable, "Peer request failed.", sent ? null : new HttpRequestException(HttpRequestError.ConnectionError, "Could not establish the peer connection.", error));
         }
         finally
@@ -384,12 +384,12 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     }
 
 #pragma warning disable MA0051 // Temporary per-stage connection tracing.
-    private async ValueTask<PeerSession> RentAsync(TimeProvider? electionClock, CancellationToken cancellationToken)
+    private async ValueTask<PeerSession> RentAsync(TimeProvider? electionClock, ActivityTraceId traceId, CancellationToken cancellationToken)
     {
         var idle = TakeIdle();
         if (idle != null)
         {
-            PreVoteTrace.Mark("send reused TLS session");
+            PreVoteTrace.Mark(traceId, "send reused TLS session");
             return idle;
         }
 
@@ -411,9 +411,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         {
             var endpoint = _resolveEndpoint == null ? _addresses.Endpoint : await _resolveEndpoint(dialToken).ConfigureAwait(false);
             var addresses = _resolveEndpoint == null ? await _addresses.ResolveAsync(dialToken).ConfigureAwait(false) : null;
-            PreVoteTrace.Mark("send TCP connect start");
-            network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dialToken, addresses).ConfigureAwait(false);
-            PreVoteTrace.Mark("send TCP connected");
+            PreVoteTrace.Mark(traceId, "send TCP connect start");
+            network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dialToken, addresses, traceId).ConfigureAwait(false);
+            PreVoteTrace.Mark(traceId, "send TCP connected");
             _ = Interlocked.Exchange(ref _lastDialTimeout, 0);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -426,15 +426,15 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         PeerSession? connection = new(network);
         try
         {
-            if (PreVoteTrace.IsTracing)
-                PreVoteTrace.ObserveCertificates(connection, static phase => PreVoteTrace.Mark(phase));
+            if (traceId != default)
+                PreVoteTrace.ObserveCertificates(connection, phase => PreVoteTrace.Mark(traceId, phase));
 
-            PreVoteTrace.Mark("send TLS handshake start");
+            PreVoteTrace.Mark(traceId, "send TLS handshake start");
             await connection.AuthenticateAsClientAsync(_tls, handshake.Token).ConfigureAwait(false);
             if (electionClock != null)
                 handshake.Token.ThrowIfCancellationRequested();
 
-            PreVoteTrace.Mark("send TLS handshake complete");
+            PreVoteTrace.Mark(traceId, "send TLS handshake complete");
             if (network is TlsProbeStream traced)
                 traced.StopTracing();
             if (connection.NegotiatedApplicationProtocol != PeerFrames.Protocol)

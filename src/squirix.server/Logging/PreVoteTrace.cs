@@ -23,7 +23,10 @@ internal static class PreVoteTrace
 
     internal static bool HasTlsObservers => TlsObserved != null;
 
-    internal static bool IsTracing => HasObservers && IsObservedOperation(Activity.Current?.OperationName);
+    internal static ActivityTraceId CurrentTraceId =>
+        HasObservers && Activity.Current is { } activity && IsObservedOperation(activity.OperationName) ? activity.TraceId : default;
+
+    internal static bool IsTracing => CurrentTraceId != default;
 
     internal static void ObserveCertificates(object stream, Action<string> observer) => CertificateObservers.Add(stream, observer);
 
@@ -44,11 +47,11 @@ internal static class PreVoteTrace
         return activity;
     }
 
-    internal static void MarkClientSocket(Socket socket)
+    internal static void MarkClientSocket(Socket socket, ActivityTraceId traceId)
     {
-        if (HasObservers && Activity.Current is { } activity && IsObservedOperation(activity.OperationName) &&
+        if (traceId != default &&
             socket.LocalEndPoint is IPEndPoint local && socket.RemoteEndPoint is IPEndPoint remote)
-            Mark("send socket connected", (local.Port, remote.Port));
+            Mark(traceId, "send socket connected", (local.Port, remote.Port));
     }
 
     internal static void MarkTls((int Client, int Server) ports, string stage)
@@ -57,11 +60,12 @@ internal static class PreVoteTrace
             TlsObserved?.Invoke(null, new TlsEventArgs(ports, stage));
     }
 
-    internal static void Mark(string phase, (int Client, int Server) ports = default)
+    internal static void Mark(string phase) => Mark(CurrentTraceId, phase);
+
+    internal static void Mark(ActivityTraceId traceId, string phase, (int Client, int Server) ports = default)
     {
-        var observer = Observed;
-        if (observer != null && Activity.Current is { } activity && IsObservedOperation(activity.OperationName))
-            observer(null, new StageEventArgs(activity.TraceId, phase, ports));
+        if (traceId != default)
+            Observed?.Invoke(null, new StageEventArgs(traceId, phase, ports));
     }
 
     private static bool IsObservedOperation(string? name) =>

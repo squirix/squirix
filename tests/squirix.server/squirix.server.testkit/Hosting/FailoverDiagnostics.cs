@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Wire.Replication;
@@ -25,14 +26,16 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
     private readonly ConcurrentQueue<((int Client, int Server) Ports, double At, string Phase)> _tlsEvents = new();
     private readonly string _group;
     private readonly Action<string> _output;
+    private readonly string _testName;
     private readonly long _started = Stopwatch.GetTimestamp();
     private readonly ManualResetEventSlim _stopSampling = new();
     private readonly Task _sampler;
 
-    internal FailoverDiagnostics(string group, Action<string> output)
+    internal FailoverDiagnostics(string group, string testName, Action<string> output)
     {
         _group = group;
         _output = output;
+        _testName = testName;
         ThreadPool.GetMinThreads(out var minimum, out var ioMinimum);
         if (int.TryParse(Environment.GetEnvironmentVariable("SQUIRIX_TRACE_MIN_WORKERS"), CultureInfo.InvariantCulture, out var requested) && requested > minimum)
             _ = ThreadPool.SetMinThreads(requested, ioMinimum);
@@ -53,14 +56,20 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         PreVoteTrace.Observed -= RecordTrace;
         PreVoteTrace.TlsObserved -= RecordTls;
         TcpPartitionProxy.BridgeObserved -= RecordBridge;
-        foreach (var entry in _events)
-            _output($"[failover {_group}] {entry}");
-
-        foreach (var (ports, at, phase) in _tlsEvents)
+        var directory = Environment.GetEnvironmentVariable("SQUIRIX_FAILOVER_TRACE_DIR");
+        if (string.IsNullOrEmpty(directory))
         {
-            var senderPorts = _bridges.GetValueOrDefault(ports, ports);
-            if (_connections.TryGetValue(senderPorts, out var traceId) && _traces.TryGetValue(traceId, out var peer))
-                _output($"[failover {_group}] {at:F0} ms peer trace={traceId} {peer} {phase}");
+            WriteEvents(_output);
+            return;
+        }
+
+        _ = Directory.CreateDirectory(directory);
+        await using var writer = File.CreateText(Path.Join(directory, _testName + ".log"));
+        WriteEvents(writer.WriteLine);
+        foreach (var entry in _events)
+        {
+            if (!entry.Contains(" peer trace=", StringComparison.Ordinal))
+                _output($"[failover {_group}] {entry}");
         }
     }
 
@@ -72,6 +81,19 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
     }
 
     internal void Record(string message) => _events.Enqueue($"{Stopwatch.GetElapsedTime(_started).TotalMilliseconds:F0} ms {message}");
+
+    private void WriteEvents(Action<string> output)
+    {
+        foreach (var entry in _events)
+            output($"[failover {_group}] {entry}");
+
+        foreach (var (ports, at, phase) in _tlsEvents)
+        {
+            var senderPorts = _bridges.GetValueOrDefault(ports, ports);
+            if (_connections.TryGetValue(senderPorts, out var traceId) && _traces.TryGetValue(traceId, out var peer))
+                output($"[failover {_group}] {at:F0} ms peer trace={traceId} {peer} {phase}");
+        }
+    }
 
     private void SampleThreadPool()
     {
@@ -154,16 +176,16 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
 
             var kind = batch.Entries.Count == 0 ? "heartbeat" : "append";
             using var trace = _diagnostics.StartTrace(PreVoteTrace.AppendOperation, $"{header.SenderNodeId} -> {nodeId} term={header.Term} {kind}");
-            PreVoteTrace.Mark($"send append start entries={batch.Entries.Count} previous={batch.PrevLogIndex} commit={batch.LeaderCommitIndex}");
+            PreVoteTrace.Mark(trace.TraceId, $"send append start entries={batch.Entries.Count} previous={batch.PrevLogIndex} commit={batch.LeaderCommitIndex}");
             try
             {
                 var reply = await _inner.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
-                PreVoteTrace.Mark($"send append result success={reply.Success} term={reply.CurrentTerm} refusal={reply.RefusalCode} last={reply.LastLogIndex}");
+                PreVoteTrace.Mark(trace.TraceId, $"send append result success={reply.Success} term={reply.CurrentTerm} refusal={reply.RefusalCode} last={reply.LastLogIndex}");
                 return reply;
             }
             catch (Exception error)
             {
-                PreVoteTrace.Mark($"send append failure {error.GetType().Name}: {error.Message}; cause={error.InnerException?.GetType().Name}: {error.InnerException?.Message}");
+                PreVoteTrace.Mark(trace.TraceId, $"send append failure {error.GetType().Name}: {error.Message}; cause={error.InnerException?.GetType().Name}: {error.InnerException?.Message}");
                 throw;
             }
         }

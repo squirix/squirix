@@ -21,9 +21,17 @@ jobs:
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
             - name: Run CI cluster suites
+              env:
+                  SQUIRIX_FAILOVER_TRACE_DIR: ${{ runner.temp }}/squirix-failover-traces
               uses: ./.github/actions/run-test-suite
               with:
                   os: macos-latest-${{ matrix.attempt }}
                   suite: e2e-cluster
                   framework: net10.0
                   build: "true"
+            - name: Archive full failover traces
+              if: always()
+              uses: actions/upload-artifact@v7
+              with:
+                  name: failover-traces-macos-${{ matrix.attempt }}
+                  path: ${{ runner.temp }}/squirix-failover-traces
