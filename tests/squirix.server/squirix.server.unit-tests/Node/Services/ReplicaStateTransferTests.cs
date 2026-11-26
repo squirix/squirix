@@ -141,17 +141,17 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     public async Task TransferAccountsJsonEntriesLikeAWalk(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-state-transfer-json");
-        var estimator = new ObjectCacheEntrySizeEstimator();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         await using var harness = await OpenAsync(dir, cancellationToken, estimator: estimator);
         var deadline = harness.Clock.GetUtcNow().UtcDateTime.AddHours(1);
         var tree = JsonElement.Parse("""{"a":[1,"x",true,null,{"b":2.5}],"name":"héllo"}""");
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "red" }.ToFrozenDictionary(StringComparer.Ordinal);
         var entries = new[]
         {
-            JsonStateEntry("j-plain", new NodeCacheEntry<object?>(tree), 0L),
-            JsonStateEntry("j-deadline", new NodeCacheEntry<object?>(tree, 1, deadline), deadline.Ticks),
-            JsonStateEntry("j-tagged", new NodeCacheEntry<object?>(tree, 4, deadline, null, tags), deadline.Ticks),
-            JsonStateEntry("j-own-deadline", new NodeCacheEntry<object?>(tree, 2, deadline), 0L),
+            JsonStateEntry("j-plain", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(tree).Bytes)), 0L),
+            JsonStateEntry("j-deadline", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(tree).Bytes), 1, deadline), deadline.Ticks),
+            JsonStateEntry("j-tagged", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(tree).Bytes), 4, deadline, null, tags), deadline.Ticks),
+            JsonStateEntry("j-own-deadline", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(tree).Bytes), 2, deadline), 0L),
         };
         var totals = TotalsOf(entries);
 
@@ -211,17 +211,17 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-state-apply-equal");
         await using var harness = await OpenAsync(dir, cancellationToken);
         var now = harness.Clock.GetUtcNow().UtcDateTime;
-        var physical = new PhysicalCache<object?>(harness.Clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var follower = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(harness.Clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var follower = new ClientCache<StoredValue>(physical, physical);
         var factory = new ReplicaMutationFactory(follower, "g1", 1UL, harness.Clock, NullLogger.Instance);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "red", ["size"] = "m" }.ToFrozenDictionary(StringComparer.Ordinal);
-        var writes = new (string Key, NodeCacheEntry<object?> Entry)[]
+        var writes = new (string Key, NodeCacheEntry<StoredValue> Entry)[]
         {
-            ("k-none", new NodeCacheEntry<object?> { Value = "v1" }),
-            ("k-absolute", new NodeCacheEntry<object?> { Value = "v2", ExpiresUtc = now.AddHours(1) }),
-            ("k-relative", new NodeCacheEntry<object?> { Value = "v3", Expiration = TimeSpan.FromMinutes(5) }),
-            ("k-sliding", new NodeCacheEntry<object?> { Value = "v4", Expiration = TimeSpan.FromMinutes(5) }),
-            ("k-tags", new NodeCacheEntry<object?>("v5", 1, now.AddHours(2), TimeSpan.FromMinutes(3), tags)),
+            ("k-none", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }),
+            ("k-absolute", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v2"), ExpiresUtc = now.AddHours(1) }),
+            ("k-relative", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v3"), Expiration = TimeSpan.FromMinutes(5) }),
+            ("k-sliding", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v4"), Expiration = TimeSpan.FromMinutes(5) }),
+            ("k-tags", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v5"), 1, now.AddHours(2), TimeSpan.FromMinutes(3), tags)),
         };
         var index = 1UL;
         foreach (var (key, entry) in writes)
@@ -253,7 +253,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         _ = await Assert.That(physical.GetEntry(new CacheKey(CacheName, "k-sliding"), cancellationToken)?.ExpiresUtc).IsEqualTo(now.AddMinutes(10));
     }
 
-    private static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+    private static Task ApplyAsync(ILogicalNamespacedCache<StoredValue> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         ReplicaCacheApplier.ApplyAsync(
             cache,
             ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload).GetValueOrDefault(),
@@ -261,13 +261,13 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
 
-    private static string Describe(NodeCacheEntry<object?>? entry)
+    private static string Describe(NodeCacheEntry<StoredValue>? entry)
     {
         if (entry == null)
             return "none";
 
         var text = new StringBuilder();
-        _ = text.Append(CultureInfo.InvariantCulture, $"{entry.Value}|{entry.Version}|{entry.ExpiresUtc?.Ticks}|{entry.Expiration}");
+        _ = text.Append(CultureInfo.InvariantCulture, $"{StoredValueProbe.Text(entry.Value)}|{entry.Version}|{entry.ExpiresUtc?.Ticks}|{entry.Expiration}");
         if (entry.Tags == null)
             return text.ToString();
         foreach (var pair in new SortedDictionary<string, string>(entry.Tags, StringComparer.Ordinal))
@@ -275,19 +275,19 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         return text.ToString();
     }
 
-    private static ReplicaStateEntry JsonStateEntry(string key, NodeCacheEntry<object?> entry, long expiresUtcTicks) =>
+    private static ReplicaStateEntry JsonStateEntry(string key, NodeCacheEntry<StoredValue> entry, long expiresUtcTicks) =>
         new(CacheName, Encoding.UTF8.GetBytes(key), ReplicaCacheApplier.EncodeEntry(entry), expiresUtcTicks);
 
-    private static NodeCacheEntry<object?>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
+    private static NodeCacheEntry<StoredValue>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
         harness.Cache.GetEntry(new CacheKey(CacheName, key), cancellationToken);
 
     private static long ReferenceBytes(ReplicaStateHarness harness, DateTime now, CancellationToken cancellationToken)
     {
-        var reference = new PhysicalCache<object?>(harness.Clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        reference.Set(new CacheKey(CacheName, "other-1"), new NodeCacheEntry<object?>("old"), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes("v1"))), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes("v2")), 1, now.AddHours(1)), cancellationToken);
-        reference.Set(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<object?>(new StoredText(Encoding.UTF8.GetBytes("v3")), 1, now.AddHours(-1)), cancellationToken);
+        var reference = new PhysicalCache<StoredValue>(harness.Clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        reference.Set(new CacheKey(CacheName, "other-1"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("old")), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<StoredValue>(StoredValue.FromText(new StoredText(Encoding.UTF8.GetBytes("v1")).Bytes)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<StoredValue>(StoredValue.FromText(new StoredText(Encoding.UTF8.GetBytes("v2")).Bytes), 1, now.AddHours(1)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<StoredValue>(StoredValue.FromText(new StoredText(Encoding.UTF8.GetBytes("v3")).Bytes), 1, now.AddHours(-1)), cancellationToken);
         return BytesOf(reference);
     }
 }

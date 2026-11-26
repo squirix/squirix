@@ -24,6 +24,7 @@ internal static class ServerWireMapping
     {
         return value switch
         {
+            StoredValue stored => ToWire(in stored),
             null => CacheValueWire.Null(),
             StoredText text => CacheValue.FromText(text.Bytes),
             string text => new CacheValue { StringValue = text },
@@ -43,6 +44,12 @@ internal static class ServerWireMapping
     internal static T? MapCacheValue<T>(CacheValue? wire)
     {
         var present = RequireValue(wire);
+        if (typeof(T) == typeof(StoredValue))
+        {
+            var stored = FromWire(present);
+            return Unsafe.As<StoredValue, T>(ref stored);
+        }
+
         return typeof(T) == typeof(object) ? Coerce<T>(ReadObject(present)) : ReadTyped<T>(present);
     }
 
@@ -93,6 +100,31 @@ internal static class ServerWireMapping
     private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
         ? Coerce<T>(wire.BinaryValue.ToArray())
         : throw new ServerCallException(FrameStatus.InvalidArgument, IncompatibleBinaryDetail);
+
+    private static CacheValue ToWire(in StoredValue value) => value.Kind switch
+    {
+        StoredValue.ValueKind.Null => CacheValueWire.Null(),
+        StoredValue.ValueKind.Boolean => new CacheValue { BoolValue = value.Boolean },
+        StoredValue.ValueKind.Integer => new CacheValue { Int64Value = value.Integer },
+        StoredValue.ValueKind.Double => new CacheValue { DoubleValue = value.Double },
+        StoredValue.ValueKind.Text => CacheValue.FromText(value.Bytes),
+        StoredValue.ValueKind.Binary => CacheValueWire.FromBinary(value.Bytes),
+        StoredValue.ValueKind.Json => CacheValueWire.FromJson(value.Bytes),
+        _ => throw new InvalidOperationException("Invalid stored cache value."),
+    };
+
+    private static StoredValue FromWire(CacheValue value) => value.KindCase switch
+    {
+        CacheValue.KindOneofCase.NullValue => default,
+        CacheValue.KindOneofCase.BoolValue => StoredValue.FromBoolean(value.BoolValue),
+        CacheValue.KindOneofCase.Int64Value => StoredValue.FromInteger(value.Int64Value),
+        CacheValue.KindOneofCase.DoubleValue => StoredValue.FromDouble(value.DoubleValue),
+        CacheValue.KindOneofCase.StringValue => StoredValue.FromText(value.EncodedText ?? System.Text.Encoding.UTF8.GetBytes(value.StringValue)),
+        CacheValue.KindOneofCase.BinaryValue => StoredValue.FromBinary(value.BinaryValue.ToArray()),
+        CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(value.JsonUtf8.Span) => StoredValue.FromJson(value.JsonUtf8),
+        CacheValue.KindOneofCase.JsonUtf8 => throw new ServerCallException(FrameStatus.InvalidArgument, InvalidJsonDetail),
+        _ => throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail),
+    };
 
     private static object? ReadObject(CacheValue wire) => wire.KindCase switch
     {

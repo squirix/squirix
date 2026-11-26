@@ -82,16 +82,16 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var log = new LeakRecordingLogger();
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var committer = CreateCommitter(registry, local, (log, log), metrics: new ReplicationMetrics(meter));
-        var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
+        var cache = new DomainErrorMappingCacheDecorator<StoredValue>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var transport = error.ToServerCallException();
 
         // The remote owner reports the stable commit-unknown contract over gRPC.
-        var remoteOwner = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = remoteOwner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var remoteOwner = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = remoteOwner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                        .Callback(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToServerCallException()));
-        var forwarded = new DomainErrorMappingCacheDecorator<object?>(remoteOwner.Instance());
+        var forwarded = new DomainErrorMappingCacheDecorator<StoredValue>(remoteOwner.Instance());
         var remote = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
@@ -450,7 +450,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     private static ReplicaGroupCommitter CreateCommitter(
         ReplicaGroupRegistry registry,
-        ILogicalNamespacedCache<object?> local,
+        ILogicalNamespacedCache<StoredValue> local,
         (IServerLogger<ReplicaGroupCommitter> Committer, IServerLogger<ReplicaGroupCommitter> Applier) logs,
         IReplicaRpcGateway? gateway = null,
         ReplicationMetrics? metrics = null) =>
@@ -465,7 +465,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
         };
 
-    private static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
+    private static NodeCacheEntry<StoredValue> Entry() => new() { Value = StoredValue.FromText("v"), Version = 1 };
 
     /// <summary>Tells whether the log file can be opened exclusively, which holds only once its follower log closed its handle.</summary>
     /// <param name="path">The follower log file path.</param>

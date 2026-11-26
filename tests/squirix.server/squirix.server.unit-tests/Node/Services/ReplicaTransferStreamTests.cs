@@ -12,6 +12,7 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -81,7 +82,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     {
         var (cache, walk, clock) = Leader(0, cancellationToken);
         var deadline = clock.GetUtcNow().UtcDateTime.AddHours(1);
-        cache.Set(new CacheKey(CacheName, "key-1"), new NodeCacheEntry<object?>("v1", 1, deadline), cancellationToken);
+        cache.Set(new CacheKey(CacheName, "key-1"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, deadline), cancellationToken);
         var gateway = new ScriptedTransferGateway { HoldAt = "entries" };
         byte[]? before = null;
         gateway.OnEntries = entries => before = [.. entries.Span[0].Key.Span, .. entries.Span[0].Payload.Span];
@@ -273,7 +274,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     public async Task OversizedEntryTravelsAlone(CancellationToken cancellationToken)
     {
         var (cache, walk, clock) = Leader(2, cancellationToken);
-        cache.Set(new CacheKey(CacheName, "big"), new NodeCacheEntry<object?>(new string('x', ReplicaTransferOptions.MessageBudgetBytes + 1024)), cancellationToken);
+        cache.Set(new CacheKey(CacheName, "big"), new NodeCacheEntry<StoredValue>(StoredValue.FromText(new string('x', ReplicaTransferOptions.MessageBudgetBytes + 1024))), cancellationToken);
         var gateway = new ScriptedTransferGateway();
 
         var result = await StreamTo(gateway, clock).RunAsync(Snapshot(), walk, cancellationToken);
@@ -308,7 +309,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         harness.Seed(cancellationToken, "stale-1", "stale-2", "other-1");
         var (cache, walk, _) = Leader(3, cancellationToken);
         var unicodeKey = new CacheKey(CacheName, "ключ-🌍");
-        cache.Set(unicodeKey, new NodeCacheEntry<object?>("unicode"), cancellationToken);
+        cache.Set(unicodeKey, new NodeCacheEntry<StoredValue>(StoredValue.FromText("unicode")), cancellationToken);
         var gateway = new ReceiverGateway(harness.Receiver);
         var stream = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", harness.Clock);
 
@@ -321,7 +322,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
         _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "other-1"), cancellationToken)).IsNotNull();
         var unicodeEntry = harness.Cache.GetEntry(unicodeKey, cancellationToken);
-        _ = await Assert.That(unicodeEntry?.Value).IsEqualTo("unicode");
+        _ = await Assert.That(StoredValueProbe.Text(unicodeEntry?.Value)).IsEqualTo("unicode");
         for (var i = 0; i < 3; i++)
             _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, $"key-{i}"), cancellationToken)).IsNotNull();
     }
@@ -407,12 +408,12 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
 
     private static ReplicaRpcHeader Header() => new(GroupId, TransferFixtures.Fingerprint, 1UL, 1UL, "n2", "n2");
 
-    private static (PhysicalCache<object?> Cache, ReplicaGroupEntries Walk, FakeTimeProvider Clock) Leader(int keys, CancellationToken cancellationToken)
+    private static (PhysicalCache<StoredValue> Cache, ReplicaGroupEntries Walk, FakeTimeProvider Clock) Leader(int keys, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var cache = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         for (var i = 0; i < keys; i++)
-            cache.Set(new CacheKey(CacheName, $"key-{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
+            cache.Set(new CacheKey(CacheName, $"key-{i}"), new NodeCacheEntry<StoredValue>(StoredValue.FromText($"v{i}")), cancellationToken);
 
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);

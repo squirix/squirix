@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -26,7 +27,7 @@ public sealed class LeaderReadAuthorityTests : NodeIntegrationTestBase
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), ServerCacheNames.DefaultNamespace, key, BuildEntry("v"), cancellationToken);
         var read = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, key, cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
-        _ = await Assert.That(read.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(read.Value)).IsEqualTo("v");
 
         var gated = LeaderAuthorityGate.CheckRead(1, false, false, 1, 1, new LeaderReadState(false, 0, 7));
         _ = await Assert.That(gated.Allowed).IsTrue();
@@ -43,9 +44,9 @@ public sealed class LeaderReadAuthorityTests : NodeIntegrationTestBase
         var nodeA = cluster["node-a"];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(nodeA, cancellationToken);
 
-        var cache = nodeA.GetCache<object?>("leader-read");
+        var cache = nodeA.GetCache<StoredValue>("leader-read");
         var key = nodeA.FindKeyOwnedBy("leader-read", "node-a");
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), "leader-read", key, new NodeCacheEntry<object?> { Value = "v" }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), "leader-read", key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") }, cancellationToken);
 
         await cluster.StopNodeAsync("node-b");
 

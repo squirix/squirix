@@ -535,7 +535,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         for (var i = 1; i <= 3; i++)
         {
             var key = $"k{i}";
-            var entry = expired && i == 1 ? new NodeCacheEntry<object?>(key, 1, TimeProvider.System.GetUtcNow().UtcDateTime.AddSeconds(-1)) : Entry(key);
+            var entry = expired && i == 1 ? new NodeCacheEntry<StoredValue>(StoredValue.FromText(key), 1, TimeProvider.System.GetUtcNow().UtcDateTime.AddSeconds(-1)) : Entry(key);
             await committer.CommitSetAsync(NewOperationId(), "cache", key, entry, cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
 

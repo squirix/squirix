@@ -38,9 +38,9 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await cache.SetEntryAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
 
         var local = await new ReplicatedCache(cache, committers).GetEntryAsync(CacheName, "b", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(local?.Value).IsEqualTo("b");
+        _ = await Assert.That(StoredValueProbe.Text(local?.Value)).IsEqualTo("b");
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
@@ -72,7 +72,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var read = await reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((appliedBefore, waited, applier.AppliedIndex)).IsEqualTo((1UL, true, 3UL));
-        _ = await Assert.That(read?.Value).IsEqualTo("b");
+        _ = await Assert.That(StoredValueProbe.Text(read?.Value)).IsEqualTo("b");
     }
 
     /// <summary>A value read fences as an entry read does: local without quorum reads, refused with them where no leader has authority.</summary>
@@ -87,9 +87,11 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await cache.SetEntryAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
 
         var local = await new ReplicatedCache(cache, committers).GetValueAsync(CacheName, "b", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<object?>>(new ReplicatedCache(cache, committers, true).GetValueAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<StoredValue>>(new ReplicatedCache(cache, committers, true).GetValueAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(local).IsEqualTo(new NodeCacheValueResult<object?>(true, "b"));
+        _ = await Assert.That(local.Found).IsTrue();
+
+        _ = await Assert.That(StoredValueProbe.Text(local.Value)).IsEqualTo("b");
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
@@ -118,7 +120,8 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var read = await reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((appliedBefore, waited, applier.AppliedIndex)).IsEqualTo((1UL, true, 3UL));
-        _ = await Assert.That(read).IsEqualTo(new NodeCacheValueResult<object?>(true, "b"));
+        _ = await Assert.That(read.Found).IsTrue();
+        _ = await Assert.That(StoredValueProbe.Text(read.Value)).IsEqualTo("b");
     }
 
     /// <summary>A confirmed read whose index stays unapplied is refused as unapplied once the election timeout passes, and not before.</summary>
@@ -211,7 +214,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var regranted = state.BecomeLeader(3UL) && state.GrantAuthority(3UL);
         var sentBefore = gateway.Requests;
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((regranted, gateway.Requests)).IsEqualTo((true, sentBefore));
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));

@@ -57,10 +57,10 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         await cluster.StopNodeAsync("node-c");
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var large = new string('x', 64 * 1024);
         for (var i = 1; i <= Writes; i++)
-            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"{i}:{large}", Version = i }, cancellationToken);
+            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"{i}:{large}"), Version = i }, cancellationToken);
 
         // A commit returns once node-b acknowledges, while the send to the stopped node-c may still be in flight; until it fails, node-c
         // still counts as ready, and the owner keeps the log for it. Compacting before then would be refused as a follower behind.
@@ -90,11 +90,11 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
             throw new TimeoutException($"The owner did not admit node-c within {Bound}; compaction outcome {outcome}, slot state {eligibility.StateFor(slot)}.", exception);
         }
 
-        var held = restarted.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
+        var held = restarted.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         var metrics = await HttpClient.GetStringAsync(new Uri(owner.ManagementUri, "/metrics"), cancellationToken);
 
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
-        _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");
+        _ = await Assert.That(StoredValueProbe.Text(held.Value)).IsEqualTo($"{Writes}:{large}");
         _ = await Assert.That(metrics).Contains("outcome=\"transferred\"", StringComparison.Ordinal);
     }
 
@@ -126,10 +126,10 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         var owner = cluster[OwnerId];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var large = new string('x', 64 * 1024);
         for (var i = 1; i <= Writes; i++)
-            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"{i}:{large}", Version = i }, cancellationToken);
+            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"{i}:{large}"), Version = i }, cancellationToken);
 
         var eligibility = owner.GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(OwnerId);
         var slot = SlotOf(owner, "node-c");
@@ -146,10 +146,10 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
             Bound,
             cancellationToken);
 
-        var follower = cluster["node-c"].GetRequiredService<PhysicalCache<object?>>();
+        var follower = cluster["node-c"].GetRequiredService<PhysicalCache<StoredValue>>();
         var expected = $"{Writes}:{large}";
         await (Cache: follower, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
-            static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal)),
+            static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is { Kind: StoredValue.ValueKind.Text } text && string.Equals(System.Text.Encoding.UTF8.GetString(text.Bytes), state.Expected, StringComparison.Ordinal)),
             Bound,
             cancellationToken);
         var held = follower.GetValue(new CacheKey(CacheName, key), cancellationToken);
@@ -157,7 +157,7 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         _ = await Assert.That(readyBefore).IsEqualTo(ReplicaParticipantState.Ready);
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
         _ = await Assert.That(stateAfter).IsNotEqualTo(ReplicaParticipantState.Ready);
-        _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");
+        _ = await Assert.That(StoredValueProbe.Text(held.Value)).IsEqualTo($"{Writes}:{large}");
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) => new()

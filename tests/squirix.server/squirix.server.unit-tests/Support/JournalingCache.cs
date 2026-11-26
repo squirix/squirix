@@ -11,7 +11,7 @@ namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Local cache double that journals every replicated write through the real journal coordinator, as the local write chain does.</summary>
 [ThreadSafe]
-internal sealed class JournalingCache : ILogicalNamespacedCache<object?>
+internal sealed class JournalingCache : ILogicalNamespacedCache<StoredValue>
 {
     private readonly IJournalCoordinator _journal;
 
@@ -20,26 +20,26 @@ internal sealed class JournalingCache : ILogicalNamespacedCache<object?>
         _journal = journal;
     }
 
-    public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
+    public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<StoredValue>?>(null);
 
-    public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
+    public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(new NodeCacheValueResult<StoredValue>(false, default));
 
     public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         ValueTask.FromResult(false);
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
         _journal.AppendPutUnderGateAsync(new CacheKey(cacheName, key), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-    public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
     {
         await _journal.AppendPutUnderGateAsync(new CacheKey(cacheName, key), JournalEntryPayloadKit.EncodePut("v"), cancellationToken).ConfigureAwait(false);
         return true;
     }
 
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 }

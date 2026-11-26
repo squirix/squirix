@@ -81,10 +81,10 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
         await using var committers = ElectedSet(registry, new ScriptedGateway());
         var inner = new StubCache();
-        await inner.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, DateTime.UtcNow.AddMinutes(-1)), cancellationToken);
+        await inner.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, DateTime.UtcNow.AddMinutes(-1)), cancellationToken);
         var cache = new ReplicatedCache(inner, committers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
     }

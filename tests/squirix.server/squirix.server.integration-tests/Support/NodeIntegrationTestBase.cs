@@ -246,7 +246,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// A new <see cref="NodeCacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
     /// <paramref name="version" />, and <paramref name="tags" />; <c language="csharp">Expiration</c> is set to <see langword="null" />.
     /// </returns>
-    private protected static NodeCacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
+    private protected static NodeCacheEntry<StoredValue> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
         var v = value switch
         {
@@ -255,14 +255,14 @@ public abstract class NodeIntegrationTestBase : IDisposable
             _ => value,
         };
 
-        return new NodeCacheEntry<object?>(v, version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
+        return new NodeCacheEntry<StoredValue>(StoredValue.FromDecoded(v), version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
     /// <summary>Resolves the cluster-aware cache API client from the test node’s dependency injection container.</summary>
     /// <param name="host">The started test node host providing access to the service provider.</param>
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.</exception>
-    private protected static ILogicalNamespacedCache<object?> GetCache(ITestNodeHost host) => host.GetCache<object?>("default");
+    private protected static ILogicalNamespacedCache<StoredValue> GetCache(ITestNodeHost host) => host.GetCache<StoredValue>("default");
 
     /// <summary>Starts one node per topology entry with a shared peer set.</summary>
     /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>

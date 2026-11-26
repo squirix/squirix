@@ -14,7 +14,7 @@ internal static partial class CacheEntryCodec
     private const int MaxUtf16StringLength = ushort.MaxValue;
     private const byte True = 1;
 
-    internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry) =>
+    internal static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) =>
         ComputeEncodedLength(entry.ExpiresUtc, entry.Expiration, entry.Tags, CacheEntryValueEncoding.ComputeLength(entry.RawValue));
 
     /// <summary>Computes the encoded length of an entry whose value is already measured.</summary>
@@ -106,7 +106,7 @@ internal static partial class CacheEntryCodec
         return true;
     }
 
-    internal static void Write(NodeCacheEntry<object?> entry, Span<byte> destination)
+    internal static void Write<T>(NodeCacheEntry<T> entry, Span<byte> destination)
     {
         if (destination.Length < ComputeEncodedLength(entry))
             throw new ArgumentException("Destination span is too small for the encoded cache entry.", nameof(destination));
@@ -115,10 +115,11 @@ internal static partial class CacheEntryCodec
     }
 
     /// <summary>Writes an entry into a destination the caller already sized with <c language="csharp">ComputeEncodedLength</c>, without measuring the value again.</summary>
+    /// <typeparam name="T">The entry value type.</typeparam>
     /// <param name="entry">The entry to write.</param>
     /// <param name="destination">The destination, at least the measured encoded length.</param>
     /// <returns>The number of bytes written.</returns>
-    internal static int WriteMeasured(NodeCacheEntry<object?> entry, Span<byte> destination)
+    internal static int WriteMeasured<T>(NodeCacheEntry<T> entry, Span<byte> destination)
     {
         var offset = WriteHeader(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, destination);
         return offset + CacheEntryValueEncoding.WriteInternal(entry.RawValue, destination[offset..]);

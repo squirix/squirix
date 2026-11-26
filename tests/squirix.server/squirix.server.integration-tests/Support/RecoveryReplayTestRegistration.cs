@@ -67,9 +67,9 @@ internal static class RecoveryReplayTestRegistration
             // Delayed replay must never block host StartAsync; otherwise the test cannot Release().
             ReplaceSingleton(services, new RecoveryOptions { BlockOnStart = false });
             _ = services.AddSingleton(_signal);
-            ReplaceSingleton<ILocalCacheRecovery<object?>>(
+            ReplaceSingleton<ILocalCacheRecovery<StoredValue>>(
                 services,
-                static sp => new DelayedLocalCacheRecoveryDecorator<object?>(sp.GetRequiredService<PhysicalCache<object?>>(), sp.GetRequiredService<RecoveryReplayDelaySignal>()));
+                static sp => new DelayedLocalCacheRecoveryDecorator<StoredValue>(sp.GetRequiredService<PhysicalCache<StoredValue>>(), sp.GetRequiredService<RecoveryReplayDelaySignal>()));
         }
 
         private static void ReplaceSingleton<TService>(TestServiceCollection services, Func<IServiceProvider, TService> factory)

@@ -7,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
@@ -39,8 +40,8 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         await using (var firstRegistry = await OpenRegistryAsync(dir, cancellationToken))
         await using (var first = new Owner(firstRegistry, clock))
         {
-            await first.Committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("a", 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
-            var added = await first.Committer.CommitTryAddAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("b"), cancellationToken);
+            await first.Committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("a"), 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
+            var added = await first.Committer.CommitTryAddAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("b")), cancellationToken);
             _ = await Assert.That(added).IsFalse();
         }
 
@@ -49,7 +50,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         await using var restarted = new Owner(restartedRegistry, clock);
         _ = await restarted.Committer.VerifyReplicasAsync(cancellationToken);
 
-        _ = await Assert.That(restarted.Raw(cancellationToken)?.Value).IsEqualTo("a");
+        _ = await Assert.That(StoredValueProbe.Text(restarted.Raw(cancellationToken)?.Value)).IsEqualTo("a");
         await restarted.Committer.FlushAppliedAsync(Durable(), cancellationToken);
         var status = await StatusAsync(restartedRegistry, cancellationToken);
         _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((2UL, 2UL));
@@ -64,7 +65,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var clock = new FakeTimeProvider();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var owner = new Owner(registry, clock);
-        await owner.SeedAsync(new NodeCacheEntry<object?>("a", 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
+        await owner.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("a"), 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
         owner.ExpireOnNextAppend(Wait);
         var id = NewOperationId();
 
@@ -73,7 +74,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var retried = await owner.Committer.CommitRemoveExpirationAsync(id, CacheName, Key, cancellationToken);
 
         _ = await Assert.That((cleared, retried)).IsEqualTo((true, true));
-        _ = await Assert.That(raw?.Value).IsEqualTo("a");
+        _ = await Assert.That(StoredValueProbe.Text(raw?.Value)).IsEqualTo("a");
         _ = await Assert.That(raw?.ExpiresUtc).IsNull();
     }
 
@@ -86,7 +87,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var clock = new FakeTimeProvider();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var owner = new Owner(registry, clock);
-        await owner.SeedAsync(new NodeCacheEntry<object?>("a", 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
+        await owner.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("a"), 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
         var decided = clock.GetUtcNow().UtcDateTime.Add(Ttl * 10);
         owner.ExpireOnNextAppend(Wait);
         var id = NewOperationId();
@@ -96,7 +97,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var retried = await owner.Committer.CommitTouchAsync(id, CacheName, Key, Ttl * 10, cancellationToken);
 
         _ = await Assert.That((touched, retried)).IsEqualTo((true, true));
-        _ = await Assert.That(raw?.Value).IsEqualTo("a");
+        _ = await Assert.That(StoredValueProbe.Text(raw?.Value)).IsEqualTo("a");
         _ = await Assert.That(raw?.ExpiresUtc).IsEqualTo(decided);
     }
 
@@ -109,16 +110,16 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var clock = new FakeTimeProvider();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var owner = new Owner(registry, clock);
-        await owner.SeedAsync(new NodeCacheEntry<object?>("a", 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
+        await owner.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("a"), 1, clock.GetUtcNow().UtcDateTime.Add(Ttl)), cancellationToken);
         owner.ExpireOnNextAppend(Wait);
         var id = NewOperationId();
 
-        var added = await owner.Committer.CommitTryAddAsync(id, CacheName, Key, new NodeCacheEntry<object?>("b"), cancellationToken);
+        var added = await owner.Committer.CommitTryAddAsync(id, CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("b")), cancellationToken);
         var raw = owner.Raw(cancellationToken);
-        var retried = await owner.Committer.CommitTryAddAsync(id, CacheName, Key, new NodeCacheEntry<object?>("b"), cancellationToken);
+        var retried = await owner.Committer.CommitTryAddAsync(id, CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("b")), cancellationToken);
 
         _ = await Assert.That((added, retried)).IsEqualTo((false, false));
-        _ = await Assert.That(raw?.Value).IsEqualTo("a");
+        _ = await Assert.That(StoredValueProbe.Text(raw?.Value)).IsEqualTo("a");
     }
 
     /// <summary>An update that finds its key expired before the apply reports true, writes the new value under the decided deadline, and reports true again on a retry.</summary>
@@ -131,16 +132,16 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var owner = new Owner(registry, clock);
         var deadline = clock.GetUtcNow().UtcDateTime.Add(Ttl);
-        await owner.SeedAsync(new NodeCacheEntry<object?>("a", 1, deadline), cancellationToken);
+        await owner.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("a"), 1, deadline), cancellationToken);
         owner.ExpireOnNextAppend(Wait);
         var id = NewOperationId();
 
-        var updated = await owner.Committer.CommitUpdateAsync(id, CacheName, Key, "b", cancellationToken);
+        var updated = await owner.Committer.CommitUpdateAsync(id, CacheName, Key, StoredValue.FromText("b"), cancellationToken);
         var raw = owner.Raw(cancellationToken);
-        var retried = await owner.Committer.CommitUpdateAsync(id, CacheName, Key, "b", cancellationToken);
+        var retried = await owner.Committer.CommitUpdateAsync(id, CacheName, Key, StoredValue.FromText("b"), cancellationToken);
 
         _ = await Assert.That((updated, retried)).IsEqualTo((true, true));
-        _ = await Assert.That(raw?.Value).IsEqualTo("b");
+        _ = await Assert.That(StoredValueProbe.Text(raw?.Value)).IsEqualTo("b");
         _ = await Assert.That(raw?.ExpiresUtc).IsEqualTo(deadline);
     }
 
@@ -156,13 +157,13 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
     {
         private readonly FakeTimeProvider _clock;
         private readonly ScriptedGateway _gateway = new();
-        private readonly PhysicalCache<object?> _physical;
+        private readonly PhysicalCache<StoredValue> _physical;
 
         internal Owner(ReplicaGroupRegistry registry, FakeTimeProvider clock)
         {
             _clock = clock;
-            _physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-            Committer = CreateCommitter(registry, _gateway, new ClientCache<object?>(_physical, _physical), clock);
+            _physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+            Committer = CreateCommitter(registry, _gateway, new ClientCache<StoredValue>(_physical, _physical), clock);
         }
 
         internal ReplicaGroupCommitter Committer { get; }
@@ -181,8 +182,8 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
             };
         }
 
-        internal NodeCacheEntry<object?>? Raw(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
+        internal NodeCacheEntry<StoredValue>? Raw(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
 
-        internal Task SeedAsync(NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => Committer.CommitSetAsync(NewOperationId(), CacheName, Key, entry, cancellationToken);
+        internal Task SeedAsync(NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) => Committer.CommitSetAsync(NewOperationId(), CacheName, Key, entry, cancellationToken);
     }
 }

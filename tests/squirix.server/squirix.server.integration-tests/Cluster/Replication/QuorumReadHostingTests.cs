@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -28,7 +29,7 @@ public sealed class QuorumReadHostingTests : NodeIntegrationTestBase
             cancellationToken);
         var nodeA = cluster["nodeA"];
 
-        var cache = nodeA.GetCache<object?>("quorum-read");
+        var cache = nodeA.GetCache<StoredValue>("quorum-read");
         var key = nodeA.FindKeyOwnedBy("quorum-read", "nodeA");
 
         // The seed write races leader election: under parallel CI load the fixed commit budget can
@@ -40,7 +41,7 @@ public sealed class QuorumReadHostingTests : NodeIntegrationTestBase
         // fresh identity would collide with it. The read assertions below still verify the test's contract, and a stall
         // past the bound fails loudly instead of hanging.
         var seedOperationId = Guid.NewGuid().ToString();
-        var seedEntry = new NodeCacheEntry<object?> { Value = "v" };
+        var seedEntry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") };
         using var seedBound = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var seedLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, seedBound.Token);
         while (true)
@@ -69,7 +70,7 @@ public sealed class QuorumReadHostingTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("nodeB");
         var loneRead = await cache.GetValueAsync("quorum-read", key, cancellationToken);
         _ = await Assert.That(loneRead.Found).IsTrue();
-        var loneValue = await Assert.That(loneRead.Value).IsTypeOf<string>();
+        var loneValue = StoredValueProbe.Text(loneRead.Value);
         _ = await Assert.That(loneValue).IsEqualTo("v");
     }
 }

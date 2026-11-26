@@ -6,7 +6,7 @@ namespace Squirix.Server.Core;
 /// <summary>A value read that also carries the deadline of the stored entry, for a caller that judges expiry itself without the whole entry.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 /// <remarks>
-/// The hit flag and the deadline share one field, so the read is 16 bytes: the value and the state. A read through the awaits of the cache
+/// The hit flag and the deadline share one field, so the read contains only the value and the state. For reference values, a 16-byte read through the awaits of the cache
 /// layers measured about 15 ns faster at this size than as a 32-byte struct with a separate flag and nullable deadline. The default value is a miss.
 /// </remarks>
 [Immutable]

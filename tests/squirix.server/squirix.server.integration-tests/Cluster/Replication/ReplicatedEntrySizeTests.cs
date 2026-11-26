@@ -6,6 +6,7 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Binary;
@@ -65,7 +66,7 @@ public sealed class ReplicatedEntrySizeTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, Owner, [(Follower, follower)], cancellationToken);
         await AwaitFollowerApplyAsync(follower, committed, cancellationToken);
         var copy = await follower.GetRequiredService<OwnerLocalCache>().Value.GetEntryAsync(CacheName, key, cancellationToken);
-        var bytes = (await Assert.That(copy?.Value).IsTypeOf<byte[]>())!;
+        var bytes = StoredValueProbe.Binary(copy?.Value);
         _ = await Assert.That(bytes.AsSpan().SequenceEqual(data)).IsTrue();
     }
 

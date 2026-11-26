@@ -2,6 +2,7 @@ using System;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Composition;
+using Squirix.Server.Core;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -17,7 +18,7 @@ internal static class FrameworkServiceRegistration
             sp.Require<IBackpressureGate>(),
             sp.Require<IBackpressureClientIdResolver>()));
         _ = services.Own(static sp => new BinaryDispatch(
-            sp.Require<RoutedCacheOperations<object?>>(),
+            sp.Require<RoutedCacheOperations<StoredValue>>(),
             sp.Require<CacheRequestAdmission>(),
             sp.Require<ServerCallCorrelation>(),
             sp.Require<IRemoteInvocationScopeFactory>(),

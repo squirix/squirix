@@ -122,10 +122,10 @@ internal static class ReplicaGroupCommitterCommits
         /// <param name="keys">Target caches and keys, at most <see cref="MaxExpiriesPerCommit" />.</param>
         /// <returns>One pair per key, in order: the live entry, or the failure of that key's tombstone; both <see langword="null" /> once the tombstone is committed or when the key is absent.</returns>
         /// <exception cref="SquirixException">The chunk was refused as a whole.</exception>
-        internal async Task<(NodeCacheEntry<object?>? Entry, Exception? Failure)[]> CommitExpiryChunkAsync(IReadOnlyList<(string CacheName, string Key)> keys)
+        internal async Task<(NodeCacheEntry<StoredValue>? Entry, Exception? Failure)[]> CommitExpiryChunkAsync(IReadOnlyList<(string CacheName, string Key)> keys)
         {
             var results = await committer.CommitExpiriesAsync(keys).ConfigureAwait(false);
-            var mapped = new (NodeCacheEntry<object?>? Entry, Exception? Failure)[results.Length];
+            var mapped = new (NodeCacheEntry<StoredValue>? Entry, Exception? Failure)[results.Length];
             for (var i = 0; i < results.Length; i++)
                 mapped[i] = (results[i].Entry, results[i].Failure);
 
@@ -297,7 +297,7 @@ internal static class ReplicaGroupCommitterCommits
                 }
 
                 PreparedReplicaMutation? tombstone;
-                NodeCacheEntry<object?>? current;
+                NodeCacheEntry<StoredValue>? current;
                 try
                 {
                     (tombstone, current) = await factory.PrepareExpireAsync(keys[i].CacheName, keys[i].Key, firstIndex + ulong.CreateChecked(batch.Run.Count), cancellationToken).ConfigureAwait(false);

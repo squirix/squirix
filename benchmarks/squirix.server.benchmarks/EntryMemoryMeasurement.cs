@@ -54,12 +54,12 @@ internal static class EntryMemoryMeasurement
         for (var i = 0; i < entries; i++)
             keys[i] = CacheKey.Default("k" + i.ToString("D7", CultureInfo.InvariantCulture));
 
-        object value = "v";
+        var value = StoredValue.FromText("v");
         var before = HeapAfterFullCollection();
-        var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
         for (var i = 0; i < entries; i++)
         {
-            var entry = withDeadline ? new NodeCacheEntry<object?>(value, 1, null, Ttl) : new NodeCacheEntry<object?>(value);
+            var entry = withDeadline ? new NodeCacheEntry<StoredValue>(value, 1, null, Ttl) : new NodeCacheEntry<StoredValue>(value);
             cache.Set(keys[i], entry, CancellationToken.None);
         }
 

@@ -9,4 +9,4 @@ namespace Squirix.Server.Node.Services;
 /// <param name="Key">The key.</param>
 /// <param name="Entry">The stored entry; <see cref="NodeCacheEntry{T}.ExpiresUtc" /> is its absolute deadline.</param>
 [Immutable]
-internal readonly record struct ReplicaGroupEntry(string GroupId, string CacheName, string Key, NodeCacheEntry<object?> Entry);
+internal readonly record struct ReplicaGroupEntry(string GroupId, string CacheName, string Key, NodeCacheEntry<StoredValue> Entry);

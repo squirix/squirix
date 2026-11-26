@@ -59,7 +59,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
             for (var i = 0; i < Writes; i++)
             {
                 var entry = await LocalChain(host).GetEntryAsync(CacheName, keys[i], cancellationToken);
-                _ = await Assert.That(entry?.Value).IsEqualTo(Value(i + 1)).Because($"{follower} must hold the committed write {i + 1} in memory.");
+                _ = await Assert.That(StoredValueProbe.Text(entry?.Value)).IsEqualTo(Value(i + 1)).Because($"{follower} must hold the committed write {i + 1} in memory.");
             }
         }
     }
@@ -92,7 +92,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         for (var i = 0; i < Writes; i++)
         {
             var entry = await LocalChain(restarted).GetEntryAsync(CacheName, keys[i], cancellationToken);
-            _ = await Assert.That(entry?.Value).IsEqualTo(Value(i + 1));
+            _ = await Assert.That(StoredValueProbe.Text(entry?.Value)).IsEqualTo(Value(i + 1));
         }
     }
 
@@ -159,7 +159,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
     /// <summary>Resolves the node's local cache chain below replication, which the group appliers write to.</summary>
     /// <param name="host">The node.</param>
     /// <returns>The local cache chain.</returns>
-    private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
+    private static ILogicalNamespacedCache<StoredValue> LocalChain(ITestNodeHost host) =>
         host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     /// <summary>Writes distinct keys owned by node-a, one entry each.</summary>
@@ -169,10 +169,10 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
     private static async Task<(ulong First, string[] Keys)> WriteAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
         var first = (await GroupLog(owner).GetStatusAsync(cancellationToken)).LastLogIndex + 1;
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var keys = OwnedKeys(owner);
         for (var i = 0; i < Writes; i++)
-            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[i], new NodeCacheEntry<object?> { Value = Value(i + 1), Version = i + 1 }, cancellationToken);
+            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[i], new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(Value(i + 1)), Version = i + 1 }, cancellationToken);
 
         return (first, keys);
     }

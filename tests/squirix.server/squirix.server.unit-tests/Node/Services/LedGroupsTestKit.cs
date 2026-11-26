@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
@@ -40,7 +41,7 @@ internal static class LedGroupsTestKit
         ReplicaGroupRegistry registry,
         string groupId,
         IReplicaRpcGateway gateway,
-        ILogicalNamespacedCache<object?> cache,
+        ILogicalNamespacedCache<StoredValue> cache,
         TimeProvider clock,
         (TimeProvider BudgetClock, IJournalCoordinatorLifecycle? Recovery) seams,
         ReplicaGroupApplier? applier = null) =>
@@ -64,7 +65,7 @@ internal static class LedGroupsTestKit
         ReplicaGroupRegistry registry,
         string groupId,
         IReplicaRpcGateway gateway,
-        ILogicalNamespacedCache<object?> cache,
+        ILogicalNamespacedCache<StoredValue> cache,
         TimeSpan compactionWait) =>
         new(registry, new RotatingLocator(), gateway, cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
@@ -87,7 +88,7 @@ internal static class LedGroupsTestKit
         ReplicaGroupRegistry registry,
         string groupId,
         IReplicaRpcGateway gateway,
-        ILogicalNamespacedCache<object?> cache,
+        ILogicalNamespacedCache<StoredValue> cache,
         ReplicaGroupApplier applier) =>
         CreateElectedBudgetCommitter(registry, groupId, gateway, (cache, applier), TimeProvider.System);
 
@@ -102,7 +103,7 @@ internal static class LedGroupsTestKit
         ReplicaGroupRegistry registry,
         string groupId,
         IReplicaRpcGateway gateway,
-        (ILogicalNamespacedCache<object?> Cache, ReplicaGroupApplier Applier) local,
+        (ILogicalNamespacedCache<StoredValue> Cache, ReplicaGroupApplier Applier) local,
         TimeProvider budgetClock) =>
         CreateElectedBudgetCommitter(registry, groupId, gateway, local, budgetClock, NullLogger<ReplicaGroupCommitter>.Instance);
 
@@ -118,7 +119,7 @@ internal static class LedGroupsTestKit
         ReplicaGroupRegistry registry,
         string groupId,
         IReplicaRpcGateway gateway,
-        (ILogicalNamespacedCache<object?> Cache, ReplicaGroupApplier Applier) local,
+        (ILogicalNamespacedCache<StoredValue> Cache, ReplicaGroupApplier Applier) local,
         TimeProvider budgetClock,
         IServerLogger<ReplicaGroupCommitter> log) =>
         new(registry, new RotatingLocator(), gateway, local.Cache, (groupId, "n1"), new ReplicaTopologyStamp(ReplicaOwnerTestKit.Fingerprint, 1), log)
@@ -169,7 +170,7 @@ internal static class LedGroupsTestKit
     internal static ReplicaGroupCommitters LeadTwo(
         ReplicaGroupRegistry registry,
         (IReplicaRpcGateway OfN1, IReplicaRpcGateway OfN2) gateways,
-        ILogicalNamespacedCache<object?> cache,
+        ILogicalNamespacedCache<StoredValue> cache,
         TimeProvider clock,
         ReplicaGroupAppliers? appliers = null)
     {

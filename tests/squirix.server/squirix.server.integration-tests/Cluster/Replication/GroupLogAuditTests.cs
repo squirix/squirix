@@ -156,18 +156,18 @@ public sealed class GroupLogAuditTests : NodeIntegrationTestBase
     private static async Task VerifyCopiesAsync(TestCluster<IntegrationStartOptions> cluster, string[] nodes, string leader, string[] keys, string newest, CancellationToken token)
     {
         var index = cluster[leader].GetRequiredService<ReplicaGroupAppliers>().For(Group).AppliedIndex;
-        var expected = cluster[leader].GetRequiredService<PhysicalCache<object?>>().RawReader;
+        var expected = cluster[leader].GetRequiredService<PhysicalCache<StoredValue>>().RawReader;
         foreach (var id in nodes)
         {
             var host = cluster[id];
             await host.GetRequiredService<ReplicaGroupAppliers>().For(Group).WaitAppliedAsync(index, token).WaitAsync(Bound, TimeProvider.System, token);
-            var physical = host.GetRequiredService<PhysicalCache<object?>>();
+            var physical = host.GetRequiredService<PhysicalCache<StoredValue>>();
             _ = await Assert.That(host.GetRequiredService<ILocalCacheStats>().EntryCount).IsEqualTo(2);
             _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(Scope, newest), token)).IsNotNull();
             foreach (var key in keys)
             {
                 var target = new CacheKey(Scope, key);
-                _ = await Assert.That(physical.RawReader.GetEntryRaw(target, token)?.Value).IsEqualTo(expected.GetEntryRaw(target, token)?.Value);
+                _ = await Assert.That(StoredValueProbe.Text(physical.RawReader.GetEntryRaw(target, token)?.Value)).IsEqualTo(StoredValueProbe.Text(expected.GetEntryRaw(target, token)?.Value));
             }
         }
     }
@@ -187,7 +187,7 @@ public sealed class GroupLogAuditTests : NodeIntegrationTestBase
             {
                 try
                 {
-                    await write.Committers.ForKey(Scope, write.Key).CommitSetAsync(write.OperationId, Scope, write.Key, new NodeCacheEntry<object?> { Value = write.Value }, token);
+                    await write.Committers.ForKey(Scope, write.Key).CommitSetAsync(write.OperationId, Scope, write.Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(write.Value) }, token);
                     return true;
                 }
                 catch (ServerCallException exception) when (exception.StatusCode is FrameStatus.Unavailable or FrameStatus.ResourceExhausted)

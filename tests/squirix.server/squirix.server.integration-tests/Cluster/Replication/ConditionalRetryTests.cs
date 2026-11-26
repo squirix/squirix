@@ -5,6 +5,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -67,23 +68,23 @@ public sealed class ConditionalRetryTests : NodeIntegrationTestBase
         var stored = await cache.GetValueAsync(CacheName, key, cancellationToken);
 
         _ = await Assert.That(stored.Found).IsTrue();
-        _ = await Assert.That(stored.Value).IsEqualTo("value");
+        _ = await Assert.That(StoredValueProbe.Text(stored.Value)).IsEqualTo("value");
     }
 
     private static IntegrationStartOptions Options(string scope) => new() { ReplicaCount = 3, UsePersistence = true, CleanTestDir = true, ExtraScope = scope };
 
-    private static NodeCacheEntry<object?> Entry(string value) => new() { Value = value, Version = 1 };
+    private static NodeCacheEntry<StoredValue> Entry(string value) => new() { Value = StoredValue.FromText(value), Version = 1 };
 
     /// <summary>Returns node-a's cache pipeline and a key node-a owns, once node-a's replica slots are verified.</summary>
     /// <param name="cluster">The running RF=3 cluster.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The pipeline and the key.</returns>
-    private static async Task<(ILogicalNamespacedCache<object?> Cache, string Key)> OwnedCacheAsync(
+    private static async Task<(ILogicalNamespacedCache<StoredValue> Cache, string Key)> OwnedCacheAsync(
         TestCluster<IntegrationStartOptions> cluster,
         CancellationToken cancellationToken)
     {
         var owner = cluster["node-a"];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
-        return (owner.GetCache<object?>(CacheName), owner.FindKeyOwnedBy(CacheName, "node-a"));
+        return (owner.GetCache<StoredValue>(CacheName), owner.FindKeyOwnedBy(CacheName, "node-a"));
     }
 }

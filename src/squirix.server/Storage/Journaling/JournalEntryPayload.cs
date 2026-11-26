@@ -117,6 +117,7 @@ internal static class JournalEntryPayload
     }
 
     /// <summary>Decodes a payload whose absolute deadline travels apart from it and reports the journal-encoded length of the entry that results.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="source">The payload; any deadline it holds is replaced.</param>
     /// <param name="expiresUtcTicks">The absolute deadline in UTC ticks, or zero for none.</param>
     /// <param name="entry">The decoded entry carrying <paramref name="expiresUtcTicks" /> and no relative expiration.</param>
@@ -125,17 +126,17 @@ internal static class JournalEntryPayload
     /// bytes past the entry and the length is not derived. Encoding treats it as a hint and measures when the entry does not fit it.
     /// </param>
     /// <returns><see langword="true" /> when the payload decodes.</returns>
-    internal static bool TryDecodeWithDeadline(ReadOnlySpan<byte> source, long expiresUtcTicks, out NodeCacheEntry<object?>? entry, out int? encodedLength)
+    internal static bool TryDecodeWithDeadline<T>(ReadOnlySpan<byte> source, long expiresUtcTicks, out NodeCacheEntry<T>? entry, out int? encodedLength)
     {
         entry = null;
         encodedLength = null;
-        if (!TryDecode<object?>(source, out var decoded, out var bytesRead) || decoded == null)
+        if (!TryDecode<T>(source, out var decoded, out var bytesRead) || decoded == null)
             return false;
 
         DateTime? expiresUtc = expiresUtcTicks == 0 ? null : new DateTime(expiresUtcTicks, DateTimeKind.Utc);
         entry = decoded.ExpiresUtc == expiresUtc && decoded.Expiration == null
             ? decoded
-            : new NodeCacheEntry<object?>(decoded.RawValue, decoded.Version, expiresUtc, null, decoded.Tags);
+            : new NodeCacheEntry<T>(decoded.RawValue, decoded.Version, expiresUtc, null, decoded.Tags);
         if (bytesRead != source.Length)
             return true;
 

@@ -53,8 +53,8 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
         await ApplyThroughJournalAsync(persistence, clock, records, cancellationToken);
         var recovered = await RecoverAsync(persistence, clock, cancellationToken);
-        var direct = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var directCache = new ClientCache<object?>(direct, direct);
+        var direct = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        var directCache = new ClientCache<StoredValue>(direct, direct);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(directCache, in record, cancellationToken);
 
@@ -62,7 +62,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         var actual = recovered.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(expected).IsNotNull();
         _ = await Assert.That(actual).IsNotNull();
-        _ = await Assert.That(actual!.Value).IsEqualTo(expected!.Value);
+        _ = await Assert.That(StoredValueProbe.Text(actual!.Value)).IsEqualTo(StoredValueProbe.Text(expected!.Value));
         _ = await Assert.That(actual.ExpiresUtc).IsEqualTo(expected.ExpiresUtc);
         _ = await Assert.That(actual.Version).IsEqualTo(expected.Version);
         _ = await Assert.That(actual.Tags?["t"]).IsEqualTo(expected.Tags?["t"]);
@@ -87,9 +87,9 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             NullLoggerFactory.Instance,
             clock,
             out _);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var cache = new JournalLoggingCacheDecorator<object?>(
-            new ClientCache<object?>(physical, physical),
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        var cache = new JournalLoggingCacheDecorator<StoredValue>(
+            new ClientCache<StoredValue>(physical, physical),
             journal,
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
             clock,
@@ -98,7 +98,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }
 
-    private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
+    private static async Task LeaderAppliesAsync(ClientCache<StoredValue> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
     {
         var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
@@ -107,29 +107,29 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private static async Task<List<ReplicaLogRecord>> PrepareRecordsAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
     {
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var cache = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        var cache = new ClientCache<StoredValue>(physical, physical);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
         var records = new List<ReplicaLogRecord>();
-        await LeaderAppliesAsync(cache, records, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 3, null, TimeSpan.FromMinutes(10), tags), 1UL), cancellationToken);
+        await LeaderAppliesAsync(cache, records, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 3, null, TimeSpan.FromMinutes(10), tags), 1UL), cancellationToken);
         await LeaderAppliesAsync(cache, records, await factory.PrepareTouchAsync("op-2", CacheName, Key, TimeSpan.FromMinutes(20), 2UL, cancellationToken), cancellationToken);
-        await LeaderAppliesAsync(cache, records, await factory.PrepareUpdateAsync("op-3", CacheName, Key, "v2", 3UL, cancellationToken), cancellationToken);
+        await LeaderAppliesAsync(cache, records, await factory.PrepareUpdateAsync("op-3", CacheName, Key, StoredValue.FromText("v2"), 3UL, cancellationToken), cancellationToken);
         return records;
     }
 
-    private static async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
+    private static async Task<PhysicalCache<StoredValue>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
     {
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
-        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var dependencies = new RecoveryDependencies<object?>(
+        var cache = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        var dependencies = new RecoveryDependencies<StoredValue>(
             persistence,
             manifestStore,
             cache,
             new AsyncManualResetEvent(true),
             StoreFactory.CreateReader(),
             clock);
-        await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
+        await new RecoveryService<StoredValue>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<StoredValue>>.Instance, dependencies).StartAsync(cancellationToken);
         return cache;
     }
 }

@@ -40,11 +40,11 @@ public sealed class SnapshotCriticalPressureTests : NodeIntegrationTestBase
         var coordinator = node.GetRequiredService<Coordinator>();
         var ledger = node.GetRequiredService<Ledger>();
         var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
-        var cache = node.GetCache<object?>(CacheName);
+        var cache = node.GetCache<StoredValue>(CacheName);
 
         // An entry that bypasses admission, as a recovered one does, leaves the node critical; the same-size overwrite does not grow it.
-        node.GetRequiredService<PhysicalCache<object?>>().Set(new CacheKey(CacheName, "k"), new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
+        node.GetRequiredService<PhysicalCache<StoredValue>>().Set(new CacheKey(CacheName, "k"), new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v2"), Version = 1 }, cancellationToken);
         await SnapshotPublicationWait.WaitAsync(ledger, coordinator, previousIndex, SnapshotTimeout, cancellationToken);
 
         _ = await Assert.That(node.GetRequiredService<ICriticalMemoryPressureReader>().IsCritical()).IsTrue();

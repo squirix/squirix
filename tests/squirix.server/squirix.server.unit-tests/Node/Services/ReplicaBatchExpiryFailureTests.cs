@@ -46,7 +46,7 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, options, cancellationToken);
         await using var leader = new Leader(registry, new ScriptedGateway(), clock);
         await SeedExpiredAsync(leader, clock, ["a", "b"], cancellationToken);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
 
         hooks.StallNextMetaWrite();
@@ -80,7 +80,7 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, options, cancellationToken);
         await using var leader = new Leader(registry, new ScriptedGateway(), budgetClock, true);
         await SeedExpiredAsync(leader, budgetClock, ["a", "b"], cancellationToken);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var log = Log(registry);
         var before = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
 
@@ -163,11 +163,11 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-batch-expiry-faulting");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var failure = new InvalidOperationException("The read of the key failed.");
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new FaultingReadCache(new ClientCache<object?>(physical, physical), "bad", failure), clock);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new FaultingReadCache(new ClientCache<StoredValue>(physical, physical), "bad", failure), clock);
         foreach (var key in new[] { "a", "b" })
-            await committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>(key, 1, null, Ttl), cancellationToken);
+            await committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText(key), 1, null, Ttl), cancellationToken);
 
         clock.Advance(Ttl);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
@@ -194,7 +194,7 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
     /// <exception cref="InvalidOperationException">The key holds no entry.</exception>
     private static async Task PinExpiryAsync(Leader leader, ReplicaGroupRegistry registry, string key, CancellationToken cancellationToken)
     {
-        var entry = leader.Raw(key, cancellationToken) ?? ThrowHelper.Throw<NodeCacheEntry<object?>>(new InvalidOperationException("The key must hold an entry."));
+        var entry = leader.Raw(key, cancellationToken) ?? ThrowHelper.Throw<NodeCacheEntry<StoredValue>>(new InvalidOperationException("The key must hold an entry."));
         var ticks = Math.Max(1L, entry.ExpiresUtc.GetValueOrDefault().Ticks);
         var operationId = ReplicaExpirationOperationId.Create(leader.Committer.GroupId, CacheName, key, entry.Version, new DateTime(ticks, DateTimeKind.Utc));
         var reserved = Log(registry).Idempotency.Reserve(
@@ -209,23 +209,23 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
     }
 
     /// <summary>Local cache that delegates to another and throws a fixed failure when one key is read.</summary>
-    private sealed class FaultingReadCache : ILogicalNamespacedCache<object?>
+    private sealed class FaultingReadCache : ILogicalNamespacedCache<StoredValue>
     {
         private readonly Exception _failure;
-        private readonly ILogicalNamespacedCache<object?> _inner;
+        private readonly ILogicalNamespacedCache<StoredValue> _inner;
         private readonly string _key;
 
-        internal FaultingReadCache(ILogicalNamespacedCache<object?> inner, string key, Exception failure)
+        internal FaultingReadCache(ILogicalNamespacedCache<StoredValue> inner, string key, Exception failure)
         {
             _inner = inner;
             _key = key;
             _failure = failure;
         }
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             string.Equals(key, _key, StringComparison.Ordinal) ? throw _failure : _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetValueAsync(cacheName, key, cancellationToken);
 
         public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
@@ -234,16 +234,16 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
             _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) =>
             _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
 }

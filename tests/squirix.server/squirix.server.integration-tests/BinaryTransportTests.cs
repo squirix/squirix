@@ -216,9 +216,9 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             _ = await Assert.That(manifest.LastSnapshot != null).IsEqualTo(withSnapshot);
             if (manifest.LastSnapshot is { } published)
             {
-                var loaded = await node.GetRequiredService<ISnapshotReader>().LoadStrictAsync<object?>(SnapshotFileName.BuildPath(node.DataDir, published.Index), null, cancellationToken);
+                var loaded = await node.GetRequiredService<ISnapshotReader>().LoadStrictAsync<StoredValue>(SnapshotFileName.BuildPath(node.DataDir, published.Index), null, cancellationToken);
                 _ = await Assert.That(loaded.Entries.Count).IsEqualTo(1);
-                var bytes = (await Assert.That(loaded.Entries[0].Entry.Value).IsTypeOf<byte[]>())!;
+                var bytes = StoredValueProbe.Binary(loaded.Entries[0].Entry.Value);
                 _ = await Assert.That(bytes.AsSpan().SequenceEqual(expected)).IsTrue();
             }
         }
@@ -269,17 +269,17 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         _ = await client.SetEntryAsync(Request(key, expected), cancellationToken: cancellationToken);
         foreach (var id in WipedCluster.Nodes)
         {
-            var local = cluster[id].GetRequiredService<PhysicalCache<object?>>();
+            var local = cluster[id].GetRequiredService<PhysicalCache<StoredValue>>();
             await (Cache: local, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
-                static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is byte[] bytes && bytes.AsSpan().SequenceEqual(state.Expected)),
+                static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is { Kind: StoredValue.ValueKind.Binary } binary && binary.Bytes.AsSpan().SequenceEqual(state.Expected)),
                 WipedCluster.Bound,
                 cancellationToken);
         }
 
         var repaired = await cluster.RestartWipedNodeAsync("node-c", cancellationToken);
         _ = await WipedCluster.AwaitRepairedCopyAsync(repaired, "node-a", "node-a", cancellationToken);
-        var recovered = repaired.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
-        var value = (await Assert.That(recovered.Value).IsTypeOf<byte[]>())!;
+        var recovered = repaired.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
+        var value = StoredValueProbe.Binary(recovered.Value);
         _ = await Assert.That(value.AsSpan().SequenceEqual(expected)).IsTrue();
         await AssertValueAsync(client, key, expected, cancellationToken);
     }
@@ -322,7 +322,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         }
 
         _ = await client.SetDistributedAsync(request, cancellationToken: cancellationToken);
-        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, expectedPolicy, initial, cancellationToken);
+        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<StoredValue>>(), key, expectedPolicy, initial, cancellationToken);
 
         clock.Advance(TimeSpan.FromSeconds(2));
         if (persistent)
@@ -339,9 +339,9 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         if (relative)
             expectedPolicy.ExpiresAtUnixMs = new DateTimeOffset(nextDeadline).ToUnixTimeMilliseconds();
 
-        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, expectedPolicy, nextDeadline, cancellationToken);
+        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<StoredValue>>(), key, expectedPolicy, nextDeadline, cancellationToken);
         await AssertInvalidPolicyRejectedAsync(replay, request, cancellationToken);
-        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, expectedPolicy, nextDeadline, cancellationToken);
+        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<StoredValue>>(), key, expectedPolicy, nextDeadline, cancellationToken);
         await AssertPolicyReplacementAsync(replay, request, clock, cancellationToken);
     }
 
@@ -366,12 +366,12 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         };
         _ = await client.SetDistributedAsync(request, cancellationToken: cancellationToken);
         var cacheKey = new CacheKey(CacheName, key);
-        var leader = cluster["node-a"].GetRequiredService<ILocalCacheReadOperations<object?>>();
+        var leader = cluster["node-a"].GetRequiredService<ILocalCacheReadOperations<StoredValue>>();
         var deadline = leader.GetValueWithDeadline(cacheKey, cancellationToken).ExpiresUtc;
         _ = await Assert.That(deadline).IsNotNull();
         foreach (var id in WipedCluster.Nodes)
         {
-            var local = cluster[id].GetRequiredService<ILocalCacheReadOperations<object?>>();
+            var local = cluster[id].GetRequiredService<ILocalCacheReadOperations<StoredValue>>();
             await (Cache: local, Key: cacheKey).WaitUntilValueAsync(
                 static (state, token) => ValueTask.FromResult(state.Cache.GetValueWithDeadline(state.Key, token).Found),
                 WipedCluster.Bound,
@@ -418,7 +418,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         _ = await Assert.That(lost.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(loss.OwnerExecutions(key)).IsEqualTo(1);
 
-        var stored = owner.GetRequiredService<ILocalCacheReadOperations<object?>>();
+        var stored = owner.GetRequiredService<ILocalCacheReadOperations<StoredValue>>();
         var cacheKey = new CacheKey(CacheName, key);
         _ = await Assert.That(stored.GetValueWithDeadline(cacheKey, cancellationToken).ExpiresUtc).IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(cap).UtcDateTime);
         await AssertRepairedRenewalAsync(cluster, cacheKey, operationId, refresh, payload, cap, cancellationToken);
@@ -553,7 +553,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             OperationId = Guid.NewGuid().ToString("N"),
         };
         _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
-        var cache = node.GetRequiredService<ILocalCacheReadOperations<object?>>();
+        var cache = node.GetRequiredService<ILocalCacheReadOperations<StoredValue>>();
         var key = new CacheKey(CacheName, set.Key);
         var original = clock.GetUtcNow().AddSeconds(10).UtcDateTime;
         _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, true, cancellationToken);
@@ -597,7 +597,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         clock.Advance(TimeSpan.FromTicks(1));
         _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, false, cancellationToken);
         _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, true, cancellationToken);
-        await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<object?>>(), new CacheKey(CacheName, set.Key), set, deadline.AddMilliseconds(1), cancellationToken);
+        await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<StoredValue>>(), new CacheKey(CacheName, set.Key), set, deadline.AddMilliseconds(1), cancellationToken);
     }
 
     /// <summary>A capped sliding entry is a fenced read, not a new replicated outcome on every access.</summary>
@@ -663,7 +663,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         _ = await Assert.That(first.Found).IsTrue();
         _ = await Assert.That(first.Value.Span.SequenceEqual(request.Value.Span)).IsTrue();
         var renewedDeadline = clock.GetUtcNow().AddSeconds(10).UtcDateTime;
-        await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<object?>>(), new CacheKey(CacheName, request.Key), request, renewedDeadline, cancellationToken);
+        await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<StoredValue>>(), new CacheKey(CacheName, request.Key), request, renewedDeadline, cancellationToken);
 
         if (persistent)
         {
@@ -673,7 +673,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             await node.AbruptShutdownAsync();
             await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
             node = await cluster.RestartNodeAsync(NodeId, null, cancellationToken);
-            await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<object?>>(), new CacheKey(CacheName, request.Key), request, renewedDeadline, cancellationToken);
+            await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<StoredValue>>(), new CacheKey(CacheName, request.Key), request, renewedDeadline, cancellationToken);
         }
 
         using var replayChannel = CreateBinaryChannel(node.Uri);
@@ -714,7 +714,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var manifest = await node.GetRequiredService<Ledger>().ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot).IsNotNull();
         var path = SnapshotFileName.BuildPath(node.DataDir, manifest.LastSnapshot.Index);
-        var loaded = await node.GetRequiredService<ISnapshotReader>().LoadStrictAsync<object?>(path, cutoff, cancellationToken);
+        var loaded = await node.GetRequiredService<ISnapshotReader>().LoadStrictAsync<StoredValue>(path, cutoff, cancellationToken);
         _ = await Assert.That(loaded.Entries.Count).IsEqualTo(1);
         _ = await Assert.That(loaded.Entries[0].Key).IsEqualTo(new CacheKey(CacheName, key));
         _ = await Assert.That(loaded.Entries[0].Entry.ExpiresUtc).IsEqualTo(deadline);
@@ -724,10 +724,10 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     {
         var repaired = await cluster.RestartWipedNodeAsync("node-c", cancellationToken);
         _ = await WipedCluster.AwaitRepairedCopyAsync(repaired, "node-a", "node-a", cancellationToken);
-        ILocalCacheReadOperations<object?> local = repaired.GetRequiredService<PhysicalCache<object?>>();
+        ILocalCacheReadOperations<StoredValue> local = repaired.GetRequiredService<PhysicalCache<StoredValue>>();
         var record = local.GetValueWithDeadline(key, cancellationToken);
         _ = await Assert.That(record.ExpiresUtc).IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(cap).UtcDateTime);
-        var envelope = (await Assert.That(record.Value).IsTypeOf<byte[]>())!;
+        var envelope = StoredValueProbe.Binary(record.Value);
         _ = await Assert.That(DistributedCacheAccess.ReadPayload(envelope, out _).Span.SequenceEqual(payload)).IsTrue();
 
         var state = WipedCluster.Log(repaired, "node-a").Idempotency;
@@ -788,12 +788,12 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         return response.Found ? response.Value : default(ReadOnlyMemory<byte>?);
     }
 
-    private static async Task AssertDistributedEntryAsync(ILocalCacheReadOperations<object?> cache, CacheKey key, SetDistributedAsyncRequest request, DateTime expectedDeadline, CancellationToken cancellationToken)
+    private static async Task AssertDistributedEntryAsync(ILocalCacheReadOperations<StoredValue> cache, CacheKey key, SetDistributedAsyncRequest request, DateTime expectedDeadline, CancellationToken cancellationToken)
     {
         var read = cache.GetValueWithDeadline(key, cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
         _ = await Assert.That(read.ExpiresUtc).IsEqualTo(expectedDeadline);
-        var stored = (await Assert.That(read.Value).IsTypeOf<byte[]>())!;
+        var stored = StoredValueProbe.Binary(read.Value);
         _ = await Assert.That(DistributedCachePolicy.TryRead(stored, out var policy)).IsTrue();
         long? cap = request.HasExpiresAtUnixMs ? request.ExpiresAtUnixMs : null;
         long? sliding = request.HasSlidingTicks ? request.SlidingTicks : null;

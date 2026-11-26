@@ -82,8 +82,8 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         var memory = new StubCache();
         var journaled = CreateJournaledCache(journal, memory);
         var failing = 1;
-        var flaky = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = flaky.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var flaky = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = flaky.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback((operationId, cacheName, key, entry, token) => Interlocked.Exchange(ref failing, 0) == 1
                       ? ValueTask.FromException(new IOException("Injected memory apply failure after the majority."))
                       : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
@@ -176,7 +176,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         await SequenceAssert.EqualAsync(["k1", "k2", "k3", "k4"], memory.Applied.ToArray(), StringComparer.Ordinal);
     }
 
-    private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, StubCache memory) => new(
+    private static JournalLoggingCacheDecorator<StoredValue> CreateJournaledCache(StallableJournal journal, StubCache memory) => new(
         memory,
         journal.Journal,
         new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance),

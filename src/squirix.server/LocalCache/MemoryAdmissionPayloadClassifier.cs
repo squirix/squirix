@@ -14,7 +14,7 @@ internal static class MemoryAdmissionPayloadClassifier
         return value switch
         {
             null => false,
-            StoredText or string => false,
+            StoredText or string or StoredValue => false,
             byte[] => false,
             bool => false,
             char => false,

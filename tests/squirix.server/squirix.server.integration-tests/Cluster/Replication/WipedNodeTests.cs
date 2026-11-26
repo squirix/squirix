@@ -150,7 +150,7 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
     /// <exception cref="TimeoutException">Some keys did not hold their value within the bound.</exception>
     private static async Task AssertValuesAsync(ITestNodeHost host, Dictionary<string, string> expected, CancellationToken cancellationToken)
     {
-        var local = host.GetRequiredService<PhysicalCache<object?>>();
+        var local = host.GetRequiredService<PhysicalCache<StoredValue>>();
         try
         {
             await (Local: local, Expected: expected).WaitUntilValueAsync(
@@ -217,7 +217,7 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
             if (!string.Equals(locator.GetOwner(WipedCluster.CacheName, key), ownerId, StringComparison.Ordinal))
                 continue;
 
-            var entry = new NodeCacheEntry<object?> { Value = ElectedValue, Version = FirstVersion };
+            var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(ElectedValue), Version = FirstVersion };
             await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, entry, cancellationToken);
             committed[key] = ElectedValue;
         }
@@ -230,13 +230,13 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
     /// <param name="expected">The expected value of every key.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The keys that are missing or hold another value.</returns>
-    private static List<string> FindMismatches(PhysicalCache<object?> local, Dictionary<string, string> expected, CancellationToken cancellationToken)
+    private static List<string> FindMismatches(PhysicalCache<StoredValue> local, Dictionary<string, string> expected, CancellationToken cancellationToken)
     {
         var mismatches = new List<string>();
         foreach (var (key, value) in expected)
         {
             var read = local.GetValue(new CacheKey(WipedCluster.CacheName, key), cancellationToken);
-            if (!read.Found || !string.Equals(read.Value as string, value, StringComparison.Ordinal))
+            if (!read.Found || !string.Equals(System.Text.Encoding.UTF8.GetString(read.Value.Bytes), value, StringComparison.Ordinal))
                 mismatches.Add(key);
         }
 
@@ -268,8 +268,8 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
     /// <returns>A task that completes once the write is committed.</returns>
     private static ValueTask WriteAsync(ITestNodeHost owner, string key, string value, long version, CancellationToken cancellationToken)
     {
-        var entry = new NodeCacheEntry<object?> { Value = value, Version = version };
-        return owner.GetCache<object?>(WipedCluster.CacheName).SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, entry, cancellationToken);
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(value), Version = version };
+        return owner.GetCache<StoredValue>(WipedCluster.CacheName).SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, entry, cancellationToken);
     }
 
     /// <summary>Starts the three-node cluster with automatic failover and waits for every owner to lead its group.</summary>

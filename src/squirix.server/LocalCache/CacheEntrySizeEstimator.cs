@@ -99,6 +99,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         return value switch
         {
             null => 0,
+            StoredValue stored => stored.EstimatedPayloadBytes,
             StoredText text => text.Bytes.Length,
             string s => long.CreateChecked(s.Length) * sizeof(char),
             byte[] bytes => bytes.LongLength,

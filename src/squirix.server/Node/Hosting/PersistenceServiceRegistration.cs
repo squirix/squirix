@@ -65,13 +65,13 @@ internal static class PersistenceServiceRegistration
         };
         _ = services.Use(recoveryOptions);
 
-        _ = services.RunService(static sp => new RecoveryService<object?>(
+        _ = services.RunService(static sp => new RecoveryService<StoredValue>(
             sp.Require<RecoveryOptions>(),
-            sp.Require<IServerLoggerFactory>().CreateLogger<RecoveryService<object?>>(),
-            new RecoveryDependencies<object?>(
+            sp.Require<IServerLoggerFactory>().CreateLogger<RecoveryService<StoredValue>>(),
+            new RecoveryDependencies<StoredValue>(
                 sp.Require<PersistenceOptions>(),
                 sp.Require<Ledger>(),
-                sp.Require<ILocalCacheRecovery<object?>>(),
+                sp.Require<ILocalCacheRecovery<StoredValue>>(),
                 sp.Require<AsyncManualResetEvent>(),
                 sp.Require<ISnapshotReader>(),
                 ResolveClock(sp))

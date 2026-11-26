@@ -69,7 +69,7 @@ public sealed class ReplicaEntryEncodingTests : ServerUnitTestBase
     [Test]
     public async Task OwnedEncodingRejectsLengthMismatch()
     {
-        var entry = new NodeCacheEntry<object?>("value");
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromText("value"));
         var measured = JournalEntryPayload.PrepareEncode(entry);
         var wrong = JournalEntryPayload.PrepareEncode(entry, measured.EncodedLength + 1);
 
@@ -83,15 +83,15 @@ public sealed class ReplicaEntryEncodingTests : ServerUnitTestBase
     public async Task EncodingOwnsItsOutput()
     {
         byte[] value = [1, 2, 3, 4];
-        var entry = new NodeCacheEntry<object?>(value);
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(value));
         var first = ReplicaCacheApplier.EncodeEntry(entry);
         var second = ReplicaCacheApplier.EncodeEntry(entry);
 
         Array.Clear(value);
         Array.Clear(second);
 
-        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(first, out var decoded, out _)).IsTrue();
-        var stored = (await Assert.That(decoded!.Value).IsTypeOf<byte[]>())!;
+        _ = await Assert.That(JournalEntryPayload.TryDecode<StoredValue>(first, out var decoded, out _)).IsTrue();
+        var stored = StoredValueProbe.Binary(decoded!.Value);
         await SequenceAssert.EqualAsync(new byte[] { 1, 2, 3, 4 }, stored);
     }
 }

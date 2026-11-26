@@ -2,6 +2,7 @@ using System;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Composition;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
@@ -22,7 +23,7 @@ internal static class ReplicaTransferRegistration
             sp.Require<ReplicaGroupAppliers>(),
             sp.Require<ReplicaGroupCommitters>(),
             sp.Require<OwnerLocalCache>().Value,
-            new ReplicaGroupEntries(sp.Require<ILocalCacheSnapshotReader<object?>>(), sp.Require<INodeLocator>()),
+            new ReplicaGroupEntries(sp.Require<ILocalCacheSnapshotReader<StoredValue>>(), sp.Require<INodeLocator>()),
             sp.Require<IJournalCoordinator>(),
             sp.Require<ISnapshotReadinessStatus>()));
         _ = services.Own(static sp => new ReplicaTransferReceiver(
@@ -35,7 +36,7 @@ internal static class ReplicaTransferRegistration
             sp.Require<TopologyOptions>().NodeId));
         _ = services.Own(static sp => new ReplicaStateTransfers(
             sp.Require<IReplicaTransferGateway>(),
-            new ReplicaGroupEntries(sp.Require<ILocalCacheSnapshotReader<object?>>(), sp.Require<INodeLocator>()),
+            new ReplicaGroupEntries(sp.Require<ILocalCacheSnapshotReader<StoredValue>>(), sp.Require<INodeLocator>()),
             sp.Require<IJournalCoordinator>(),
             sp.Find<ReplicaTransferOptions>() ?? new ReplicaTransferOptions(),
             sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaStateTransfers>(),

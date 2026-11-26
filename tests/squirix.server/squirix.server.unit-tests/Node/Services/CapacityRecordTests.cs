@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -29,14 +30,14 @@ public sealed class CapacityRecordTests : ServerUnitTestBase
         var options = new EvictionOptions { Capacity = 2 };
         var leader = Create(options);
         var follower = Create(options);
-        var local = new ClientCache<object?>(leader, leader);
-        var remote = new ClientCache<object?>(follower, follower);
+        var local = new ClientCache<StoredValue>(leader, leader);
+        var remote = new ClientCache<StoredValue>(follower, follower);
         var factory = new ReplicaMutationFactory(local, "group", 1, TimeProvider.System, NullLogger.Instance, leader.SelectCapacityVictim);
         const string scope = "orders";
         var a = new CacheKey(scope, "a");
         var b = new CacheKey(scope, "b");
         var c = new CacheKey(scope, "c");
-        var value = new NodeCacheEntry<object?>("value");
+        var value = new NodeCacheEntry<StoredValue>(StoredValue.FromText("value"));
         foreach (var key in new[] { a, b })
         {
             var normal = factory.PrepareSet(key.Key, scope, key.Key, value, 1).CanonicalPayload;
@@ -65,7 +66,7 @@ public sealed class CapacityRecordTests : ServerUnitTestBase
         {
             _ = await Assert.That(copy.GetValue(a, cancellationToken).Found).IsTrue();
             _ = await Assert.That(copy.GetValue(b, cancellationToken).Found).IsFalse();
-            _ = await Assert.That(copy.GetValue(c, cancellationToken).Value).IsEqualTo("value");
+            _ = await Assert.That(StoredValueProbe.Text(copy.GetValue(c, cancellationToken).Value)).IsEqualTo("value");
         }
     }
 
@@ -76,11 +77,11 @@ public sealed class CapacityRecordTests : ServerUnitTestBase
     {
         const string scope = "users";
         var physical = Create(new EvictionOptions { Capacity = 1, Policy = EvictionPolicyType.Lfu });
-        var local = new ClientCache<object?>(physical, physical);
+        var local = new ClientCache<StoredValue>(physical, physical);
         var factory = new ReplicaMutationFactory(local, "group", 1, TimeProvider.System, NullLogger.Instance, physical.SelectCapacityVictim);
         var first = new CacheKey(scope, "first");
         var second = new CacheKey(scope, "second");
-        var value = new NodeCacheEntry<object?>("initial");
+        var value = new NodeCacheEntry<StoredValue>(StoredValue.FromText("initial"));
         physical.Set(first, value, cancellationToken);
         _ = physical.GetValue(first, cancellationToken);
 
@@ -90,15 +91,15 @@ public sealed class CapacityRecordTests : ServerUnitTestBase
         await ReplicaCacheApplier.ApplyAsync(local, in rejected, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(local, in rejected, cancellationToken);
         _ = await Assert.That(physical.GetValue(second, cancellationToken).Found).IsFalse();
-        _ = await Assert.That(physical.GetValue(first, cancellationToken).Value).IsEqualTo("initial");
+        _ = await Assert.That(StoredValueProbe.Text(physical.GetValue(first, cancellationToken).Value)).IsEqualTo("initial");
 
-        var update = factory.PrepareSet("replace", scope, first.Key, new NodeCacheEntry<object?>("replacement"), 2);
+        var update = factory.PrepareSet("replace", scope, first.Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("replacement")), 2);
         var record = ReplicaLogCodec.DecodeBorrowed(update.CanonicalPayload)!.Value;
         _ = await Assert.That(record.EvictedKey).IsNull();
         await ReplicaCacheApplier.ApplyAsync(local, in record, cancellationToken);
-        _ = await Assert.That(physical.GetValue(first, cancellationToken).Value).IsEqualTo("replacement");
+        _ = await Assert.That(StoredValueProbe.Text(physical.GetValue(first, cancellationToken).Value)).IsEqualTo("replacement");
     }
 
-    private static PhysicalCache<object?> Create(EvictionOptions options) =>
-        new(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), options, CacheExpiryAuthority.CommittedRecords);
+    private static PhysicalCache<StoredValue> Create(EvictionOptions options) =>
+        new(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), options, CacheExpiryAuthority.CommittedRecords);
 }

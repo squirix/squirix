@@ -21,7 +21,7 @@ internal static class TestNodeHostExtensions
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The write operation.</returns>
         internal ValueTask SeedBinaryAsync(string cacheName, string key, ReadOnlyMemory<byte> value, CancellationToken cancellationToken) =>
-            host.GetCache<object?>(cacheName).SetEntryAsync(Guid.NewGuid().ToString("N"), cacheName, key, new NodeCacheEntry<object?>(value.ToArray()), cancellationToken);
+            host.GetCache<StoredValue>(cacheName).SetEntryAsync(Guid.NewGuid().ToString("N"), cacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(value.ToArray())), cancellationToken);
 
         /// <summary>Finds a cache key owned by the given node.</summary>
         /// <param name="cacheName">Target cache namespace.</param>

@@ -81,8 +81,8 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         var writes = 0;
         var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback((_, _, _, _, _) =>
                   {
                       var write = Interlocked.Increment(ref writes);
@@ -222,8 +222,8 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         var writes = 0;
         var reapplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback((_, _, _, _, _) =>
                   {
                       if (Interlocked.Increment(ref writes) == 1)

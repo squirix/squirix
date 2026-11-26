@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -49,10 +50,10 @@ public sealed class DistributedCachePolicyTests : ServerUnitTestBase
         var policy = new DistributedCachePolicy(2, 50_000);
         byte[] source = [0, 255, 128];
         var write = new DistributedCacheWrite(in policy, source);
-        var decision = ReplicaMutationDecisions.DecideSet(new NodeCacheEntry<object?>(write, expiresUtc: write.DeadlineForSizing), now);
+        var decision = ReplicaMutationDecisions.DecideSet(new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(write.Envelope), expiresUtc: write.DeadlineForSizing) { PendingWrite = write }, now);
         source[1] = 0;
         var entry = decision.Entry!.ObjectEntry;
-        var stored = (await Assert.That(entry.Value).IsTypeOf<byte[]>())!;
+        var stored = StoredValueProbe.Binary(await Assert.That(entry.Value).IsTypeOf<StoredValue>());
         _ = await Assert.That(DistributedCachePolicy.TryRead(stored, out var decoded)).IsTrue();
         _ = await Assert.That(decoded).IsEqualTo(policy);
         _ = await Assert.That(stored.AsSpan(22).SequenceEqual(new byte[] { 0, 255, 128 })).IsTrue();
@@ -82,7 +83,7 @@ public sealed class DistributedCachePolicyTests : ServerUnitTestBase
     public async Task EmptyAccessRemainsPresent()
     {
         var policy = new DistributedCachePolicy(null, null);
-        var entry = new NodeCacheEntry<object?>(policy.Encode([]));
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(policy.Encode([])));
         var present = ReplicaMutationDecisions.DecideDistributedAccess(entry, DateTime.UnixEpoch, out var payload);
         var missing = ReplicaMutationDecisions.DecideDistributedAccess(null, DateTime.UnixEpoch, out var missingPayload);
         _ = await Assert.That(present.Entry).IsNull();
@@ -98,7 +99,7 @@ public sealed class DistributedCachePolicyTests : ServerUnitTestBase
     {
         var deadline = DateTime.UnixEpoch.AddSeconds(1);
         var policy = new DistributedCachePolicy(null, TimeSpan.FromSeconds(10).Ticks);
-        var entry = new NodeCacheEntry<object?>(policy.Encode([1]), expiresUtc: deadline);
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(policy.Encode([1])), expiresUtc: deadline);
         var decision = ReplicaMutationDecisions.DecideDistributedAccess(entry, deadline, out var payload);
         _ = await Assert.That(decision.Entry).IsNull();
         _ = await Assert.That(payload).IsNull();

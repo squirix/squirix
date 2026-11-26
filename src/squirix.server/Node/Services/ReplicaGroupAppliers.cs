@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
@@ -32,7 +33,7 @@ internal sealed class ReplicaGroupAppliers
     /// <param name="owners">Validates ownership of evicted keys on every apply.</param>
     internal ReplicaGroupAppliers(
         ReplicaGroupRegistry registry,
-        ILogicalNamespacedCache<object?> local,
+        ILogicalNamespacedCache<StoredValue> local,
         string nodeId,
         IServerLogger<ReplicaGroupAppliers> log,
         ReplicationMetrics metrics,

@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -44,7 +45,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         await CommitAsync(committer, 5, cancellationToken);
         await gateway.AppendedAsync("n2", 5).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         await gateway.AppendedAsync("n3", 5).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        var estimator = new CacheEntrySizeEstimator<object?>();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
 
         foreach (var node in new[] { "n2", "n3" })
         {
@@ -71,7 +72,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         var gateway = new FollowerLogRoutingGateway(followers.Logs);
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
-        var estimator = new CacheEntrySizeEstimator<object?>();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         var copy = new FollowerCopy("n2", estimator);
         await CommitAsync(committer, 3, cancellationToken);
         await gateway.AppendedAsync("n2", 3).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
@@ -81,7 +82,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         var filledEntries = stats.EntryCount;
         var options = new PressureOptions { MaxEstimatedCacheBytes = filledBytes };
         var gateOfNode = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(copy.Cache), "n2", meter);
-        var admission = new MemoryAdmissionCacheDecorator<object?>(copy.Local, gateOfNode, estimator);
+        var admission = new MemoryAdmissionCacheDecorator<StoredValue>(copy.Local, gateOfNode, estimator);
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await CommitAsync(committer, 3, cancellationToken, 4);
@@ -111,10 +112,10 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
 
     private static int CountOf(ILocalCacheStats stats) => stats.EntryCount;
 
-    private static Task SetLedKeyAsync(MemoryAdmissionCacheDecorator<object?> admission, CancellationToken cancellationToken) =>
+    private static Task SetLedKeyAsync(MemoryAdmissionCacheDecorator<StoredValue> admission, CancellationToken cancellationToken) =>
         admission.SetEntryAsync(NewOperationId(), CacheName, "led", Entry("led"), cancellationToken).AsTask();
 
-    private static async Task<long> SumOfLiveEntriesAsync(PhysicalCache<object?> cache, CacheEntrySizeEstimator<object?> estimator, CancellationToken cancellationToken)
+    private static async Task<long> SumOfLiveEntriesAsync(PhysicalCache<StoredValue> cache, CacheEntrySizeEstimator<StoredValue> estimator, CancellationToken cancellationToken)
     {
         long sum = 0;
         await foreach (var (key, entry) in cache.EnumerateLiveAsync(cancellationToken))
@@ -159,18 +160,18 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
     /// <summary>The memory of a follower node and the applier that fills it with the committed entries of the group.</summary>
     private sealed class FollowerCopy
     {
-        internal FollowerCopy(string node, CacheEntrySizeEstimator<object?> estimator)
+        internal FollowerCopy(string node, CacheEntrySizeEstimator<StoredValue> estimator)
         {
-            Cache = new PhysicalCache<object?>(TimeProvider.System, estimator);
-            Local = new ClientCache<object?>(Cache, Cache);
+            Cache = new PhysicalCache<StoredValue>(TimeProvider.System, estimator);
+            Local = new ClientCache<StoredValue>(Cache, Cache);
             Applier = new ReplicaGroupApplier(Local, NullLogger.Instance, GroupId, node);
         }
 
         internal ReplicaGroupApplier Applier { get; }
 
-        internal PhysicalCache<object?> Cache { get; }
+        internal PhysicalCache<StoredValue> Cache { get; }
 
-        internal ClientCache<object?> Local { get; }
+        internal ClientCache<StoredValue> Local { get; }
 
         /// <summary>Applies the entries the follower log committed since the last call.</summary>
         /// <param name="log">The follower log of the node.</param>

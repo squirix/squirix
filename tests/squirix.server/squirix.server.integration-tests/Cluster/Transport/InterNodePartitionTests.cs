@@ -32,9 +32,9 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitVerifiedAsync(nodeA, cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster["node-c"], cancellationToken);
 
-        var cache = nodeA.GetCache<object?>(CacheName);
+        var cache = nodeA.GetCache<StoredValue>(CacheName);
         var ownedKey = nodeA.FindKeyOwnedBy(CacheName, "node-a");
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, ownedKey, new NodeCacheEntry<object?> { Value = "v" }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, ownedKey, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") }, cancellationToken);
 
         var toC = fabric["node-a", "node-c"];
         var fromC = fabric["node-c", "node-a"];
@@ -54,7 +54,7 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         while (toC.RefusedConnections == refusedBefore)
             await ExpectUnavailableAsync(client, request, cancellationToken);
 
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, ownedKey, new NodeCacheEntry<object?> { Value = "majority" }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, ownedKey, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("majority") }, cancellationToken);
         var majorityRead = await cache.GetValueAsync(CacheName, ownedKey, cancellationToken);
         _ = await Assert.That(majorityRead.Found).IsTrue();
 

@@ -21,14 +21,15 @@ internal sealed record PreparedJournalEntry
     internal NodeCacheEntry<object?> ObjectEntry { get; }
 
     /// <summary>Prepares the deadline-free replica payload.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="value">The requested value.</param>
     /// <param name="version">The entry version.</param>
     /// <param name="tags">The entry tags.</param>
     /// <returns>The measured entry for the mutation payload.</returns>
-    internal static PreparedJournalEntry ForReplicaUpsert(object? value, long version, FrozenDictionary<string, string>? tags)
+    internal static PreparedJournalEntry ForReplicaUpsert<T>(T value, long version, FrozenDictionary<string, string>? tags)
     {
         EntryTagsGuard.EnsureWithinLimits(tags);
-        var normalized = NodeCacheEntry<object?>.NormalizeValue(value);
+        var normalized = NodeCacheEntry<T>.NormalizeValue(value);
         var valueLength = CacheEntryCodec.ComputeValueLength(normalized);
         var payloadLength = CacheEntryCodec.ComputeEncodedLength(null, null, tags, valueLength);
         return new PreparedJournalEntry(new NodeCacheEntry<object?>(normalized, version, null, null, tags), payloadLength);

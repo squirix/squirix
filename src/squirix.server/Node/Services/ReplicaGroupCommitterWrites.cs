@@ -47,7 +47,7 @@ internal static class ReplicaGroupCommitterWrites
         /// </returns>
         /// <exception cref="ObjectDisposedException">The committer is disposing or disposed.</exception>
         /// <remarks>Any other failure leaves the expiry undecided: the key may not be reported absent until a later expiry commits.</remarks>
-        internal Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        internal Task<NodeCacheEntry<StoredValue>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             committer.Expiration.ExpireAsync(cacheName, key, cancellationToken);
 
         /// <summary>Expires several keys together on the leader: the keys go to the expiry queue at once and are committed in batches.</summary>
@@ -55,7 +55,7 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="cancellationToken">Ends this caller's waits only; the shared expiries go on.</param>
         /// <returns>One task per key, in order, each as the task of <see cref="ExpireAsync" />.</returns>
         /// <exception cref="ObjectDisposedException">The committer is disposing or disposed.</exception>
-        internal Task<NodeCacheEntry<object?>?>[] ExpireMany(IReadOnlyList<(string CacheName, string Key)> keys, CancellationToken cancellationToken) =>
+        internal Task<NodeCacheEntry<StoredValue>?>[] ExpireMany(IReadOnlyList<(string CacheName, string Key)> keys, CancellationToken cancellationToken) =>
             committer.Expiration.ExpireMany(keys, cancellationToken);
 
         /// <summary>Commits a replicated remove and returns whether the key was removed.</summary>
@@ -95,8 +95,8 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="entry">Entry to write.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns>A task that completes after the commit.</returns>
-        internal Task CommitSetAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => committer.CommitAsync(
-            new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, NodeCacheEntry<object?> Entry)>(
+        internal Task CommitSetAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) => committer.CommitAsync(
+            new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, NodeCacheEntry<StoredValue> Entry)>(
                 (cacheName, operationId, key),
                 (operationId, cacheName, key, entry),
                 static write => ReplicaOperationFingerprints.Set(write.OperationId, write.CacheName, write.Key, write.Entry),
@@ -127,8 +127,8 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="entry">Entry to add when absent.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns><see langword="true" /> when the key was absent and the entry was added.</returns>
-        internal Task<bool> CommitTryAddAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => committer.CommitAsync(
-            new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, NodeCacheEntry<object?> Entry)>(
+        internal Task<bool> CommitTryAddAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) => committer.CommitAsync(
+            new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, NodeCacheEntry<StoredValue> Entry)>(
                 (cacheName, operationId, key),
                 (operationId, cacheName, key, entry),
                 static write => ReplicaOperationFingerprints.AddIfAbsent(write.OperationId, write.CacheName, write.Key, write.Entry),
@@ -143,11 +143,11 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="value">Replacement value.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns><see langword="true" /> when the key exists and the value was replaced.</returns>
-        internal Task<bool> CommitUpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => committer.CommitAsync(
-            new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, object? Value)>(
+        internal Task<bool> CommitUpdateAsync(string operationId, string cacheName, string key, in StoredValue value, CancellationToken cancellationToken) => committer.CommitAsync(
+            new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, StoredValue Value)>(
                 (cacheName, operationId, key),
                 (operationId, cacheName, key, value),
-                static write => ReplicaOperationFingerprints.Update(write.OperationId, write.CacheName, write.Key, write.Value),
+                static write => ReplicaOperationFingerprints.Update(write.OperationId, write.CacheName, write.Key, in write.Value),
                 static (factory, write, index, token) => factory.PrepareUpdateAsync(write.OperationId, write.CacheName, write.Key, write.Value, index, token)),
             ReplicaOutcomeCodec.DecodeApplied,
             cancellationToken);

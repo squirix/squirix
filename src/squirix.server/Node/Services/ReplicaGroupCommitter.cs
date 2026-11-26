@@ -39,7 +39,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
-    private readonly Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>> _expiration;
+    private readonly Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<StoredValue>>> _expiration;
     private readonly IReplicaGroupLocator _locator;
     private readonly Lazy<ReplicaVerificationProbe> _probe;
     private ReplicaCommitCoordinator? _coordinator;
@@ -67,7 +67,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ReplicaGroupRegistry registry,
         IReplicaGroupLocator locator,
         IReplicaRpcGateway gateway,
-        ILogicalNamespacedCache<object?> local,
+        ILogicalNamespacedCache<StoredValue> local,
         (string GroupId, string SelfId) identity,
         in ReplicaTopologyStamp topology,
         IServerLogger<ReplicaGroupCommitter> log)
@@ -94,7 +94,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // Created on first use, after the init-only budgets are set. One run of the expiry serves every caller of the key, so it takes no
         // caller token: the commit budget bounds the wait before the append, and the commit itself is budget-bounded.
-        _expiration = new Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>>(CreateExpiration, LazyThreadSafetyMode.ExecutionAndPublication);
+        _expiration = new Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<StoredValue>>>(CreateExpiration, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <summary>Gets or initializes the applier of the led group, which this committer drives for as long as it leads the group.</summary>
@@ -171,7 +171,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Gets the expiry of the owned group: one run per key decides it on the leader clock and commits the tombstone of an expired entry.</summary>
     /// <remarks>Disposed first by <see cref="DisposeAsync" />, so it refuses expiries once this committer is disposing.</remarks>
-    internal ReplicaExpirationCoordinator<NodeCacheEntry<object?>> Expiration => _expiration.Value;
+    internal ReplicaExpirationCoordinator<NodeCacheEntry<StoredValue>> Expiration => _expiration.Value;
 
     /// <summary>Gets the writes that wait for a commit batch, and the leadership of the batch former.</summary>
     internal ReplicaCommitQueue Combiner { get; } = new();
@@ -198,7 +198,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal bool IsStarted { get; private set; }
 
     /// <summary>Gets the local cache pipeline used for prepare reads and memory applies.</summary>
-    internal ILogicalNamespacedCache<object?> Local { get; }
+    internal ILogicalNamespacedCache<StoredValue> Local { get; }
 
     internal Func<CacheKey, CacheKey?>? SelectCapacityVictim { get; init; }
 
@@ -581,7 +581,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return Interlocked.CompareExchange(ref _memberPressure, created, null) ?? created;
     }
 
-    private ReplicaExpirationCoordinator<NodeCacheEntry<object?>> CreateExpiration() => new(this.CommitExpiryChunkAsync)
+    private ReplicaExpirationCoordinator<NodeCacheEntry<StoredValue>> CreateExpiration() => new(this.CommitExpiryChunkAsync)
     {
         MaxBatchKeys = ReplicaGroupCommitterCommits.MaxExpiriesPerCommit,
         ShutdownBudget = ShutdownBudget,

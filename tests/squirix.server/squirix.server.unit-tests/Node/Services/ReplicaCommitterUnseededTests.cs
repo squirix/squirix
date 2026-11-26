@@ -109,15 +109,15 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         await using var committers = LedGroupsTestKit.LeadOwn(committer);
         var replicated = new ReplicatedCache(cache, committers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(replicated.GetEntryAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var valueRefused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<object?>>(replicated.GetValueAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(replicated.GetEntryAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var valueRefused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<StoredValue>>(replicated.GetValueAsync(CacheName, "k1", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = registry.TryGetLog("n1", out var log);
         await log!.CompleteBootstrapAsync(cancellationToken);
         var served = await replicated.GetEntryAsync(CacheName, "k1", cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         _ = await Assert.That(valueRefused.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
-        _ = await Assert.That(served?.Value).IsEqualTo("k1");
+        _ = await Assert.That(StoredValueProbe.Text(served?.Value)).IsEqualTo("k1");
     }
 
     /// <summary>Once the owner completed its copy, the same committer starts, verifies its followers, and commits a write.</summary>

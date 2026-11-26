@@ -128,10 +128,10 @@ public sealed class GroupLogRetentionTests : NodeIntegrationTestBase
     private static async Task OverwriteAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         for (var i = 1; i <= Overwrites; i++)
         {
-            var entry = new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i };
+            var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"value-{i}"), Version = i };
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, entry, cancellationToken);
         }
     }

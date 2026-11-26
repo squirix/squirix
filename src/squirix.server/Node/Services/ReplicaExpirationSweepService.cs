@@ -150,7 +150,7 @@ internal sealed class ReplicaExpirationSweepService : NodeWorkerBase
         for (var i = 0; i < count; i++)
             chunk[i] = (keys[start + i].Namespace, keys[start + i].Key);
 
-        Task<NodeCacheEntry<object?>?>[] pending;
+        Task<NodeCacheEntry<StoredValue>?>[] pending;
         try
         {
             pending = committer.ExpireMany(chunk, cancellationToken);

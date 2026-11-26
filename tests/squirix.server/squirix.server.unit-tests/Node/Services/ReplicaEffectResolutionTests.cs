@@ -19,7 +19,7 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
 {
     private const string Invalid = "Invalid";
 
-    private static readonly byte[] EntryBytes = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>("v"));
+    private static readonly byte[] EntryBytes = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v")));
     private static readonly byte[] KeyBytes = [107];
 
     /// <summary>An outcome that does not decode is refused.</summary>
@@ -167,7 +167,7 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
     [Arguments(ReplicaMutationKinds.RemoveExpiration)]
     public async Task UnchangedNeverCallsCache(string kind, CancellationToken cancellationToken)
     {
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
         var record = Record(kind, false, false, 0, false);
 
         await ReplicaCacheApplier.ApplyAsync(cache.Instance(), in record, cancellationToken);

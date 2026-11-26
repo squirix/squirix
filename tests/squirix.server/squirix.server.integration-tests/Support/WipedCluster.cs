@@ -110,13 +110,13 @@ internal static class WipedCluster
     /// <returns>A task that completes once the value was read back.</returns>
     internal static async Task WriteAndReadAsync(ITestNodeHost host, string ownerId, CancellationToken cancellationToken)
     {
-        var cache = host.GetCache<object?>(CacheName);
+        var cache = host.GetCache<StoredValue>(CacheName);
         var key = host.FindKeyOwnedBy(CacheName, ownerId);
 
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "kept", Version = 1 }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("kept"), Version = 1 }, cancellationToken);
         var read = await cache.GetValueAsync(CacheName, key, cancellationToken);
 
-        _ = await Assert.That((read.Found, read.Value)).IsEqualTo((true, "kept"));
+        _ = await Assert.That((read.Found, StoredValueProbe.Text(read.Value))).IsEqualTo((true, "kept"));
     }
 
     /// <summary>Checks that a node refuses a write to a key of the group it owns as unavailable.</summary>
@@ -126,10 +126,10 @@ internal static class WipedCluster
     /// <returns>A task that completes once the check passed.</returns>
     internal static async Task AssertRefusesWriteAsync(ITestNodeHost host, string ownerId, CancellationToken cancellationToken)
     {
-        var cache = host.GetCache<object?>(CacheName);
+        var cache = host.GetCache<StoredValue>(CacheName);
         var key = host.FindKeyOwnedBy(CacheName, ownerId);
 
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "refused", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAnyAsync<ServerCallException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("refused"), Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }

@@ -17,7 +17,7 @@ internal static class JournalEntryExpirationMaterializer
     /// <returns>The entry itself when it has no relative expiration; otherwise a copy with only the absolute deadline.</returns>
     internal static NodeCacheEntry<T> ForDurableWrite<T>(NodeCacheEntry<T> entry, DateTime utcNow)
     {
-        if (entry.RawValue is DistributedCacheWrite write)
+        if (entry.PendingWrite is { } write)
             return write.Materialize<T>(utcNow);
 
         if (entry.Expiration is not { } relative)

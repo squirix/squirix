@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Composition;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.MemoryPressure;
@@ -12,18 +13,18 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Frees cache entries while the estimated resident size exceeds the node's high threshold.</summary>
 internal sealed class MemoryEvictionService : NodeWorkerBase
 {
-    private readonly PhysicalCache<object?> _cache;
+    private readonly PhysicalCache<StoredValue> _cache;
     private readonly IMemoryPressureStateEvaluator _evaluator;
-    private readonly ILogicalNamespacedCache<object?> _local;
+    private readonly ILogicalNamespacedCache<StoredValue> _local;
     private readonly ReplicaGroupCommitters? _groups;
     private readonly TimeProvider _clock;
     private readonly IServerLogger<MemoryEvictionService> _logger;
     private int _nextGroup;
 
     internal MemoryEvictionService(
-        PhysicalCache<object?> cache,
+        PhysicalCache<StoredValue> cache,
         IMemoryPressureStateEvaluator evaluator,
-        ILogicalNamespacedCache<object?> local,
+        ILogicalNamespacedCache<StoredValue> local,
         ReplicaGroupCommitters? groups,
         TimeProvider clock,
         IServerLogger<MemoryEvictionService> logger)

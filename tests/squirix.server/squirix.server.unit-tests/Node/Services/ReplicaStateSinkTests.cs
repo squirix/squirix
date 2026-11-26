@@ -265,7 +265,7 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
 
     private static Task<int> OtherKeysAsync(ReplicaStateHarness harness, CancellationToken cancellationToken) => CountAsync(harness, false, cancellationToken);
 
-    private static NodeCacheEntry<object?>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
+    private static NodeCacheEntry<StoredValue>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
         harness.Cache.GetEntry(new CacheKey(CacheName, key), cancellationToken);
 
     /// <summary>Refuses the writes at the given positions, counted over all removals and stores, as the journal quota does: the call throws and changes nothing.</summary>
@@ -280,12 +280,12 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
             _refuseAt = refuseAt;
         }
 
-        internal ILogicalNamespacedCache<object?> Wrap(ILogicalNamespacedCache<object?> inner)
+        internal ILogicalNamespacedCache<StoredValue> Wrap(ILogicalNamespacedCache<StoredValue> inner)
         {
-            var rock = new ILogicalNamespacedCacheCreateExpectations<object?>();
+            var rock = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
             _ = rock.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
                     .Callback((operationId, cacheName, key, token) => Next() ? throw Refusal() : inner.RemoveAsync(operationId, cacheName, key, token));
-            _ = rock.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            _ = rock.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
                     .Callback((operationId, cacheName, key, entry, length, token) => Next() ? throw Refusal() : inner.SetEntryAsync(operationId, cacheName, key, entry, length, token));
             return rock.Instance();
         }

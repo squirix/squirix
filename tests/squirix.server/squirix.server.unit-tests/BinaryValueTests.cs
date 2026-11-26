@@ -28,7 +28,7 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     public async Task BinaryMappingsOwnTheirBuffers()
     {
         byte[] source = [0, 255, 128, 34, 0];
-        var wire = new NodeCacheEntry<object?>(source).MapToWire();
+        var wire = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(source)).MapToWire();
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.BinaryValue);
         source[0] = 42;
         var decoded = ServerWireMapping.MapCacheValue<byte[]>(wire.Value)!;
@@ -47,7 +47,7 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     public async Task EmptyBinaryRetainsPresence()
     {
         byte[] empty = [];
-        var wire = new NodeCacheEntry<object?>(empty).MapToWire().Value;
+        var wire = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(empty)).MapToWire().Value;
         _ = await Assert.That(wire!.ToByteArray().AsSpan().SequenceEqual(new byte[] { 0x07, 0 })).IsTrue();
         var parsed = CacheValue.Parser.ParseFrom(wire.ToByteArray());
         _ = await Assert.That(parsed.KindCase).IsEqualTo(CacheValue.KindOneofCase.BinaryValue);
@@ -70,9 +70,9 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     public async Task BinaryDiskFixtureIsStableAndOwned()
     {
         byte[] golden = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 0, 0, 0, 0, 255, 128];
-        _ = await Assert.That(CacheEntryCodec.TryRead<object?>(golden, out var entry, out var consumed)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<StoredValue>(golden, out var entry, out var consumed)).IsTrue();
         _ = await Assert.That(consumed).IsEqualTo(golden.Length);
-        var bytes = (await Assert.That(entry!.Value).IsTypeOf<byte[]>())!;
+        var bytes = StoredValueProbe.Binary(entry!.Value);
         _ = await Assert.That(bytes.AsSpan().SequenceEqual(new byte[] { 0, 255, 128 })).IsTrue();
         var encoded = new byte[CacheEntryCodec.ComputeEncodedLength(entry)];
         CacheEntryCodec.Write(entry, encoded);
@@ -86,7 +86,7 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     public async Task InvalidBinaryDiskLengthsAreRejected()
     {
         byte[] truncated = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 2, 0, 0, 0, 255];
-        _ = await Assert.That(CacheEntryCodec.TryRead<object?>(truncated, out _, out var consumed)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryRead<StoredValue>(truncated, out _, out var consumed)).IsFalse();
         _ = await Assert.That(consumed).IsEqualTo(0);
         truncated[13] = 255;
         truncated[14] = 255;
@@ -118,7 +118,7 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     public async Task BinaryRemoveOutcomeOmitsPayload()
     {
         byte[] expected = [0, 255, 128];
-        var decision = ReplicaMutationDecisions.DecideRemove(new NodeCacheEntry<object?>(expected), new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var decision = ReplicaMutationDecisions.DecideRemove(new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(expected)), new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(decision.Outcome)).IsTrue();
         _ = await Assert.That(decision.Outcome.Length).IsEqualTo(5);
         _ = await Assert.That(decision.Entry).IsNull();
@@ -128,16 +128,16 @@ public sealed class BinaryValueTests : ServerUnitTestBase
     [Test]
     public async Task BinaryAccountingSurvivesRecovery()
     {
-        var estimator = new ObjectCacheEntrySizeEstimator();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         var key = new CacheKey("binary", "key");
-        var small = new NodeCacheEntry<object?>(new byte[1]);
-        var large = new NodeCacheEntry<object?>(new byte[65536]);
+        var small = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(new byte[1]));
+        var large = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(new byte[65536]));
         var difference = estimator.EstimateBytes(key, large, false) - estimator.EstimateBytes(key, small, false);
         _ = await Assert.That(difference).IsEqualTo(65535);
         _ = await Assert.That(estimator.HasUnknownPayloadMagnitude(large, false)).IsFalse();
         var encoded = new byte[CacheEntryCodec.ComputeEncodedLength(large)];
         CacheEntryCodec.Write(large, encoded);
-        _ = await Assert.That(CacheEntryCodec.TryRead<object?>(encoded, out var restored, out _)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<StoredValue>(encoded, out var restored, out _)).IsTrue();
         _ = await Assert.That(estimator.EstimateBytes(key, restored!, false)).IsEqualTo(estimator.EstimateBytes(key, large, false));
     }
 }

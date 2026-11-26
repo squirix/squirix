@@ -22,17 +22,17 @@ namespace Squirix.Server.Node.Services;
 /// them to their owner), and RF=1 hosts never register it, preserving the single-copy path byte for byte.
 /// </remarks>
 [Immutable]
-internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
+internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
 {
     private readonly ReplicaGroupCommitters _committers;
-    private readonly ILogicalNamespacedCache<object?> _inner;
+    private readonly ILogicalNamespacedCache<StoredValue> _inner;
     private readonly bool _quorumReads;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicatedCache" /> class.</summary>
     /// <param name="inner">Local cache pipeline used for reads and ordered applies.</param>
     /// <param name="committers">The serialized replicated committers of the led groups.</param>
     /// <param name="quorumReads">Whether reads fence on the elected leader of their group; only for groups led by election.</param>
-    internal ReplicatedCache(ILogicalNamespacedCache<object?> inner, ReplicaGroupCommitters committers, bool quorumReads = false)
+    internal ReplicatedCache(ILogicalNamespacedCache<StoredValue> inner, ReplicaGroupCommitters committers, bool quorumReads = false)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(committers);
@@ -48,7 +48,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// of the group this node leads statically is refused (Unavailable) while its copy is not complete.
     /// </exception>
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -62,20 +62,20 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// </exception>
     /// <remarks>Reads the value and the deadline of a live entry without building the entry; only an expired entry is read whole, by the tombstone decision.</remarks>
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (!IsExpired(read.ExpiresUtc))
-            return new NodeCacheValueResult<object?>(read.Found, read.RawValue);
+            return new NodeCacheValueResult<StoredValue>(read.Found, read.RawValue);
 
         var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return entry == null ? new NodeCacheValueResult<object?>(false, null) : new NodeCacheValueResult<object?>(true, entry.RawValue);
+        return entry == null ? default : new NodeCacheValueResult<StoredValue>(true, entry.RawValue);
     }
 
     /// <inheritdoc />
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheValueRead<object?>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<NodeCacheValueRead<StoredValue>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -83,7 +83,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
             return read;
 
         var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return entry == null ? default : new NodeCacheValueRead<object?>(true, entry.RawValue, entry.ExpiresUtc);
+        return entry == null ? default : new NodeCacheValueRead<StoredValue>(true, entry.RawValue, entry.ExpiresUtc);
     }
 
     /// <inheritdoc />
@@ -95,7 +95,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         new(_committers.ForKey(cacheName, key).CommitRemoveExpirationAsync(operationId, cacheName, key, cancellationToken));
 
     /// <inheritdoc />
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
         new(_committers.ForKey(cacheName, key).CommitSetAsync(operationId, cacheName, key, entry, cancellationToken));
 
     /// <inheritdoc />
@@ -103,12 +103,12 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         new(_committers.ForKey(cacheName, key).CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
 
     /// <inheritdoc />
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
         new(_committers.ForKey(cacheName, key).CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken));
 
     /// <inheritdoc />
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) =>
+        new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, in value, cancellationToken));
 
     /// <summary>Reads an adapter entry, serializing sliding access through the group commit gate.</summary>
     /// <param name="operationId">Client operation identifier for Refresh.</param>
@@ -156,7 +156,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// refused read; the write itself folds the expiry of the key into its decision. The read is not fenced: it may be stale on a leader
     /// cut off from its followers, so an answer given to a caller comes from <see cref="PeekFencedEntryAsync" />.
     /// </remarks>
-    internal async ValueTask<NodeCacheEntry<object?>?> PeekEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    internal async ValueTask<NodeCacheEntry<StoredValue>?> PeekEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return IsExpired(entry?.ExpiresUtc) ? null : entry;
@@ -173,11 +173,11 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// admission hands the write of an expired key to the committer, which folds the expiry into its record, instead of answering absent.
     /// </remarks>
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    internal async ValueTask<NodeCacheEntryPeek<object?>> PeekFencedEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    internal async ValueTask<NodeCacheEntryPeek<StoredValue>> PeekFencedEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return new NodeCacheEntryPeek<object?>(entry, IsExpired(entry?.ExpiresUtc));
+        return new NodeCacheEntryPeek<StoredValue>(entry, IsExpired(entry?.ExpiresUtc));
     }
 
     /// <summary>Expires the key on the leader and reports what the committed decision leaves.</summary>
@@ -186,9 +186,9 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <param name="cancellationToken">Cancellation token for this read.</param>
     /// <returns><see langword="null" /> once the tombstone is committed; the entry when the leader finds it live and its deadline has not passed since.</returns>
     /// <exception cref="ServerCallException">The tombstone could not commit: Unavailable with the expiration-pending detail.</exception>
-    private async Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken)
+    private async Task<NodeCacheEntry<StoredValue>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        NodeCacheEntry<object?>? entry;
+        NodeCacheEntry<StoredValue>? entry;
         try
         {
             entry = await _committers.ForKey(cacheName, key).ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);

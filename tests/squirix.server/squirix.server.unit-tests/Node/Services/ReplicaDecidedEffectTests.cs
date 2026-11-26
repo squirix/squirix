@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -38,10 +39,10 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         var leader = new Harness(leaderClock);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
         var records = new List<PreparedReplicaMutation>();
-        await LeaderAppliesAsync(leader, records, leader.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 3, null, Ttl * 10, tags), 1UL), cancellationToken);
+        await LeaderAppliesAsync(leader, records, leader.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 3, null, Ttl * 10, tags), 1UL), cancellationToken);
         await LeaderAppliesAsync(leader, records, await leader.Factory.PrepareTouchAsync("op-2", CacheName, Key, Ttl * 20, 2UL, cancellationToken), cancellationToken);
-        await LeaderAppliesAsync(leader, records, await leader.Factory.PrepareUpdateAsync("op-3", CacheName, Key, "v2", 3UL, cancellationToken), cancellationToken);
-        await LeaderAppliesAsync(leader, records, await leader.Factory.PrepareTryAddAsync("op-4", CacheName, Key, new NodeCacheEntry<object?>("v3"), 4UL, cancellationToken), cancellationToken);
+        await LeaderAppliesAsync(leader, records, await leader.Factory.PrepareUpdateAsync("op-3", CacheName, Key, StoredValue.FromText("v2"), 3UL, cancellationToken), cancellationToken);
+        await LeaderAppliesAsync(leader, records, await leader.Factory.PrepareTryAddAsync("op-4", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v3")), 4UL, cancellationToken), cancellationToken);
 
         var early = new Harness(new FakeTimeProvider(leaderClock.GetUtcNow().AddSeconds(-30)));
         var late = new Harness(new FakeTimeProvider(leaderClock.GetUtcNow().AddSeconds(30)));
@@ -62,7 +63,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     public async Task RemoveExpirationExpiresBeforeApply(CancellationToken cancellationToken)
     {
         var harness = new Harness(new FakeTimeProvider());
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, harness.Now.Add(Ttl)), cancellationToken);
         var prepared = await harness.Factory.PrepareRemoveExpirationAsync("op-2", CacheName, Key, 2UL, cancellationToken);
 
         harness.Clock.Advance(Wait);
@@ -71,7 +72,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsTrue();
         var raw = harness.Raw(cancellationToken);
         _ = await Assert.That(raw?.ExpiresUtc).IsNull();
-        _ = await Assert.That(raw?.Value).IsEqualTo("v1");
+        _ = await Assert.That(StoredValueProbe.Text(raw?.Value)).IsEqualTo("v1");
     }
 
     /// <summary>A remove decided while the key was live deletes it when applied after the key expired.</summary>
@@ -80,7 +81,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     public async Task RemoveExpiringBeforeApplyDeletes(CancellationToken cancellationToken)
     {
         var harness = new Harness(new FakeTimeProvider());
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, harness.Now.Add(Ttl)), cancellationToken);
         var prepared = await harness.Factory.PrepareRemoveAsync("op-2", CacheName, Key, 2UL, cancellationToken);
 
         harness.Clock.Advance(Wait);
@@ -97,7 +98,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         var leader = new Harness(new FakeTimeProvider());
         var replica = new Harness(new FakeTimeProvider());
-        await replica.SeedAsync(new NodeCacheEntry<object?>("v1"), cancellationToken);
+        await replica.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1")), cancellationToken);
         var prepared = await leader.Factory.PrepareRemoveAsync("op-1", CacheName, Key, 1UL, cancellationToken);
 
         await replica.ApplyAsync(prepared, cancellationToken);
@@ -112,14 +113,14 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     public async Task AddExpiringBeforeApplyStaysRejected(CancellationToken cancellationToken)
     {
         var harness = new Harness(new FakeTimeProvider());
-        await harness.SeedAsync(new NodeCacheEntry<object?>("a", 1, harness.Now.Add(Ttl)), cancellationToken);
-        var prepared = await harness.Factory.PrepareTryAddAsync("op-2", CacheName, Key, new NodeCacheEntry<object?>("b"), 2UL, cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("a"), 1, harness.Now.Add(Ttl)), cancellationToken);
+        var prepared = await harness.Factory.PrepareTryAddAsync("op-2", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("b")), 2UL, cancellationToken);
 
         harness.Clock.Advance(Wait);
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsFalse();
-        _ = await Assert.That(harness.Raw(cancellationToken)?.Value).IsEqualTo("a");
+        _ = await Assert.That(StoredValueProbe.Text(harness.Raw(cancellationToken)?.Value)).IsEqualTo("a");
     }
 
     /// <summary>The leader decides expiry once: the tombstone it commits deletes the key on replicas whose clocks are apart, and before it the key stays.</summary>
@@ -129,13 +130,13 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         var leaderClock = new FakeTimeProvider();
         var leader = new Harness(leaderClock, CacheExpiryAuthority.CommittedRecords);
-        var set = leader.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v1", 1, null, Ttl), 1UL);
+        var set = leader.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, null, Ttl), 1UL);
         await leader.ApplyAsync(set, cancellationToken);
         var early = new Harness(new FakeTimeProvider(leaderClock.GetUtcNow().AddSeconds(-30)), CacheExpiryAuthority.CommittedRecords);
         var late = new Harness(new FakeTimeProvider(leaderClock.GetUtcNow().AddSeconds(90)), CacheExpiryAuthority.CommittedRecords);
         await early.ApplyAsync(set, cancellationToken);
         await late.ApplyAsync(set, cancellationToken);
-        _ = await Assert.That((await late.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v1");
+        _ = await Assert.That(StoredValueProbe.Text((await late.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value)).IsEqualTo("v1");
 
         leaderClock.Advance(Ttl);
         var (tombstone, _) = await leader.Factory.PrepareExpireAsync(CacheName, Key, 2UL, cancellationToken);
@@ -153,7 +154,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
         var deadline = harness.Now.Add(Ttl);
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 4, deadline), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 4, deadline), cancellationToken);
         harness.Clock.Advance(Ttl);
 
         var (tombstone, current) = await harness.Factory.PrepareExpireAsync(CacheName, Key, 2UL, cancellationToken);
@@ -174,14 +175,14 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
         var (absentTombstone, absentCurrent) = await harness.Factory.PrepareExpireAsync(CacheName, Key, 1UL, cancellationToken);
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, harness.Now.Add(Ttl)), cancellationToken);
 
         var (tombstone, current) = await harness.Factory.PrepareExpireAsync(CacheName, Key, 2UL, cancellationToken);
 
         _ = await Assert.That(absentTombstone).IsNull();
         _ = await Assert.That(absentCurrent).IsNull();
         _ = await Assert.That(tombstone).IsNull();
-        _ = await Assert.That(current?.Value).IsEqualTo("v1");
+        _ = await Assert.That(StoredValueProbe.Text(current?.Value)).IsEqualTo("v1");
     }
 
     /// <summary>An update, a touch and an expiration removal that find the key expired delete it and report nothing applied.</summary>
@@ -195,12 +196,12 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     public async Task ExpiredKeyFoldsIntoConditionalWrite(string kind, CancellationToken cancellationToken)
     {
         var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, harness.Now.Add(Ttl)), cancellationToken);
         harness.Clock.Advance(Ttl);
 
         var prepared = kind switch
         {
-            ReplicaMutationKinds.Update => await harness.Factory.PrepareUpdateAsync("op-2", CacheName, Key, "v2", 2UL, cancellationToken),
+            ReplicaMutationKinds.Update => await harness.Factory.PrepareUpdateAsync("op-2", CacheName, Key, StoredValue.FromText("v2"), 2UL, cancellationToken),
             ReplicaMutationKinds.Touch => await harness.Factory.PrepareTouchAsync("op-2", CacheName, Key, Ttl, 2UL, cancellationToken),
             _ => await harness.Factory.PrepareRemoveExpirationAsync("op-2", CacheName, Key, 2UL, cancellationToken),
         };
@@ -216,10 +217,10 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     public async Task ExpiredKeyCountsAsAbsentForAddAndRemove(CancellationToken cancellationToken)
     {
         var harness = new Harness(new FakeTimeProvider(), CacheExpiryAuthority.CommittedRecords);
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, harness.Now.Add(Ttl)), cancellationToken);
         harness.Clock.Advance(Ttl);
 
-        var add = await harness.Factory.PrepareTryAddAsync("op-2", CacheName, Key, new NodeCacheEntry<object?>("v2", 1, harness.Now.Add(Ttl)), 2UL, cancellationToken);
+        var add = await harness.Factory.PrepareTryAddAsync("op-2", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v2"), 1, harness.Now.Add(Ttl)), 2UL, cancellationToken);
         await harness.ApplyAsync(add, cancellationToken);
         var added = harness.Raw(cancellationToken);
         harness.Clock.Advance(Ttl);
@@ -227,7 +228,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await harness.ApplyAsync(remove, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(add.OutcomePayload)).IsTrue();
-        _ = await Assert.That(added?.Value).IsEqualTo("v2");
+        _ = await Assert.That(StoredValueProbe.Text(added?.Value)).IsEqualTo("v2");
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(remove.OutcomePayload)).IsFalse();
         _ = await Assert.That(harness.Raw(cancellationToken)).IsNull();
     }
@@ -238,13 +239,13 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     public async Task SubMillisecondTtlRoundsUp(CancellationToken cancellationToken)
     {
         var harness = new Harness(new FakeTimeProvider());
-        var prepared = harness.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromTicks(5000)), 1UL);
+        var prepared = harness.Factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, TimeSpan.FromTicks(5000)), 1UL);
 
         await harness.ApplyAsync(prepared, cancellationToken);
 
         var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload);
         _ = await Assert.That(record?.ExpiresUtcTicks).IsEqualTo(harness.Now.Ticks + TimeSpan.TicksPerMillisecond);
-        _ = await Assert.That((await harness.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text((await harness.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value)).IsEqualTo("v");
     }
 
     /// <summary>A touch decided while the key was live writes the decided deadline even when the key expired before the apply.</summary>
@@ -253,7 +254,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     public async Task TouchExpiringBeforeApplyKeepsDeadline(CancellationToken cancellationToken)
     {
         var harness = new Harness(new FakeTimeProvider());
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, harness.Now.Add(Ttl)), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, harness.Now.Add(Ttl)), cancellationToken);
         var decided = harness.Now.Add(Ttl * 10);
         var prepared = await harness.Factory.PrepareTouchAsync("op-2", CacheName, Key, Ttl * 10, 2UL, cancellationToken);
 
@@ -263,7 +264,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsTrue();
         var raw = harness.Raw(cancellationToken);
         _ = await Assert.That(raw?.ExpiresUtc).IsEqualTo(decided);
-        _ = await Assert.That((await harness.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v1");
+        _ = await Assert.That(StoredValueProbe.Text((await harness.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value)).IsEqualTo("v1");
     }
 
     /// <summary>A touch keeps the version and the tags of the entry it decided on.</summary>
@@ -273,7 +274,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         var harness = new Harness(new FakeTimeProvider());
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 7, null, null, tags), cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 7, null, null, tags), cancellationToken);
         var prepared = await harness.Factory.PrepareTouchAsync("op-2", CacheName, Key, Ttl, 2UL, cancellationToken);
 
         await harness.ApplyAsync(prepared, cancellationToken);
@@ -290,15 +291,15 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         var harness = new Harness(new FakeTimeProvider());
         var deadline = harness.Now.Add(Ttl);
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 1, deadline), cancellationToken);
-        var prepared = await harness.Factory.PrepareUpdateAsync("op-2", CacheName, Key, "v2", 2UL, cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 1, deadline), cancellationToken);
+        var prepared = await harness.Factory.PrepareUpdateAsync("op-2", CacheName, Key, StoredValue.FromText("v2"), 2UL, cancellationToken);
 
         harness.Clock.Advance(Wait);
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsTrue();
         var raw = harness.Raw(cancellationToken);
-        _ = await Assert.That(raw?.Value).IsEqualTo("v2");
+        _ = await Assert.That(StoredValueProbe.Text(raw?.Value)).IsEqualTo("v2");
         _ = await Assert.That(raw?.ExpiresUtc).IsEqualTo(deadline);
     }
 
@@ -309,13 +310,13 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     {
         var harness = new Harness(new FakeTimeProvider());
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["t"] = "1" }.ToFrozenDictionary(StringComparer.Ordinal);
-        await harness.SeedAsync(new NodeCacheEntry<object?>("v1", 7, null, null, tags), cancellationToken);
-        var prepared = await harness.Factory.PrepareUpdateAsync("op-2", CacheName, Key, "v2", 2UL, cancellationToken);
+        await harness.SeedAsync(new NodeCacheEntry<StoredValue>(StoredValue.FromText("v1"), 7, null, null, tags), cancellationToken);
+        var prepared = await harness.Factory.PrepareUpdateAsync("op-2", CacheName, Key, StoredValue.FromText("v2"), 2UL, cancellationToken);
 
         await harness.ApplyAsync(prepared, cancellationToken);
 
         var raw = harness.Raw(cancellationToken);
-        _ = await Assert.That(raw?.Value).IsEqualTo("v2");
+        _ = await Assert.That(StoredValueProbe.Text(raw?.Value)).IsEqualTo("v2");
         _ = await Assert.That(raw?.Version).IsEqualTo(7L);
         _ = await Assert.That(raw?.Tags?["t"]).IsEqualTo("1");
     }
@@ -326,11 +327,11 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         records.Add(prepared);
     }
 
-    private static async Task AssertSameEntryAsync(NodeCacheEntry<object?>? actual, NodeCacheEntry<object?>? expected)
+    private static async Task AssertSameEntryAsync(NodeCacheEntry<StoredValue>? actual, NodeCacheEntry<StoredValue>? expected)
     {
         _ = await Assert.That(actual).IsNotNull();
         _ = await Assert.That(expected).IsNotNull();
-        _ = await Assert.That(actual!.Value).IsEqualTo(expected!.Value);
+        _ = await Assert.That(StoredValueProbe.Text(actual!.Value)).IsEqualTo(StoredValueProbe.Text(expected!.Value));
         _ = await Assert.That(actual.ExpiresUtc).IsEqualTo(expected.ExpiresUtc);
         _ = await Assert.That(actual.Version).IsEqualTo(expected.Version);
         _ = await Assert.That(actual.Tags?["t"]).IsEqualTo(expected.Tags?["t"]);
@@ -339,17 +340,17 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
     /// <summary>A cache on its own clock with the factory that prepares against it.</summary>
     private sealed class Harness
     {
-        private readonly PhysicalCache<object?> _physical;
+        private readonly PhysicalCache<StoredValue> _physical;
 
         internal Harness(FakeTimeProvider clock, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
         {
             Clock = clock;
-            _physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: expiry);
-            Cache = new ClientCache<object?>(_physical, _physical);
+            _physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: expiry);
+            Cache = new ClientCache<StoredValue>(_physical, _physical);
             Factory = new ReplicaMutationFactory(Cache, "g1", 1UL, clock, NullLogger.Instance);
         }
 
-        internal ClientCache<object?> Cache { get; }
+        internal ClientCache<StoredValue> Cache { get; }
 
         internal FakeTimeProvider Clock { get; }
 
@@ -363,9 +364,9 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
                 ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode.")),
                 cancellationToken);
 
-        internal NodeCacheEntry<object?>? Raw(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
+        internal NodeCacheEntry<StoredValue>? Raw(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
 
-        internal Task SeedAsync(NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        internal Task SeedAsync(NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             ApplyAsync(Factory.PrepareSet("seed", CacheName, Key, entry, 1UL), cancellationToken);
     }
 }

@@ -57,7 +57,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         var follower = GroupLog(cluster[FollowerId]);
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var compactions = 0;
         var snapshotIndex = 0UL;
         var started = Stopwatch.GetTimestamp();
@@ -130,13 +130,13 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
         await WriteAsync(owner, key, writes + laterWrites + 1, 1, cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [(FollowerId, restarted)], cancellationToken);
         await AwaitAppliedAsync(restarted, (await GroupLog(owner).GetStatusAsync(cancellationToken)).LastLogIndex - 1, cancellationToken);
-        var value = (await LocalChain(restarted).GetEntryAsync(CacheName, key, cancellationToken))?.Value as string;
+        var value = (await LocalChain(restarted).GetEntryAsync(CacheName, key, cancellationToken))?.Value is { Kind: StoredValue.ValueKind.Text } text ? System.Text.Encoding.UTF8.GetString(text.Bytes) : null;
         var expected = string.Equals(value, Value(writes + laterWrites), StringComparison.Ordinal) ||
                        string.Equals(value, Value(writes + laterWrites + 1), StringComparison.Ordinal);
         _ = await Assert.That(expected).IsTrue().Because($"The restarted follower must apply the committed entries above its snapshot; value {value}.");
     }
 
-    private static NodeCacheEntry<object?> Entry(int version) => new() { Value = Value(version), Version = version };
+    private static NodeCacheEntry<StoredValue> Entry(int version) => new() { Value = StoredValue.FromText(Value(version)), Version = version };
 
     private static string Value(int version) => $"value-{version}";
 
@@ -161,7 +161,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <summary>Resolves the node's local cache chain below replication, which the group appliers write to.</summary>
     /// <param name="host">The node.</param>
     /// <returns>The local cache chain.</returns>
-    private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
+    private static ILogicalNamespacedCache<StoredValue> LocalChain(ITestNodeHost host) =>
         host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     /// <summary>Replaces the group log maintenance schedule.</summary>
@@ -187,7 +187,7 @@ public sealed class FollowerLogCompactionTests : NodeIntegrationTestBase
     /// <returns>An asynchronous operation.</returns>
     private static async Task WriteAsync(ITestNodeHost owner, string key, int from, int count, CancellationToken cancellationToken)
     {
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         for (var i = from; i < from + count; i++)
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, Entry(i), cancellationToken);
     }

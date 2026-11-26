@@ -33,7 +33,7 @@ public class ReplicatedCacheValueReadBenchmarks
     private static readonly byte[] Fingerprint = [9, 8, 7];
     private ReplicaGroupCommitters? _committers;
     private TempDirectory? _dir;
-    private ClientCache<object?>? _local;
+    private ClientCache<StoredValue>? _local;
     private ReplicatedCache? _replicated;
     private ReplicaGroupRegistry? _registry;
 
@@ -98,12 +98,12 @@ public class ReplicatedCacheValueReadBenchmarks
         _registry = new ReplicaGroupRegistry(_dir, ["n1"], 3, Fingerprint, 1, NullLoggerFactory.Instance, logOptions) { ElectionClock = TimeProvider.System };
         await _registry.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        _local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        _local = new ClientCache<StoredValue>(physical, physical);
         var led = new ReplicaGroupCommitter[1];
         led[0] = CreateCommitter(_registry, _local);
         _committers = new ReplicaGroupCommitters(led, "n1", new NoOwners(), TimeProvider.System);
-        await _committers.For("n1").CommitSetAsync("op-1", CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromDays(1)), CancellationToken.None)
+        await _committers.For("n1").CommitSetAsync("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, TimeSpan.FromDays(1)), CancellationToken.None)
             .ConfigureAwait(false);
         _replicated = new ReplicatedCache(_local, _committers);
         _ = await _replicated.GetValueAsync(CacheName, Key, CancellationToken.None).ConfigureAwait(false);
@@ -113,7 +113,7 @@ public class ReplicatedCacheValueReadBenchmarks
     /// <param name="registry">The registry of node n1.</param>
     /// <param name="local">The local cache the group applies to.</param>
     /// <returns>The committer.</returns>
-    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ClientCache<object?> local) =>
+    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ClientCache<StoredValue> local) =>
         new(registry, new ThreeNodeLocator(), new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             ShutdownTimeProvider = TimeProvider.System,

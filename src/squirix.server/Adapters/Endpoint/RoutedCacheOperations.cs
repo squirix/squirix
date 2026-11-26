@@ -358,13 +358,13 @@ internal sealed class RoutedCacheOperations<T>
                     throw new ServerCallException(FrameStatus.InvalidArgument, "The distributed cache expiration policy is invalid.");
 
                 var write = new DistributedCacheWrite(in policy, payload.Span, ttl);
-                if (write is not T value)
+                if (!DistributedCacheWrite.TryGetEnvelope(write.Envelope, out T? value))
                     throw new ServerCallException(FrameStatus.Internal, "The node cannot store distributed cache values.");
 
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                     operationId,
                     request.Key,
-                    new NodeCacheEntry<T>(value, expiresUtc: write.DeadlineForSizing),
+                    new NodeCacheEntry<T>(value, expiresUtc: write.DeadlineForSizing) { PendingWrite = write },
                     cancellationToken).ConfigureAwait(false);
                 return new SetAsyncResponse();
             }

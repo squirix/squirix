@@ -43,7 +43,7 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     private readonly ReplicaGroupCommitters _committers;
     private readonly ReplicaGroupEntries _entries;
     private readonly IJournalCoordinator _journal;
-    private readonly ILogicalNamespacedCache<object?> _local;
+    private readonly ILogicalNamespacedCache<StoredValue> _local;
     private readonly ISnapshotReadinessStatus _snapshots;
     private readonly FrozenDictionary<string, GroupWork> _work;
 
@@ -60,7 +60,7 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     internal ReplicaStateSink(
         ReplicaGroupAppliers appliers,
         ReplicaGroupCommitters committers,
-        ILogicalNamespacedCache<object?> local,
+        ILogicalNamespacedCache<StoredValue> local,
         ReplicaGroupEntries entries,
         IJournalCoordinator journal,
         ISnapshotReadinessStatus snapshots)
@@ -206,12 +206,12 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <param name="encodedLength">The journal-encoded length of the entry, or <see langword="null" /> when it is not known.</param>
     /// <returns>The entry to store.</returns>
     /// <exception cref="InvalidDataException">The payload does not decode or the deadline is out of range.</exception>
-    private static NodeCacheEntry<object?> Decode(in ReplicaStateEntry item, out int? encodedLength)
+    private static NodeCacheEntry<StoredValue> Decode(in ReplicaStateEntry item, out int? encodedLength)
     {
         if (!WireBounds.IsUtcTicks(item.ExpiresUtcTicks))
             throw new InvalidDataException("A transferred entry names a deadline out of range.");
 
-        var decoded = JournalEntryPayload.TryDecodeWithDeadline(item.Payload.Span, item.ExpiresUtcTicks, out var entry, out encodedLength);
+        var decoded = JournalEntryPayload.TryDecodeWithDeadline<StoredValue>(item.Payload.Span, item.ExpiresUtcTicks, out var entry, out encodedLength);
         return decoded && entry != null
             ? entry
             : throw new InvalidDataException("A transferred entry payload is undecodable.");

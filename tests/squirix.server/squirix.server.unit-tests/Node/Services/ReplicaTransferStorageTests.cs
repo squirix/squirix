@@ -50,7 +50,7 @@ public sealed class ReplicaTransferStorageTests : ServerUnitTestBase
         var stored = harness.Cache.GetEntry(new CacheKey(CacheName, "k-1"), cancellationToken);
         var totals = await harness.Sink.SealAsync(GroupId, cancellationToken);
 
-        _ = await Assert.That(stored?.Value).IsEqualTo("stored-value");
+        _ = await Assert.That(StoredValueProbe.Text(stored?.Value)).IsEqualTo("stored-value");
         _ = await Assert.That(totals).IsEqualTo(TotalsOf(original));
         harness.Sink.Leave(GroupId);
     }
@@ -64,10 +64,10 @@ public sealed class ReplicaTransferStorageTests : ServerUnitTestBase
 
         internal void Release() => _ = _release.TrySetResult();
 
-        internal ILogicalNamespacedCache<object?> Wrap(ILogicalNamespacedCache<object?> inner)
+        internal ILogicalNamespacedCache<StoredValue> Wrap(ILogicalNamespacedCache<StoredValue> inner)
         {
-            var rock = new ILogicalNamespacedCacheCreateExpectations<object?>();
-            _ = rock.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            var rock = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+            _ = rock.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
                 .Callback(async (operation, cache, key, entry, length, token) =>
                 {
                     _ = _reached.TrySetResult();

@@ -19,12 +19,12 @@ namespace Squirix.Server.Node.Services;
 internal sealed class ReplicaGroupEntries
 {
     private readonly INodeLocator _locator;
-    private readonly ILocalCacheSnapshotReader<object?> _reader;
+    private readonly ILocalCacheSnapshotReader<StoredValue> _reader;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupEntries" /> class.</summary>
     /// <param name="reader">The stored entries.</param>
     /// <param name="locator">The key owner lookup, which names the group of a key.</param>
-    internal ReplicaGroupEntries(ILocalCacheSnapshotReader<object?> reader, INodeLocator locator)
+    internal ReplicaGroupEntries(ILocalCacheSnapshotReader<StoredValue> reader, INodeLocator locator)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(locator);

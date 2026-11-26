@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -321,7 +322,7 @@ public sealed class ProtocolModelConformanceTests
         Task commit,
         CancellationToken cancellationToken)
     {
-        var applier = new ReplicaGroupApplier(new ILogicalNamespacedCacheCreateExpectations<object?>().Instance(), NullLogger.Instance);
+        var applier = new ReplicaGroupApplier(new ILogicalNamespacedCacheCreateExpectations<StoredValue>().Instance(), NullLogger.Instance);
         applier.ResetTo(pipeline.AppliedIndex);
         var wait = applier.WaitAppliedAsync(readIndex, cancellationToken);
 

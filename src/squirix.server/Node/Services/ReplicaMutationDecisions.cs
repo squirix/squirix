@@ -22,7 +22,7 @@ internal static class ReplicaMutationDecisions
     /// <param name="now">The leader clock at prepare.</param>
     /// <param name="payload">The transient payload observed by this read, never part of the retained outcome.</param>
     /// <returns>The pinned upsert, expiration tombstone, or result-only decision.</returns>
-    internal static ReplicaDecision DecideDistributedAccess(NodeCacheEntry<object?>? current, DateTime now, out ReadOnlyMemory<byte>? payload)
+    internal static ReplicaDecision DecideDistributedAccess(NodeCacheEntry<StoredValue>? current, DateTime now, out ReadOnlyMemory<byte>? payload)
     {
         var access = DistributedCacheAccess.Decide(current, now);
         payload = access.Payload;
@@ -39,10 +39,10 @@ internal static class ReplicaMutationDecisions
     /// <param name="entry">The requested entry.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision.</returns>
-    internal static ReplicaDecision DecideSet(NodeCacheEntry<object?> entry, DateTime now)
+    internal static ReplicaDecision DecideSet(NodeCacheEntry<StoredValue> entry, DateTime now)
     {
-        if (entry.RawValue is DistributedCacheWrite write)
-            entry = write.Materialize<object?>(now);
+        if (entry.PendingWrite is { } write)
+            entry = write.Materialize<StoredValue>(now);
 
         return Upsert(entry.RawValue, entry.Version, entry.Tags, DeadlineTicks(entry, now));
     }
@@ -52,7 +52,7 @@ internal static class ReplicaMutationDecisions
     /// <param name="entry">The requested entry.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision.</returns>
-    internal static ReplicaDecision DecideTryAdd(NodeCacheEntry<object?>? current, NodeCacheEntry<object?> entry, DateTime now) =>
+    internal static ReplicaDecision DecideTryAdd(NodeCacheEntry<StoredValue>? current, NodeCacheEntry<StoredValue> entry, DateTime now) =>
         current == null || IsExpired(current, now) ? DecideSet(entry, now) : Unchanged();
 
     /// <summary>Decides a value replacement: applied, writing the new value over the observed entry, when the key is live.</summary>
@@ -60,11 +60,11 @@ internal static class ReplicaMutationDecisions
     /// <param name="value">The replacement value.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision, which keeps the observed version, tags and deadline; an expired key is deleted and nothing else changes.</returns>
-    internal static ReplicaDecision DecideUpdate(NodeCacheEntry<object?>? current, object? value, DateTime now) => current switch
+    internal static ReplicaDecision DecideUpdate(NodeCacheEntry<StoredValue>? current, in StoredValue value, DateTime now) => current switch
     {
         null => Unchanged(),
         _ when IsExpired(current, now) => Expired(current),
-        _ => Upsert(value, current.Version, current.Tags, PinnedTicks(current.ExpiresUtc)),
+        _ => Upsert(in value, current.Version, current.Tags, PinnedTicks(current.ExpiresUtc)),
     };
 
     /// <summary>Decides an expiration refresh: applied, writing the observed entry under the new deadline, when the key is live.</summary>
@@ -72,7 +72,7 @@ internal static class ReplicaMutationDecisions
     /// <param name="now">The prepare time.</param>
     /// <param name="expiration">The new expiration, measured from <paramref name="now" />.</param>
     /// <returns>The decision; an expired key is deleted and nothing else changes.</returns>
-    internal static ReplicaDecision DecideTouch(NodeCacheEntry<object?>? current, DateTime now, TimeSpan expiration) => current switch
+    internal static ReplicaDecision DecideTouch(NodeCacheEntry<StoredValue>? current, DateTime now, TimeSpan expiration) => current switch
     {
         null => Unchanged(),
         _ when IsExpired(current, now) => Expired(current),
@@ -83,7 +83,7 @@ internal static class ReplicaMutationDecisions
     /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision; an expired key is deleted and nothing else changes.</returns>
-    internal static ReplicaDecision DecideRemoveExpiration(NodeCacheEntry<object?>? current, DateTime now) => current switch
+    internal static ReplicaDecision DecideRemoveExpiration(NodeCacheEntry<StoredValue>? current, DateTime now) => current switch
     {
         null or { ExpiresUtc: null } => Unchanged(),
         _ when IsExpired(current, now) => Expired(current),
@@ -94,7 +94,7 @@ internal static class ReplicaMutationDecisions
     /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision.</returns>
-    internal static ReplicaDecision DecideRemove(NodeCacheEntry<object?>? current, DateTime now)
+    internal static ReplicaDecision DecideRemove(NodeCacheEntry<StoredValue>? current, DateTime now)
     {
         var outcome = current == null || IsExpired(current, now)
             ? ReplicaOutcomeCodec.NotApplied
@@ -106,13 +106,13 @@ internal static class ReplicaMutationDecisions
     /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision, or <see langword="null" /> when the key is absent or live and no tombstone is needed.</returns>
-    internal static ReplicaDecision? DecideExpire(NodeCacheEntry<object?>? current, DateTime now) =>
+    internal static ReplicaDecision? DecideExpire(NodeCacheEntry<StoredValue>? current, DateTime now) =>
         current != null && IsExpired(current, now) ? Expired(current) : null;
 
     /// <summary>Returns the passed deadline of an expired entry as the UTC ticks an expiring record carries.</summary>
     /// <param name="current">The expired entry.</param>
     /// <returns>The deadline ticks, at least one, so the record always carries a deadline.</returns>
-    private static long ExpiredTicks(NodeCacheEntry<object?> current) => Math.Max(1L, current.ExpiresUtc.GetValueOrDefault().Ticks);
+    private static long ExpiredTicks(NodeCacheEntry<StoredValue> current) => Math.Max(1L, current.ExpiresUtc.GetValueOrDefault().Ticks);
 
     /// <summary>Returns the effective absolute deadline of an entry written at <paramref name="now" />.</summary>
     /// <param name="entry">The entry to write.</param>
@@ -125,7 +125,7 @@ internal static class ReplicaMutationDecisions
     /// The relative expiration is resolved here, once, so a replay of the record keeps the deadline of the original write
     /// instead of measuring the relative expiration again from the replay time.
     /// </remarks>
-    private static long DeadlineTicks(NodeCacheEntry<object?> entry, DateTime now)
+    private static long DeadlineTicks(NodeCacheEntry<StoredValue> entry, DateTime now)
     {
         var deadline = entry.ExpiresUtc;
         if (entry.Expiration is { } expiration && (deadline == null || ExpiresAt(now, expiration) < deadline))
@@ -137,7 +137,7 @@ internal static class ReplicaMutationDecisions
     /// <summary>Decides the deletion of an expired entry: nothing applied, no payload, and the passed deadline the record carries.</summary>
     /// <param name="current">The expired entry.</param>
     /// <returns>The decision.</returns>
-    private static ReplicaDecision Expired(NodeCacheEntry<object?> current) => new(null, ReplicaOutcomeCodec.NotApplied, ExpiredTicks(current));
+    private static ReplicaDecision Expired(NodeCacheEntry<StoredValue> current) => new(null, ReplicaOutcomeCodec.NotApplied, ExpiredTicks(current));
 
     private static DateTime ExpiresAt(DateTime now, TimeSpan expiration) => now.SaturatedAdd(expiration);
 
@@ -145,7 +145,7 @@ internal static class ReplicaMutationDecisions
     /// <param name="current">The stored entry.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns><see langword="true" /> when the entry has a deadline at or before <paramref name="now" />.</returns>
-    private static bool IsExpired(NodeCacheEntry<object?> current, DateTime now) => current.ExpiresUtc is { } deadline && deadline.Ticks <= now.Ticks;
+    private static bool IsExpired(NodeCacheEntry<StoredValue> current, DateTime now) => current.ExpiresUtc is { } deadline && deadline.Ticks <= now.Ticks;
 
     /// <summary>Pins a deadline to whole milliseconds, the precision the journal and the snapshots store, so every copy of the entry agrees.</summary>
     /// <param name="expiresUtc">The deadline, or <see langword="null" /> for none.</param>
@@ -165,7 +165,7 @@ internal static class ReplicaMutationDecisions
     /// The apply writes the entry with its deadline through the cache journal, which refuses an oversized entry. Refused there, after the
     /// majority, the entry would stay pending and block the group; refused here, nothing is appended and the caller gets the limit error.
     /// </remarks>
-    private static ReplicaDecision Upsert(object? value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks)
+    private static ReplicaDecision Upsert(in StoredValue value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks)
     {
         var prepared = PreparedJournalEntry.ForReplicaUpsert(value, version, tags);
         return new ReplicaDecision(prepared, ReplicaOutcomeCodec.Applied, expiresUtcTicks);

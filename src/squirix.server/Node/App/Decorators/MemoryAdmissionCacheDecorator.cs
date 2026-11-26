@@ -115,7 +115,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        return _estimator is ObjectCacheEntrySizeEstimator
+        return _estimator is ObjectCacheEntrySizeEstimator or CacheEntrySizeEstimator<StoredValue>
             ? _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)
             : RemoveExpirationWithEstimateAsync(operationId, cacheName, key, cancellationToken);
     }

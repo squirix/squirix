@@ -34,9 +34,9 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         _ = node.GetRequiredService<ReplicaGroupRegistry>().TryGetLog("node-a", out var log);
         var before = await log!.GetStatusAsync(cancellationToken);
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
-        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<object?>>();
+        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<StoredValue>>();
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v"), Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var after = await log.GetStatusAsync(cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
@@ -53,10 +53,10 @@ public sealed class InProcessOwnershipTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
         var node = cluster["node-a"];
         var key = node.FindKeyOwnedBy(CacheName, "node-b");
-        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<object?>>();
+        var pipeline = node.GetRequiredService<ILogicalNamespacedCache<StoredValue>>();
 
-        var read = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<object?>>(pipeline.GetValueAsync(CacheName, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var write = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var read = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheValueResult<StoredValue>>(pipeline.GetValueAsync(CacheName, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var write = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(pipeline.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v"), Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(read.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
         _ = await Assert.That(read.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");

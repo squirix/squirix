@@ -300,7 +300,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
     private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
-        if (candidate.RawValue is DistributedCacheWrite write)
+        if (candidate.PendingWrite is { } write)
             candidate = write.Materialize<T>(UtcNow);
 
         if (candidate is not { Version: > 0, Expiration: null })

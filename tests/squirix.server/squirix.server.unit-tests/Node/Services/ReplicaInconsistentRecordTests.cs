@@ -156,8 +156,8 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var total = new long[1];
         using var listener = CountMetric(meter, total);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback(static (_, _, _, _, _) => ValueTask.FromException(new InvalidDataException("entry exceeds the payload limit")));
         var applier = new ReplicaGroupApplier(cache.Instance(), NullLogger.Instance, "n1", "n1", new ReplicationMetrics(meter));
         var valid = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance).PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);

@@ -92,9 +92,9 @@ public class ReplicaApplyPassBenchmarks
 
         _host = await JournalBenchmarkHost.CreateAsync("replica-apply-pass-journal", new PersistenceOptions { JournalMaxSegmentMb = 64 }, CancellationToken.None)
             .ConfigureAwait(false);
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         _meter = new Meter("replica-apply-pass-bench");
-        var appliers = new ReplicaGroupAppliers(_registry, new ClientCache<object?>(physical, physical), GroupId, NullLogger<ReplicaGroupAppliers>.Instance, new ReplicationMetrics(_meter));
+        var appliers = new ReplicaGroupAppliers(_registry, new ClientCache<StoredValue>(physical, physical), GroupId, NullLogger<ReplicaGroupAppliers>.Instance, new ReplicationMetrics(_meter));
         _committers = new ReplicaGroupCommitters([], "n9", new SingleGroupLocator(), TimeProvider.System);
         _clock = new CountingClock();
         _service = new ReplicaApplyService(_registry, appliers, _committers, _host.Coordinator, NullLogger<ReplicaApplyService>.Instance, _clock);

@@ -41,7 +41,7 @@ public class ReplicaMutationPrepareBenchmarks
     {
         var factory = ThrowHelper.Required(_factory, "Benchmark factory was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await factory.PrepareUpdateAsync("op-2", CacheName, Key, "v2", 2UL, CancellationToken.None).ConfigureAwait(false);
+            _ = await factory.PrepareUpdateAsync("op-2", CacheName, Key, StoredValue.FromText("v2"), 2UL, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Seeds the live key the prepares read.</summary>
@@ -49,9 +49,9 @@ public class ReplicaMutationPrepareBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
-        await local.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromDays(1)), CancellationToken.None).ConfigureAwait(false);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
+        await local.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, TimeSpan.FromDays(1)), CancellationToken.None).ConfigureAwait(false);
         _factory = new ReplicaMutationFactory(local, "n1", 1UL, TimeProvider.System, NullLogger.Instance);
     }
 }

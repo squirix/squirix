@@ -99,7 +99,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         using var channel = CreateBinaryChannel(owner.Uri);
         var client = new CacheWireClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
-        ILocalCacheReadOperations<object?> local = owner.GetRequiredService<PhysicalCache<object?>>();
+        ILocalCacheReadOperations<StoredValue> local = owner.GetRequiredService<PhysicalCache<StoredValue>>();
         var cacheKey = new CacheKey(CacheName, key);
         var original = local.GetValueWithDeadline(cacheKey, cancellationToken);
         _ = await Assert.That(original.Found).IsTrue();

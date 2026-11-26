@@ -185,7 +185,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
             ShutdownBudget = StallTimeout,
         };
 
-    private static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
+    private static NodeCacheEntry<StoredValue> Entry() => new() { Value = StoredValue.FromText("v"), Version = 1 };
 
     private static async Task<ulong> LastLogIndexAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
     {

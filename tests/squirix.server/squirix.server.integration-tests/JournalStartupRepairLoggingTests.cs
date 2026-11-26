@@ -122,11 +122,11 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
 
     private static async Task AssertEntriesReadableAsync(ITestNodeHost node, CancellationToken cancellationToken)
     {
-        var cache = node.GetCache<object?>(CacheName);
+        var cache = node.GetCache<StoredValue>(CacheName);
         var first = await cache.GetValueAsync(CacheName, "repair-key-1", cancellationToken);
         var second = await cache.GetValueAsync(CacheName, "repair-key-2", cancellationToken);
-        _ = await Assert.That((first.Found, first.Value)).IsEqualTo((true, "value-1"));
-        _ = await Assert.That((second.Found, second.Value)).IsEqualTo((true, "value-2"));
+        _ = await Assert.That((first.Found, StoredValueProbe.Text(first.Value))).IsEqualTo((true, "value-1"));
+        _ = await Assert.That((second.Found, StoredValueProbe.Text(second.Value))).IsEqualTo((true, "value-2"));
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean, RecordingLoggerProvider? recorder) => new()
@@ -146,10 +146,10 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
 
     private static async Task WriteEntriesAsync(ITestNodeHost node, CancellationToken cancellationToken)
     {
-        var cache = node.GetCache<object?>(CacheName);
+        var cache = node.GetCache<StoredValue>(CacheName);
         for (var i = 1; i <= 2; i++)
         {
-            var entry = new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i };
+            var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"value-{i}"), Version = i };
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, $"repair-key-{i}", entry, cancellationToken);
         }
     }

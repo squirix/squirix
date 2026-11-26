@@ -312,8 +312,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-apply-service-fault");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback(static (_, _, _, _, _) => ValueTask.FromException(new NotSupportedException("unexpected cache failure")));
         using var meter = new Meter("test");
         var appliers = CreateAppliers(registry, cache.Instance(), meter);
@@ -348,8 +348,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         var writes = 0;
         var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback((_, _, _, _, _) =>
                   {
                       var write = Interlocked.Increment(ref writes);
@@ -398,8 +398,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         await SeedAsync(registry, "n3", 1UL, cancellationToken, "m1");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback((_, _, _, _, _) =>
                   {
                       _ = entered.TrySetResult();
@@ -456,7 +456,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         return new ReplicaGroupCommitters(led, "n1", Owners(), TimeProvider.System);
     }
 
-    internal static ReplicaGroupAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> cache, Meter meter) => new(
+    internal static ReplicaGroupAppliers CreateAppliers(ReplicaGroupRegistry registry, ILogicalNamespacedCache<StoredValue> cache, Meter meter) => new(
         registry,
         cache,
         "n1",

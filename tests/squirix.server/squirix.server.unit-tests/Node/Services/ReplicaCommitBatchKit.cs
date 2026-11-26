@@ -59,7 +59,7 @@ internal static class ReplicaCommitBatchKit
     internal static FollowerLogOptions DefaultOptions(int idempotencyCapacity) =>
         new() { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, IdempotencyCapacity = idempotencyCapacity };
 
-    internal static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
+    internal static NodeCacheEntry<StoredValue> Entry() => new() { Value = StoredValue.FromText("v"), Version = 1 };
 
     internal static FollowerLog GetOwnedLog(ReplicaGroupRegistry registry) =>
         registry.TryGetLog(OwnedGroup, out var log) && log is FollowerLog followerLog ? followerLog : throw new InvalidOperationException("The owned group log is not open.");

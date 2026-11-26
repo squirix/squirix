@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -69,7 +70,7 @@ public sealed class ReplicaReplayTests : ServerUnitTestBase
     {
         WriteKind.Set => committer.CommitSetAsync(operationId, "cache", "k1", Entry("k1"), cancellationToken),
         WriteKind.TryAdd => committer.CommitTryAddAsync(operationId, "cache", "k1", Entry("k1"), cancellationToken),
-        WriteKind.Update => committer.CommitUpdateAsync(operationId, "cache", "k1", "v1", cancellationToken),
+        WriteKind.Update => committer.CommitUpdateAsync(operationId, "cache", "k1", StoredValue.FromText("v1"), cancellationToken),
         WriteKind.Touch => committer.CommitTouchAsync(operationId, "cache", "k1", TimeSpan.FromMinutes(1), cancellationToken),
         WriteKind.Remove => committer.CommitRemoveAsync(operationId, "cache", "k1", cancellationToken),
         WriteKind.RemoveExpiration => committer.CommitRemoveExpirationAsync(operationId, "cache", "k1", cancellationToken),

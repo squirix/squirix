@@ -27,12 +27,12 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
-        var first = await factory.PrepareTryAddAsync("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL, cancellationToken);
+        var first = await factory.PrepareTryAddAsync("op-1", "cache", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(first), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(first.OutcomePayload, out var firstApplied, out _)).IsTrue();
         _ = await Assert.That(firstApplied).IsTrue();
 
-        var second = await factory.PrepareTryAddAsync("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v2" }, 2UL, cancellationToken);
+        var second = await factory.PrepareTryAddAsync("op-2", "cache", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v2") }, 2UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(second), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(second.OutcomePayload, out var secondApplied, out _)).IsTrue();
         _ = await Assert.That(secondApplied).IsFalse();
@@ -44,9 +44,9 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task FailedPreparePropagatesFault(CancellationToken cancellationToken)
     {
         var fault = new InvalidOperationException("local read failed");
-        var faulting = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        var faulting = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
         _ = faulting.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                    .ReturnValue(ValueTask.FromException<NodeCacheEntry<object?>?>(fault));
+                    .ReturnValue(ValueTask.FromException<NodeCacheEntry<StoredValue>?>(fault));
         var factory = new ReplicaMutationFactory(faulting.Instance(), "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -71,14 +71,14 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     {
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
-        var plain = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
+        var plain = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(plain), cancellationToken);
 
         var absent = await factory.PrepareRemoveExpirationAsync("op-2", "cache", "k", 2UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(absent), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(absent.OutcomePayload)).IsFalse();
 
-        var timed = factory.PrepareSet("op-3", "cache", "timed", new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = DateTime.UtcNow.AddHours(1) }, 3UL);
+        var timed = factory.PrepareSet("op-3", "cache", "timed", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), ExpiresUtc = DateTime.UtcNow.AddHours(1) }, 3UL);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(timed), cancellationToken);
 
         var present = await factory.PrepareRemoveExpirationAsync("op-4", "cache", "timed", 4UL, cancellationToken);
@@ -108,7 +108,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     {
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
-        var prepared = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
+        var prepared = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), cancellationToken);
 
         var mutation = await factory.PrepareRemoveAsync("op-2", "cache", "k", 2UL, cancellationToken);
@@ -131,7 +131,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     {
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
-        var entry = new NodeCacheEntry<object?> { Value = "v1" };
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") };
 
         var mutation = factory.PrepareSet("op-1", "cache", "k", entry, 1UL);
         var record = await DecodeRecordAsync(mutation);
@@ -139,7 +139,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
         var read = await cache.GetValueAsync("cache", "k", cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
-        var firstValue = await Assert.That(read.Value).IsTypeOf<string>();
+        var firstValue = StoredValueProbe.Text(read.Value);
         _ = await Assert.That(firstValue).IsEqualTo("v1");
     }
 
@@ -155,7 +155,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(missing.OutcomePayload)).IsFalse();
 
-        var prepared = factory.PrepareSet("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 2UL);
+        var prepared = factory.PrepareSet("op-2", "cache", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 2UL);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), cancellationToken);
 
         var touch = await factory.PrepareTouchAsync("op-3", "cache", "k", TimeSpan.FromMinutes(5), 3UL, cancellationToken);
@@ -171,19 +171,19 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
-        var missing = await factory.PrepareUpdateAsync("op-1", "cache", "k", "v9", 1UL, cancellationToken);
+        var missing = await factory.PrepareUpdateAsync("op-1", "cache", "k", StoredValue.FromText("v9"), 1UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(missing), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(missing.OutcomePayload)).IsFalse();
 
-        var prepared = factory.PrepareSet("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 2UL);
+        var prepared = factory.PrepareSet("op-2", "cache", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 2UL);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(prepared), cancellationToken);
 
-        var update = await factory.PrepareUpdateAsync("op-3", "cache", "k", "v2", 3UL, cancellationToken);
+        var update = await factory.PrepareUpdateAsync("op-3", "cache", "k", StoredValue.FromText("v2"), 3UL, cancellationToken);
         await ReplicaCacheApplier.ApplyAsync(cache, await DecodeRecordAsync(update), cancellationToken);
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(update.OutcomePayload)).IsTrue();
         var read = await cache.GetValueAsync("cache", "k", cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
-        var secondValue = await Assert.That(read.Value).IsTypeOf<string>();
+        var secondValue = StoredValueProbe.Text(read.Value);
         _ = await Assert.That(secondValue).IsEqualTo("v2");
     }
 
@@ -195,18 +195,18 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     }
 
     /// <summary>In-memory logical cache for prepare/apply round-trips.</summary>
-    private sealed class MemoryCache : ILogicalNamespacedCache<object?>
+    private sealed class MemoryCache : ILogicalNamespacedCache<StoredValue>
     {
-        private readonly Dictionary<string, NodeCacheEntry<object?>> _entries = [with(StringComparer.Ordinal)];
+        private readonly Dictionary<string, NodeCacheEntry<StoredValue>> _entries = [with(StringComparer.Ordinal)];
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_entries.TryGetValue(Key(cacheName, key), out var entry) ? entry : null);
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+        public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
             return _entries.TryGetValue(Key(cacheName, key), out var entry)
-                ? ValueTask.FromResult(new NodeCacheValueResult<object?>(true, entry.Value))
-                : ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
+                ? ValueTask.FromResult(new NodeCacheValueResult<StoredValue>(true, entry.Value))
+                : ValueTask.FromResult(new NodeCacheValueResult<StoredValue>(false, default));
         }
 
         public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
@@ -223,7 +223,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
                 : ValueTask.FromResult(RemoveExpirationEntry(cacheName, key, entry));
         }
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
         {
             _entries[Key(cacheName, key)] = entry;
             return ValueTask.CompletedTask;
@@ -234,31 +234,31 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
             if (!_entries.TryGetValue(Key(cacheName, key), out var entry))
                 return ValueTask.FromResult(false);
 
-            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value, ExpiresUtc = DateTime.UtcNow.Add(expiration) };
+            _entries[Key(cacheName, key)] = new NodeCacheEntry<StoredValue> { Value = entry.Value, ExpiresUtc = DateTime.UtcNow.Add(expiration) };
             return ValueTask.FromResult(true);
         }
 
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
         {
             var cacheKey = Key(cacheName, key);
             return _entries.TryAdd(cacheKey, entry) ? ValueTask.FromResult(true) : ValueTask.FromResult(false);
         }
 
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken)
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken)
         {
             var cacheKey = Key(cacheName, key);
             if (!_entries.TryGetValue(cacheKey, out var entry))
                 return ValueTask.FromResult(false);
 
-            _entries[cacheKey] = new NodeCacheEntry<object?> { Value = value, ExpiresUtc = entry.ExpiresUtc };
+            _entries[cacheKey] = new NodeCacheEntry<StoredValue> { Value = value, ExpiresUtc = entry.ExpiresUtc };
             return ValueTask.FromResult(true);
         }
 
         private static string Key(string cacheName, string key) => cacheName + "\x1F" + key;
 
-        private bool RemoveExpirationEntry(string cacheName, string key, NodeCacheEntry<object?> entry)
+        private bool RemoveExpirationEntry(string cacheName, string key, NodeCacheEntry<StoredValue> entry)
         {
-            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value };
+            _entries[Key(cacheName, key)] = new NodeCacheEntry<StoredValue> { Value = entry.Value };
             return true;
         }
     }

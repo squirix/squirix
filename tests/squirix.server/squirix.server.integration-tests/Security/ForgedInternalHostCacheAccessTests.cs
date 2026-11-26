@@ -49,14 +49,14 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = "must-not-store", Version = 1 }.MapToWire(),
+                    Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("must-not-store"), Version = 1 }.MapToWire(),
                 },
                 cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
 
-        var stored = cluster["node-a"].GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey("default", key), cancellationToken);
+        var stored = cluster["node-a"].GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey("default", key), cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsNull();
         _ = await Assert.That(stored.Found).IsFalse();
     }
@@ -81,7 +81,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "seeded-secret", Version = 1 }.MapToWire(),
+                Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("seeded-secret"), Version = 1 }.MapToWire(),
             },
             cancellationToken: cancellationToken);
         _ = await Assert.That(seeded).IsNotNull();

@@ -23,16 +23,16 @@ public sealed class MemoryEvictionServiceTests : ServerUnitTestBase
     [Test]
     public async Task MemorySweepRemovesOnlyEnoughColdEntries(CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator(), new EvictionOptions { EvictOnMemoryPressure = true });
+        var cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), new EvictionOptions { EvictOnMemoryPressure = true });
         ILocalCacheStats stats = cache;
-        var local = new ClientCache<object?>(cache, cache);
-        cache.Set(CacheKey.Default("a"), new NodeCacheEntry<object?> { Value = new string('a', 512) }, cancellationToken);
+        var local = new ClientCache<StoredValue>(cache, cache);
+        cache.Set(CacheKey.Default("a"), new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(new string('a', 512)) }, cancellationToken);
         var one = stats.EstimatedBytes;
         using var sweep = new MemoryEvictionService(cache, new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 2 * one }), local, null, TimeProvider.System, NullLogger<MemoryEvictionService>.Instance);
         await sweep.SweepAsync(cancellationToken);
         _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
         foreach (var key in new[] { "b", "c", "d" })
-            cache.Set(CacheKey.Default(key), new NodeCacheEntry<object?> { Value = new string('b', 512) }, cancellationToken);
+            cache.Set(CacheKey.Default(key), new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(new string('b', 512)) }, cancellationToken);
 
         _ = cache.GetValue(CacheKey.Default("a"), cancellationToken);
         await sweep.SweepAsync(cancellationToken);

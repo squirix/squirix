@@ -16,6 +16,13 @@ internal static partial class CacheEntryCodec
     {
         internal static int ComputeLength(object? value) => value switch
         {
+            StoredValue stored => stored.Kind switch
+            {
+                StoredValue.ValueKind.Null => 1,
+                StoredValue.ValueKind.Boolean => 2,
+                StoredValue.ValueKind.Integer or StoredValue.ValueKind.Double => 9,
+                _ => 5 + stored.Bytes.Length,
+            },
             null => 1,
             bool => 2,
             StoredText text => 5 + text.Bytes.Length,
@@ -28,6 +35,19 @@ internal static partial class CacheEntryCodec
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
         {
+            if (typeof(T) == typeof(StoredValue))
+            {
+                if (value is decimal)
+                {
+                    result = default;
+                    return false;
+                }
+
+                var stored = value is StoredValue existing ? existing : StoredValue.FromDecoded(value);
+                result = Unsafe.As<StoredValue, T>(ref stored);
+                return true;
+            }
+
             if (value == null)
             {
                 result = default;
@@ -62,14 +82,27 @@ internal static partial class CacheEntryCodec
 
         internal static int WriteInternal(object? value, Span<byte> destination) => value switch
         {
+            StoredValue stored => WriteStored(in stored, destination),
             null => CacheEntryValueWriteCodec.WriteNull(destination),
             bool b => CacheEntryValueWriteCodec.WriteBool(b, destination),
-            StoredText text => CacheEntryValueWriteCodec.WriteText(text, destination),
+            StoredText text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, text.Bytes, destination),
             string s => CacheEntryValueWriteCodec.WriteString(s, destination),
-            byte[] bytes => CacheEntryValueWriteCodec.WriteBytes(bytes, destination),
+            byte[] bytes => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, bytes, destination),
             sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
             float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
             _ => WriteDecimalOrStructuredValue(value, destination),
+        };
+
+        private static int WriteStored(in StoredValue value, Span<byte> destination) => value.Kind switch
+        {
+            StoredValue.ValueKind.Null => CacheEntryValueWriteCodec.WriteNull(destination),
+            StoredValue.ValueKind.Boolean => CacheEntryValueWriteCodec.WriteBool(value.Boolean, destination),
+            StoredValue.ValueKind.Integer => CacheEntryValueWriteCodec.WriteBits(ValueKind.Int64, value.Integer, destination),
+            StoredValue.ValueKind.Double => CacheEntryValueWriteCodec.WriteBits(ValueKind.Double, value.Integer, destination),
+            StoredValue.ValueKind.Text => CacheEntryValueWriteCodec.WritePayload(ValueKind.String, value.Bytes, destination),
+            StoredValue.ValueKind.Binary => CacheEntryValueWriteCodec.WritePayload(ValueKind.Bytes, value.Bytes, destination),
+            StoredValue.ValueKind.Json => CacheEntryValueWriteCodec.WritePayload(ValueKind.Json, value.Bytes, destination),
+            _ => throw new InvalidOperationException("Invalid stored cache value."),
         };
 
         private static int ComputeDecimalOrStructuredLength(object value) => value switch
@@ -82,7 +115,7 @@ internal static partial class CacheEntryCodec
         private static int WriteDecimalOrStructuredValue(object value, Span<byte> destination) => value switch
         {
             decimal m => CacheEntryValueWriteCodec.WriteDecimal(m, destination),
-            JsonUtf8Value json => CacheEntryValueWriteCodec.WriteJson(json, destination),
+            JsonUtf8Value json => CacheEntryValueWriteCodec.WritePayload(ValueKind.Json, json.Bytes.Span, destination),
             _ => WriteInternal(NodeCacheEntry<object?>.NormalizeValue(value), destination),
         };
 
@@ -276,7 +309,7 @@ internal static partial class CacheEntryCodec
 
             if (materialize)
             {
-                value = typeof(T) == typeof(object) && System.Text.Unicode.Utf8.IsValid(stringBytes)
+                value = (typeof(T) == typeof(object) || typeof(T) == typeof(StoredValue)) && System.Text.Unicode.Utf8.IsValid(stringBytes)
                     ? new StoredText(Squirix.Transport.Wire.Codec.WireReader.CopyBytes(stringBytes))
                     : Encoding.UTF8.GetString(stringBytes);
             }
@@ -297,9 +330,16 @@ internal static partial class CacheEntryCodec
             return 2;
         }
 
-        internal static int WriteBytes(byte[] bytes, Span<byte> destination)
+        internal static int WriteBits(byte kind, long bits, Span<byte> destination)
         {
-            destination[0] = ValueKind.Bytes;
+            destination[0] = kind;
+            BinaryPrimitives.WriteInt64LittleEndian(destination[1..], bits);
+            return 1 + sizeof(long);
+        }
+
+        internal static int WritePayload(byte kind, ReadOnlySpan<byte> bytes, Span<byte> destination)
+        {
+            destination[0] = kind;
             return 1 + TagEncoding.WriteUtf32Prefixed(bytes, destination[1..]);
         }
 
@@ -323,22 +363,10 @@ internal static partial class CacheEntryCodec
             return 1 + 8;
         }
 
-        internal static int WriteJson(JsonUtf8Value value, Span<byte> destination)
-        {
-            destination[0] = ValueKind.Json;
-            return 1 + TagEncoding.WriteUtf32Prefixed(value.Bytes.Span, destination[1..]);
-        }
-
         internal static int WriteNull(Span<byte> destination)
         {
             destination[0] = ValueKind.Null;
             return 1;
-        }
-
-        internal static int WriteText(StoredText text, Span<byte> destination)
-        {
-            destination[0] = ValueKind.String;
-            return 1 + TagEncoding.WriteUtf32Prefixed(text.Bytes, destination[1..]);
         }
 
         internal static int WriteString(string value, Span<byte> destination)

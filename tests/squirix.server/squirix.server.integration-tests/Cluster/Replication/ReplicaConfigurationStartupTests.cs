@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Wire.Replication;
@@ -197,18 +196,16 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     {
         await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri())]);
         var host = await cluster.StartNodeAsync("n1", new IntegrationStartOptions { UsePersistence = true, ExtraScope = "rf1-no-group-wal" }, cancellationToken);
-        var cache = host.GetCache<object?>("default");
-        await cache.SetEntryAsync("rf1-operation", "default", "key", new NodeCacheEntry<object?> { Value = "persisted", Version = 1 }, cancellationToken);
-        _ = await Assert.That(ReadText((await cache.GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
+        var cache = host.GetCache<StoredValue>("default");
+        await cache.SetEntryAsync("rf1-operation", "default", "key", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("persisted"), Version = 1 }, cancellationToken);
+        _ = await Assert.That(StoredValueProbe.Text((await cache.GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
         AssertNoGroupLog(host);
         await cluster.StopNodeAsync("n1");
 
         var restarted = await cluster.StartNodeAsync("n1", new IntegrationStartOptions { UsePersistence = true, ExtraScope = "rf1-no-group-wal", CleanTestDir = false }, cancellationToken);
-        _ = await Assert.That(ReadText((await restarted.GetCache<object?>("default").GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
+        _ = await Assert.That(StoredValueProbe.Text((await restarted.GetCache<StoredValue>("default").GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
         AssertNoGroupLog(restarted);
     }
-
-    private static string? ReadText(object? value) => value is JsonElement json ? json.GetString() : value as string;
 
     private static void AssertNoGroupLog(ITestNodeHost host)
     {

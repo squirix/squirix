@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -44,12 +45,12 @@ public sealed class NodeStopDuringVerificationTests : NodeIntegrationTestBase
         var survivor = cluster[SurvivorId];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(survivor, cancellationToken);
         var key = survivor.FindKeyOwnedBy(CacheName, SurvivorId);
-        var entry = new NodeCacheEntry<object?> { Value = "after-stops", Version = 1 };
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("after-stops"), Version = 1 };
 
-        await survivor.GetCache<object?>(CacheName).SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, entry, cancellationToken);
+        await survivor.GetCache<StoredValue>(CacheName).SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, entry, cancellationToken);
 
-        var stored = await survivor.GetCache<object?>(CacheName).GetEntryAsync(CacheName, key, cancellationToken);
-        _ = await Assert.That(stored?.Value).IsEqualTo("after-stops").Because("The cluster must stay writable after the owner was stopped mid-handshake.");
+        var stored = await survivor.GetCache<StoredValue>(CacheName).GetEntryAsync(CacheName, key, cancellationToken);
+        _ = await Assert.That(StoredValueProbe.Text(stored?.Value)).IsEqualTo("after-stops").Because("The cluster must stay writable after the owner was stopped mid-handshake.");
         _ = await Assert.That(recorder.Find(MaterialLeakedEventId)).IsNull().Because("Every outbound connection must have closed within the shutdown budget.");
     }
 

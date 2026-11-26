@@ -74,6 +74,8 @@ public sealed class NodeCacheEntry<T>
         }
     }
 
+    internal DistributedCacheWrite? PendingWrite { get; init; }
+
     internal T? RawValue { get; private init; }
 
     /// <summary>Normalizes a value to a form the durable codecs store directly.</summary>
@@ -99,7 +101,7 @@ public sealed class NodeCacheEntry<T>
     /// </remarks>
     private static object? NormalizeStructured(T value) => value switch
     {
-        JsonUtf8Value or StoredText => value,
+        JsonUtf8Value or StoredText or StoredValue => value,
         JsonElement element => NormalizeElement(element),
         DistributedCacheWrite write => write.Envelope,
         _ => ServerJsonSerializer.SerializeToJsonValue<object?>(value),

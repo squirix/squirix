@@ -39,10 +39,10 @@ public sealed class StaticLeaderTailTests : NodeIntegrationTestBase
         var owner = cluster[OwnerId];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         var keys = OwnedKeys(owner);
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var writes = new Task[Writes];
         for (var i = 0; i < Writes; i++)
-            writes[i] = cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[i], new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i + 1 }, cancellationToken).AsTask();
+            writes[i] = cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[i], new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"value-{i}"), Version = i + 1 }, cancellationToken).AsTask();
 
         await Task.WhenAll(writes);
         var target = (await GroupLog(owner).GetStatusAsync(cancellationToken)).CommitIndex;
@@ -53,7 +53,7 @@ public sealed class StaticLeaderTailTests : NodeIntegrationTestBase
             for (var i = 0; i < Writes; i++)
             {
                 var entry = await LocalChain(host).GetEntryAsync(CacheName, keys[i], cancellationToken);
-                _ = await Assert.That(entry?.Value).IsEqualTo($"value-{i}").Because($"{follower} must hold the committed write {i}.");
+                _ = await Assert.That(StoredValueProbe.Text(entry?.Value)).IsEqualTo($"value-{i}").Because($"{follower} must hold the committed write {i}.");
             }
         }
 
@@ -70,7 +70,7 @@ public sealed class StaticLeaderTailTests : NodeIntegrationTestBase
     private static IFollowerLog GroupLog(ITestNodeHost host) =>
         host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(OwnerId, out var log) ? log : throw new InvalidOperationException($"The node does not serve group {OwnerId}.");
 
-    private static ILogicalNamespacedCache<object?> LocalChain(ITestNodeHost host) =>
+    private static ILogicalNamespacedCache<StoredValue> LocalChain(ITestNodeHost host) =>
         host.Services.GetRequiredService<OwnerLocalCache>().Value;
 
     private static string[] OwnedKeys(ITestNodeHost owner)

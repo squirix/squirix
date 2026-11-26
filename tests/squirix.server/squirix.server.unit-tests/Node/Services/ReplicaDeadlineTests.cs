@@ -32,7 +32,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var prepared = clock.GetUtcNow().UtcDateTime;
         var cache = NewCache(clock);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
-        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
+        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL), cancellationToken);
 
         var touch = Decode(await factory.PrepareTouchAsync("op-1", CacheName, Key, Expiration, 2UL, cancellationToken));
 
@@ -47,7 +47,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
-        await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
+        await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL), cancellationToken);
         var deadline = clock.GetUtcNow().UtcDateTime.Add(Expiration);
         var touch = await factory.PrepareTouchAsync("op-2", CacheName, Key, Expiration, 2UL, cancellationToken);
 
@@ -68,7 +68,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
-        await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
+        await ApplyAsync(cache, factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL), cancellationToken);
         var touch = await factory.PrepareTouchAsync("op-2", CacheName, Key, TimeSpan.FromMinutes(1), 2UL, cancellationToken);
 
         clock.Advance(TimeSpan.FromMinutes(10));
@@ -86,7 +86,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
-        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
+        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL), cancellationToken);
 
         var first = await factory.PrepareTouchAsync("op-1", CacheName, Key, Expiration, 1UL, cancellationToken);
         clock.Advance(TimeSpan.FromHours(1));
@@ -104,7 +104,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var clock = new FakeTimeProvider();
         var cache = NewCache(clock);
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL, clock, NullLogger.Instance);
-        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 1UL), cancellationToken);
+        await ApplyAsync(cache, factory.PrepareSet("op-0", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 1UL), cancellationToken);
 
         var shorter = await factory.PrepareTouchAsync("op-1", CacheName, Key, TimeSpan.FromMinutes(5), 2UL, cancellationToken);
         var longer = await factory.PrepareTouchAsync("op-1", CacheName, Key, TimeSpan.FromHours(1), 2UL, cancellationToken);
@@ -123,7 +123,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var clock = new FakeTimeProvider();
         var deadline = clock.GetUtcNow().UtcDateTime.Add(Expiration);
         var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock, NullLogger.Instance);
-        var entry = new NodeCacheEntry<object?> { Value = "v1", Expiration = Expiration };
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Expiration = Expiration };
         var write = string.Equals(kind, ReplicaMutationKinds.Set, StringComparison.Ordinal)
             ? factory.PrepareSet("op-1", CacheName, Key, entry, 1UL)
             : await factory.PrepareTryAddAsync("op-1", CacheName, Key, entry, 1UL, cancellationToken);
@@ -147,24 +147,24 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         var now = clock.GetUtcNow().UtcDateTime;
         var factory = new ReplicaMutationFactory(NewCache(clock), "g1", 1UL, clock, NullLogger.Instance);
 
-        var absoluteFirst = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = now.AddMinutes(2), Expiration = Expiration }, 1UL);
-        var relativeFirst = factory.PrepareSet("op-2", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = now.AddHours(1), Expiration = Expiration }, 2UL);
-        var never = factory.PrepareSet("op-3", CacheName, Key, new NodeCacheEntry<object?> { Value = "v1" }, 3UL);
+        var absoluteFirst = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), ExpiresUtc = now.AddMinutes(2), Expiration = Expiration }, 1UL);
+        var relativeFirst = factory.PrepareSet("op-2", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), ExpiresUtc = now.AddHours(1), Expiration = Expiration }, 2UL);
+        var never = factory.PrepareSet("op-3", CacheName, Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1") }, 3UL);
 
         _ = await Assert.That(Decode(absoluteFirst).ExpiresUtcTicks).IsEqualTo(now.AddMinutes(2).Ticks);
         _ = await Assert.That(Decode(relativeFirst).ExpiresUtcTicks).IsEqualTo(now.Add(Expiration).Ticks);
         _ = await Assert.That(Decode(never).ExpiresUtcTicks).IsEqualTo(0L);
     }
 
-    private static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+    private static Task ApplyAsync(ILogicalNamespacedCache<StoredValue> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         ReplicaCacheApplier.ApplyAsync(cache, Decode(mutation), cancellationToken);
 
     private static ReplicaLogRecord Decode(PreparedReplicaMutation mutation) =>
         ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
 
-    private static ClientCache<object?> NewCache(TimeProvider clock)
+    private static ClientCache<StoredValue> NewCache(TimeProvider clock)
     {
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        return new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        return new ClientCache<StoredValue>(physical, physical);
     }
 }

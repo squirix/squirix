@@ -11,7 +11,7 @@ namespace Squirix.Server.Node.Services;
 /// <param name="Failure">The failure of the tombstone when the key is <see cref="ReplicaExpiryStatus.Failed" />; otherwise <see langword="null" />.</param>
 [Immutable]
 [StructLayout(LayoutKind.Auto)]
-internal readonly record struct ReplicaExpiryResult(ReplicaExpiryStatus Status, NodeCacheEntry<object?>? Entry, Exception? Failure)
+internal readonly record struct ReplicaExpiryResult(ReplicaExpiryStatus Status, NodeCacheEntry<StoredValue>? Entry, Exception? Failure)
 {
     /// <summary>Gets the result of a key that holds no entry.</summary>
     internal static ReplicaExpiryResult Absent => new(ReplicaExpiryStatus.Absent, null, null);
@@ -22,7 +22,7 @@ internal readonly record struct ReplicaExpiryResult(ReplicaExpiryStatus Status, 
     /// <summary>Creates the result of a key that holds a live entry.</summary>
     /// <param name="entry">The stored entry.</param>
     /// <returns>The result.</returns>
-    internal static ReplicaExpiryResult Live(NodeCacheEntry<object?> entry) => new(ReplicaExpiryStatus.Live, entry, null);
+    internal static ReplicaExpiryResult Live(NodeCacheEntry<StoredValue> entry) => new(ReplicaExpiryStatus.Live, entry, null);
 
     /// <summary>Creates the result of a key whose tombstone is not committed.</summary>
     /// <param name="failure">The client failure of the tombstone.</param>

@@ -38,7 +38,7 @@ public class ReplicaMutationBuildBenchmarks
     {
         var factory = ThrowHelper.Required(_factory, "Benchmark factory was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await factory.PrepareUpdateAsync("op-2", CacheName, Key, _value, 2UL, CancellationToken.None).ConfigureAwait(false);
+            _ = await factory.PrepareUpdateAsync("op-2", CacheName, Key, StoredValue.FromText(_value), 2UL, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Maps an append batch of one entry to its wire request.</summary>
@@ -59,9 +59,9 @@ public class ReplicaMutationBuildBenchmarks
     public async Task SetupAsync()
     {
         _value = new string('x', ValueLength);
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
-        await local.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, TimeSpan.FromDays(1)), CancellationToken.None).ConfigureAwait(false);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
+        await local.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, TimeSpan.FromDays(1)), CancellationToken.None).ConfigureAwait(false);
         _factory = new ReplicaMutationFactory(local, "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         _header = new ReplicaRpcHeader("n1", new byte[FingerprintLength], 1, 1, "n1", "n1");
         _batch = new FollowerBatch([new FollowerLogEntry(2, 1, new byte[ValueLength])], "n1", 1, 1, 1, 1);

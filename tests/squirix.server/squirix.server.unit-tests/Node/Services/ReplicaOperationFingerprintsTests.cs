@@ -37,7 +37,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
         const string operationId = "операция-😀";
         const string cacheName = "кэш-😀";
         var key = new string('я', keyLength) + "😀\uD800";
-        var entry = new NodeCacheEntry<object?>("значение-😀", 17);
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromText("значение-😀"), 17);
         var expiration = TimeSpan.FromTicks(123456789);
         var touchPayload = GC.AllocateUninitializedArray<byte>(sizeof(long));
         BinaryPrimitives.WriteInt64LittleEndian(touchPayload, expiration.Ticks);
@@ -52,8 +52,8 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
             Oracle(ReplicaMutationKinds.TryAdd, entry.MapToWire().ToByteArray(), operationId, cacheName, key),
             ReplicaOperationFingerprints.AddIfAbsent(operationId, cacheName, key, entry));
         await SequenceAssert.EqualAsync(
-            Oracle(ReplicaMutationKinds.Update, ServerWireMapping.CacheValueToWire<object?>(null).ToByteArray(), operationId, cacheName, key),
-            ReplicaOperationFingerprints.Update(operationId, cacheName, key, null));
+            Oracle(ReplicaMutationKinds.Update, ServerWireMapping.CacheValueToWire<StoredValue>(default).ToByteArray(), operationId, cacheName, key),
+            ReplicaOperationFingerprints.Update(operationId, cacheName, key, default));
         await SequenceAssert.EqualAsync(
             Oracle(ReplicaMutationKinds.Remove, [], operationId, cacheName, key),
             ReplicaOperationFingerprints.Remove(operationId, cacheName, key));
@@ -80,7 +80,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     [Arguments(200_000)]
     public async Task EntryFingerprintsMatchSerializedBytes(int valueLength)
     {
-        var entry = new NodeCacheEntry<object?> { Value = new string('x', valueLength), Version = 1, Expiration = TimeSpan.FromMinutes(1) };
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(new string('x', valueLength)), Version = 1, Expiration = TimeSpan.FromMinutes(1) };
         var bytes = entry.MapToWire().ToByteArray();
 
         var set = ReplicaOperationFingerprints.Set(OperationId, CacheName, Key, entry);
@@ -97,8 +97,8 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     [Test]
     public async Task FingerprintTellsRequestsApart()
     {
-        var first = new NodeCacheEntry<object?> { Value = "a", Version = 1 };
-        var second = new NodeCacheEntry<object?> { Value = "b", Version = 1 };
+        var first = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("a"), Version = 1 };
+        var second = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("b"), Version = 1 };
 
         await SequenceAssert.EqualAsync(ReplicaOperationFingerprints.Set(OperationId, CacheName, Key, first), ReplicaOperationFingerprints.Set(OperationId, CacheName, Key, first));
         _ = await Assert.That(Convert.ToHexString(ReplicaOperationFingerprints.Set(OperationId, CacheName, Key, first)))
@@ -116,7 +116,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
         object value = jsonLength == 0 ? 42L : JsonValueKit.Create(ArrayOfOnes(jsonLength));
         var bytes = ServerWireMapping.CacheValueToWire(value).ToByteArray();
 
-        var fingerprint = ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, value);
+        var fingerprint = ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, StoredValue.FromDecoded(value));
 
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.Update, bytes), fingerprint);
     }
