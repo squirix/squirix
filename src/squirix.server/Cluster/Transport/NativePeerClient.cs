@@ -300,7 +300,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
         catch (Exception error) when (error is IOException or SocketException or AuthenticationException)
         {
-            PreVoteTrace.Mark("send transport error");
+            if (PreVoteTrace.IsTracing)
+                PreVoteTrace.Mark($"send transport error {error.GetType().Name}: {error.Message}");
             throw new ServerCallException(FrameStatus.Unavailable, "Peer request failed.", sent ? null : new HttpRequestException(HttpRequestError.ConnectionError, "Could not establish the peer connection.", error));
         }
         finally

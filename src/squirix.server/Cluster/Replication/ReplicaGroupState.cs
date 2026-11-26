@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -14,6 +15,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// failover off, or fewer than three replicas) the state stays a follower without authority and only records contacts.
 /// </remarks>
 [ThreadSafe]
+#pragma warning disable SQR0002 // Temporary contact snapshot for the RF=5 diagnostic run.
 internal sealed class ReplicaGroupState
 {
     /// <summary>Marks a follower slot that never answered the current leader.</summary>
@@ -238,6 +240,29 @@ internal sealed class ReplicaGroupState
             }
 
             return recent * 2 > _followerContact.Length;
+        }
+    }
+
+    /// <summary>Reads the ages of the last recorded follower contacts for the quorum loss trace.</summary>
+    /// <param name="members">Group members in replica slot order.</param>
+    /// <param name="self">The local node identifier.</param>
+    /// <returns>The contact age for each remote member, in milliseconds, or never if no reply was recorded.</returns>
+    internal string DescribeFollowerContacts(string[] members, string self)
+    {
+        lock (_sync)
+        {
+            var now = Clock.GetTimestamp();
+            var ages = new List<string>(members.Length - 1);
+            for (var i = 0; i < members.Length; i++)
+            {
+                if (string.Equals(members[i], self, StringComparison.Ordinal))
+                    continue;
+
+                var elapsed = _followerContact[i] == NoContact ? "never" : $"{Clock.GetElapsedTime(_followerContact[i], now).TotalMilliseconds:F0}ms";
+                ages.Add($"{members[i]}={elapsed}");
+            }
+
+            return string.Join(", ", ages);
         }
     }
 

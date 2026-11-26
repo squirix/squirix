@@ -6,10 +6,12 @@ using System.Runtime.CompilerServices;
 
 namespace Squirix.Server.Logging;
 
-/// <summary>Observes peer pre-vote phases using the trace identifier carried in existing peer metadata.</summary>
+/// <summary>Observes peer replication RPC phases using the trace identifier carried in existing peer metadata.</summary>
 internal static class PreVoteTrace
 {
     internal const string Operation = "squirix.peer.pre-vote";
+
+    internal const string AppendOperation = "squirix.peer.append";
 
     private static readonly ConditionalWeakTable<object, Action<string>> CertificateObservers = [];
 
@@ -21,7 +23,7 @@ internal static class PreVoteTrace
 
     internal static bool HasTlsObservers => TlsObserved != null;
 
-    internal static bool IsTracing => HasObservers && string.Equals(Activity.Current?.OperationName, Operation, StringComparison.Ordinal);
+    internal static bool IsTracing => HasObservers && IsObservedOperation(Activity.Current?.OperationName);
 
     internal static void ObserveCertificates(object stream, Action<string> observer) => CertificateObservers.Add(stream, observer);
 
@@ -31,12 +33,12 @@ internal static class PreVoteTrace
             observer(phase);
     }
 
-    internal static Activity? Accept(string? parent)
+    internal static Activity? Accept(string? parent, bool append)
     {
         if (parent == null || !HasObservers)
             return null;
 
-        var activity = new Activity(Operation);
+        var activity = new Activity(append ? AppendOperation : Operation);
         _ = activity.SetParentId(parent);
         _ = activity.Start();
         return activity;
@@ -44,7 +46,7 @@ internal static class PreVoteTrace
 
     internal static void MarkClientSocket(Socket socket)
     {
-        if (HasObservers && Activity.Current is { } activity && string.Equals(activity.OperationName, Operation, StringComparison.Ordinal) &&
+        if (HasObservers && Activity.Current is { } activity && IsObservedOperation(activity.OperationName) &&
             socket.LocalEndPoint is IPEndPoint local && socket.RemoteEndPoint is IPEndPoint remote)
             Mark("send socket connected", (local.Port, remote.Port));
     }
@@ -58,9 +60,12 @@ internal static class PreVoteTrace
     internal static void Mark(string phase, (int Client, int Server) ports = default)
     {
         var observer = Observed;
-        if (observer != null && Activity.Current is { } activity && string.Equals(activity.OperationName, Operation, StringComparison.Ordinal))
+        if (observer != null && Activity.Current is { } activity && IsObservedOperation(activity.OperationName))
             observer(null, new StageEventArgs(activity.TraceId, phase, ports));
     }
+
+    private static bool IsObservedOperation(string? name) =>
+        string.Equals(name, Operation, StringComparison.Ordinal) || string.Equals(name, AppendOperation, StringComparison.Ordinal);
 
     internal sealed class StageEventArgs : EventArgs
     {

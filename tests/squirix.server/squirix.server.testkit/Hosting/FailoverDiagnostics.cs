@@ -5,8 +5,12 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Adapters.Wire.Replication;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Networking;
 
@@ -56,13 +60,14 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         {
             var senderPorts = _bridges.GetValueOrDefault(ports, ports);
             if (_connections.TryGetValue(senderPorts, out var traceId) && _traces.TryGetValue(traceId, out var peer))
-                _output($"[failover {_group}] {at:F0} ms pre-vote trace={traceId} {peer} {phase}");
+                _output($"[failover {_group}] {at:F0} ms peer trace={traceId} {peer} {phase}");
         }
     }
 
     internal void Register(string nodeId, TestServiceCollection services)
     {
         _ = services.RemoveAll<IServerLoggerFactory>().AddSingleton<IServerLoggerFactory>(new ElectionLogger(this, nodeId));
+        _ = services.RemoveAll<IReplicaRpcGateway>().AddSingleton<IReplicaRpcGateway>(sp => new AppendGateway(sp.GetRequiredService<ReplicaRpcGateway>(), this));
         new ElectionRoundCounter { ObservePreVoteResult = PreVoteCompleted, Observe = ElectionRequest, TracePreVote = StartPreVote }.Register(services);
     }
 
@@ -95,7 +100,7 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         if (stage.Ports != default)
             _ = _connections.TryAdd(stage.Ports, stage.TraceId);
 
-        Record($"pre-vote trace={stage.TraceId} {peer} {stage.Phase}");
+        Record($"peer trace={stage.TraceId} {peer} {stage.Phase}");
     }
 
     private void RecordTls(object? sender, PreVoteTrace.TlsEventArgs stage) =>
@@ -104,15 +109,17 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
     private void RecordBridge(object? sender, TcpPartitionProxy.BridgeEventArgs bridge) =>
         _ = _bridges.TryAdd(bridge.Upstream, bridge.Downstream);
 
-    private Activity? StartPreVote(string groupId, string sender, string target, ulong term)
-    {
-        if (!string.Equals(groupId, _group, StringComparison.Ordinal))
-            return null;
+    private Activity? StartPreVote(string groupId, string sender, string target, ulong term) =>
+        string.Equals(groupId, _group, StringComparison.Ordinal)
+            ? StartTrace(PreVoteTrace.Operation, $"{sender} -> {target} term={term}")
+            : null;
 
-        var trace = new Activity(PreVoteTrace.Operation);
+    private Activity StartTrace(string operation, string label)
+    {
+        var trace = new Activity(operation);
         _ = trace.SetParentId(ActivityTraceId.CreateRandom(), ActivitySpanId.CreateRandom(), ActivityTraceFlags.Recorded);
         _ = trace.Start();
-        _ = _traces.TryAdd(trace.TraceId, $"{sender} -> {target} term={term}");
+        _ = _traces.TryAdd(trace.TraceId, label);
         return trace;
     }
 
@@ -126,6 +133,40 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
     {
         if (string.Equals(groupId, _group, StringComparison.Ordinal))
             Record($"{sender} -> {target} pre-vote term={term} {result}");
+    }
+
+    [Immutable]
+    private sealed class AppendGateway : IReplicaRpcGateway
+    {
+        private readonly IReplicaRpcGateway _inner;
+        private readonly FailoverDiagnostics _diagnostics;
+
+        internal AppendGateway(IReplicaRpcGateway inner, FailoverDiagnostics diagnostics)
+        {
+            _inner = inner;
+            _diagnostics = diagnostics;
+        }
+
+        public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(header.GroupId, _diagnostics._group, StringComparison.Ordinal))
+                return await _inner.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+
+            var kind = batch.Entries.Count == 0 ? "heartbeat" : "append";
+            using var trace = _diagnostics.StartTrace(PreVoteTrace.AppendOperation, $"{header.SenderNodeId} -> {nodeId} term={header.Term} {kind}");
+            PreVoteTrace.Mark($"send append start entries={batch.Entries.Count} previous={batch.PrevLogIndex} commit={batch.LeaderCommitIndex}");
+            try
+            {
+                var reply = await _inner.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+                PreVoteTrace.Mark($"send append result success={reply.Success} term={reply.CurrentTerm} refusal={reply.RefusalCode} last={reply.LastLogIndex}");
+                return reply;
+            }
+            catch (Exception error)
+            {
+                PreVoteTrace.Mark($"send append failure {error.GetType().Name}: {error.Message}; cause={error.InnerException?.GetType().Name}: {error.InnerException?.Message}");
+                throw;
+            }
+        }
     }
 
     private sealed class ElectionLogger : IServerLoggerFactory, IServerLogger

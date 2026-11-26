@@ -177,7 +177,7 @@ internal sealed class NativePeerEndpoint
     {
         var (meta, body) = buffers;
         var keepOpen = true;
-        Activity? preVote = null;
+        Activity? peerTrace = null;
         try
         {
             BinaryResponse reply;
@@ -187,8 +187,8 @@ internal sealed class NativePeerEndpoint
                 using var reading = CancellationTokenSource.CreateLinkedTokenSource(token, graceful);
                 reading.CancelAfter(TimeSpan.FromSeconds(30));
                 await stream.ReadExactlyAsync(meta.AsMemory(0, frame.Metadata), reading.Token).ConfigureAwait(false);
-                if (PreVoteTrace.HasObservers && frame.Operation is PeerOperation.PreVote or PeerOperation.TransferPreVote)
-                    preVote = PreVoteTrace.Accept(ReadTraceParent(in frame, meta));
+                if (PreVoteTrace.HasObservers && frame.Operation is PeerOperation.PreVote or PeerOperation.TransferPreVote or PeerOperation.AppendReplicaEntries)
+                    peerTrace = PreVoteTrace.Accept(ReadTraceParent(in frame, meta), frame.Operation == PeerOperation.AppendReplicaEntries);
 
                 PreVoteTrace.Mark("receive metadata read; awaiting body");
                 await stream.ReadExactlyAsync(body.AsMemory(0, frame.Body), reading.Token).ConfigureAwait(false);
@@ -219,14 +219,14 @@ internal sealed class NativePeerEndpoint
                 keepOpen = false;
             }
 
-            PreVoteTrace.Mark("receive reply write start");
+            PreVoteTrace.Mark($"receive reply write start status={reply.Status}");
             await WriteAsync(stream, reply, TimeProvider.System, abort).ConfigureAwait(false);
             PreVoteTrace.Mark("receive reply written");
             return keepOpen;
         }
         finally
         {
-            preVote?.Dispose();
+            peerTrace?.Dispose();
         }
     }
 

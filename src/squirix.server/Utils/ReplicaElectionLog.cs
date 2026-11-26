@@ -108,15 +108,15 @@ internal static class ReplicaElectionLog
             Events.ReplicaElectionVoteLostEvent.Write(logger, ServerLogLevel.Information, null, (groupId, term));
     }
 
-    internal static void ReplicaElectionQuorumLost(IServerLogger logger, string groupId, ulong term, TimeSpan window)
+    internal static void ReplicaElectionQuorumLost(IServerLogger logger, string groupId, ulong term, TimeSpan window, string contacts)
     {
         if (logger.IsEnabled(ServerLogLevel.Debug))
-            Events.QuorumLostEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, term, window));
+            Events.QuorumLostEvent.Write(logger, ServerLogLevel.Debug, null, (groupId, term, window, contacts));
     }
 
     private static class Events
     {
-        internal static readonly LogEvent QuorumLostEvent = new(4089, nameof(ReplicaElectionQuorumLost), "Replica group {GroupId} leader of term {Term} lost quorum contact in the last {Window}");
+        internal static readonly LogEvent QuorumLostEvent = new(4089, nameof(ReplicaElectionQuorumLost), "Replica group {GroupId} leader of term {Term} lost quorum contact in the last {Window}; last follower contacts: {Contacts}");
 
         internal static readonly LogEvent TransferProcessedEvent = new(4088, nameof(ReplicaElectionLog.TransferProcessed), "Processed leadership transfer for group {GroupId} from term {Term}");
 

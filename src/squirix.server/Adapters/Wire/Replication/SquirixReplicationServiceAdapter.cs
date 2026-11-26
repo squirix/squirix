@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
@@ -83,8 +84,11 @@ internal sealed class SquirixReplicationServiceAdapter
             return StubAppendRefusal(header);
 
         var batch = BuildFollowerBatch(request, header);
+        PreVoteTrace.Mark("receive append log start");
         var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint, header.ConfigurationGeneration, batch, context.RequestAborted)
                                     .ConfigureAwait(false);
+        if (PreVoteTrace.IsTracing)
+            PreVoteTrace.Mark($"receive append log result success={result.Success} term={result.CurrentTerm} refusal={result.RefusalCode} last={result.LastLogIndex}");
         return new AppendReplicaEntriesResponse
         {
             Term = result.CurrentTerm,
