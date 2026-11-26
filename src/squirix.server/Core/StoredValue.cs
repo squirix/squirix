@@ -2,10 +2,12 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Core;
 
 /// <summary>The value of one server entry. Scalars live inline and variable-length payloads own their bytes.</summary>
+[Immutable]
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct StoredValue
 {

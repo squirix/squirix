@@ -67,6 +67,7 @@ internal abstract class PreparedJournalEntry
         return new EncodedPayload(bytes, encodedLength ?? length);
     }
 
+    [Immutable]
     private sealed class EncodedPayload : PreparedJournalEntry
     {
         private readonly byte[] _bytes;
@@ -86,6 +87,7 @@ internal abstract class PreparedJournalEntry
         }
     }
 
+    [Immutable]
     private sealed class StoredPayload : PreparedJournalEntry
     {
         private readonly NodeCacheEntry<StoredValue> _entry;
