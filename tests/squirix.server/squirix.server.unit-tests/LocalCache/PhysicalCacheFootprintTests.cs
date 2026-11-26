@@ -277,6 +277,29 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
         _ = await Assert.That(cache.RawReader.GetEntryRaw(KeyB, cancellationToken)?.Value).IsEqualTo("newest");
     }
 
+    /// <summary>Promoting a uniform page to per-slot charges and versions preserves its other occupants and clears a recycled slot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReusePreservesChargesAndVersions(CancellationToken cancellationToken)
+    {
+        const long large = 1L << 40;
+        var estimator = new ICacheEntrySizeEstimatorCreateExpectations<string>();
+        _ = estimator.Setups.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
+                     .Callback(static (_, entry, _) => string.Equals(entry.Value, "large", StringComparison.Ordinal) ? large : 7L);
+        var cache = new PhysicalCache<string>(TimeProvider.System, estimator.Instance());
+        cache.Set(KeyA, Entry("first"), cancellationToken);
+        cache.Set(KeyB, Entry("second"), cancellationToken);
+        cache.Set(KeyB, new NodeCacheEntry<string>("large", long.MaxValue), cancellationToken);
+        _ = await Assert.That(cache.GetEntry(KeyA, cancellationToken)?.Version).IsEqualTo(1L);
+        _ = await Assert.That(cache.GetEntry(KeyB, cancellationToken)?.Version).IsEqualTo(long.MaxValue);
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(large + 7);
+        _ = await Assert.That(cache.Remove(KeyB, cancellationToken)).IsTrue();
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(7L);
+        cache.Set(KeyB, Entry("replacement"), cancellationToken);
+        _ = await Assert.That(cache.GetEntry(KeyB, cancellationToken)?.Version).IsEqualTo(1L);
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(14L);
+    }
+
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
 
     private static int CountOf(ILocalCacheStats stats) => stats.EntryCount;

@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.LocalCache;
 [Immutable]
 public sealed class PhysicalCacheGrowthTests : ServerUnitTestBase
 {
-    /// <summary>Both generations retain unique, recoverable entries during long chains and long runs of empty buckets.</summary>
+    /// <summary>Both generations retain unique, recoverable entries when many keys start in the same bucket.</summary>
     /// <param name="bucket">The target bucket in a 64-bucket index.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -157,6 +157,33 @@ public sealed class PhysicalCacheGrowthTests : ServerUnitTestBase
         due = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, keys.Length * 2, static _ => true);
         _ = await Assert.That(due.Count).IsEqualTo(keys.Length);
         _ = await Assert.That(new HashSet<CacheKey>(due).SetEquals(keys)).IsTrue();
+    }
+
+    /// <summary>Deletes across a wrapped probe cluster preserve its survivors through shrink and refill.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShrinkAndRefillPreserveCollidingKeys(CancellationToken cancellationToken)
+    {
+        var keys = CollidingKeys(63);
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        foreach (var key in keys)
+            cache.Set(key, new NodeCacheEntry<string>(key.Key), cancellationToken);
+
+        for (var i = 0; i < keys.Length; i++)
+        {
+            if (i % 7 != 0)
+                _ = await Assert.That(cache.Remove(keys[i], cancellationToken)).IsTrue();
+        }
+
+        for (var i = 0; i < keys.Length; i++)
+        {
+            var found = cache.GetValue(keys[i], cancellationToken);
+            _ = await Assert.That(found.Found).IsEqualTo(i % 7 == 0);
+            _ = await Assert.That(cache.TryAdd(keys[i], new NodeCacheEntry<string>("new"), cancellationToken)).IsEqualTo(i % 7 != 0);
+        }
+
+        for (var i = 0; i < keys.Length; i++)
+            _ = await Assert.That(cache.GetValue(keys[i], cancellationToken).Value).IsEqualTo(i % 7 == 0 ? keys[i].Key : "new");
     }
 
     private static CacheKey[] CollidingKeys(int bucket)

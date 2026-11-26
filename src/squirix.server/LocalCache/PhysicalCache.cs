@@ -421,12 +421,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (!node.Exists)
         {
             node = _scopes == null
-                ? _store.AddLocked(key, hash, normalized, null)
-                : BoundedNode.Create(this, key, hash, normalized);
+                ? _store.AddLocked(key, hash, normalized, null, bytes)
+                : BoundedNode.Create(this, key, hash, normalized, bytes);
             if (!node.Exists)
                 return true;
 
-            _footprint.Resize(in node, bytes);
+            _footprint.Add(bytes);
             _deadlines.RecordLocked(in node);
 
             return true;
@@ -470,23 +470,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     private struct Cell
     {
         internal int Sequence;
-        internal long PublishedVersion;
-
-        internal Cell(long version)
-        {
-            PublishedVersion = version;
-        }
-
-        /// <summary>Gets or sets the estimated bytes recorded for this entry; zero once it left the store.</summary>
-        internal long Bytes { get; set; }
-
-        /// <summary>Gets the version; read under the cache lock.</summary>
-        internal readonly long Version => PublishedVersion;
-
-        /// <summary>Reads the fields under the cache lock.</summary>
-        /// <returns>The fields.</returns>
-        /// <param name="node">The slot holding optional metadata.</param>
-        internal readonly EntryRead ReadLocked(in Node node) => new(node.Value, PublishedVersion, node.ExpiresUtc, node.Tags);
 
         /// <summary>Replaces what a read returns in one write; call under the cache lock.</summary>
         /// <param name="node">The slot whose optional fields participate in this read or write.</param>
@@ -501,7 +484,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             try
             {
                 node.StorePayload(key, value);
-                Volatile.Write(ref PublishedVersion, version);
+                node.SetVersion(version);
                 node.SetDeadline(expiresUtc);
                 node.SetTags(tags);
             }
@@ -564,13 +547,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         private void EndWrite(int odd) => Volatile.Write(ref Sequence, odd + 1);
     }
 
-    /// <summary>Stores the lifetime, bucket link, and cached hash alongside the entry. Migration can relink a slot without reading its payload.</summary>
+    /// <summary>Stores the lifetime and cached hash alongside the entry. Migration can relink a slot without reading its payload.</summary>
     [StructLayout(LayoutKind.Auto)]
     private struct SlotRecord
     {
         internal long Lifetime;
         internal int Hash;
-        internal int Next;
         internal Cell Entry;
     }
 
@@ -604,8 +586,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal long Bytes
         {
-            get => Entry.Bytes;
-            set => Entry.Bytes = value;
+            get => _cells.Charges.Get(Offset);
+            set => _cells.Charges.Set(Offset, value, _cells.Length);
         }
 
         internal int IndexedGeneration
@@ -618,7 +600,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal T? Value => PackedSlotPage.Unpack(RawPayload.Value);
 
-        internal long Version => Entry.Version;
+        internal long Version => _cells.Version(Offset);
 
         internal FrozenDictionary<string, string>? Tags => _cells.Tags(Offset);
 
@@ -628,7 +610,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         private ref Cell Entry => ref Record.Entry;
 
-        internal EntryRead ReadLocked() => Entry.ReadLocked(in this);
+        internal EntryRead ReadLocked() => new(Value, Version, ExpiresUtc, Tags);
 
         internal readonly bool MatchesPublished(CacheKey key, ref bool unsure)
         {
@@ -663,9 +645,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal void Write(CacheKey key, T? value, long version, DateTime? expires, FrozenDictionary<string, string>? tags)
         {
+            _cells.PrepareVersion(version);
             _cells.PrepareMetadata(expires, tags);
             Entry.Write(in this, key, value, version, expires, tags);
         }
+
+        internal void SetVersion(long version) => _cells.SetVersion(Offset, version);
 
         internal void WriteValue(CacheKey key, T? value) => Entry.WriteValue(in this, key, value);
 
@@ -700,7 +685,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 return false;
 
             var value = RawPayload.Value;
-            var version = Volatile.Read(ref Entry.PublishedVersion);
+            var version = Version;
             var expires = ExpiresUtc;
             var tags = Tags;
             Interlocked.MemoryBarrier();
@@ -741,7 +726,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal long Read() => Volatile.Read(ref _total);
 
-        internal void Release(in Node node) => Resize(in node, 0);
+        internal void Release(in Node node) => Add(-node.Bytes);
+
+        internal void Add(long bytes) => Volatile.Write(ref _total, _total + bytes);
 
         internal void ResizeForDeadline(CacheKey key, in Node node, DateTime? expiresUtc)
         {
@@ -757,14 +744,16 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal void Resize(in Node node, long bytes)
         {
-            Volatile.Write(ref _total, _total - node.Bytes + bytes);
+            var previous = node.Bytes;
             node.Bytes = bytes;
+            Add(bytes - previous);
         }
     }
 
-    /// <summary>The nodes by key: a chained hash table that writers change under the cache lock and readers search without it.</summary>
+    /// <summary>The nodes by key: an open-addressed hash table that writers change under the cache lock and readers search without it.</summary>
     /// <remarks>
-    /// <para>Bucket heads and links are slot numbers. Entries stay in their pages while migration rewrites links.
+    /// <para>Positive buckets identify stable slots. Zero terminates a probe and a negative bucket marks a deletion.
+    /// Migration moves slot numbers between indexes; it never moves an occupant.
     /// Readers retry under the lock when a miss overlaps removal or migration. A hit also validates the occupant lifetime.</para>
     /// <para>An insert-only write that replaces an entry past its deadline removes the old node and adds a new one in one lock hold, so a non-live
     /// read that found the removed node and missed the added one reports the key absent.</para>
@@ -785,6 +774,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <summary>The share of buckets kept free, as a right shift of the bucket count: a quarter, so the store grows at three nodes per four buckets.</summary>
         private const int FreeBucketShift = 2;
 
+        private const long MaximumBuckets = 1L << 31;
         private const int TransferBudget = 8;
         private const int SlotPageBits = 8;
         private const int SlotsPerPage = 1 << SlotPageBits;
@@ -808,18 +798,22 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <param name="hash">The hash used to look for the key.</param>
         /// <param name="entry">The entry to publish.</param>
         /// <param name="policy">Optional eviction metadata.</param>
+        /// <param name="bytes">The exact charge for the new occupant.</param>
         /// <returns>The published occupant.</returns>
-        internal Node AddLocked(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy)
+        internal Node AddLocked(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy, long bytes)
         {
-            if (Count >= GrowThreshold(_table.Length) && _previous == null && _table.Length < 1 << 30)
+            if (_previous == null && _table.NeedsRebuild(Count))
             {
-                var grown = new BucketTable(_table.Length * 2);
+                var length = Count >= _table.Length / 2 && _table.Length < MaximumBuckets ? _table.Length * 2 : _table.Length;
+                var grown = new BucketTable(length);
                 Volatile.Write(ref _previous, _table);
                 Volatile.Write(ref _table, grown);
             }
 
-            ref var head = ref _table.WritableBucket(_table.IndexOf(hash));
-            var node = _slots.Add(key, hash, entry, policy, head, out var slot);
+            ref var head = ref _table.InsertPosition(hash);
+            var node = _slots.Add(key, hash, entry, policy, bytes, out var slot);
+            if (head == 0)
+                _table.Used++;
             Volatile.Write(ref head, slot);
             Count++;
             return node;
@@ -876,7 +870,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <exception cref="InvalidOperationException">The node has already left the store.</exception>
         internal void RemoveLocked(in Node node)
         {
-            ref var link = ref FindLinkLocked(node.Key, node.Hash, node.Identity, out var stored);
+            ref var link = ref FindLinkLocked(default, node.Hash, node.Identity, out var stored);
             if (!stored.Exists)
                 throw new InvalidOperationException("The node is not stored.");
 
@@ -892,7 +886,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var offset = SlotOffset(node.Slot);
             slots.PrepareRemove(offset);
             _ = Interlocked.Increment(ref _topologyVersion);
-            Volatile.Write(ref link, slots[offset].Next);
+            Volatile.Write(ref link, -1);
             _slots.Release(slots, offset, node.Slot);
             _ = Interlocked.Increment(ref _topologyVersion);
             Count--;
@@ -916,18 +910,25 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal bool TryGetLocked(CacheKey key, int hash, out Node node)
         {
-            var version = _topologyVersion;
             var unsure = false;
-            node = Search(_table, key, hash, version, ref unsure);
+            node = Search(_table, key, hash, ref unsure);
             if (!node.Exists && _previous is { } previous)
-                node = Search(previous, key, hash, version, ref unsure);
+                node = Search(previous, key, hash, ref unsure);
             return node.Exists;
         }
 
-        /// <summary>Charges one unit per node moved or empty bucket passed, including a partially drained collision chain.</summary>
+        /// <summary>Scans at most eight source buckets per mutation while growing, shrinking, or reclaiming deleted buckets.</summary>
         internal void AdvanceGrowthLocked()
         {
             var table = _table;
+            if (_previous == null && table.Length > InitialBucketCount && Count < table.Length / 4)
+            {
+                var smaller = new BucketTable(table.Length / 2);
+                Volatile.Write(ref _previous, table);
+                Volatile.Write(ref _table, smaller);
+                table = smaller;
+            }
+
             if (_previous is not { } previous)
                 return;
 
@@ -939,24 +940,27 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     var source = previous.Page(_cursor);
                     var index = BucketTable.Offset(_cursor);
                     var slot = source?[index] ?? 0;
-                    if (slot != 0)
+                    if (slot > 0)
                     {
                         // Obtain the destination page before unlinking, so allocation failure leaves the node reachable.
                         var page = _slots.PageFor(slot);
                         var offset = SlotOffset(slot);
                         ref var record = ref page[offset];
-                        ref var destination = ref table.WritableBucket(table.IndexOf(record.Hash));
-                        Volatile.Write(ref source![index], record.Next);
-                        if (record.Next != destination)
-                            Volatile.Write(ref record.Next, destination);
+                        ref var destination = ref table.InsertPosition(record.Hash);
+                        if (destination == 0)
+                            table.Used++;
                         Volatile.Write(ref destination, slot);
+                        Volatile.Write(ref source![index], -1);
                     }
-                    else if (++_cursor == previous.Length)
+
+                    if (_cursor + 1L == previous.Length)
                     {
                         Volatile.Write(ref _previous, null);
                         _cursor = 0;
                         break;
                     }
+
+                    _cursor++;
                 }
             }
             finally
@@ -965,63 +969,56 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             }
         }
 
-        /// <summary>Gets the node count at which the store grows: chains stay short, which keeps lookups under the lock cheap.</summary>
-        /// <param name="bucketCount">The number of buckets.</param>
-        /// <returns>Three quarters of <paramref name="bucketCount" />.</returns>
-        private static int GrowThreshold(int bucketCount) => bucketCount - (bucketCount >> FreeBucketShift);
-
         private ref int FindLink(BucketTable table, CacheKey key, int hash, long identity, out Node node)
         {
             var index = table.IndexOf(hash);
-            if (table.Page(index) is { } page)
+            for (long visited = 0; visited < table.Length; visited++)
             {
-                ref var link = ref page[BucketTable.Offset(index)];
-                while (link != 0)
+                var slot = table.Head(index);
+                if (slot == 0)
+                    break;
+
+                if (slot > 0)
                 {
-                    var slot = link;
                     var slots = _slots.PageFor(slot);
                     var offset = SlotOffset(slot);
                     ref var record = ref slots[offset];
                     if (identity != 0 ? identity == record.Lifetime : record.Hash == hash && slots.ReadPayload(offset).Matches(key))
                     {
                         node = new Node(slots, slot, record.Lifetime);
-                        return ref link;
+                        return ref table.WritableBucket(index);
                     }
-
-                    link = ref record.Next;
                 }
+
+                index = table.NextIndex(index);
             }
 
             node = default;
             return ref Unsafe.NullRef<int>();
         }
 
-        private Node Search(BucketTable table, CacheKey key, int hash, long version, ref bool unsure)
+        private Node Search(BucketTable table, CacheKey key, int hash, ref bool unsure)
         {
-            var slot = table.Head(table.IndexOf(hash));
-            while (slot > 0)
+            var index = table.IndexOf(hash);
+            for (long visited = 0; visited < table.Length; visited++)
             {
-                var page = _slots.ReadPage(slot);
-                if (page == null)
-                    return default;
+                var slot = table.Head(index);
+                if (slot == 0)
+                    break;
 
-                var offset = SlotOffset(slot);
-                ref var record = ref page[offset];
-                var identity = Volatile.Read(ref record.Lifetime);
-                if (identity <= 0)
-                    return default;
-                if (record.Hash == hash)
+                if (slot > 0 && _slots.ReadPage(slot) is { } page)
                 {
-                    var node = new Node(page, slot, identity);
-                    if (node.MatchesPublished(key, ref unsure))
-                        return node;
+                    ref var record = ref page[SlotOffset(slot)];
+                    var identity = Volatile.Read(ref record.Lifetime);
+                    if (identity > 0 && record.Hash == hash)
+                    {
+                        var node = new Node(page, slot, identity);
+                        if (node.MatchesPublished(key, ref unsure))
+                            return node;
+                    }
                 }
 
-                slot = Volatile.Read(ref record.Next);
-
-                // A reader crossing reuse may enter another chain. Stop before following it indefinitely.
-                if (slot > 0 && Volatile.Read(ref _topologyVersion) != version)
-                    return default;
+                index = table.NextIndex(index);
             }
 
             return default;
@@ -1040,9 +1037,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var version = Volatile.Read(ref _topologyVersion);
             var table = Volatile.Read(ref _table);
             var unsure = false;
-            node = Search(table, key, hash, version, ref unsure);
+            node = Search(table, key, hash, ref unsure);
             if (!node.Exists && Volatile.Read(ref _previous) is { } previous)
-                node = Search(previous, key, hash, version, ref unsure);
+                node = Search(previous, key, hash, ref unsure);
             if (!node.Exists)
             {
                 var stable = !unsure && (version & 1) == 0 && Volatile.Read(ref _topologyVersion) == version;
@@ -1061,10 +1058,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             private readonly int[]? _buckets;
             private readonly int _hashShift;
 
-            internal BucketTable(int length)
+            internal BucketTable(long length)
             {
                 Length = length;
-                _hashShift = HashBits - BitOperations.TrailingZeroCount(length);
+                _hashShift = HashBits - BitOperations.Log2(uint.CreateChecked(length));
                 if (length <= PageSize)
                 {
                     _buckets = new int[length];
@@ -1076,9 +1073,28 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 }
             }
 
-            internal int Length { get; }
+            internal long Length { get; }
+
+            internal long Used { get; set; }
 
             internal static int Offset(int index) => index & (PageSize - 1);
+
+            internal int NextIndex(int index) => unchecked(index + 1) & int.CreateTruncating(Length - 1);
+
+            internal bool NeedsRebuild(int count) => Used >= Length - (Length >> FreeBucketShift) && (Length < MaximumBuckets || Used - count >= Length / 4);
+
+            internal ref int InsertPosition(int hash)
+            {
+                var index = IndexOf(hash);
+                for (long visited = 0; visited < Length; visited++)
+                {
+                    if (Head(index) <= 0)
+                        return ref WritableBucket(index);
+                    index = NextIndex(index);
+                }
+
+                throw new InvalidOperationException("The slot index is full.");
+            }
 
             internal int IndexOf(int hash) => unchecked(hash * FibonacciMultiplier) >>> _hashShift;
 
@@ -1144,7 +1160,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             }
         }
 
-        /// <summary>Owns stable slot numbers. Zero terminates a bucket chain; released slots are reused under the writer lock.</summary>
+        /// <summary>Owns stable slot numbers. Released slots use the cached hash field as the free-list link under the writer lock.</summary>
         private sealed class SlotMap
         {
             private const int DeadlineBlockSize = 64;
@@ -1186,7 +1202,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
             internal SlotPage PageFor(int slot) => ReadPage(slot)!;
 
-            internal Node Add(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy, int next, out int slot)
+            internal Node Add(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy, long bytes, out int slot)
             {
                 if (_available < 0)
                     AppendPage();
@@ -1206,20 +1222,22 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 ref var record = ref page[offset];
                 if (space.Used + 1 == page.Length)
                     page.Seal();
+                page.PrepareVersion(entry.Version);
+                page.Charges.Set(offset, bytes, page.Length);
                 page.PrepareMetadata(entry.ExpiresUtc, entry.Tags, policy);
                 page.StorePayload(offset, new Payload(key, entry.Value));
                 if (space.Free == 0)
                     space.Created++;
                 else
-                    space.Free = -record.Next;
+                    space.Free = record.Hash;
                 if (index == _spare)
                     _spare = -1;
                 if (++space.Used == page.Length)
                     _available = space.Next;
 
                 record.Hash = hash;
-                Volatile.Write(ref record.Next, next);
-                record.Entry = new Cell(entry.Version);
+                record.Entry = default;
+                page.SetVersion(offset, entry.Version);
                 page.SetDeadline(offset, entry.ExpiresUtc);
                 page.SetTags(offset, entry.Tags);
                 page.SetPolicy(offset, policy);
@@ -1238,7 +1256,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     _available = index;
                 }
 
-                Volatile.Write(ref page[offset].Next, -space.Free);
+                page[offset].Hash = space.Free;
                 space.Free = offset + 1;
                 if (space.Used != 0 || index == 0)
                     return;

@@ -23,6 +23,7 @@ internal sealed partial class PhysicalCache<T>
     {
         private Payload[]? _plain;
         private PackedSlotPage? _packed;
+        private long[]? _versions;
         private long[]? _deadlines;
         private int[]? _generations;
         private BoundedNode?[]? _policies;
@@ -33,6 +34,8 @@ internal sealed partial class PhysicalCache<T>
             Records = new SlotRecord[length];
             _plain = new Payload[length];
         }
+
+        internal PageCharges Charges { get; } = new();
 
         internal SlotRecord[] Records { get; }
 
@@ -73,6 +76,28 @@ internal sealed partial class PhysicalCache<T>
             var packed = PackedSlotPage.Seal(this, _plain!);
             Volatile.Write(ref _packed, packed);
             Volatile.Write(ref _plain, null);
+        }
+
+        internal long Version(int offset)
+        {
+            var versions = Volatile.Read(ref _versions);
+            return versions == null ? 1 : Volatile.Read(ref versions[offset]);
+        }
+
+        internal void PrepareVersion(long version)
+        {
+            if (version == 1 || _versions != null)
+                return;
+
+            var versions = new long[Length];
+            Array.Fill(versions, 1L);
+            Volatile.Write(ref _versions, versions);
+        }
+
+        internal void SetVersion(int offset, long version)
+        {
+            if (_versions is { } versions)
+                Volatile.Write(ref versions[offset], version);
         }
 
         internal DateTime? Deadline(int offset) => Volatile.Read(ref _deadlines) is { } values
@@ -130,6 +155,35 @@ internal sealed partial class PhysicalCache<T>
             if (needed && column == null)
                 Volatile.Write(ref column, new TField[Length]);
             return column;
+        }
+    }
+
+    private sealed class PageCharges
+    {
+        private long[]? _charges;
+        private long _commonCharge;
+        private bool _hasCharge;
+
+        internal long Get(int offset) => _charges is { } charges ? charges[offset] : _commonCharge;
+
+        internal void Set(int offset, long bytes, int length)
+        {
+            if (!_hasCharge)
+            {
+                _commonCharge = bytes;
+                _hasCharge = true;
+            }
+
+            if (_charges == null)
+            {
+                if (bytes == _commonCharge)
+                    return;
+
+                _charges = new long[length];
+                Array.Fill(_charges, _commonCharge);
+            }
+
+            _charges[offset] = bytes;
         }
     }
 }

@@ -40,7 +40,7 @@ internal sealed partial class PhysicalCache<T>
 
         internal static (string Namespace, string Group) ScopeOf(PhysicalCache<T> owner, CacheKey key) => (owner._eviction.EvictOnMemoryPressure ? string.Empty : key.Namespace, owner._groupForKey?.Invoke(key) ?? string.Empty);
 
-        internal static Node Create(PhysicalCache<T> owner, CacheKey key, int hash, NodeCacheEntry<T> entry)
+        internal static Node Create(PhysicalCache<T> owner, CacheKey key, int hash, NodeCacheEntry<T> entry, long bytes)
         {
             var scopeKey = ScopeOf(owner, key);
             if (!owner._scopes!.TryGetValue(scopeKey, out var scope))
@@ -61,7 +61,7 @@ internal sealed partial class PhysicalCache<T>
             scope.Add(node);
             try
             {
-                node.Occupant = owner._store.AddLocked(key, hash, entry, node);
+                node.Occupant = owner._store.AddLocked(key, hash, entry, node, bytes);
             }
             catch
             {
