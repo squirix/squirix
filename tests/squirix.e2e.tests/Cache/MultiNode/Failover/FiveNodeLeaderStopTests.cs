@@ -38,7 +38,7 @@ public sealed class FiveNodeLeaderStopTests
     public async Task RfFiveSurvivesTwoLeaderStops(CancellationToken cancellationToken)
     {
         const string testName = nameof(RfFiveSurvivesTwoLeaderStops);
-        await using var diagnostics = new FailoverDiagnostics(Group, static line => TestContext.Current?.Output.WriteLine(line));
+        await using var diagnostics = new FailoverDiagnostics(Group, nameof(RfFiveSurvivesTwoLeaderStops), static line => TestContext.Current?.Output.WriteLine(line));
         await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, services: diagnostics.Register, replicaCount: 5), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (first, firstTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.FiveNodes, FailoverSteps.Bound, cancellationToken);

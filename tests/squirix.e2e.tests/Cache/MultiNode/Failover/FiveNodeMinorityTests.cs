@@ -54,7 +54,7 @@ public sealed class FiveNodeMinorityTests
     public async Task TwoNodeMinorityFailsClosed(CancellationToken cancellationToken)
     {
         const string testName = nameof(TwoNodeMinorityFailsClosed);
-        await using var diagnostics = new FailoverDiagnostics(Group, static line => TestContext.Current?.Output.WriteLine(line));
+        await using var diagnostics = new FailoverDiagnostics(Group, nameof(TwoNodeMinorityFailsClosed), static line => TestContext.Current?.Output.WriteLine(line));
         await using var fabric = new PartitionFabric();
         await using var cluster = await HostedCluster.StartFiveNodeAsync(testName, FailoverSteps.Options(testName, fabric: fabric, services: diagnostics.Register, replicaCount: 5, timing: FailoverTiming.ForRefusal(testName)), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);

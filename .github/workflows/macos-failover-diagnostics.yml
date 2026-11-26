@@ -1,31 +1,72 @@
-name: macOS failover diagnostics
+name: macOS pre-vote diagnostics on develop
 
 on:
     push:
-        branches: [ test/macos-failover-diagnostics ]
+        branches: [ test/macos-prevote-develop ]
 
 permissions:
     contents: read
 
 jobs:
     e2e-cluster:
-        name: macOS ARM64 failover (${{ matrix.attempt }})
+        name: macOS ARM64 pre-vote baseline (${{ matrix.replica }})
         runs-on: macos-latest
-        timeout-minutes: 25
+        timeout-minutes: 20
         strategy:
             fail-fast: false
             matrix:
-                attempt: [1, 2, 3, 4, 5, 6]
-        env:
-            SQUIRIX_TRACE_MIN_WORKERS: ${{ matrix.attempt >= 4 && '32' || '0' }}
+                replica: [1, 2, 3, 4, 5, 6, 7, 8]
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
-            - name: Run CI cluster suites
-              uses: ./.github/actions/run-test-suite
+            - name: Ensure Dev HTTPS Certificate
+              working-directory: ${{ runner.temp }}
+              run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
+            - name: Build the test host
+              uses: ./.github/actions/build-release
               with:
-                  os: macos-latest-${{ matrix.attempt }}
-                  suite: e2e-cluster
+                  artifact-os: macos-latest
                   framework: net10.0
-                  build: "true"
+                  analyzers: "false"
+                  upload-outputs: "false"
+                  net10-runtime: "true"
+                  projects: tests/squirix.e2e.tests/Squirix.E2ETests.csproj
+            - name: Compare default and serial execution on the same runner
+              shell: bash
+              env:
+                  REPLICA: ${{ matrix.replica }}
+              run: |
+                  set -euo pipefail
+                  root="$RUNNER_TEMP/squirix-failover-parallelism"
+                  mkdir -p "$root"
+                  host=tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests.dll
+                  filter='/*/*/(FiveNodeMinorityTests|FiveNodeLeaderStopTests)/(TwoNodeMinorityFailsClosed|RfFiveSurvivesTwoLeaderStops)'
+                  order=(default serial)
+                  if ((REPLICA % 2 == 0)); then order=(serial default); fi
+                  printf 'replica=%s\norder=%s\nlogical_cores=%s\n' "$REPLICA" "${order[*]}" "$(sysctl -n hw.logicalcpu)" > "$root/runner.txt"
+                  failures=0
+                  for variant in "${order[@]}"; do
+                      echo "::group::$variant"
+                      output="$root/$variant"
+                      mkdir -p "$output"
+                      set --
+                      if [[ "$variant" == serial ]]; then set -- --maximum-parallel-tests 1; fi
+                      export SQUIRIX_FAILOVER_TRACE_DIR="$output"
+                      status=0
+                      dotnet "$host" "$@" --treenode-filter "$filter" --minimum-expected-tests 2 --detailed-stacktrace \
+                          --report-trx --report-trx-filename failover.trx --results-directory "$output" --timeout 8m \
+                          2>&1 | tee "$output/test-output.log" || status=$?
+                      printf '%s\n' "$status" > "$output/exit-code.txt"
+                      if [[ "$status" != 0 ]] || ! test -s "$output/failover.trx"; then
+                          failures=$((failures + 1))
+                      fi
+                      echo "::endgroup::"
+                  done
+                  test "$failures" -eq 0
+            - name: Archive TRX and full traces
+              if: always()
+              uses: actions/upload-artifact@v7
+              with:
+                  name: failover-parallelism-macos-${{ matrix.replica }}
+                  path: ${{ runner.temp }}/squirix-failover-parallelism

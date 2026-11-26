@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Logging;
@@ -21,14 +22,16 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
     private readonly ConcurrentQueue<((int Client, int Server) Ports, double At, string Phase)> _tlsEvents = new();
     private readonly string _group;
     private readonly Action<string> _output;
+    private readonly string _testName;
     private readonly long _started = Stopwatch.GetTimestamp();
     private readonly ManualResetEventSlim _stopSampling = new();
     private readonly Task _sampler;
 
-    internal FailoverDiagnostics(string group, Action<string> output)
+    internal FailoverDiagnostics(string group, string testName, Action<string> output)
     {
         _group = group;
         _output = output;
+        _testName = testName;
         ThreadPool.GetMinThreads(out var minimum, out var ioMinimum);
         if (int.TryParse(Environment.GetEnvironmentVariable("SQUIRIX_TRACE_MIN_WORKERS"), CultureInfo.InvariantCulture, out var requested) && requested > minimum)
             _ = ThreadPool.SetMinThreads(requested, ioMinimum);
@@ -49,14 +52,33 @@ internal sealed class FailoverDiagnostics : IAsyncDisposable
         PreVoteTrace.Observed -= RecordTrace;
         PreVoteTrace.TlsObserved -= RecordTls;
         TcpPartitionProxy.BridgeObserved -= RecordBridge;
+        var directory = Environment.GetEnvironmentVariable("SQUIRIX_FAILOVER_TRACE_DIR");
+        if (string.IsNullOrEmpty(directory))
+        {
+            WriteEvents(_output);
+            return;
+        }
+
+        _ = Directory.CreateDirectory(directory);
+        await using var writer = File.CreateText(Path.Join(directory, _testName + ".log"));
+        WriteEvents(writer.WriteLine);
         foreach (var entry in _events)
-            _output($"[failover {_group}] {entry}");
+        {
+            if (!entry.Contains(" pre-vote trace=", StringComparison.Ordinal))
+                _output($"[failover {_group}] {entry}");
+        }
+    }
+
+    private void WriteEvents(Action<string> output)
+    {
+        foreach (var entry in _events)
+            output($"[failover {_group}] {entry}");
 
         foreach (var (ports, at, phase) in _tlsEvents)
         {
             var senderPorts = _bridges.GetValueOrDefault(ports, ports);
             if (_connections.TryGetValue(senderPorts, out var traceId) && _traces.TryGetValue(traceId, out var peer))
-                _output($"[failover {_group}] {at:F0} ms pre-vote trace={traceId} {peer} {phase}");
+                output($"[failover {_group}] {at:F0} ms pre-vote trace={traceId} {peer} {phase}");
         }
     }
 
