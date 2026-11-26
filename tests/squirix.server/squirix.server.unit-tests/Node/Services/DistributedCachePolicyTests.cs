@@ -50,7 +50,7 @@ public sealed class DistributedCachePolicyTests : ServerUnitTestBase
         var policy = new DistributedCachePolicy(2, 50_000);
         byte[] source = [0, 255, 128];
         var write = new DistributedCacheWrite(in policy, source);
-        var decision = ReplicaMutationDecisions.DecideSet(new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(write.Envelope), expiresUtc: write.DeadlineForSizing) { PendingWrite = write }, now);
+        var decision = ReplicaMutationDecisions.DecideSet(new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(write.Envelope), write), now);
         source[1] = 0;
         var entry = decision.Entry!.ObjectEntry;
         var stored = StoredValueProbe.Binary(await Assert.That(entry.Value).IsTypeOf<StoredValue>());

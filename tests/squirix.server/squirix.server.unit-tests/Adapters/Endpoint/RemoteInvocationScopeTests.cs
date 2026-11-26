@@ -63,7 +63,7 @@ public sealed class RemoteInvocationScopeTests : ServerUnitTestBase
         var write = new DistributedCacheWrite(in policy, [1, 2, 3], TimeSpan.FromMinutes(1).Ticks);
 
         using var scope = RemoteInvocationContext.EnterRemoteInvocation();
-        await cache.SetEntryAsync("op", "default", "key", new NodeCacheEntry<object?>(write.Envelope) { PendingWrite = write }, CancellationToken.None);
+        await cache.SetEntryAsync("op", "default", "key", new NodeCacheEntry<object?>(write.Envelope, write), CancellationToken.None);
 
         var stored = await cache.GetValueAsync("default", "key", CancellationToken.None);
         _ = await Assert.That(stored.RawValue).IsSameReferenceAs(write.Envelope);

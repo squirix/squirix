@@ -36,7 +36,9 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         var firstAppend = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var armed = new CancellationTokenSource();
+        var clock = new ShiftableClock();
         var gateway = ParkedAppendGateway.CreateConfigure(OwnerId, _ => armed.IsCancellationRequested, ParkAsync);
+        gateway += services => services.RemoveAll<TimeProvider>().AddSingleton<TimeProvider>(clock);
         await using var cluster = await StartClusterAsync(OwnerId, "node-b", "node-c", WipedCluster.Options("renewal-race", true, services: gateway), cancellationToken);
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster[OwnerId];
@@ -44,6 +46,9 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         using var channel = CreateBinaryChannel(owner.Uri);
         var client = new CacheWireClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
+
+        // Move past the stored millisecond so the next sliding read must renew.
+        clock.Advance(TimeSpan.FromSeconds(1));
         var log = WipedCluster.Log(owner, OwnerId);
         var before = (await log.GetStatusAsync(cancellationToken)).CommitIndex;
         await armed.CancelAsync();
@@ -99,6 +104,9 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         using var channel = CreateBinaryChannel(owner.Uri);
         var client = new CacheWireClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
+
+        // Move past the stored millisecond so the next sliding read must renew.
+        clock.Advance(TimeSpan.FromSeconds(1));
         ILocalCacheReadOperations<StoredValue> local = owner.GetRequiredService<PhysicalCache<StoredValue>>();
         var cacheKey = new CacheKey(CacheName, key);
         var original = local.GetValueWithDeadline(cacheKey, cancellationToken);
@@ -139,7 +147,9 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         using var armed = new CancellationTokenSource();
         var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clock = new ShiftableClock();
         var gateway = ParkedAppendGateway.CreateConfigure(OwnerId, _ => armed.IsCancellationRequested, ParkAsync);
+        gateway += services => services.RemoveAll<TimeProvider>().AddSingleton<TimeProvider>(clock);
         await using var cluster = await StartClusterAsync(OwnerId, "node-b", "node-c", WipedCluster.Options(CacheName, true, services: gateway), cancellationToken);
         await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
         var owner = cluster[OwnerId];
@@ -147,6 +157,9 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
         using var channel = CreateBinaryChannel(owner.Uri);
         var client = new CacheWireClient(channel);
         _ = await SeedAsync(client, key, cancellationToken);
+
+        // Move past the stored millisecond so the next sliding read must renew.
+        clock.Advance(TimeSpan.FromSeconds(1));
         var log = WipedCluster.Log(owner, OwnerId);
         var before = await log.GetStatusAsync(cancellationToken);
         await armed.CancelAsync();

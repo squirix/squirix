@@ -364,7 +364,7 @@ internal sealed class RoutedCacheOperations<T>
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                     operationId,
                     request.Key,
-                    new NodeCacheEntry<T>(value, expiresUtc: write.DeadlineForSizing) { PendingWrite = write },
+                    new NodeCacheEntry<T>(value, write),
                     cancellationToken).ConfigureAwait(false);
                 return new SetAsyncResponse();
             }

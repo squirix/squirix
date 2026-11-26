@@ -518,12 +518,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// </remarks>
     private class Node
     {
-        /// <summary>
-        /// The bits <see cref="_expires" /> holds for no deadline: no <see cref="DateTime" /> has them, since its ticks would exceed
-        /// <see cref="DateTime.MaxValue" />.
-        /// </summary>
-        private const long NoDeadline = -1;
-
         private long _expires;
         private Node? _next;
         private bool _removed;
@@ -543,7 +537,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             Key = key;
             Hash = key.GetHashCode();
             _value = value;
-            _expires = Encode(expiresUtc);
+            _expires = EntryDeadline.Encode(expiresUtc);
             _version = version;
             _tags = tags;
         }
@@ -552,7 +546,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal long Bytes { get; set; }
 
         /// <summary>Gets the deadline; read under the cache lock.</summary>
-        internal DateTime? ExpiresUtc => Decode(_expires);
+        internal DateTime? ExpiresUtc => EntryDeadline.Decode(_expires);
 
         /// <summary>Gets the hash code of <see cref="Key" />.</summary>
         internal int Hash { get; }
@@ -627,7 +621,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var odd = BeginWrite();
             StoreValue(value);
             Volatile.Write(ref _version, version);
-            Volatile.Write(ref _expires, Encode(expiresUtc));
+            Volatile.Write(ref _expires, EntryDeadline.Encode(expiresUtc));
             Volatile.Write(ref _tags, tags);
             EndWrite(odd);
         }
@@ -637,7 +631,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal void WriteExpiresUtc(DateTime? expiresUtc)
         {
             var odd = BeginWrite();
-            Volatile.Write(ref _expires, Encode(expiresUtc));
+            Volatile.Write(ref _expires, EntryDeadline.Encode(expiresUtc));
             EndWrite(odd);
         }
 
@@ -649,10 +643,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             StoreValue(value);
             EndWrite(odd);
         }
-
-        private static DateTime? Decode(long expires) => expires == NoDeadline ? null : Unsafe.BitCast<long, DateTime>(expires);
-
-        private static long Encode(DateTime? expiresUtc) => expiresUtc is { } deadline ? Unsafe.BitCast<DateTime, long>(deadline) : NoDeadline;
 
         /// <summary>Makes the sequence odd.</summary>
         /// <returns>The odd sequence.</returns>
@@ -698,7 +688,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 return false;
 
             if (!removed)
-                read = new EntryRead(value, version, Decode(expires), tags);
+                read = new EntryRead(value, version, EntryDeadline.Decode(expires), tags);
 
             return true;
         }

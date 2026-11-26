@@ -74,6 +74,25 @@ public sealed class StoredValueTests
         _ = await Assert.That(invalid).IsEqualTo(0);
     }
 
+    /// <summary>Compact deadlines preserve the entire DateTime value and distinguish absence from midnight at tick zero.</summary>
+    /// <param name="kind">The kind of the deadline.</param>
+    [Test]
+    [Arguments(DateTimeKind.Utc)]
+    [Arguments(DateTimeKind.Local)]
+    [Arguments(DateTimeKind.Unspecified)]
+    public async Task DeadlinePreservesTicksAndKind(DateTimeKind kind)
+    {
+        var absent = new NodeCacheEntry<StoredValue>(default);
+        _ = await Assert.That(absent.ExpiresUtc).IsNull();
+        foreach (var ticks in new[] { 0L, DateTime.MaxValue.Ticks })
+        {
+            var expected = new DateTime(ticks, kind);
+            var entry = new NodeCacheEntry<StoredValue>(default, expiresUtc: expected);
+            _ = await Assert.That(entry.ExpiresUtc!.Value.Ticks).IsEqualTo(ticks);
+            _ = await Assert.That(entry.ExpiresUtc.Value.Kind).IsEqualTo(kind);
+        }
+    }
+
     /// <summary>A small JSON slice retains only its own bytes when its larger owner is reused.</summary>
     [Test]
     public async Task JsonSliceOwnsOnlyItsPayload()

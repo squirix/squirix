@@ -1,6 +1,8 @@
 using System;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Wire;
@@ -14,6 +16,26 @@ namespace Squirix.Server.IntegrationTests;
 /// <summary>Verifies the value contract through the public binary transport and a real node.</summary>
 public sealed class TypedStorageTests : NodeIntegrationTestBase
 {
+    /// <summary>Test entries built from either JSON input own their data after the document is disposed.</summary>
+    [Test]
+    public async Task FixtureOwnsDocumentAndElement()
+    {
+        const string json = """{"id":1,"id":2}""";
+        NodeCacheEntry<StoredValue> fromDocument;
+        NodeCacheEntry<StoredValue> fromElement;
+        using (var document = JsonDocument.Parse(json))
+        {
+            fromDocument = BuildEntry(document);
+            fromElement = BuildEntry(document.RootElement);
+        }
+
+        foreach (var entry in new[] { fromDocument, fromElement })
+        {
+            _ = await Assert.That(entry.Value.Kind).IsEqualTo(StoredValue.ValueKind.Json);
+            _ = await Assert.That(System.Text.Encoding.UTF8.GetString(entry.Value.Bytes)).IsEqualTo(json);
+        }
+    }
+
     /// <summary>The same key can change its kind. A stored null and an absent key have different read results.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

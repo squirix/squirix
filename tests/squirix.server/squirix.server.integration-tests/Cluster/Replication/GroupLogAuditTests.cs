@@ -115,14 +115,15 @@ public sealed class GroupLogAuditTests : NodeIntegrationTestBase
     [Test]
     public async Task MemoryEvictionAgreesOnAllCopies(CancellationToken cancellationToken)
     {
-        var options = Options("memory-eviction", budget: 2048);
+        const int budget = 2048;
+        var options = Options("memory-eviction", budget: budget);
         await using var cluster = await StartClusterAsync(Three[0], Three[1], Three[2], options, cancellationToken);
         var probe = new ClusterLeaderProbe<IntegrationStartOptions>(cluster);
         var (leader, _) = await probe.WaitForStableLeaderAsync(Group, Three, Bound, cancellationToken);
         var host = cluster[leader];
         var key = host.FindKeyOwnedBy(Scope, Group);
         var operation = Guid.NewGuid().ToString("N");
-        await CommitAsync(probe, host, key, operation, cancellationToken, new string('x', 1800));
+        await CommitAsync(probe, host, key, operation, cancellationToken, new string('x', budget));
         var stats = host.GetRequiredService<ILocalCacheStats>();
         await probe.Ledger(Group).UntilValueAsync(stats, static (s, _) => ValueTask.FromResult(s.EntryCount == 0), "leader evicts under pressure", cancellationToken);
         var index = host.GetRequiredService<ReplicaGroupAppliers>().For(Group).AppliedIndex;
