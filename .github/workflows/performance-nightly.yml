@@ -54,7 +54,7 @@ jobs:
                       --minimum-expected-tests 1 --zero-tests-policy strict
 
             -   name: Compare Hot Paths With Pinned Sources
-                run: python3 tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
+                run: python3 tools/ci/run-performance-guard.py benchmarks/baselines/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
 
             -   name: Upload Performance Comparison
                 if: always()

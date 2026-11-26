@@ -1037,7 +1037,7 @@ jobs:
     # persistent (8 cases total). Allocated bytes per operation barely
     # move between runs, unlike times on a shared runner, so they are compared with a baseline measured on this runner
     # kind; see tools/ci/check-wire-alloc.py. It also guards the server read paths whose allocations the unit tests do not
-    # pin (the value hit of PhysicalCache and the replicated value read), against benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json.
+    # pin (the value hit of PhysicalCache and the replicated value read), against benchmarks/baselines/alloc-ci-baseline.json.
     # The job builds the benchmarks itself and, like build-ubuntu, classifies the change set itself, so it starts with the
     # workflow instead of after the Detect Changes job.
     alloc-guard:
@@ -1145,7 +1145,7 @@ jobs:
             # BenchmarkDotNet exits 0 when a case fails or the filter selects nothing, so the check also fails on a missing result.
             -   name: Compare Allocations With The Baseline
                 if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
-                run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json "$BDN_ARTIFACTS"
+                run: python3 tools/ci/check-wire-alloc.py benchmarks/baselines/wire-alloc-ci-baseline.json "$BDN_ARTIFACTS"
 
             # Same fixed invocation count as the wire cases; each invocation already runs 100 000 reads. The step runs after a
             # failed wire check too, so one run reports both guards.
@@ -1159,7 +1159,24 @@ jobs:
 
             -   name: Compare Server Allocations With The Baseline
                 if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
-                run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json "$BDN_ARTIFACTS/server"
+                run: python3 tools/ci/check-wire-alloc.py benchmarks/baselines/alloc-ci-baseline.json "$BDN_ARTIFACTS/server"
+
+            -   name: Check Physical Cache Table
+                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                timeout-minutes: 2
+                shell: bash
+                run: |
+                    set -o pipefail
+                    project=benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj
+                    results="$BDN_ARTIFACTS/physical-table"
+                    mkdir -p "$results"
+                    dotnet run --project "$project" -c Release --no-build -- \
+                      --filter '*PhysicalCacheTableBenchmarks.*' --inProcess \
+                      --warmupCount 3 --iterationCount 5 --invocationCount 1 --unrollFactor 1 \
+                      --exporters json --artifacts "$results" > "$results/benchmark.log"
+                    dotnet run --project "$project" -c Release --no-build -- entry-memory --entries 32768 --max-retained-percent 50 \
+                      | tee "$results/retained-memory.md" >> "$GITHUB_STEP_SUMMARY"
+                    python3 tools/ci/check-wire-alloc.py benchmarks/baselines/table-alloc-ci-baseline.json "$results"
 
             -   name: Upload Benchmark Artifacts
                 if: ${{ always() && steps.gate.outputs.guard == 'true' }}

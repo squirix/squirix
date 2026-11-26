@@ -55,10 +55,10 @@ internal sealed partial class PhysicalCache<T>
                     _owner._store.AdvanceGrowthLocked();
                     var previous = node.ExpiresUtc;
                     node.WriteExpiresUtc(deadline);
-                    _owner._deadlines.MovedLocked(node, previous);
+                    _owner._deadlines.MovedLocked(in node, previous);
                 }
 
-                BoundedNode.RecordAccess(node);
+                BoundedNode.RecordAccess(in node);
                 return refresh ? null : payload;
             }
         }

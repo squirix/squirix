@@ -36,6 +36,51 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     private static readonly DateTime DeadlineA = new(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime DeadlineB = new(2200, 6, 15, 12, 30, 0, DateTimeKind.Utc);
 
+    /// <summary>Readers racing reuse of a slot cannot return the other key's value.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReaderKeepsValueIdentityDuringSlotReuse(CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        var keys = new[] { CacheKey.Default("left"), CacheKey.Default("right") };
+        var values = new[] { new NodeCacheEntry<string>("left"), new NodeCacheEntry<string>("right") };
+        var mismatches = 0;
+        var bodies = new List<Func<Task>>
+        {
+            () =>
+            {
+                for (var i = 0; i < WriterIterations; i++)
+                {
+                    var index = i & 1;
+                    _ = cache.Remove(keys[1 - index], cancellationToken);
+                    cache.Set(keys[index], values[index], cancellationToken);
+                }
+
+                return Task.CompletedTask;
+            },
+        };
+
+        Func<Task> read = () =>
+        {
+            for (var i = 0; i < WriterIterations; i++)
+            {
+                var key = keys[i & 1];
+                var observed = cache.GetValue(key, cancellationToken);
+                if (observed.Found && !string.Equals(observed.Value, key.Key, StringComparison.Ordinal))
+                    _ = Interlocked.Increment(ref mismatches);
+            }
+
+            return Task.CompletedTask;
+        };
+
+        for (var reader = 0; reader < ReaderCount; reader++)
+            bodies.Add(read);
+
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
+        _ = await Assert.That(mismatches).IsEqualTo(0);
+        _ = await Assert.That(cache.GetValue(keys[1], cancellationToken).Value).IsEqualTo("right");
+    }
+
     /// <summary>After concurrent adds, overwrites and removals, the entry count and the byte total match the live entries.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -159,6 +204,35 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         _ = await Assert.That(localRead?.ExpiresUtc?.Kind).IsEqualTo(DateTimeKind.Local);
         _ = await Assert.That(unspecifiedRead?.ExpiresUtc?.Ticks).IsEqualTo(unspecified.Ticks);
         _ = await Assert.That(unspecifiedRead?.ExpiresUtc?.Kind).IsEqualTo(DateTimeKind.Unspecified);
+    }
+
+    /// <summary>Repeated removal and insertion across slot pages must preserve every surviving key and value.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReusedSlotsKeepKeysAndValuesDistinct(CancellationToken cancellationToken)
+    {
+        const int count = 4_096;
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        var keys = CreateKeys("original", count);
+        var replacements = CreateKeys("replacement", count);
+        foreach (var key in keys)
+            cache.Set(key, new NodeCacheEntry<string>(key.Key), cancellationToken);
+
+        for (var index = 0; index < count; index += 2)
+            _ = cache.Remove(keys[index], cancellationToken);
+        for (var index = count - 2; index >= 0; index -= 2)
+            cache.Set(replacements[index], new NodeCacheEntry<string>(replacements[index].Key), cancellationToken);
+
+        for (var index = 0; index < count; index++)
+        {
+            var stored = index % 2 == 0 ? replacements[index] : keys[index];
+            var absent = index % 2 == 0 ? keys[index] : replacements[index];
+            _ = await Assert.That(cache.GetValue(stored, cancellationToken).Value).IsEqualTo(stored.Key);
+            _ = await Assert.That(cache.GetValue(absent, cancellationToken).Found).IsFalse();
+        }
+
+        ILocalCacheStats stats = cache;
+        _ = await Assert.That(stats.EntryCount).IsEqualTo(count);
     }
 
     /// <summary>Keys that stay stored are always found, and keys never stored never are, while the store grows under concurrent adds and removals.</summary>

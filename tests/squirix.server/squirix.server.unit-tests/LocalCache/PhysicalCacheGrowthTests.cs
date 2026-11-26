@@ -116,6 +116,49 @@ public sealed class PhysicalCacheGrowthTests : ServerUnitTestBase
         _ = await Assert.That(cache.GetValue(key, cancellationToken).Value).IsEqualTo("value");
     }
 
+    /// <summary>Old deadlines cannot list a replacement twice when it occupies a recycled slot with the same expiry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReclaimedSlotsListOnlyCurrentDeadlines(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var keys = new CacheKey[800];
+        var entry = new NodeCacheEntry<string>("value", 1, null, TimeSpan.FromMinutes(1));
+        for (var i = 0; i < keys.Length; i++)
+        {
+            keys[i] = CacheKey.Default(i.ToString(CultureInfo.InvariantCulture));
+            cache.Set(keys[i], entry, cancellationToken);
+        }
+
+        // Keep both ends live while emptying entire interior pages.
+        for (var i = 16; i < 784; i++)
+            _ = await Assert.That(cache.Remove(keys[i], cancellationToken)).IsTrue();
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var due = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, keys.Length, static _ => true);
+        _ = await Assert.That(due.Count).IsEqualTo(32);
+        for (var i = 0; i < 16; i++)
+        {
+            _ = await Assert.That(due).Contains(keys[i]);
+            _ = await Assert.That(due).Contains(keys[784 + i]);
+        }
+
+        // Leave stale heap items in place while filling the retired pages again.
+        var renewed = new NodeCacheEntry<string>("renewed", 2, null, TimeSpan.FromMinutes(1));
+        for (var i = 16; i < 784; i++)
+            cache.Set(keys[i], renewed, cancellationToken);
+        for (var i = 16; i < 784; i++)
+            _ = cache.Remove(keys[i], cancellationToken);
+        for (var i = 16; i < 784; i++)
+            cache.Set(keys[i], renewed, cancellationToken);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        due = cache.ExpiredKeys.ListExpired(clock.GetUtcNow().UtcDateTime, keys.Length * 2, static _ => true);
+        _ = await Assert.That(due.Count).IsEqualTo(keys.Length);
+        _ = await Assert.That(new HashSet<CacheKey>(due).SetEquals(keys)).IsTrue();
+    }
+
     private static CacheKey[] CollidingKeys(int bucket)
     {
         var keys = new CacheKey[52];

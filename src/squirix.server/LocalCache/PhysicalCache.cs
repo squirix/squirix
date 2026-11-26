@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -189,15 +189,16 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
-            var hadDeadline = node.ExpiresUtc != null;
-            if (hadDeadline)
+            var previous = node.ExpiresUtc;
+            if (previous != null)
             {
-                _footprint.ResizeForDeadline(key, node, null);
+                _footprint.ResizeForDeadline(key, in node, null);
                 node.WriteExpiresUtc(null);
+                _deadlines.MovedLocked(in node, previous);
             }
 
-            BoundedNode.RecordAccess(node);
-            return hadDeadline;
+            BoundedNode.RecordAccess(in node);
+            return previous != null;
         }
     }
 
@@ -227,12 +228,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
             var expiresUtc = UtcNow.SaturatedAdd(expiration);
             if (node.ExpiresUtc == null)
-                _footprint.ResizeForDeadline(key, node, expiresUtc);
+                _footprint.ResizeForDeadline(key, in node, expiresUtc);
 
             var previous = node.ExpiresUtc;
             node.WriteExpiresUtc(expiresUtc);
-            _deadlines.MovedLocked(node, previous);
-            BoundedNode.RecordAccess(node);
+            _deadlines.MovedLocked(in node, previous);
+            BoundedNode.RecordAccess(in node);
             return true;
         }
     }
@@ -255,9 +256,9 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
-            _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
+            _footprint.Resize(in node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
             node.WriteValue(value);
-            BoundedNode.RecordAccess(node);
+            BoundedNode.RecordAccess(in node);
             return true;
         }
     }
@@ -324,29 +325,31 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     private bool RemoveLocked(CacheKey key)
     {
         _store.AdvanceGrowthLocked();
-        if (!_store.RemoveLocked(key, out var node))
+        ref var link = ref _store.FindLinkLocked(key, key.GetHashCode(), 0, out var node);
+        if (!node.Exists)
             return false;
 
         var expired = IsExpired(node.ExpiresUtc);
-        UntrackLocked(node);
+        _store.UnlinkLocked(ref link, in node);
+        UntrackLocked(in node);
         return !expired;
     }
 
-    private bool TryGetLiveLocked(CacheKey key, bool touchOrder, [NotNullWhen(true)] out Node? node)
+    private bool TryGetLiveLocked(CacheKey key, bool touchOrder, out Node node)
     {
         if (!_store.TryGetLocked(key, out node))
             return false;
 
         if (IsExpired(node.ExpiresUtc))
         {
-            _store.RemoveLocked(node);
-            UntrackLocked(node);
-            node = null;
+            _store.RemoveLocked(in node);
+            UntrackLocked(in node);
+            node = default;
             return false;
         }
 
         if (touchOrder)
-            BoundedNode.RecordAccess(node);
+            BoundedNode.RecordAccess(in node);
 
         return true;
     }
@@ -369,7 +372,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (outcome == ReadOutcome.Present && !(live && IsExpired(read.ExpiresUtc)))
         {
             if (live && _scopes != null)
-                BoundedNode.RecordAccess(observed!);
+                BoundedNode.RecordAccess(in observed);
             return true;
         }
 
@@ -388,43 +391,42 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
     /// <summary>Releases an entry that left the store: its recorded bytes leave the total, it leaves the eviction order, and it drops its value and tags.</summary>
     /// <param name="node">The entry already removed from the store.</param>
-    private void UntrackLocked(Node node)
+    private void UntrackLocked(in Node node)
     {
-        _footprint.Release(node);
+        _footprint.Release(in node);
 
-        // A reader that found the node before it left the store sees it removed. A stale item of the deadline index may keep the node
-        // reachable until its old deadline: do not let it keep the value alive.
-        node.MarkRemoved();
-        if (node is BoundedNode bounded)
+        if (node.Policy is { } bounded)
         {
             bounded.Scope.Remove(bounded);
             if (bounded.Scope.Count == 0 && _scopes != null)
                 _ = _scopes.Remove(BoundedNode.ScopeOf(this, node.Key));
         }
+
+        node.MarkRemoved();
     }
 
     private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
     {
         _store.AdvanceGrowthLocked();
-        _ = _store.TryGetLocked(key, out var node);
-        if (node != null && insertOnly && IsExpired(node.ExpiresUtc))
+        var hash = key.GetHashCode();
+        _ = _store.TryGetLocked(key, hash, out var node);
+        if (node.Exists && insertOnly && IsExpired(node.ExpiresUtc))
         {
-            _store.RemoveLocked(node);
-            UntrackLocked(node);
-            node = null;
+            _store.RemoveLocked(in node);
+            UntrackLocked(in node);
+            node = default;
         }
 
-        if (node == null)
+        if (!node.Exists)
         {
             node = _scopes == null
-                ? new Node(key, normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
-                : BoundedNode.Create(this, key, normalized);
-            if (node == null)
+                ? _store.AddLocked(key, hash, normalized, null)
+                : BoundedNode.Create(this, key, hash, normalized);
+            if (!node.Exists)
                 return true;
 
-            _store.AddLocked(node);
-            _footprint.Resize(node, bytes);
-            _deadlines.RecordLocked(node);
+            _footprint.Resize(in node, bytes);
+            _deadlines.RecordLocked(in node);
 
             return true;
         }
@@ -432,11 +434,11 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (insertOnly)
             return false;
 
-        _footprint.Resize(node, bytes);
+        _footprint.Resize(in node, bytes);
         var previous = node.ExpiresUtc;
         node.Write(normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
-        _deadlines.MovedLocked(node, previous);
-        BoundedNode.RecordAccess(node);
+        _deadlines.MovedLocked(in node, previous);
+        BoundedNode.RecordAccess(in node);
         return false;
     }
 
@@ -453,88 +455,35 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal NodeCacheEntry<T> ToEntry() => new(Value, Version, ExpiresUtc, tags: Tags);
     }
 
-    /// <summary>The recorded bytes of the stored entries and their running total.</summary>
+    /// <summary>The fields of an entry stored inline in a page.</summary>
     /// <remarks>
-    /// <see cref="Resize" /> and <see cref="Release" /> run only under the cache lock, so the total always equals the sum of
-    /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock. Update measures its value before the lock and
-    /// combines the measurement with the entry metadata under it. Deadline changes reuse the stored estimate when only the deadline share changes.
-    /// </remarks>
-    [ThreadSafe]
-    private sealed class Footprint
-    {
-        private readonly ICacheEntrySizeEstimator<T> _estimator;
-        private long _total;
-
-        internal Footprint(ICacheEntrySizeEstimator<T> estimator)
-        {
-            _estimator = estimator;
-        }
-
-        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry) => _estimator.EstimateBytes(key, entry, false);
-
-        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => _estimator.EstimateBytesForEncodedLength(key, entry, knownEncodedLength);
-
-        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, long measuredValue) => _estimator.EstimateBytesForMeasuredValue(key, entry, measuredValue);
-
-        internal long MeasureValue(T? value) => _estimator.MeasureValue(value);
-
-        internal long Read() => Volatile.Read(ref _total);
-
-        internal void Release(Node node) => Resize(node, 0);
-
-        internal void ResizeForDeadline(CacheKey key, Node node, DateTime? expiresUtc)
-        {
-            if (_estimator is CacheEntrySizeEstimator<T>)
-            {
-                const int deadlineBytes = CacheEntryDeadlineSize.IndexBytes;
-                Resize(node, node.Bytes + (expiresUtc != null ? deadlineBytes : -deadlineBytes));
-                return;
-            }
-
-            Resize(node, Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
-        }
-
-        internal void Resize(Node node, long bytes)
-        {
-            Volatile.Write(ref _total, _total - node.Bytes + bytes);
-            node.Bytes = bytes;
-        }
-    }
-
-    /// <summary>
-    /// A single live entry plus its eviction-order bookkeeping. Merging value and order state
-    /// into one object per key - instead of a value in one structure and metadata in another -
-    /// is what removes the divergence race: there's nothing left to fall out of sync.
-    /// </summary>
-    /// <remarks>
-    /// <para>What a read returns - value, version, deadline and tags - and whether the node left the store are guarded by a sequence lock. A writer,
+    /// <para>What a read returns - value, version, deadline and tags - is guarded by a sequence lock. A writer,
     /// always under the cache lock, makes <see cref="_sequence" /> odd, changes the fields in place with release writes, which keep the odd sequence
     /// before them, and makes it even again with a release write, which keeps them before it. <see cref="Read" /> reads the sequence, the fields
     /// and the sequence again, each with an acquire read so none of them moves past the next, and keeps the fields only when both reads saw the
     /// same even number: no write overlapped them, so they are the fields of one write.</para>
-    /// <para>A node never changes key. A removed node is marked removed, its value and tags dropped, in the same write, and is never stored again; a
-    /// key stored again gets a new node. The rest is writer-only bookkeeping, changed under the cache lock.</para>
+    /// <para>A key is stable for one positive lifetime. Removal invalidates that lifetime before clearing the references.
+    /// Reuse publishes a fresh lifetime after initialization. Readers validate the observed lifetime after the sequence-locked read.</para>
     /// </remarks>
-    private class Node
+    private struct Cell
     {
+        internal BoundedNode? Policy;
+
         private long _expires;
-        private Node? _next;
-        private bool _removed;
         private int _sequence;
         private FrozenDictionary<string, string>? _tags;
         private T? _value;
         private long _version;
 
-        /// <summary>Initializes a new instance of the <see cref="Node" /> class.</summary>
+        /// <summary>Initializes a new instance of the <see cref="Cell" /> struct.</summary>
         /// <param name="key">The key the entry is stored under.</param>
         /// <param name="value">The cached value.</param>
         /// <param name="expiresUtc">The expiration time.</param>
         /// <param name="version">The version.</param>
         /// <param name="tags">The tags.</param>
-        internal Node(CacheKey key, T? value, DateTime? expiresUtc, long version, FrozenDictionary<string, string>? tags)
+        internal Cell(CacheKey key, T? value, DateTime? expiresUtc, long version, FrozenDictionary<string, string>? tags)
         {
             Key = key;
-            Hash = key.GetHashCode();
             _value = value;
             _expires = EntryDeadline.Encode(expiresUtc);
             _version = version;
@@ -545,61 +494,47 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal long Bytes { get; set; }
 
         /// <summary>Gets the deadline; read under the cache lock.</summary>
-        internal DateTime? ExpiresUtc => EntryDeadline.Decode(_expires);
-
-        /// <summary>Gets the hash code of <see cref="Key" />.</summary>
-        internal int Hash { get; }
-
-        /// <summary>Gets a value indicating whether the node is in the store; read under the cache lock.</summary>
-        /// <remarks>A node enters the store when it is built and leaves it once, through <see cref="MarkRemoved" />, so this needs no lookup.</remarks>
-        internal bool IsStored => !_removed;
-
-        /// <summary>Gets or sets the deadline, in UTC ticks, of the one canonical item the deadline index holds for this entry; <see cref="long.MaxValue" /> when it holds none.</summary>
-        internal long IndexedTicks { get; set; } = long.MaxValue;
+        internal readonly DateTime? ExpiresUtc => EntryDeadline.Decode(_expires);
 
         /// <summary>Gets or sets the generation of the canonical item: another item of this entry with the same deadline is stale unless it carries this generation.</summary>
         internal int IndexedGeneration { get; set; }
 
         /// <summary>Gets the key the entry is stored under.</summary>
-        internal CacheKey Key { get; }
-
-        /// <summary>Gets the link to the next node of the same bucket of the <see cref="Store" />.</summary>
-        internal ref Node? Next => ref _next;
+        internal CacheKey Key { get; private set; }
 
         /// <summary>Gets the tags; read under the cache lock.</summary>
-        internal FrozenDictionary<string, string>? Tags => _tags;
+        internal readonly FrozenDictionary<string, string>? Tags => _tags;
 
         /// <summary>Gets the value; read under the cache lock.</summary>
-        internal T? Value => _value;
+        internal readonly T? Value => _value;
 
         /// <summary>Gets the version; read under the cache lock.</summary>
-        internal long Version => _version;
+        internal readonly long Version => _version;
 
-        /// <summary>Marks the node removed from the store and drops its value and tags; call under the cache lock.</summary>
+        /// <summary>Clears the key, value and tags after the lifetime has been invalidated; call under the cache lock.</summary>
         internal void MarkRemoved()
         {
             var odd = BeginWrite();
+            Key = default;
             StoreValue(default);
             Volatile.Write(ref _tags, null);
-            Volatile.Write(ref _removed, true);
             EndWrite(odd);
         }
 
         /// <summary>Reads the fields under the cache lock.</summary>
         /// <returns>The fields.</returns>
-        internal EntryRead ReadLocked() => new(_value, _version, ExpiresUtc, _tags);
+        internal readonly EntryRead ReadLocked() => new(_value, _version, ExpiresUtc, _tags);
 
         /// <summary>Reads the fields without the cache lock, retrying while a write overlaps the read.</summary>
         /// <param name="read">The fields of one write when the outcome is <see cref="ReadOutcome.Present" />.</param>
         /// <returns>
-        /// <see cref="ReadOutcome.Present" /> for a stored node, <see cref="ReadOutcome.Absent" /> for a removed one, or <see cref="ReadOutcome.Unsure" />
+        /// <see cref="ReadOutcome.Present" /> when the snapshot is consistent, or <see cref="ReadOutcome.Unsure" />
         /// when writes kept overlapping the read and the caller must read under the cache lock.
         /// </returns>
         internal ReadOutcome Read(out EntryRead read)
         {
             var spinner = default(SpinWait);
-            bool removed;
-            while (!TryReadOnce(out read, out removed))
+            while (!TryReadOnce(out read))
             {
                 if (spinner.NextSpinWillYield)
                     return ReadOutcome.Unsure;
@@ -607,7 +542,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 spinner.SpinOnce();
             }
 
-            return removed ? ReadOutcome.Absent : ReadOutcome.Present;
+            return ReadOutcome.Present;
         }
 
         /// <summary>Replaces what a read returns in one write; call under the cache lock.</summary>
@@ -664,15 +599,13 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         private void EndWrite(int odd) => Volatile.Write(ref _sequence, odd + 1);
 
         /// <summary>Reads the fields once: the sequence, the fields and the sequence again.</summary>
-        /// <param name="read">The fields of one write, or the default when the read failed or the node was removed.</param>
-        /// <param name="removed">Whether the node left the store.</param>
+        /// <param name="read">The fields of one write, or the default when the read must be retried.</param>
         /// <returns><see langword="false" /> when a write overlapped the read.</returns>
         /// <remarks>Each read is an acquire read, so none moves past the next; a value-type value is read plainly and fenced before the second sequence read.</remarks>
-        private bool TryReadOnce(out EntryRead read, out bool removed)
+        private bool TryReadOnce(out EntryRead read)
         {
             read = default;
             var sequence = Volatile.Read(ref _sequence);
-            removed = Volatile.Read(ref _removed);
             if ((sequence & 1) != 0)
                 return false;
 
@@ -686,8 +619,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (Volatile.Read(ref _sequence) != sequence)
                 return false;
 
-            if (!removed)
-                read = new EntryRead(value, version, EntryDeadline.Decode(expires), tags);
+            read = new EntryRead(value, version, EntryDeadline.Decode(expires), tags);
 
             return true;
         }
@@ -717,16 +649,140 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
     }
 
+    /// <summary>Stores the lifetime, bucket link, and cached hash alongside the entry. Migration can relink a slot without reading its payload.</summary>
+    private struct SlotRecord
+    {
+        internal long Lifetime;
+        internal int Hash;
+        internal int Next;
+        internal Cell Entry;
+    }
+
+    /// <summary>Identifies one occupant of a page position, including after the position is recycled.</summary>
+    private readonly struct Node
+    {
+        private readonly SlotRecord[] _cells;
+
+        internal Node(SlotRecord[] cells, int slot, long identity)
+        {
+            _cells = cells;
+            Identity = identity;
+            Slot = slot;
+        }
+
+        internal int Slot { get; }
+
+        internal long Identity { get; }
+
+        internal bool Exists => _cells != null;
+
+        internal bool IsStored => Volatile.Read(ref Record.Lifetime) == Identity;
+
+        internal CacheKey Key => Entry.Key;
+
+        internal BoundedNode? Policy => Volatile.Read(ref Entry.Policy);
+
+        internal int Hash => Record.Hash;
+
+        internal long Bytes
+        {
+            get => Entry.Bytes;
+            set => Entry.Bytes = value;
+        }
+
+        internal int IndexedGeneration
+        {
+            get => Entry.IndexedGeneration;
+            set => Entry.IndexedGeneration = value;
+        }
+
+        internal DateTime? ExpiresUtc => Entry.ExpiresUtc;
+
+        internal T? Value => Entry.Value;
+
+        internal long Version => Entry.Version;
+
+        internal FrozenDictionary<string, string>? Tags => Entry.Tags;
+
+        private ref SlotRecord Record => ref _cells[Store.SlotOffset(Slot)];
+
+        private ref Cell Entry => ref Record.Entry;
+
+        internal EntryRead ReadLocked() => Entry.ReadLocked();
+
+        internal ReadOutcome Read(out EntryRead read)
+        {
+            var result = Entry.Read(out read);
+            return IsStored ? result : ReadOutcome.Unsure;
+        }
+
+        internal void Write(T? value, long version, DateTime? expires, FrozenDictionary<string, string>? tags) =>
+            Entry.Write(value, version, expires, tags);
+
+        internal void WriteValue(T? value) => Entry.WriteValue(value);
+
+        internal void WriteExpiresUtc(DateTime? expires) => Entry.WriteExpiresUtc(expires);
+
+        internal void MarkRemoved()
+        {
+            _ = Interlocked.Exchange(ref Record.Lifetime, -Identity);
+            Entry.MarkRemoved();
+            Volatile.Write(ref Entry.Policy, null);
+        }
+    }
+
+    /// <summary>The recorded bytes of the stored entries and their running total.</summary>
+    /// <remarks>
+    /// <see cref="Resize" /> and <see cref="Release" /> run only under the cache lock, so the total always equals the sum of
+    /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock. Update measures its value before the lock and
+    /// combines the measurement with the entry metadata under it. Deadline changes reuse the stored estimate when only the deadline share changes.
+    /// </remarks>
+    [ThreadSafe]
+    private sealed class Footprint
+    {
+        private readonly ICacheEntrySizeEstimator<T> _estimator;
+        private long _total;
+
+        internal Footprint(ICacheEntrySizeEstimator<T> estimator)
+        {
+            _estimator = estimator;
+        }
+
+        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry) => _estimator.EstimateBytes(key, entry, false);
+
+        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => _estimator.EstimateBytesForEncodedLength(key, entry, knownEncodedLength);
+
+        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, long measuredValue) => _estimator.EstimateBytesForMeasuredValue(key, entry, measuredValue);
+
+        internal long MeasureValue(T? value) => _estimator.MeasureValue(value);
+
+        internal long Read() => Volatile.Read(ref _total);
+
+        internal void Release(in Node node) => Resize(in node, 0);
+
+        internal void ResizeForDeadline(CacheKey key, in Node node, DateTime? expiresUtc)
+        {
+            if (_estimator is CacheEntrySizeEstimator<T>)
+            {
+                const int deadlineBytes = CacheEntryDeadlineSize.IndexBytes;
+                Resize(in node, node.Bytes + (expiresUtc != null ? deadlineBytes : -deadlineBytes));
+                return;
+            }
+
+            Resize(in node, Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
+        }
+
+        internal void Resize(in Node node, long bytes)
+        {
+            Volatile.Write(ref _total, _total - node.Bytes + bytes);
+            node.Bytes = bytes;
+        }
+    }
+
     /// <summary>The nodes by key: a chained hash table that writers change under the cache lock and readers search without it.</summary>
     /// <remarks>
-    /// <para><see cref="AddLocked" /> links a fully built node at the head of its bucket with a release write. <see cref="RemoveLocked(Node)" /> points the
-    /// link before a node past it and leaves the link of the removed node as it was, so a reader standing on the removed node still reaches the rest
-    /// of the bucket. A search without the lock therefore finds every node stored for the whole search, and any node it finds was stored at some point
-    /// during the search.</para>
-    /// <para>Growing moves nodes incrementally from the previous table to the current one. A node may move between the two probes of a reader.
-    /// Each transfer keeps <see cref="_resizes" /> odd while it relinks, so a search that missed while the count was odd or changed reports
-    /// <see cref="ReadOutcome.Unsure" />. A hit needs no such check: there is at most one node per key. Links move only to nodes relinked before, so a
-    /// reader never walks a cycle.</para>
+    /// <para>Bucket heads and links are slot numbers. Entries stay in their pages while migration rewrites links.
+    /// Readers retry under the lock when a miss overlaps removal or migration. A hit also validates the occupant lifetime.</para>
     /// <para>An insert-only write that replaces an entry past its deadline removes the old node and adds a new one in one lock hold, so a non-live
     /// read that found the removed node and missed the added one reports the key absent.</para>
     /// </remarks>
@@ -747,21 +803,30 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         private const int FreeBucketShift = 2;
 
         private const int TransferBudget = 8;
+        private const int SlotPageBits = 8;
+        private const int SlotsPerPage = 1 << SlotPageBits;
+        private readonly SlotMap _slots = new();
         private BucketTable _table = new(InitialBucketCount);
         private BucketTable? _previous;
         private int _cursor;
-        private int _resizes;
+        private long _topologyVersion;
 
         /// <summary>Gets the number of stored nodes; read under the cache lock.</summary>
         internal int Count { get; private set; }
 
+        internal static int SlotOffset(int slot) => (slot - 1) & (SlotsPerPage - 1);
+
         /// <summary>Gets an enumerator over the stored nodes; use under the cache lock.</summary>
         /// <returns>The enumerator.</returns>
-        internal Enumerator GetEnumerator() => new(_table, _previous, _cursor);
+        internal Enumerator GetEnumerator() => _slots.GetEnumerator();
 
         /// <summary>Links a node whose key is not stored; call under the cache lock.</summary>
-        /// <param name="node">The node.</param>
-        internal void AddLocked(Node node)
+        /// <param name="key">The key.</param>
+        /// <param name="hash">The hash used to look for the key.</param>
+        /// <param name="entry">The entry to publish.</param>
+        /// <param name="policy">Optional eviction metadata.</param>
+        /// <returns>The published occupant.</returns>
+        internal Node AddLocked(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy)
         {
             if (Count >= GrowThreshold(_table.Length) && _previous == null && _table.Length < 1 << 30)
             {
@@ -770,10 +835,11 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 Volatile.Write(ref _table, grown);
             }
 
-            ref var head = ref _table.WritableBucket(_table.IndexOf(node.Hash));
-            node.Next = head;
-            Volatile.Write(ref head, node);
+            ref var head = ref _table.WritableBucket(_table.IndexOf(hash));
+            var node = _slots.Add(key, hash, entry, policy, head, out var slot);
+            Volatile.Write(ref head, slot);
             Count++;
+            return node;
         }
 
         /// <summary>Copies the stored keys; call under the cache lock.</summary>
@@ -797,40 +863,54 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <param name="read">The fields of the entry when the outcome is <see cref="ReadOutcome.Present" />.</param>
         /// <param name="node">The node observed by the lookup.</param>
         /// <returns>Whether the key holds an entry, or <see cref="ReadOutcome.Unsure" /> when a writer got in the way and the caller must read under the lock.</returns>
-        internal ReadOutcome Read(CacheKey key, out EntryRead read, out Node? node)
+        internal ReadOutcome Read(CacheKey key, out EntryRead read, out Node node)
         {
             var outcome = Find(key, out node);
-            if (node != null)
+            if (node.Exists)
                 return node.Read(out read);
 
             read = default;
             return outcome;
         }
 
-        /// <summary>Unlinks the node of a key; call under the cache lock.</summary>
-        /// <param name="key">The key.</param>
-        /// <param name="node">The node unlinked.</param>
-        /// <returns><see langword="true" /> when the key was stored.</returns>
-        internal bool RemoveLocked(CacheKey key, [NotNullWhen(true)] out Node? node)
+        /// <summary>Finds the link to an occupant under the cache lock. Only use the link when the node exists.</summary>
+        /// <param name="key">The requested key.</param>
+        /// <param name="hash">Its previously computed hash.</param>
+        /// <param name="identity">The exact occupant lifetime, or zero to match the key.</param>
+        /// <param name="node">The occupant, or the default on a miss.</param>
+        /// <returns>The link under the writer lock, or a null reference on a miss.</returns>
+        internal ref int FindLinkLocked(CacheKey key, int hash, long identity, out Node node)
         {
-            var hash = key.GetHashCode();
-            if (!Unlink(_table, key, hash, null, out node) &&
-                !(_previous is { } previous && Unlink(previous, key, hash, null, out node)))
-                return false;
+            ref var link = ref FindLink(_table, key, hash, identity, out node);
+            if (!node.Exists && _previous is { } previous)
+                return ref FindLink(previous, key, hash, identity, out node);
 
-            Count--;
-            return true;
+            return ref link;
         }
 
         /// <summary>Unlinks the exact stored node under the cache lock.</summary>
         /// <param name="node">The stored node.</param>
         /// <exception cref="InvalidOperationException">The node has already left the store.</exception>
-        internal void RemoveLocked(Node node)
+        internal void RemoveLocked(in Node node)
         {
-            if (!Unlink(_table, node.Key, node.Hash, node, out _) &&
-                !(_previous is { } previous && Unlink(previous, node.Key, node.Hash, node, out _)))
+            ref var link = ref FindLinkLocked(node.Key, node.Hash, node.Identity, out var stored);
+            if (!stored.Exists)
                 throw new InvalidOperationException("The node is not stored.");
 
+            UnlinkLocked(ref link, in stored);
+        }
+
+        /// <summary>Detaches the occupant after all potentially throwing expiry checks have completed.</summary>
+        /// <param name="link">The link returned by the lookup under the same lock.</param>
+        /// <param name="node">The occupant reached through the link.</param>
+        internal void UnlinkLocked(ref int link, in Node node)
+        {
+            var slots = _slots.PageFor(node.Slot);
+            var offset = SlotOffset(node.Slot);
+            _ = Interlocked.Increment(ref _topologyVersion);
+            Volatile.Write(ref link, slots[offset].Next);
+            _slots.Release(slots, offset, node.Slot);
+            _ = Interlocked.Increment(ref _topologyVersion);
             Count--;
         }
 
@@ -838,13 +918,25 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <param name="key">The requested key.</param>
         /// <param name="node">The matching stored node, if present.</param>
         /// <returns>Whether the key is stored.</returns>
-        internal bool TryGetLocked(CacheKey key, [NotNullWhen(true)] out Node? node)
+        internal bool TryGetLocked(CacheKey key, out Node node) => TryGetLocked(key, key.GetHashCode(), out node);
+
+        internal long? DeferredDeadline(int slot) => _slots.DeferredDeadline(slot);
+
+        internal void SetDeferredDeadline(int slot, long? ticks) => _slots.SetDeferredDeadline(slot, ticks);
+
+        internal Node ResolveSlotLocked(int slot, long identity)
         {
-            var hash = key.GetHashCode();
-            node = Search(_table, key, hash);
-            if (node == null && _previous is { } previous)
-                node = Search(previous, key, hash);
-            return node != null;
+            var page = _slots.ReadPage(slot);
+            return page != null && page[SlotOffset(slot)].Lifetime == identity ? new Node(page, slot, identity) : default;
+        }
+
+        internal bool TryGetLocked(CacheKey key, int hash, out Node node)
+        {
+            var version = _topologyVersion;
+            node = Search(_table, key, hash, version);
+            if (!node.Exists && _previous is { } previous)
+                node = Search(previous, key, hash, version);
+            return node.Exists;
         }
 
         /// <summary>Charges one unit per node moved or empty bucket passed, including a partially drained collision chain.</summary>
@@ -854,18 +946,25 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (_previous is not { } previous)
                 return;
 
-            var resizing = Interlocked.Increment(ref _resizes);
+            var resizing = Interlocked.Increment(ref _topologyVersion);
             try
             {
                 for (var work = 0; work < TransferBudget; work++)
                 {
-                    if (previous.Head(_cursor) is { } node)
+                    var source = previous.Page(_cursor);
+                    var index = BucketTable.Offset(_cursor);
+                    var slot = source?[index] ?? 0;
+                    if (slot != 0)
                     {
                         // Obtain the destination page before unlinking, so allocation failure leaves the node reachable.
-                        ref var destination = ref table.WritableBucket(table.IndexOf(node.Hash));
-                        Volatile.Write(ref previous.WritableBucket(_cursor), node.Next);
-                        Volatile.Write(ref node.Next, destination);
-                        Volatile.Write(ref destination, node);
+                        var page = _slots.PageFor(slot);
+                        var offset = SlotOffset(slot);
+                        ref var record = ref page[offset];
+                        ref var destination = ref table.WritableBucket(table.IndexOf(record.Hash));
+                        Volatile.Write(ref source![index], record.Next);
+                        if (record.Next != destination)
+                            Volatile.Write(ref record.Next, destination);
+                        Volatile.Write(ref destination, slot);
                     }
                     else if (++_cursor == previous.Length)
                     {
@@ -877,47 +976,66 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             }
             finally
             {
-                Volatile.Write(ref _resizes, resizing + 1);
+                Volatile.Write(ref _topologyVersion, resizing + 1);
             }
-        }
-
-        private static bool Unlink(BucketTable table, CacheKey key, int hash, Node? expected, [NotNullWhen(true)] out Node? node)
-        {
-            var index = table.IndexOf(hash);
-            if (table.Page(index) is { } page)
-            {
-                ref var link = ref page[BucketTable.Offset(index)];
-                while ((node = link) != null)
-                {
-                    if (expected != null ? ReferenceEquals(expected, node) : node.Hash == hash && node.Key.Equals(key))
-                    {
-                        Volatile.Write(ref link, node.Next);
-                        return true;
-                    }
-
-                    link = ref node.Next;
-                }
-            }
-
-            node = null;
-            return false;
-        }
-
-        private static Node? Search(BucketTable table, CacheKey key, int hash)
-        {
-            for (var node = table.Head(table.IndexOf(hash)); node != null; node = Volatile.Read(ref node.Next))
-            {
-                if (node.Hash == hash && node.Key.Equals(key))
-                    return node;
-            }
-
-            return null;
         }
 
         /// <summary>Gets the node count at which the store grows: chains stay short, which keeps lookups under the lock cheap.</summary>
         /// <param name="bucketCount">The number of buckets.</param>
         /// <returns>Three quarters of <paramref name="bucketCount" />.</returns>
         private static int GrowThreshold(int bucketCount) => bucketCount - (bucketCount >> FreeBucketShift);
+
+        private ref int FindLink(BucketTable table, CacheKey key, int hash, long identity, out Node node)
+        {
+            var index = table.IndexOf(hash);
+            if (table.Page(index) is { } page)
+            {
+                ref var link = ref page[BucketTable.Offset(index)];
+                while (link != 0)
+                {
+                    var slot = link;
+                    var slots = _slots.PageFor(slot);
+                    var offset = SlotOffset(slot);
+                    ref var record = ref slots[offset];
+                    if (identity != 0 ? identity == record.Lifetime : record.Hash == hash && record.Entry.Key.Equals(key))
+                    {
+                        node = new Node(slots, slot, record.Lifetime);
+                        return ref link;
+                    }
+
+                    link = ref record.Next;
+                }
+            }
+
+            node = default;
+            return ref Unsafe.NullRef<int>();
+        }
+
+        private Node Search(BucketTable table, CacheKey key, int hash, long version)
+        {
+            var slot = table.Head(table.IndexOf(hash));
+            while (slot > 0)
+            {
+                var page = _slots.ReadPage(slot);
+                if (page == null)
+                    return default;
+
+                var offset = SlotOffset(slot);
+                ref var record = ref page[offset];
+                var identity = Volatile.Read(ref record.Lifetime);
+                if (identity <= 0)
+                    return default;
+                if (record.Hash == hash && record.Entry.Key.Equals(key))
+                    return new Node(page, slot, identity);
+                slot = Volatile.Read(ref record.Next);
+
+                // A reader crossing reuse may enter another chain. Stop before following it indefinitely.
+                if (slot > 0 && Volatile.Read(ref _topologyVersion) != version)
+                    return default;
+            }
+
+            return default;
+        }
 
         /// <summary>Searches for the node of a key without the cache lock.</summary>
         /// <param name="key">The key.</param>
@@ -926,17 +1044,17 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <see cref="ReadOutcome.Present" /> when found, <see cref="ReadOutcome.Absent" /> when not, or <see cref="ReadOutcome.Unsure" /> when the
         /// store grew during a search that missed.
         /// </returns>
-        private ReadOutcome Find(CacheKey key, out Node? node)
+        private ReadOutcome Find(CacheKey key, out Node node)
         {
             var hash = key.GetHashCode();
-            var resizes = Volatile.Read(ref _resizes);
+            var version = Volatile.Read(ref _topologyVersion);
             var table = Volatile.Read(ref _table);
-            node = Search(table, key, hash);
-            if (node == null && Volatile.Read(ref _previous) is { } previous)
-                node = Search(previous, key, hash);
-            if (node == null)
+            node = Search(table, key, hash, version);
+            if (!node.Exists && Volatile.Read(ref _previous) is { } previous)
+                node = Search(previous, key, hash, version);
+            if (!node.Exists)
             {
-                var stable = (resizes & 1) == 0 && Volatile.Read(ref _resizes) == resizes;
+                var stable = (version & 1) == 0 && Volatile.Read(ref _topologyVersion) == version;
                 return stable ? ReadOutcome.Absent : ReadOutcome.Unsure;
             }
 
@@ -948,8 +1066,8 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         {
             private const int PageBits = 13;
             private const int PageSize = 1 << PageBits;
-            private readonly Node?[]?[] _pages;
-            private readonly Node?[]? _buckets;
+            private readonly int[]?[] _pages;
+            private readonly int[]? _buckets;
             private readonly int _hashShift;
 
             internal BucketTable(int length)
@@ -958,12 +1076,12 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 _hashShift = HashBits - BitOperations.TrailingZeroCount(length);
                 if (length <= PageSize)
                 {
-                    _buckets = new Node?[length];
+                    _buckets = new int[length];
                     _pages = [];
                 }
                 else
                 {
-                    _pages = new Node?[length >> PageBits][];
+                    _pages = new int[length >> PageBits][];
                 }
             }
 
@@ -973,11 +1091,11 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
             internal int IndexOf(int hash) => unchecked(hash * FibonacciMultiplier) >>> _hashShift;
 
-            internal Node?[]? Page(int index) => _buckets ?? Volatile.Read(ref _pages[index >> PageBits]);
+            internal int[]? Page(int index) => _buckets ?? Volatile.Read(ref _pages[index >> PageBits]);
 
-            internal Node? Head(int index) => Page(index) is { } page ? Volatile.Read(ref page[Offset(index)]) : null;
+            internal int Head(int index) => Page(index) is { } page ? Volatile.Read(ref page[Offset(index)]) : 0;
 
-            internal ref Node? WritableBucket(int index)
+            internal ref int WritableBucket(int index)
             {
                 if (_buckets != null)
                     return ref _buckets[index];
@@ -986,7 +1104,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 var page = slot;
                 if (page == null)
                 {
-                    page = new Node?[PageSize];
+                    page = new int[PageSize];
                     Volatile.Write(ref slot, page);
                 }
 
@@ -994,48 +1112,180 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             }
         }
 
-        /// <summary>Visits the active table and the undrained portion of its predecessor under the cache lock.</summary>
+        /// <summary>Visits occupied slots in page order under the cache lock, including while buckets are migrating.</summary>
         internal sealed class Enumerator
         {
-            private readonly int _previousStart;
-            private BucketTable _table;
-            private BucketTable? _remaining;
-            private int _bucket;
-            private Node? _current;
+            private readonly SlotRecord[]?[] _pages;
+            private readonly int _pageCount;
+            private SlotRecord[]? _page;
+            private int _pageIndex = -1;
+            private int _offset;
 
-            internal Enumerator(BucketTable table, BucketTable? previous, int previousStart)
+            internal Enumerator(SlotRecord[]?[] pages, int pageCount)
             {
-                _table = table;
-                _previousStart = previousStart;
-                _remaining = previous;
+                _pages = pages;
+                _pageCount = pageCount;
             }
 
-            internal Node Current => _current!;
+            internal Node Current { get; private set; }
 
             internal bool MoveNext()
             {
-                if (_current?.Next is { } next)
-                {
-                    _current = next;
-                    return true;
-                }
-
                 while (true)
                 {
-                    while (_bucket < _table.Length)
+                    while (_page != null && _offset < _page.Length)
                     {
-                        if (_table.Head(_bucket++) is { } head)
+                        var offset = _offset++;
+                        var identity = _page[offset].Lifetime;
+                        if (identity > 0)
                         {
-                            _current = head;
+                            Current = new Node(_page, (_pageIndex * SlotsPerPage) + offset + 1, identity);
                             return true;
                         }
                     }
 
-                    if (_remaining is not { } previous)
+                    if (++_pageIndex >= _pageCount)
                         return false;
-                    _table = previous;
-                    _remaining = null;
-                    _bucket = _previousStart;
+
+                    _page = _pages[_pageIndex];
+                    _offset = 0;
+                }
+            }
+        }
+
+        /// <summary>Owns stable slot numbers. Zero terminates a bucket chain; released slots are reused under the writer lock.</summary>
+        private sealed class SlotMap
+        {
+            private const int DeadlineBlockSize = 64;
+            private SlotRecord[]?[] _pages = new SlotRecord[1][];
+            private PageSpace[] _space = new PageSpace[1];
+            private int _pageCount;
+            private int _available = -1;
+            private int _spare = -1;
+            private long _lastIdentity;
+
+            internal Enumerator GetEnumerator() => new(_pages, _pageCount);
+
+            internal long? DeferredDeadline(int slot)
+            {
+                var offset = SlotOffset(slot);
+                var encoded = _space[(slot - 1) >> SlotPageBits].Deadlines?[offset / DeadlineBlockSize]?[offset % DeadlineBlockSize] ?? 0;
+                return encoded == 0 ? null : encoded - 1;
+            }
+
+            internal void SetDeferredDeadline(int slot, long? ticks)
+            {
+                var index = (slot - 1) >> SlotPageBits;
+                var offset = SlotOffset(slot);
+                ref var space = ref _space[index];
+                if (ticks is not { } deadline)
+                {
+                    space.ClearDeferredDeadline(offset);
+                    return;
+                }
+
+                var blocks = space.Deadlines ??= new long[index == 0 ? 1 : SlotsPerPage / DeadlineBlockSize][];
+                var block = blocks[offset / DeadlineBlockSize] ??= new long[index == 0 ? InitialBucketCount : DeadlineBlockSize];
+
+                // Zero means no saved deadline, including in a newly allocated block. UTC tick zero is valid.
+                block[offset % DeadlineBlockSize] = deadline + 1;
+            }
+
+            internal SlotRecord[]? ReadPage(int slot) => Volatile.Read(ref Volatile.Read(ref _pages)[(slot - 1) >> SlotPageBits]);
+
+            internal SlotRecord[] PageFor(int slot) => ReadPage(slot)!;
+
+            internal Node Add(CacheKey key, int hash, NodeCacheEntry<T> entry, BoundedNode? policy, int next, out int slot)
+            {
+                if (_available < 0)
+                    AppendPage();
+
+                var index = _available;
+                ref var space = ref _space[index];
+                var page = _pages[index];
+                if (page == null)
+                {
+                    page = new SlotRecord[index == 0 ? InitialBucketCount : SlotsPerPage];
+                    Volatile.Write(ref _pages[index], page);
+                }
+
+                var offset = space.Free == 0 ? space.Created : space.Free - 1;
+                slot = checked((index * SlotsPerPage) + offset + 1);
+                var identity = checked(++_lastIdentity);
+                ref var record = ref page[offset];
+                if (space.Free == 0)
+                    space.Created++;
+                else
+                    space.Free = -record.Next;
+                if (index == _spare)
+                    _spare = -1;
+                if (++space.Used == page.Length)
+                    _available = space.Next;
+
+                record.Hash = hash;
+                Volatile.Write(ref record.Next, next);
+                record.Entry = new Cell(key, entry.Value, entry.ExpiresUtc, entry.Version, entry.Tags) { Policy = policy };
+                Volatile.Write(ref record.Lifetime, identity);
+                return new Node(page, slot, identity);
+            }
+
+            internal void Release(SlotRecord[] page, int offset, int slot)
+            {
+                var index = (slot - 1) >> SlotPageBits;
+                ref var space = ref _space[index];
+                space.ClearDeferredDeadline(offset);
+                if (space.Used-- == page.Length)
+                {
+                    space.Next = _available;
+                    _available = index;
+                }
+
+                Volatile.Write(ref page[offset].Next, -space.Free);
+                space.Free = offset + 1;
+                if (space.Used != 0 || index == 0)
+                    return;
+
+                // Keep one full-size empty page for churn. Other empty pages need only their directory entry.
+                if (_spare < 0)
+                {
+                    _spare = index;
+                    return;
+                }
+
+                space.Deadlines = null;
+                Volatile.Write(ref _pages[index], null);
+                space.Created = 0;
+                space.Free = 0;
+            }
+
+            private void AppendPage()
+            {
+                if (_pageCount == _pages.Length)
+                {
+                    var grown = new SlotRecord[_pages.Length * 2][];
+                    _pages.CopyTo(grown, 0);
+                    Array.Resize(ref _space, grown.Length);
+                    Volatile.Write(ref _pages, grown);
+                }
+
+                _available = _pageCount++;
+                _space[_available].Next = -1;
+            }
+
+            /// <summary>Writer-owned links between non-full pages and free offsets within a page.</summary>
+            [StructLayout(LayoutKind.Auto)]
+            private struct PageSpace
+            {
+                internal int Next;
+                internal int Free;
+                internal int Created;
+                internal int Used;
+                internal long[]?[]? Deadlines;
+
+                internal readonly void ClearDeferredDeadline(int offset)
+                {
+                    if (Deadlines?[offset / DeadlineBlockSize] is { } block)
+                        block[offset % DeadlineBlockSize] = 0;
                 }
             }
         }
@@ -1107,19 +1357,24 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         /// <summary>Records the deadline just set on a stored entry only when it appeared or moved earlier: a later deadline needs no new item.</summary>
         /// <param name="node">The entry, carrying its new deadline.</param>
         /// <param name="previous">The deadline the entry had before, or <see langword="null" /> for none.</param>
-        internal void MovedLocked(Node node, DateTime? previous)
+        internal void MovedLocked(in Node node, DateTime? previous)
         {
             var expiresUtc = node.ExpiresUtc;
             if (previous == expiresUtc)
                 return;
 
-            if (expiresUtc is { } moved && moved.Ticks < node.IndexedTicks)
-                RecordLocked(node);
+            // Until a deadline diverges, the previous entry deadline is also the date in the heap.
+            var saved = _owner._store.DeferredDeadline(node.Slot);
+            var scheduled = saved ?? previous?.Ticks;
+            if (expiresUtc is { } moved && (scheduled == null || moved.Ticks < scheduled))
+                RecordLocked(in node);
+            else if (saved == null && scheduled != null)
+                _owner._store.SetDeferredDeadline(node.Slot, scheduled);
         }
 
         /// <summary>Records the deadline just set on an entry, rebuilding the heap once stale items outnumber the entries.</summary>
         /// <param name="node">The entry; one without a deadline is not recorded.</param>
-        internal void RecordLocked(Node node)
+        internal void RecordLocked(in Node node)
         {
             if (node.ExpiresUtc is not { } deadline)
                 return;
@@ -1127,7 +1382,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var store = _owner._store;
             if (_heap.Count < (2 * store.Count) + 1024)
             {
-                Index(node, deadline.Ticks);
+                Index(in node, deadline.Ticks);
                 return;
             }
 
@@ -1158,43 +1413,38 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             {
                 var stored = nodes.Current;
                 stored.IndexedGeneration++;
+                _owner._store.SetDeferredDeadline(stored.Slot, null);
                 if (stored.ExpiresUtc is { } expires)
-                {
-                    stored.IndexedTicks = expires.Ticks;
-                    yield return (new Deadline(stored, expires.Ticks, stored.IndexedGeneration), expires.Ticks);
-                }
-                else
-                {
-                    stored.IndexedTicks = long.MaxValue;
-                }
+                    yield return (new Deadline(stored.Identity, expires.Ticks, stored.Slot, stored.IndexedGeneration), expires.Ticks);
             }
         }
 
         /// <summary>Pushes the canonical item of an entry, which makes every other item of the entry stale.</summary>
         /// <param name="node">The entry.</param>
         /// <param name="ticks">The deadline of the item, in UTC ticks.</param>
-        private void Index(Node node, long ticks)
+        private void Index(in Node node, long ticks)
         {
-            node.IndexedTicks = ticks;
+            _owner._store.SetDeferredDeadline(node.Slot, null);
             node.IndexedGeneration++;
-            _heap.Enqueue(new Deadline(node, ticks, node.IndexedGeneration), ticks);
+            _heap.Enqueue(new Deadline(node.Identity, ticks, node.Slot, node.IndexedGeneration), ticks);
         }
 
         /// <summary>Tells what a popped item stands for, putting it back when its entry has a later deadline.</summary>
         /// <param name="item">The item popped.</param>
+        /// <param name="node">The current occupant when the item is due.</param>
         /// <returns>
         /// <see langword="true" /> when the item names a stored entry with the deadline it recorded; <see langword="false" /> when it was dropped as
         /// stale or put back with the later deadline of its entry.
         /// </returns>
-        private bool TryResolve(in Deadline item)
+        private bool TryResolve(in Deadline item, out Node node)
         {
-            var node = item.Node;
-            if (!node.IsStored || node.IndexedGeneration != item.Generation)
+            node = _owner._store.ResolveSlotLocked(item.Slot, item.Identity);
+            if (!node.Exists || node.IndexedGeneration != item.Generation)
                 return false;
 
             if (node.ExpiresUtc is not { } expires)
             {
-                node.IndexedTicks = long.MaxValue;
+                _owner._store.SetDeferredDeadline(node.Slot, null);
                 node.IndexedGeneration++;
                 return false;
             }
@@ -1202,7 +1452,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             if (expires.Ticks <= item.Ticks)
                 return true;
 
-            Index(node, expires.Ticks);
+            Index(in node, expires.Ticks);
             return false;
         }
 
@@ -1217,11 +1467,11 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             while (examined < max && TryPopDue(_heap, nowTicks, out var item, out _))
             {
                 examined++;
-                if (!TryResolve(in item))
+                if (!TryResolve(in item, out var node))
                     continue;
 
-                _owner._store.RemoveLocked(item.Node);
-                _owner.UntrackLocked(item.Node);
+                _owner._store.RemoveLocked(in node);
+                _owner.UntrackLocked(in node);
                 removed++;
             }
 
@@ -1241,10 +1491,10 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             List<(Deadline Item, long Priority)>? due = null;
             for (var popped = 0; popped < budget && listed.Count < max && TryPopDue(heap, nowTicks, out var item, out var priority); popped++)
             {
-                if (!TryResolve(in item))
+                if (!TryResolve(in item, out var node))
                     continue;
 
-                var key = item.Node.Key;
+                var key = node.Key;
                 var included = include(key);
                 if (included)
                     listed.Add(key);
@@ -1263,11 +1513,13 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         }
 
         /// <summary>An item of the heap: the entry a deadline was recorded for, and the deadline then.</summary>
-        /// <param name="Node">The entry, which holds its key; a later entry under the same key makes the item stale.</param>
+        /// <param name="Identity">Identity allocated once per insertion across all pages in this store.</param>
         /// <param name="Ticks">The deadline recorded, in UTC ticks; a later deadline on the entry moves the item.</param>
+        /// <param name="Slot">Logical slot number. A stale deadline must not keep its former page alive.</param>
         /// <param name="Generation">The generation of the entry when the item was pushed; the item is stale unless it equals <see cref="Node.IndexedGeneration" />.</param>
         [Immutable]
-        private readonly record struct Deadline(Node Node, long Ticks, int Generation);
+        [StructLayout(LayoutKind.Auto)]
+        private readonly record struct Deadline(long Identity, long Ticks, int Slot, int Generation);
     }
 
     [Immutable]
