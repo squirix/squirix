@@ -197,15 +197,17 @@ internal sealed class ReplicaGroupState
     /// <summary>Records the reply of a follower to an append or heartbeat of this leader.</summary>
     /// <param name="replicaIndex">The slot of the follower.</param>
     /// <param name="replyTerm">The durable term of the follower; above the leader term it is a higher term, never a contact.</param>
+    /// <param name="expectedLeaderTerm">The term that started an asynchronous probe, when its reply must count only for that term.</param>
     /// <returns><see langword="true" /> when the reply was recorded as a contact: this node leads and the reply is not of a higher term.</returns>
-    internal bool RecordFollowerContact(int replicaIndex, ulong replyTerm)
+    internal bool RecordFollowerContact(int replicaIndex, ulong replyTerm, ulong? expectedLeaderTerm = null)
     {
         bool wake;
         var recorded = false;
         lock (_sync)
         {
             wake = RaiseLocked(replyTerm);
-            if (!wake && _role == ReplicaGroupRole.Leader && replyTerm <= _term && replicaIndex >= 0 && replicaIndex < _followerContact.Length)
+            if (!wake && _role == ReplicaGroupRole.Leader && replyTerm <= _term && (expectedLeaderTerm == null || expectedLeaderTerm == _term) &&
+                replicaIndex >= 0 && replicaIndex < _followerContact.Length)
             {
                 _followerContact[replicaIndex] = Clock.GetTimestamp();
                 recorded = true;
