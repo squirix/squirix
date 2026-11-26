@@ -22,31 +22,27 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
 {
     private const string ObjectText = """{"Id":5,"Name":"multi","Tags":["t"]}""";
 
-    /// <summary>An object cache reads every scalar kind as the CLR value of that kind, and an int travels back as a long.</summary>
+    /// <summary>Scalar kinds survive the wire round trip in their inline representation.</summary>
     [Test]
-    public async Task ObjectReadsScalarKinds()
+    public async Task StoredScalarsRoundTrip()
     {
-        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { StringValue = "obj" })).IsEqualTo("obj");
-        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { BoolValue = true }) is true).IsTrue();
-        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { Int64Value = 9L })).IsTypeOf<long>();
-        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { DoubleValue = 2.5d })).IsEqualTo(2.5d);
-        _ = await Assert.That(ServerWireMapping.MapCacheValue<object>(new CacheValue { NullValue = NullValue.NullValue })).IsNull();
-        var intEntry = new NodeCacheEntry<object?> { Value = 3, Version = 1 }.MapToWire().MapFromWire<object?>();
-        _ = await Assert.That(intEntry.Value).IsTypeOf<long>();
-        _ = await Assert.That(intEntry.Value).IsEqualTo(3L);
+        var integer = new NodeCacheEntry<StoredValue>(StoredValue.FromInteger(long.MinValue)).MapToWire().MapFromWire<StoredValue>().Value;
+        _ = await Assert.That(integer.Kind).IsEqualTo(StoredValueKind.Integer);
+        _ = await Assert.That(integer.Integer).IsEqualTo(long.MinValue);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<StoredValue>(new CacheValue { DoubleValue = 2.5d }).Double).IsEqualTo(2.5d);
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<StoredValue>(new CacheValue { BoolValue = true }).Boolean).IsTrue();
+        _ = await Assert.That(ServerWireMapping.MapCacheValue<StoredValue>(CacheValueWireNull()).Kind).IsEqualTo(StoredValueKind.Null);
     }
 
-    /// <summary>An object cache keeps JSON text as a value over the request bytes, not as a parsed or copied document.</summary>
+    /// <summary>A JSON value keeps the full owned request array and its original text.</summary>
     [Test]
-    public async Task ObjectKeepsJsonTextAsValue()
+    public async Task StoredJsonReusesOwnedBytes()
     {
         var wire = JsonValueKit.Wire(ObjectText);
-
-        var read = ServerWireMapping.MapCacheValue<object>(wire);
-
-        var value = (await Assert.That(read).IsTypeOf<JsonUtf8Value>())!;
-        _ = await Assert.That(Encoding.UTF8.GetString(value.Bytes.Span)).IsEqualTo(ObjectText);
-        _ = await Assert.That(value.Bytes.Span.Overlaps(wire.JsonUtf8.Span, out var offset)).IsTrue();
+        var value = ServerWireMapping.MapCacheValue<StoredValue>(wire);
+        _ = await Assert.That(value.Kind).IsEqualTo(StoredValueKind.Json);
+        _ = await Assert.That(Encoding.UTF8.GetString(value.Bytes)).IsEqualTo(ObjectText);
+        _ = await Assert.That(wire.JsonUtf8.Span.Overlaps(value.Bytes, out var offset)).IsTrue();
         _ = await Assert.That(offset).IsEqualTo(0);
     }
 
@@ -63,7 +59,7 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
     {
         var entry = new CacheEntryWire { Value = JsonValueKit.Wire(json) };
 
-        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<object?>());
+        var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<StoredValue>());
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
     }
@@ -78,7 +74,7 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
 
         foreach (var entry in new[] { bom, utf8, deep })
         {
-            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<object?>());
+            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<StoredValue>());
             _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         }
     }
@@ -89,7 +85,7 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
     {
         foreach (var entry in new[] { new CacheEntryWire(), new CacheEntryWire { Value = new CacheValue() } })
         {
-            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<object?>());
+            var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<StoredValue>());
             _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         }
     }
@@ -124,12 +120,13 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
     {
         var buffer = new CacheEntryWire { Value = JsonValueKit.Wire(ObjectText) }.ToByteArray();
         var parsed = CacheEntryWire.Parser.ParseFrom(buffer);
-        var entry = parsed.MapFromWire<object?>();
+        var entry = parsed.MapFromWire<StoredValue>();
 
         buffer.AsSpan().Fill(byte.MaxValue);
 
-        var json = (await Assert.That(entry.Value).IsTypeOf<JsonUtf8Value>())!;
-        _ = await Assert.That(Encoding.UTF8.GetString(json.Bytes.Span)).IsEqualTo(ObjectText);
+        var json = entry.Value;
+        _ = await Assert.That(json.Kind).IsEqualTo(StoredValueKind.Json);
+        _ = await Assert.That(Encoding.UTF8.GetString(json.Bytes)).IsEqualTo(ObjectText);
     }
 
     /// <summary>A typed cache of objects with a property named value round-trips the object, not a scalar.</summary>
@@ -188,9 +185,9 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
         var wire = new NodeCacheEntry<decimal> { Value = precise, Version = 1 }.MapToWire();
 
         _ = await Assert.That(wire.MapFromWire<decimal>().Value).IsEqualTo(precise);
-        var asObject = wire.MapFromWire<object?>();
-        var json = (await Assert.That(asObject.Value).IsTypeOf<JsonUtf8Value>())!;
-        _ = await Assert.That(json.ToJsonElement().GetDecimal()).IsEqualTo(precise);
+        var stored = wire.MapFromWire<StoredValue>().Value;
+        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValueKind.Json);
+        _ = await Assert.That(JsonElement.Parse(stored.Bytes).GetDecimal()).IsEqualTo(precise);
     }
 
     /// <summary>A scalar read by a type that is not its native one is deserialized through JSON.</summary>

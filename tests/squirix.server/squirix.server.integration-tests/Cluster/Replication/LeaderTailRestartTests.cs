@@ -38,14 +38,14 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         const string scope = "leader-tail-commit";
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true), cancellationToken);
         var (owner, key) = await CrashWithTailAsync(cluster, scope, Guid.NewGuid().ToString("N"), cancellationToken);
-        var cache = owner.GetCache<object?>(TailCacheName);
+        var cache = owner.GetCache<StoredValue>(TailCacheName);
 
         await VerifyAsync(owner, cancellationToken);
         var recovered = await cache.GetValueAsync(TailCacheName, key, cancellationToken);
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), TailCacheName, key, new NodeCacheEntry<object?> { Value = "after", Version = 2 }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), TailCacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("after"), Version = 2 }, cancellationToken);
 
         _ = await Assert.That(recovered.Found).IsTrue();
-        _ = await Assert.That(recovered.Value).IsEqualTo("tail");
+        _ = await Assert.That(StoredValueProbe.Text(recovered.Value)).IsEqualTo("tail");
         var status = await OwnerStatusAsync(owner, cancellationToken);
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((3UL, 3UL));
     }
@@ -63,7 +63,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         await VerifyAsync(owner, cancellationToken);
 
         // Through the whole pipeline: admission sees the key present and hands the add to the committer, which replays the outcome.
-        var added = await owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var added = await owner.GetCache<StoredValue>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
         var status = await OwnerStatusAsync(owner, cancellationToken);
@@ -84,7 +84,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         var owner = cluster["node-a"];
         var key = owner.FindKeyOwnedBy(TailCacheName, "node-a");
         await VerifyAsync(owner, cancellationToken);
-        var added = await owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var added = await owner.GetCache<StoredValue>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
 
         // As the maintenance pass does: the durable applied index reaches the commit, so the log releases the payload of the add.
@@ -96,7 +96,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false), cancellationToken);
         await VerifyAsync(restarted, cancellationToken);
         var before = await OwnerStatusAsync(restarted, cancellationToken);
-        var retried = await restarted.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var retried = await restarted.GetCache<StoredValue>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
         var after = await OwnerStatusAsync(restarted, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
@@ -119,14 +119,14 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         var owner = cluster["node-a"];
         var key = owner.FindKeyOwnedBy(TailCacheName, "node-a");
         await VerifyAsync(owner, cancellationToken);
-        var added = await owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var added = await owner.GetCache<StoredValue>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, "node-a", [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])], cancellationToken);
         await ReplicaNodeCommitters.OwnCommitter(owner).FlushAppliedAsync(owner.GetRequiredService<IJournalCoordinator>(), cancellationToken);
 
         await cluster.StopNodeAsync("node-a");
         var restarted = await cluster.StartNodeAsync("node-a", Options(scope, false), cancellationToken);
         var before = await OwnerStatusAsync(restarted, cancellationToken);
-        var retried = await restarted.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
+        var retried = await restarted.GetCache<StoredValue>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, key, TailEntry(), cancellationToken);
         var after = await OwnerStatusAsync(restarted, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
@@ -137,7 +137,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
     private static IntegrationStartOptions Options(string scope, bool clean) =>
         new() { ReplicaCount = 3, UsePersistence = true, CleanTestDir = clean, ExtraScope = scope };
 
-    private static NodeCacheEntry<object?> TailEntry() => new() { Value = "tail", Version = 1 };
+    private static NodeCacheEntry<StoredValue> TailEntry() => new() { Value = StoredValue.FromText("tail"), Version = 1 };
 
     private static async Task<FollowerLogStatus> OwnerStatusAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
@@ -176,8 +176,8 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         var owner = cluster["node-a"];
         var committedKey = owner.FindKeyOwnedBy(CacheName, "node-a");
         var tailKey = owner.FindKeyOwnedBy(TailCacheName, "node-a");
-        var committed = owner.GetCache<object?>(CacheName);
-        await committed.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, committedKey, new NodeCacheEntry<object?> { Value = "committed", Version = 1 }, cancellationToken);
+        var committed = owner.GetCache<StoredValue>(CacheName);
+        await committed.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, committedKey, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("committed"), Version = 1 }, cancellationToken);
 
         // A commit returns once one follower holds the entry; a follower stopped before it received the entry stays behind after the
         // restart and can never be verified, so both followers must hold it first.
@@ -185,7 +185,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
 
         await cluster.StopNodeAsync("node-b");
         await cluster.StopNodeAsync("node-c");
-        var pending = owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, tailKey, TailEntry(), cancellationToken);
+        var pending = owner.GetCache<StoredValue>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, tailKey, TailEntry(), cancellationToken);
         var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(unknown.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
 

@@ -17,12 +17,13 @@ internal static class SnapshotFileEncoder
     internal const int WriteBatchSize = 1024 * 1024;
 
     /// <summary>Measures the snapshot file and records every record body length so the writer does not measure them again.</summary>
+    /// <typeparam name="T">The entry value type.</typeparam>
     /// <param name="items">The cache entries, written first.</param>
     /// <param name="idempotencyRecords">The idempotency records, written after the entries.</param>
     /// <param name="bodyLengths">Receives one body length per entry and then per idempotency record; needs at least their combined count.</param>
     /// <returns>The total file size and the longest encoded record.</returns>
-    internal static (long TotalFileSize, int MaxRecordLength) ComputeWriteMetrics(
-        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+    internal static (long TotalFileSize, int MaxRecordLength) ComputeWriteMetrics<T>(
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<T> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         int[] bodyLengths)
     {
@@ -53,6 +54,7 @@ internal static class SnapshotFileEncoder
     }
 
     /// <summary>Writes the whole snapshot file, encoding records into <paramref name="writeBuffer" /> and writing it whenever the next record would not fit.</summary>
+    /// <typeparam name="T">The entry value type.</typeparam>
     /// <param name="destination">The file handle.</param>
     /// <param name="items">The cache entries.</param>
     /// <param name="idempotencyRecords">The idempotency records.</param>
@@ -61,9 +63,9 @@ internal static class SnapshotFileEncoder
     /// <param name="totalFileSize">The file size reported by <see cref="ComputeWriteMetrics" />.</param>
     /// <param name="cancellationToken">The cancellation token, checked before every record.</param>
     /// <returns>A task that completes when the footer is written.</returns>
-    internal static async Task WriteFileAsync(
+    internal static async Task WriteFileAsync<T>(
         SafeFileHandle destination,
-        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<T> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         int[] bodyLengths,
         byte[] writeBuffer,
@@ -74,9 +76,13 @@ internal static class SnapshotFileEncoder
         RandomAccess.SetLength(destination, totalFileSize);
 
         long offset = 0;
+
+        // The file checksum covers the version byte followed by the encoded records, in file order.
         var crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
         WriteFileHeader(destination, ref offset);
 
+        // The buffer fits the largest measured record. A record always starts and ends in the same batch.
+        // Offset points to the first pending byte on disk, so it advances only after a successful write.
         var pending = 0;
         for (var i = 0; i < items.Count; i++)
         {
@@ -94,6 +100,7 @@ internal static class SnapshotFileEncoder
             pending += recordLength;
         }
 
+        // The measurements follow the on-disk order: idempotency records start after all cache entries.
         for (var i = 0; i < idempotencyRecords.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -115,7 +122,7 @@ internal static class SnapshotFileEncoder
         WriteFileFooter(destination, offset, crc);
     }
 
-    private static void EncodeEntryRecord(Span<byte> record, CacheKey key, NodeCacheEntry<object?> entry)
+    private static void EncodeEntryRecord<T>(Span<byte> record, CacheKey key, NodeCacheEntry<T> entry)
     {
         SnapshotCodec.WriteEntryBody(key, entry, record[SnapshotCodec.RecordHeaderSize..^SnapshotCodec.RecordFooterSize]);
         SnapshotCodec.SealRecord(record, RecordKind.Entry);

@@ -300,10 +300,10 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     /// <returns>The estimated bytes and the number of entries.</returns>
     private static async Task<(long Bytes, long Entries)> MeasureAsync(ITestNodeHost host, CancellationToken cancellationToken)
     {
-        var estimator = host.GetRequiredService<ICacheEntrySizeEstimator<object?>>();
+        var estimator = host.GetRequiredService<ICacheEntrySizeEstimator<StoredValue>>();
         long bytes = 0;
         long entries = 0;
-        await foreach (var (key, entry) in host.GetRequiredService<ILocalCacheSnapshotReader<object?>>().EnumerateLiveAsync(cancellationToken))
+        await foreach (var (key, entry) in host.GetRequiredService<ILocalCacheSnapshotReader<StoredValue>>().EnumerateLiveAsync(cancellationToken))
         {
             bytes += estimator.EstimateBytes(key, entry, false);
             entries++;
@@ -413,10 +413,10 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     {
         var repaired = lag.Cluster[lag.Lagging];
         await (Host: repaired, Key: lag.Keys[^1]).WaitUntilValueAsync(
-            static (state, token) => ValueTask.FromResult(state.Host.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, state.Key), token).Found),
+            static (state, token) => ValueTask.FromResult(state.Host.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey(CacheName, state.Key), token).Found),
             Bound,
             cancellationToken);
-        var cache = repaired.GetRequiredService<PhysicalCache<object?>>();
+        var cache = repaired.GetRequiredService<PhysicalCache<StoredValue>>();
         var status = await Log(repaired).GetStatusAsync(cancellationToken);
         var metrics = await HttpClient.GetStringAsync(new Uri(lag.Cluster[lag.Survivor].ManagementUri, "/metrics"), cancellationToken);
         var (bytes, entries) = await MeasureAsync(repaired, cancellationToken);
@@ -431,7 +431,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         {
             var read = cache.GetValue(new CacheKey(CacheName, lag.Keys[i]), cancellationToken);
             _ = await Assert.That(read.Found).IsTrue();
-            _ = await Assert.That(read.Value).IsEqualTo(lag.ValueAt(i));
+            _ = await Assert.That(StoredValueProbe.Text(read.Value)).IsEqualTo(lag.ValueAt(i));
         }
     }
 
@@ -492,9 +492,9 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     {
         public int AllocateIndex(int publishedIndex) => publishedIndex + 1;
 
-        public ValueTask<string> WriteAsync(
+        public ValueTask<string> WriteAsync<T>(
             int index,
-            IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+            IReadOnlyList<(CacheKey Key, NodeCacheEntry<T> Entry)> items,
             IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
             CancellationToken cancellationToken) =>
             throw new IOException("The test fails every snapshot.");

@@ -31,11 +31,14 @@ public class CachePipelineDecoratorBenchmarks
     private const string Key = "key";
     private const string NodeId = "n1";
     private const int OperationsPerInvoke = 20_000;
+    private static readonly StoredValue ProposedText = StoredValue.FromText("proposed");
+    private static readonly StoredValue ExistingText = StoredValue.FromText("existing");
+    private static readonly StoredValue ValueText = StoredValue.FromText("value");
     private AdmissionGate? _gate;
-    private TracingCacheDecorator<object?>? _hitPipeline;
+    private TracingCacheDecorator<StoredValue>? _hitPipeline;
     private Meter? _meter;
     private Meter? _metricsMeter;
-    private TracingCacheDecorator<object?>? _pipeline;
+    private TracingCacheDecorator<StoredValue>? _pipeline;
 
     /// <summary>Releases the gate and meters created during setup.</summary>
     [GlobalCleanup]
@@ -62,7 +65,7 @@ public class CachePipelineDecoratorBenchmarks
     public async Task GetOrAddExistingAsync()
     {
         var pipeline = ThrowHelper.Required(_hitPipeline, "Benchmark pipeline was not initialized.");
-        var entry = new NodeCacheEntry<object?>("proposed");
+        var entry = new NodeCacheEntry<StoredValue>(ProposedText);
         for (var i = 0; i < OperationsPerInvoke; i++)
             _ = await pipeline.AddOrGetAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
     }
@@ -74,8 +77,8 @@ public class CachePipelineDecoratorBenchmarks
         _meter = new Meter("Squirix.Benchmarks.PipelineAdmission");
         _metricsMeter = new Meter("Squirix.Benchmarks.PipelineMetrics");
         _gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(_meter), TimeProvider.System);
-        var estimator = new CacheEntrySizeEstimator<object?>();
-        var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
+        var accounting = new MemoryUsageAccounting(new PhysicalCache<StoredValue>(TimeProvider.System, estimator));
         var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
         var pressureGate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
         _pipeline = CreatePipeline(new SuspendingCache(), pressureGate, estimator, _gate, _metricsMeter);
@@ -88,7 +91,7 @@ public class CachePipelineDecoratorBenchmarks
     public async Task SuspendingSetAsync()
     {
         var pipeline = ThrowHelper.Required(_pipeline, "Benchmark pipeline was not initialized.");
-        var entry = new NodeCacheEntry<object?>("value");
+        var entry = new NodeCacheEntry<StoredValue>(ValueText);
         for (var i = 0; i < OperationsPerInvoke; i++)
             await pipeline.SetEntryAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
     }
@@ -99,25 +102,25 @@ public class CachePipelineDecoratorBenchmarks
     public async Task SuspendingTryAddAsync()
     {
         var pipeline = ThrowHelper.Required(_pipeline, "Benchmark pipeline was not initialized.");
-        var entry = new NodeCacheEntry<object?>("value");
+        var entry = new NodeCacheEntry<StoredValue>(ValueText);
         for (var i = 0; i < OperationsPerInvoke; i++)
             _ = await pipeline.TryAddEntryAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static TracingCacheDecorator<object?> CreatePipeline(
-        ILogicalNamespacedCache<object?> inner,
+    private static TracingCacheDecorator<StoredValue> CreatePipeline(
+        ILogicalNamespacedCache<StoredValue> inner,
         PressureGate pressureGate,
-        CacheEntrySizeEstimator<object?> estimator,
+        CacheEntrySizeEstimator<StoredValue> estimator,
         AdmissionGate gate,
         Meter meter)
     {
-        var admission = new MemoryAdmissionCacheDecorator<object?>(inner, pressureGate, estimator);
-        var metrics = new MetricsCacheDecorator<object?>(admission, new CacheMetrics(meter));
-        var backpressure = new BackpressureCacheDecorator<object?>(metrics, gate, SharedClientIdResolver.Instance);
-        var ownership = new OwnershipGuardCacheDecorator<object?>(NodeId, new SelfOwner(), new SelfLeader(), false, backpressure);
-        var validation = new ValidationCacheDecorator<object?>(ownership);
-        var mapping = new DomainErrorMappingCacheDecorator<object?>(validation);
-        return new TracingCacheDecorator<object?>(mapping, NodeId);
+        var admission = new MemoryAdmissionCacheDecorator<StoredValue>(inner, pressureGate, estimator);
+        var metrics = new MetricsCacheDecorator<StoredValue>(admission, new CacheMetrics(meter));
+        var backpressure = new BackpressureCacheDecorator<StoredValue>(metrics, gate, SharedClientIdResolver.Instance);
+        var ownership = new OwnershipGuardCacheDecorator<StoredValue>(NodeId, new SelfOwner(), new SelfLeader(), false, backpressure);
+        var validation = new ValidationCacheDecorator<StoredValue>(ownership);
+        var mapping = new DomainErrorMappingCacheDecorator<StoredValue>(validation);
+        return new TracingCacheDecorator<StoredValue>(mapping, NodeId);
     }
 
     /// <summary>Owner lookup that names this node for every key.</summary>
@@ -155,35 +158,35 @@ public class CachePipelineDecoratorBenchmarks
     }
 
     /// <summary>Inner cache whose writes stay pending until a thread pool thread completes them, without allocating per operation.</summary>
-    private sealed class SuspendingCache : ILogicalNamespacedCache<object?>
+    private sealed class SuspendingCache : ILogicalNamespacedCache<StoredValue>
     {
         private readonly PendingCompletion _completion = new();
-        private readonly NodeCacheEntry<object?>? _entry;
+        private readonly NodeCacheEntry<StoredValue>? _entry;
 
         internal SuspendingCache(bool hasEntry = false)
         {
-            _entry = hasEntry ? new NodeCacheEntry<object?>("existing") : null;
+            _entry = hasEntry ? new NodeCacheEntry<StoredValue>(ExistingText) : null;
         }
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_entry);
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new NodeCacheValueResult<object?>(_entry != null, _entry?.Value));
+        public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<StoredValue>(_entry != null, _entry?.Value ?? default));
 
         public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             _completion.BeginAsync();
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             _completion.BeginBoolAsync();
 
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     /// <summary>One reusable pending operation that completes from a thread pool work item once a continuation is registered.</summary>

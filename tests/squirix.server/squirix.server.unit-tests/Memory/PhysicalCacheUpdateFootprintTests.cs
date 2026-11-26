@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -19,7 +18,7 @@ namespace Squirix.Server.UnitTests.Memory;
 [Immutable]
 public sealed class PhysicalCacheUpdateFootprintTests : ServerUnitTestBase
 {
-    private static readonly ObjectCacheEntrySizeEstimator Estimator = new();
+    private static readonly CacheEntrySizeEstimator<StoredValue> Estimator = new();
     private static readonly CacheKey Key = new("ns", "k");
     private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
@@ -39,25 +38,19 @@ public sealed class PhysicalCacheUpdateFootprintTests : ServerUnitTestBase
     [Arguments(true, true, true)]
     public async Task UpdateRecordsEstimateOfResultingEntry(bool jsonValue, bool withDeadline, bool withTags, CancellationToken cancellationToken)
     {
-        var cache = new PhysicalCache<object?>(new FakeTimeProvider(Start), Estimator);
+        var cache = new PhysicalCache<StoredValue>(new FakeTimeProvider(Start), Estimator);
         DateTime? expiresUtc = withDeadline ? Start.UtcDateTime.AddHours(1) : null;
         var tags = withTags ? new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "blue", ["tier"] = "gold" }.ToFrozenDictionary(StringComparer.Ordinal) : null;
-        cache.Set(Key, new NodeCacheEntry<object?>("initial", 1, expiresUtc, tags: tags), cancellationToken);
+        cache.Set(Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("initial"), 1, expiresUtc, tags: tags), cancellationToken);
 
-        object updated = jsonValue ? Json("""{"name":"value","items":[1,2,3],"nested":{"flag":true}}""") : "a different value";
+        var updated = jsonValue ? StoredValue.FromJson(System.Text.Encoding.UTF8.GetBytes("""{"name":"value","items":[1,2,3],"nested":{"flag":true}}""")) : StoredValue.FromText("a different value");
         var updatedHere = cache.Update(Key, updated, cancellationToken);
 
         var stored = cache.RawReader.GetEntryRaw(Key, cancellationToken);
         _ = await Assert.That(updatedHere).IsTrue();
         _ = await Assert.That(stored).IsNotNull();
-        _ = await Assert.That(BytesOf(cache)).IsEqualTo(Estimator.EstimateBytes(Key, new NodeCacheEntry<object?>(updated, stored!.Version, expiresUtc, tags: tags), false));
+        _ = await Assert.That(BytesOf(cache)).IsEqualTo(Estimator.EstimateBytes(Key, new NodeCacheEntry<StoredValue>(updated, stored!.Version, expiresUtc, tags: tags), false));
     }
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
-
-    private static JsonElement Json(string json)
-    {
-        using var document = JsonDocument.Parse(json);
-        return document.RootElement.Clone();
-    }
 }

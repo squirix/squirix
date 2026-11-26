@@ -75,7 +75,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         cacheName,
         key,
         default(NoDecisionArgs),
-        static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.RawValue, current.Version, tags: current.Tags),
+        static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.Value, current.Version, tags: current.Tags),
         null,
         cancellationToken);
 
@@ -92,7 +92,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         key,
         expiration,
         static (current, now, ttl) => new NodeCacheEntry<T>(
-            current.RawValue,
+            current.Value,
             current.Version,
             JournalEntryExpirationMaterializer.PinToJournalPrecision(now.SaturatedAdd(ttl)),
             tags: current.Tags),
@@ -141,7 +141,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string cacheName,
         string key,
         NodeCacheEntry<T> entry,
-        PreparedJournalEntry prepared,
+        PreparedJournalEntryBase prepared,
         CancellationToken cancellationToken)
     {
         using var payload = JournalEntryPayload.Encode(in prepared);
@@ -199,7 +199,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string cacheName,
         string key,
         NodeCacheEntry<T> entry,
-        PreparedJournalEntry prepared,
+        PreparedJournalEntryBase prepared,
         CancellationToken cancellationToken)
     {
         var cacheKey = new CacheKey(cacheName, key);
@@ -282,7 +282,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string CacheName,
         string Key,
         NodeCacheEntry<T> Entry,
-        PreparedJournalEntry Prepared,
+        PreparedJournalEntryBase Prepared,
         CacheKey CacheKey);
 
     [Immutable]

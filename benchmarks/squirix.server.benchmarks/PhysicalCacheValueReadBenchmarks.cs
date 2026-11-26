@@ -19,8 +19,8 @@ public class PhysicalCacheValueReadBenchmarks
     private const int LruCapacity = 2;
     private static readonly CacheKey Key = CacheKey.Default("k");
     private static readonly CacheKey OtherKey = CacheKey.Default("l");
-    private ClientCache<string>? _cache;
-    private ClientCache<string>? _lruCache;
+    private ClientCache<StoredValue>? _cache;
+    private ClientCache<StoredValue>? _lruCache;
 
     /// <summary>Reads the value of the stored entry.</summary>
     /// <returns>The read operation.</returns>
@@ -52,18 +52,18 @@ public class PhysicalCacheValueReadBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        _cache = new ClientCache<string>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        _cache = new ClientCache<StoredValue>(physical, physical);
         await _cache.SetEntryAsync("setup", Key.Namespace, Key.Key, Entry(), CancellationToken.None).ConfigureAwait(false);
 
-        var lruPhysical = new PhysicalCache<string>(
+        var lruPhysical = new PhysicalCache<StoredValue>(
             TimeProvider.System,
-            new CacheEntrySizeEstimator<string>(),
+            new CacheEntrySizeEstimator<StoredValue>(),
             new EvictionOptions { Capacity = LruCapacity, Policy = EvictionPolicyType.Lru });
-        _lruCache = new ClientCache<string>(lruPhysical, lruPhysical);
+        _lruCache = new ClientCache<StoredValue>(lruPhysical, lruPhysical);
         await _lruCache.SetEntryAsync("setup", Key.Namespace, Key.Key, Entry(), CancellationToken.None).ConfigureAwait(false);
         await _lruCache.SetEntryAsync("setup", OtherKey.Namespace, OtherKey.Key, Entry(), CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static NodeCacheEntry<string> Entry() => new("v", 1, null, TimeSpan.FromDays(1));
+    private static NodeCacheEntry<StoredValue> Entry() => new(StoredValue.FromText("v"), 1, null, TimeSpan.FromDays(1));
 }

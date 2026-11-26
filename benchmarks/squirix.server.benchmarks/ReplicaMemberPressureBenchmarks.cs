@@ -70,8 +70,8 @@ public class ReplicaMemberPressureBenchmarks
         _registry = new ReplicaGroupRegistry(_dir, ["n1"], 3, Fingerprint, 1, NullLoggerFactory.Instance, logOptions) { ElectionClock = TimeProvider.System };
         await _registry.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
         var led = new ReplicaGroupCommitter[1];
         led[0] = new ReplicaGroupCommitter(
             _registry,

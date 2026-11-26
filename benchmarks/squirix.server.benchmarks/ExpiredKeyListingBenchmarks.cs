@@ -17,7 +17,8 @@ namespace Squirix.Server.Benchmarks;
 public class ExpiredKeyListingBenchmarks
 {
     private const int MaxListed = 1024;
-    private PhysicalCache<object?>? _cache;
+    private static readonly StoredValue SmallText = StoredValue.FromText("v");
+    private PhysicalCache<StoredValue>? _cache;
     private DateTime _listedAt;
 
     /// <summary>Gets or sets the number of keys past their deadline at the time of the listing.</summary>
@@ -38,12 +39,12 @@ public class ExpiredKeyListingBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        _cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         for (var i = 0; i < Stored; i++)
         {
             var ttl = i < Due ? TimeSpan.FromMinutes(1) : TimeSpan.FromDays(1);
             var key = CacheKey.Default("k" + i.ToString(CultureInfo.InvariantCulture));
-            _cache.Set(key, new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None);
+            _cache.Set(key, new NodeCacheEntry<StoredValue>(SmallText, 1, null, ttl), CancellationToken.None);
         }
 
         _listedAt = TimeProvider.System.GetUtcNow().UtcDateTime.AddHours(1);

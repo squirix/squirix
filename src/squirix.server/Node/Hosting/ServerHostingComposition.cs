@@ -126,7 +126,7 @@ internal static class ServerHostingComposition
         if (args.Eviction?.EvictOnMemoryPressure == true)
         {
             _ = services.RunService(sp => new MemoryEvictionService(
-                sp.Require<PhysicalCache<object?>>(),
+                sp.Require<PhysicalCache<StoredValue>>(),
                 sp.Require<IMemoryPressureStateEvaluator>(),
                 sp.Require<OwnerLocalCache>().Value,
                 feature.NetworkReplicationEnabled ? sp.Require<ReplicaGroupCommitters>() : null,
@@ -492,7 +492,7 @@ internal static class ServerHostingComposition
         private static ReplicaGroupCommitter CreateCommitter(IServiceProvider sp, ImmutableArray<byte> fingerprint, string groupId, ReplicaGroupState? election)
         {
             var topology = sp.Require<TopologyOptions>();
-            var physical = sp.Require<PhysicalCache<object?>>();
+            var physical = sp.Require<PhysicalCache<StoredValue>>();
             return new ReplicaGroupCommitter(
                 sp.Require<ReplicaGroupRegistry>(),
                 sp.Require<IReplicaGroupLocator>(),

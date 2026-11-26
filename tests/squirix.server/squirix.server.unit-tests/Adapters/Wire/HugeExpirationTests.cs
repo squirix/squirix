@@ -37,7 +37,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     public async Task TouchPreservesExpiration(long ticks)
     {
         TimeSpan? seen = null;
-        var api = new ICacheApiCreateExpectations<object?>();
+        var api = new ICacheApiCreateExpectations<StoredValue>();
         _ = api.Setups.TouchAsync(string.Empty, Key, Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Callback((_, _, expiration, _) =>
             {
@@ -61,8 +61,8 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     public async Task SetEntryPreservesExpiration(long ticks)
     {
         TimeSpan? seen = null;
-        var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.SetEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var api = new ICacheApiCreateExpectations<StoredValue>();
+        _ = api.Setups.SetEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
             .Callback((_, _, entry, _) =>
             {
                 seen = entry.Expiration;
@@ -84,8 +84,8 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     public async Task AddEntryPreservesExpiration(long ticks)
     {
         TimeSpan? seen = null;
-        var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.TryAddEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var api = new ICacheApiCreateExpectations<StoredValue>();
+        _ = api.Setups.TryAddEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
             .Callback((_, _, entry, _) =>
             {
                 seen = entry.Expiration;
@@ -105,9 +105,9 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
 
     private static CacheEntryWire CreateEntry(TimeSpan expiration) => new() { Value = JsonValueKit.Wire("{\"__v\":\"v\"}"), Expiration = expiration };
 
-    private static RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
+    private static RoutedCacheOperations<StoredValue> CreateAdapter(ICacheApi<StoredValue> api)
     {
-        var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
+        var operations = new IInboundEndpointCacheOperationsCreateExpectations<StoredValue>();
         _ = operations.Setups.ForCache(CacheName).ReturnValue(api);
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
@@ -115,7 +115,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
         var invocation = new IRemoteInvocationStateCreateExpectations();
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
 
-        return new RoutedCacheOperations<object?>(
+        return new RoutedCacheOperations<StoredValue>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(

@@ -257,7 +257,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         return (leader, electedTerm);
     }
 
-    private static NodeCacheEntry<object?> Entry() => new() { Value = "unflushed", Version = 1 };
+    private static NodeCacheEntry<StoredValue> Entry() => new() { Value = StoredValue.FromText("unflushed"), Version = 1 };
 
     private static async Task FailLocalWriteAsync(HeldFlush hook, Task<bool> writing, ITestNodeHost leader, ulong previousCommit, CancellationToken token)
     {
@@ -331,7 +331,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         await AwaitCommittedAsync(ledger, returned, index, operation, token);
         _ = await Assert.That(returned.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(Group, out _)).IsFalse();
         var local = returned.Services.GetRequiredService<OwnerLocalCache>().Value;
-        _ = await Assert.That((await local.GetEntryAsync(Cache, key, token))?.Value).IsEqualTo("unflushed");
+        _ = await Assert.That(StoredValueProbe.Text((await local.GetEntryAsync(Cache, key, token))?.Value)).IsEqualTo("unflushed");
     }
 
     private static async Task StopPeriodicCompactionAsync(ITestNodeHost node, CancellationToken token)

@@ -68,7 +68,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        ValidateLocalValue(entry.RawValue);
+        ValidateLocalValue(entry.Value, entry.PendingWrite);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -86,7 +86,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        ValidateLocalValue(entry.RawValue);
+        ValidateLocalValue(entry.Value, entry.PendingWrite);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -96,7 +96,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        ValidateLocalValue(entry.RawValue);
+        ValidateLocalValue(entry.Value, entry.PendingWrite);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.AddOrGetAsync(operationId, cacheName, key, entry, cancellationToken);
     }
@@ -109,12 +109,12 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
 
-    private void ValidateLocalValue(T? value)
+    private void ValidateLocalValue(T? value, DistributedCacheWrite? pending = null)
     {
         if (_valueLimit == int.MaxValue || RemoteInvocationContext.IsInternalOwnerInvocation)
             return;
 
-        var length = value is DistributedCacheWrite write ? write.PayloadLength : MeasureValue(value);
+        var length = pending?.PayloadLength ?? (value is StoredValue stored ? stored.Bytes.Length : MeasureValue(value));
         if (length > _valueLimit)
             throw ServerOpContract.PayloadTooLarge(_valueLimit);
     }
@@ -123,7 +123,6 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         byte[] bytes => bytes.Length,
         JsonUtf8Value json => json.Length,
-        StoredText text => text.Bytes.Length,
         string text when text.Length > _valueLimit / 3 => Encoding.UTF8.GetByteCount(text),
         _ => 0,
     };

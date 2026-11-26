@@ -14,14 +14,15 @@ internal interface ISnapshotWriter
     int AllocateIndex(int publishedIndex);
 
     /// <summary>Writes a snapshot file for the given index and returns the final path.</summary>
+    /// <typeparam name="T">The entry value type.</typeparam>
     /// <param name="index">Monotonic snapshot index.</param>
     /// <param name="items">Live cache entries to persist.</param>
     /// <param name="idempotencyRecords">Retained idempotency records.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Path to the completed snapshot file.</returns>
-    ValueTask<string> WriteAsync(
+    ValueTask<string> WriteAsync<T>(
         int index,
-        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<T> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken);
 }

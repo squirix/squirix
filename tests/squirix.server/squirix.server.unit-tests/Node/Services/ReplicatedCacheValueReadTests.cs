@@ -43,16 +43,20 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-value-read-deadline");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
-        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        ILogicalNamespacedCache<object?> cache = new ReplicatedCache(local, LeadOwn(committer));
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+        ILogicalNamespacedCache<StoredValue> cache = new ReplicatedCache(local, LeadOwn(committer));
 
         var read = await cache.GetValueWithDeadlineAsync(CacheName, Key, cancellationToken);
         var miss = await cache.GetValueWithDeadlineAsync(CacheName, "absent", cancellationToken);
 
-        _ = await Assert.That(read).IsEqualTo(new NodeCacheValueRead<object?>(true, "v", Start.UtcDateTime + Ttl));
+        _ = await Assert.That(read.Found).IsTrue();
+
+        _ = await Assert.That(StoredValueProbe.Text(read.Value)).IsEqualTo("v");
+
+        _ = await Assert.That(read.ExpiresUtc).IsEqualTo(Start.UtcDateTime + Ttl);
         _ = await Assert.That(miss).IsEqualTo(default);
     }
 
@@ -64,10 +68,10 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-value-read-expired");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
-        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var cache = new ReplicatedCache(local, LeadOwn(committer));
         _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
         clock.Advance(Ttl);
@@ -90,28 +94,30 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-value-read-revived");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
-        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         clock.Advance(Ttl);
 
         // The read sees the expired entry, then a write of a new live value commits before the read asks the leader to expire it.
-        var inner = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        var inner = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
         _ = inner.Setups.GetValueWithDeadlineAsync(CacheName, Key, Arg.Any<CancellationToken>()).Callback(
-            Bind.To<(ClientCache<object?> Local, ReplicaGroupCommitter Committer), Func<string, string, CancellationToken, ValueTask<NodeCacheValueRead<object?>>>>(
+            Bind.To<(ClientCache<StoredValue> Local, ReplicaGroupCommitter Committer), Func<string, string, CancellationToken, ValueTask<NodeCacheValueRead<StoredValue>>>>(
                 (local, committer),
                 static s => async (cacheName, key, token) =>
                 {
                     var stale = await s.Local.GetValueWithDeadlineAsync(cacheName, key, token);
-                    await s.Committer.CommitSetAsync(NewOperationId(), cacheName, key, new NodeCacheEntry<object?>("w", 1, null, Ttl), token);
+                    await s.Committer.CommitSetAsync(NewOperationId(), cacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("w"), 1, null, Ttl), token);
                     return stale;
                 }));
         var cache = new ReplicatedCache(inner.Instance(), LeadOwn(committer));
 
         var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);
 
-        _ = await Assert.That(read).IsEqualTo(new NodeCacheValueResult<object?>(true, "w"));
+        _ = await Assert.That(read.Found).IsTrue();
+
+        _ = await Assert.That(StoredValueProbe.Text(read.Value)).IsEqualTo("w");
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Set);
     }
 
@@ -123,10 +129,10 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-value-read-live");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
-        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var cache = new ReplicatedCache(local, LeadOwn(committer));
 
         // The first read checks the seeding of the copy.
@@ -134,7 +140,9 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         var read = cache.GetValueAsync(CacheName, Key, cancellationToken);
 
         _ = await Assert.That(read.IsCompletedSuccessfully).IsTrue();
-        _ = await Assert.That(await read).IsEqualTo(new NodeCacheValueResult<object?>(true, "v"));
+        var result = await read;
+        _ = await Assert.That(result.Found).IsTrue();
+        _ = await Assert.That(StoredValueProbe.Text(result.Value)).IsEqualTo("v");
     }
 
     /// <summary>
@@ -149,17 +157,17 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         var decisionClock = new FakeTimeProvider(Start);
         var readerClock = new FakeTimeProvider(Start + Ttl);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(decisionClock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(decisionClock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, decisionClock);
-        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, new INodeLocatorCreateExpectations().Instance(), readerClock);
         var cache = new ReplicatedCache(local, readers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
-        _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken)?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken)?.Value)).IsEqualTo("v");
     }
 
     /// <summary>A start the committer refuses fails every queued expired read with the expiration-pending refusal, and the entries stay in memory.</summary>
@@ -172,18 +180,18 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(Start);
         var gateway = new ScriptedGateway();
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<StoredValue>(physical, physical);
         await using var committer = CreateCommitter(registry, gateway, local, clock);
         foreach (var key in keys)
-            await committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+            await committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
 
         gateway.Set("n2", FollowerMode.Down);
         gateway.Set("n3", FollowerMode.Down);
         clock.Advance(Ttl);
         var cache = new ReplicatedCache(local, LeadOwn(committer));
 
-        var reads = new Task<NodeCacheEntry<object?>?>[keys.Length];
+        var reads = new Task<NodeCacheEntry<StoredValue>?>[keys.Length];
         for (var i = 0; i < keys.Length; i++)
             reads[i] = cache.GetEntryAsync(CacheName, keys[i], cancellationToken).AsTask();
 
@@ -193,7 +201,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
             _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
         }
 
-        _ = await Assert.That(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, "a"), cancellationToken)?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, "a"), cancellationToken)?.Value)).IsEqualTo("v");
     }
 
     private static async Task<string> LastKindAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)

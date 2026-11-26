@@ -77,7 +77,7 @@ public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
         gateway.Set("n2", FollowerMode.Incomplete);
         await using var committer = CreateCommitter(registry, gateway);
 
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
 
         var eligibility = registry.EligibilityFor("n1");
         _ = await Assert.That((eligibility.StateFor(1), eligibility.CanCountInWriteQuorum(1), eligibility.CanCountInWriteQuorum(2))).IsEqualTo((ReplicaParticipantState.CatchingUp, false, true));

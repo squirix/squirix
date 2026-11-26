@@ -7,6 +7,7 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
@@ -46,23 +47,23 @@ internal sealed class FusedWriteHarness
     internal FusedWriteHarness(
         string dir,
         StallableJournal journal,
-        ILogicalNamespacedCache<object?>? innerOverride = null,
-        Func<JournalLoggingCacheDecorator<object?>, ILogicalNamespacedCache<object?>>? chain = null)
+        ILogicalNamespacedCache<StoredValue>? innerOverride = null,
+        Func<JournalLoggingCacheDecorator<StoredValue>, ILogicalNamespacedCache<StoredValue>>? chain = null)
     {
         Dir = dir;
         Journal = journal;
         Clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
-        Physical = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
+        Physical = new PhysicalCache<StoredValue>(Clock, new CacheEntrySizeEstimator<StoredValue>());
         Executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
-        Cache = new JournalLoggingCacheDecorator<object?>(innerOverride ?? new ClientCache<object?>(Physical, Physical), journal.Journal, Executor, Clock, Physical.RawReader);
+        Cache = new JournalLoggingCacheDecorator<StoredValue>(innerOverride ?? new ClientCache<StoredValue>(Physical, Physical), journal.Journal, Executor, Clock, Physical.RawReader);
         Adapter = CreateAdapter(chain?.Invoke(Cache) ?? Cache);
     }
 
     /// <summary>Gets the adapter whose handlers use the journal.</summary>
-    internal RoutedCacheOperations<object?> Adapter { get; }
+    internal RoutedCacheOperations<StoredValue> Adapter { get; }
 
     /// <summary>Gets the journal decorator the handlers write through.</summary>
-    internal JournalLoggingCacheDecorator<object?> Cache { get; }
+    internal JournalLoggingCacheDecorator<StoredValue> Cache { get; }
 
     /// <summary>Gets the clock of the decorator, the memory and the adapter.</summary>
     internal FakeTimeProvider Clock { get; }
@@ -74,7 +75,7 @@ internal sealed class FusedWriteHarness
     internal long FlushCount => Journal.Journal.FlushCount;
 
     /// <summary>Gets the memory the decorator applies to.</summary>
-    internal PhysicalCache<object?> Physical { get; }
+    internal PhysicalCache<StoredValue> Physical { get; }
 
     /// <summary>Gets the journal over the stallable writer.</summary>
     private StallableJournal Journal { get; }
@@ -158,13 +159,13 @@ internal sealed class FusedWriteHarness
     /// <summary>Recovers the journal into fresh cache memory; the journal must be shut down first.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The recovered memory.</returns>
-    internal async Task<PhysicalCache<object?>> RecoverAsync(CancellationToken cancellationToken)
+    internal async Task<PhysicalCache<StoredValue>> RecoverAsync(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
-        var memory = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
-        var dependencies = new RecoveryDependencies<object?>(persistence, ledger, memory, new AsyncManualResetEvent(true), StoreFactory.CreateReader(), Clock);
-        await new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies).StartAsync(cancellationToken);
+        var memory = new PhysicalCache<StoredValue>(Clock, new CacheEntrySizeEstimator<StoredValue>());
+        var dependencies = new RecoveryDependencies<StoredValue>(persistence, ledger, memory, new AsyncManualResetEvent(true), StoreFactory.CreateReader(), Clock);
+        await new RecoveryService<StoredValue>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<StoredValue>>.Instance, dependencies).StartAsync(cancellationToken);
         return memory;
     }
 
@@ -178,10 +179,10 @@ internal sealed class FusedWriteHarness
         Expiration = ttl,
     };
 
-    private RoutedCacheOperations<object?> CreateAdapter(ILogicalNamespacedCache<object?> api)
+    private RoutedCacheOperations<StoredValue> CreateAdapter(ILogicalNamespacedCache<StoredValue> api)
     {
-        var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
-        _ = operations.Setups.ForCache(CacheName).ReturnValue(new RoutedCacheApi<object?>(api, CacheName));
+        var operations = new IInboundEndpointCacheOperationsCreateExpectations<StoredValue>();
+        _ = operations.Setups.ForCache(CacheName).ReturnValue(new RoutedCacheApi<StoredValue>(api, CacheName));
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
         _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Self);
@@ -189,7 +190,7 @@ internal sealed class FusedWriteHarness
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
-        return new RoutedCacheOperations<object?>(
+        return new RoutedCacheOperations<StoredValue>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(

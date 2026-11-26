@@ -2,6 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Observability;
@@ -15,13 +16,13 @@ namespace Squirix.Server.Adapters.Endpoint;
 
 internal sealed class BinaryDispatch
 {
-    private readonly RoutedCacheOperations<object?> _operations;
+    private readonly RoutedCacheOperations<StoredValue> _operations;
     private readonly CacheRequestAdmission _admission;
     private readonly ServerCallCorrelation _correlation;
     private readonly BinaryCallObserver? _observer;
     private readonly IRemoteInvocationScopeFactory _scopes;
 
-    internal BinaryDispatch(RoutedCacheOperations<object?> operations, CacheRequestAdmission admission, ServerCallCorrelation correlation, IRemoteInvocationScopeFactory scopes, BinaryCallObserver? observer = null)
+    internal BinaryDispatch(RoutedCacheOperations<StoredValue> operations, CacheRequestAdmission admission, ServerCallCorrelation correlation, IRemoteInvocationScopeFactory scopes, BinaryCallObserver? observer = null)
     {
         _operations = operations;
         _admission = admission;
@@ -67,7 +68,7 @@ internal sealed class BinaryDispatch
     private ValueTask<BinaryResponse> InvokeAsync<TRequest, TResponse>(
         string operationName,
         WireParser<TRequest> parser,
-        Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, Task<TResponse>> method,
         ReadOnlyMemory<byte> body,
         in Request context)
         where TRequest : WireMessage
@@ -78,7 +79,7 @@ internal sealed class BinaryDispatch
     private async ValueTask<BinaryResponse> DispatchAsync<TRequest, TResponse>(
         string operationName,
         TRequest request,
-        Func<RoutedCacheOperations<object?>, TRequest, CancellationToken, Task<TResponse>> method,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, Task<TResponse>> method,
         Request context)
         where TRequest : WireMessage
         where TResponse : WireMessage

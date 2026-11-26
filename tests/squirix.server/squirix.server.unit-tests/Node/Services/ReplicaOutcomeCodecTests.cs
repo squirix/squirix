@@ -22,7 +22,7 @@ public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
     public async Task RemoveRetainsOnlyBoolean(int length)
     {
         var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var entry = new NodeCacheEntry<object?>(new byte[length], 123, now.AddHours(1));
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(new byte[length]), 123, now.AddHours(1));
 
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
 
@@ -40,7 +40,7 @@ public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
     public async Task MissingRemoveRetainsOnlyBoolean(bool expired)
     {
         var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var entry = expired ? new NodeCacheEntry<object?>(new byte[65536], 1, now) : null;
+        var entry = expired ? new NodeCacheEntry<StoredValue>(StoredValue.FromBinary(new byte[65536]), 1, now) : null;
 
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
 

@@ -30,7 +30,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
 
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
 
         var eligibility = registry.EligibilityFor("n1");
         _ = await Assert.That(eligibility.AllCanCountInWriteQuorum()).IsTrue();
@@ -48,7 +48,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
 
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
 
         var eligibility = registry.EligibilityFor("n1");
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
@@ -69,7 +69,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
 
-        var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
         var refusal = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refusal.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(refusal.Message).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
@@ -112,7 +112,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         gateway.Set("n2", FollowerMode.Down);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
 
         gateway.Set("n2", FollowerMode.Match);
         var outcome = await committer.VerifyReplicasAsync(cancellationToken);
@@ -120,7 +120,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
 
         // Only the leader and the late follower can form the majority now: its acknowledgement must count.
         gateway.Set("n3", FollowerMode.Down);
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v2"), Version = 1 }, cancellationToken);
     }
 
     /// <summary>A retry of a committed write replays its outcome while the group has no write majority; a new write is still refused.</summary>
@@ -134,7 +134,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         var gateway = new ScriptedGateway();
         await using var committer = CreateCommitter(registry, gateway);
         var operationId = NewOperationId();
-        var entry = new NodeCacheEntry<object?> { Value = "v1", Version = 1 };
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 };
         var added = await committer.CommitTryAddAsync(operationId, "cache", "k1", entry, cancellationToken);
 
         // Both followers go down and lose their verified state: no write majority remains.
@@ -163,7 +163,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Down);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
-        var refused = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        var refused = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
         var refusal = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(refused, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refusal.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(refusal.Message).IsEqualTo(ServerOpContract.NoWriteMajorityDetail);
@@ -173,7 +173,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
 
         gateway.Set("n2", FollowerMode.Match);
         gateway.Set("n3", FollowerMode.Match);
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v2"), Version = 1 }, cancellationToken);
 
         _ = await Assert.That(registry.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
     }
@@ -190,7 +190,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
 
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
 
         var eligibility = registry.EligibilityFor("n1");
         _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
@@ -209,7 +209,7 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
 
-        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v1"), Version = 1 }, cancellationToken);
 
         _ = await Assert.That(registry.EligibilityFor("n1").StateFor(1)).IsEqualTo(ReplicaParticipantState.Recovering);
     }

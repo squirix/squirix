@@ -47,15 +47,15 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
         }
     }
 
-    private static async Task AssertRecoveredStateAsync(ILogicalNamespacedCache<object?> cache, CancellationToken cancellationToken)
+    private static async Task AssertRecoveredStateAsync(ILogicalNamespacedCache<Squirix.Server.Core.StoredValue> cache, CancellationToken cancellationToken)
     {
         var recovered = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, cancellationToken);
         _ = await Assert.That(recovered.Found).IsTrue();
-        _ = await Assert.That(recovered.Value).IsEqualTo("persisted-value");
+        _ = await Assert.That(StoredValueProbe.Text(recovered.Value)).IsEqualTo("persisted-value");
 
         var writtenDuringRecovery = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, DuringRecoveryKey, cancellationToken);
         _ = await Assert.That(writtenDuringRecovery.Found).IsTrue();
-        _ = await Assert.That(writtenDuringRecovery.Value).IsEqualTo("during-recovery");
+        _ = await Assert.That(StoredValueProbe.Text(writtenDuringRecovery.Value)).IsEqualTo("during-recovery");
     }
 
     private async Task AssertBlockedUntilReplayAsync(ITestNodeHost node, RecoveryReplayDelaySignal replayDelay, CancellationToken cancellationToken)

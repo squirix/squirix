@@ -68,7 +68,7 @@ public sealed class Utf8PersistenceTests : NodeIntegrationTestBase
         const string replacement = "Ж漢😀";
         await using var cluster = await StartClusterAsync(nodeId, new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
         var node = cluster[nodeId];
-        var mutations = node.GetRequiredService<RoutedCacheOperations<object?>>().Mutations;
+        var mutations = node.GetRequiredService<RoutedCacheOperations<StoredValue>>().Mutations;
         var initial = new SetEntryAsyncRequest
         {
             CacheName = cacheName,
@@ -91,8 +91,8 @@ public sealed class Utf8PersistenceTests : NodeIntegrationTestBase
         var response = await mutations.UpdateAsync(parsed, cancellationToken);
 
         _ = await Assert.That(response.Updated).IsTrue();
-        var hit = node.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(cacheName, key), cancellationToken);
-        _ = await Assert.That((hit.RawValue as StoredText)?.Bytes).IsSameReferenceAs(bytes);
-        _ = await Assert.That(hit.Value as string).IsEqualTo(replacement);
+        var hit = node.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey(cacheName, key), cancellationToken);
+        _ = await Assert.That(hit.Value.Bytes).IsSameReferenceAs(bytes);
+        _ = await Assert.That(System.Text.Encoding.UTF8.GetString(hit.Value.Bytes)).IsEqualTo(replacement);
     }
 }

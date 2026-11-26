@@ -126,12 +126,12 @@ public sealed class ReplicaGroupBootstrapTests : NodeIntegrationTestBase
 
     private static async Task WriteAndReadAsync(ITestNodeHost owner, CancellationToken cancellationToken)
     {
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
 
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "seeded", Version = 1 }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("seeded"), Version = 1 }, cancellationToken);
         var read = await cache.GetValueAsync(CacheName, key, cancellationToken);
 
-        _ = await Assert.That((read.Found, read.Value)).IsEqualTo((true, "seeded"));
+        _ = await Assert.That((read.Found, StoredValueProbe.Text(read.Value))).IsEqualTo((true, "seeded"));
     }
 }

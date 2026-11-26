@@ -14,5 +14,5 @@ internal interface ISnapshotEntryCapture
     /// <param name="utcNow">The UTC instant used to filter expired entries.</param>
     /// <param name="cancellationToken">A token to observe while enumerating.</param>
     /// <returns>A task that completes when capture finishes.</returns>
-    ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<object?> Entry)> target, DateTime utcNow, CancellationToken cancellationToken);
+    ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> target, DateTime utcNow, CancellationToken cancellationToken);
 }

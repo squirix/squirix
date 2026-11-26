@@ -99,7 +99,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         var log = OwnerLog(owner);
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var compactions = new StrongBox<int>();
         var snapshotIndexes = new List<ulong>();
         using var writerDone = new CancellationTokenSource();
@@ -114,7 +114,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
             while (true)
             {
                 i++;
-                await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i }, cancellationToken);
+                await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"value-{i}"), Version = i }, cancellationToken);
                 if (i >= writes && Volatile.Read(ref compactions.Value) >= requiredCompactions)
                     break;
 
@@ -171,7 +171,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = await Assert.That(fileBytes).IsEqualTo(compactedRetention.LogBytes);
 
         var ownerKey = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        await owner.GetCache<object?>(CacheName).SetEntryAsync(operations[1], CacheName, ownerKey, Entry(2), cancellationToken);
+        await owner.GetCache<StoredValue>(CacheName).SetEntryAsync(operations[1], CacheName, ownerKey, Entry(2), cancellationToken);
         _ = await Assert.That((await ownerLog.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(compacted.LastLogIndex);
 
         await cluster.StopNodeAsync(OwnerId);
@@ -179,20 +179,20 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var log = OwnerLog(restarted);
         var key = restarted.FindKeyOwnedBy(CacheName, OwnerId);
         await VerifyAsync(cluster, restarted, cancellationToken);
-        var read = await restarted.GetCache<object?>(CacheName).GetValueAsync(CacheName, key, cancellationToken);
+        var read = await restarted.GetCache<StoredValue>(CacheName).GetValueAsync(CacheName, key, cancellationToken);
         var before = await log.GetStatusAsync(cancellationToken);
         var retention = await log.GetRetentionAsync(cancellationToken);
 
         // The retry takes the path of the original write, which reaches the group idempotency state the snapshot restored. The first
         // write found the key absent and went through as a conditional add, so the retried write is the second, a plain set.
-        var cache = restarted.GetCache<object?>(CacheName);
+        var cache = restarted.GetCache<StoredValue>(CacheName);
         await cache.SetEntryAsync(operations[1], CacheName, key, Entry(2), cancellationToken);
         var retried = await log.GetStatusAsync(cancellationToken);
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, Entry(overwrites + 1), cancellationToken);
         var next = await log.GetStatusAsync(cancellationToken);
 
         _ = await Assert.That(read.Found).IsTrue();
-        _ = await Assert.That(read.Value).IsEqualTo($"value-{overwrites}");
+        _ = await Assert.That(StoredValueProbe.Text(read.Value)).IsEqualTo($"value-{overwrites}");
         _ = await Assert.That(retention.SnapshotIndex > 0).IsTrue().Because("The restarted owner must recover from the compacted log.");
         _ = await Assert.That(retried.LastLogIndex).IsEqualTo(before.LastLogIndex).Because("A retry the snapshot covers must replay its outcome without appending.");
         _ = await Assert.That((next.LastLogIndex, next.CommitIndex)).IsEqualTo((before.LastLogIndex + 1, before.LastLogIndex + 1));
@@ -292,7 +292,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
 
     private static (string Id, ITestNodeHost Host)[] Followers(TestCluster<IntegrationStartOptions> cluster) => [("node-b", cluster["node-b"]), ("node-c", cluster["node-c"])];
 
-    private static NodeCacheEntry<object?> Entry(int version) => new() { Value = $"value-{version}", Version = version };
+    private static NodeCacheEntry<StoredValue> Entry(int version) => new() { Value = StoredValue.FromText($"value-{version}"), Version = version };
 
     private static IntegrationStartOptions Options(string scope, bool clean, TimeSpan maintenanceInterval, PartitionFabric? fabric = null) => new()
     {
@@ -336,7 +336,7 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
     private static async Task<string[]> OverwriteAsync(ITestNodeHost owner, (string Id, ITestNodeHost Host)[] followers, int count, CancellationToken cancellationToken)
     {
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
-        var cache = owner.GetCache<object?>(CacheName);
+        var cache = owner.GetCache<StoredValue>(CacheName);
         var operations = new string[count];
         for (var i = 1; i <= count; i++)
         {

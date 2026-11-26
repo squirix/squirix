@@ -43,7 +43,7 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
 
         await fabric.IsolateAsync(Owner);
         await ledger.UntilAsync(() => !owner.GetRequiredService<IGroupLeaderTable>().HasLocalAuthority(Owner, out _), "the cut-off owner holds no authority", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<object?>?>(owner.GetCache<object?>(Scope).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(owner.GetCache<StoredValue>(Scope).GetEntryAsync(Scope, key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode is FrameStatus.Unavailable or FrameStatus.FailedPrecondition).IsTrue();
     }
@@ -57,14 +57,14 @@ public sealed class QuorumReadWiringTests : NodeIntegrationTestBase
         await using var cluster = await StartAsync(Options("quorum-wiring-static", fabric, false), cancellationToken);
         var owner = cluster[Owner];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
-        var cache = owner.GetCache<object?>(Scope);
+        var cache = owner.GetCache<StoredValue>(Scope);
         var key = owner.FindKeyOwnedBy(Scope, Owner);
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), Scope, key, new NodeCacheEntry<object?> { Value = "v" }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), Scope, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") }, cancellationToken);
 
         await fabric.IsolateAsync(Owner);
         var read = await cache.GetEntryAsync(Scope, key, cancellationToken);
 
-        _ = await Assert.That(read?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(read?.Value)).IsEqualTo("v");
     }
 
     private static IntegrationStartOptions Options(string scope, PartitionFabric fabric, bool failover) => new()

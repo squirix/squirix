@@ -305,7 +305,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
 
     private static FollowerLogOptions DefaultOptions() => new() { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
 
-    private static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
+    private static NodeCacheEntry<StoredValue> Entry() => new() { Value = StoredValue.FromText("v"), Version = 1 };
 
     private static FollowerLog GetOwnedLog(ReplicaGroupRegistry registry) =>
         registry.TryGetLog(OwnedGroup, out var log) && log is FollowerLog followerLog ? followerLog : throw new InvalidOperationException("The owned group log is not open.");

@@ -15,6 +15,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -235,10 +236,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     }
 
     /// <summary>Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.</summary>
-    /// <param name="value">
-    /// The value to store. If a <see cref="JsonDocument" /> or <see cref="JsonElement" /> is supplied,
-    /// it is cloned to detach from the underlying document’s lifetime; otherwise the value is used as-is.
-    /// </param>
+    /// <param name="value">The value to encode. JSON entries own their bytes after the source document is disposed.</param>
     /// <param name="expiresUtc">Optional absolute UTC expiration time. When <see langword="null" />, the entry does not have absolute expiry.</param>
     /// <param name="version">The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.</param>
     /// <param name="tags">Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.</param>
@@ -246,23 +244,17 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// A new <see cref="NodeCacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
     /// <paramref name="version" />, and <paramref name="tags" />; <c language="csharp">Expiration</c> is set to <see langword="null" />.
     /// </returns>
-    private protected static NodeCacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
+    private protected static NodeCacheEntry<StoredValue> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
-        var v = value switch
-        {
-            JsonDocument doc => doc.RootElement.Clone(),
-            JsonElement elem => elem.Clone(),
-            _ => value,
-        };
-
-        return new NodeCacheEntry<object?>(v, version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
+        var wire = ServerWireMapping.CacheValueToWire(value is JsonDocument document ? document.RootElement : value);
+        return new NodeCacheEntry<StoredValue>(ServerWireMapping.MapCacheValue<StoredValue>(wire), version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
     /// <summary>Resolves the cluster-aware cache API client from the test node’s dependency injection container.</summary>
     /// <param name="host">The started test node host providing access to the service provider.</param>
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.</exception>
-    private protected static ILogicalNamespacedCache<object?> GetCache(ITestNodeHost host) => host.GetCache<object?>("default");
+    private protected static ILogicalNamespacedCache<StoredValue> GetCache(ITestNodeHost host) => host.GetCache<StoredValue>("default");
 
     /// <summary>Starts one node per topology entry with a shared peer set.</summary>
     /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>

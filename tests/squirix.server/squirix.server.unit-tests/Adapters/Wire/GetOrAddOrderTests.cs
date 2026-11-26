@@ -30,9 +30,9 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     [Test]
     public async Task AbsentKeyReturnsAddedResult()
     {
-        var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
-               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(true, default)));
+        var api = new ICacheApiCreateExpectations<StoredValue>();
+        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(true, default)));
 
         var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
@@ -44,9 +44,9 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     [Test]
     public async Task PresentKeyReturnsItsValue()
     {
-        var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
-               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(false, new NodeCacheValueResult<object?>(true, "existing"))));
+        var api = new ICacheApiCreateExpectations<StoredValue>();
+        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(false, new NodeCacheValueResult<StoredValue>(true, StoredValue.FromText("existing")))));
 
         var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
@@ -66,9 +66,9 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         Entry = new CacheEntryWire { Value = JsonValueKit.Wire("{\"__v\":\"added\"}"), Expiration = TimeSpan.FromMinutes(1) },
     };
 
-    private static RoutedCacheOperations<object?> CreateAdapter(ICacheApi<object?> api)
+    private static RoutedCacheOperations<StoredValue> CreateAdapter(ICacheApi<StoredValue> api)
     {
-        var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
+        var operations = new IInboundEndpointCacheOperationsCreateExpectations<StoredValue>();
         _ = operations.Setups.ForCache("c").ReturnValue(api);
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
@@ -77,7 +77,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
-        return new RoutedCacheOperations<object?>(
+        return new RoutedCacheOperations<StoredValue>(
             operations.Instance(),
             OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
             new OwnerRpcForwarder(

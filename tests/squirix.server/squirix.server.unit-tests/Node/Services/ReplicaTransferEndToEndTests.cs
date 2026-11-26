@@ -10,6 +10,7 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
@@ -67,7 +68,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         _ = await Assert.That(rig.Cache.GetEntry(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
         _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
         _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
-        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "alive"), cancellationToken)?.Value).IsEqualTo("alive");
+        _ = await Assert.That(StoredValueProbe.Text(harness.Cache.GetEntry(new CacheKey(CacheName, "alive"), cancellationToken)?.Value)).IsEqualTo("alive");
     }
 
     /// <summary>
@@ -115,7 +116,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         {
             var leaderEntry = rig.Cache.GetEntry(new CacheKey(CacheName, $"k{i}"), cancellationToken);
             var followerEntry = harness.Cache.GetEntry(new CacheKey(CacheName, $"k{i}"), cancellationToken);
-            _ = await Assert.That((followerEntry?.Value, followerEntry?.Version)).IsEqualTo((leaderEntry?.Value, leaderEntry?.Version));
+            _ = await Assert.That((StoredValueProbe.Text(followerEntry?.Value), followerEntry?.Version)).IsEqualTo((StoredValueProbe.Text(leaderEntry?.Value), leaderEntry?.Version));
             _ = await Assert.That(followerEntry).IsNotNull();
         }
     }
@@ -142,11 +143,11 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
 
         internal Rig(ReplicaStateHarness harness)
         {
-            Cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+            Cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
             Gateway = new RoutedGateway(harness) { FollowerDown = true };
         }
 
-        internal PhysicalCache<object?> Cache { get; }
+        internal PhysicalCache<StoredValue> Cache { get; }
 
         internal ReplicaGroupCommitter Committer => _committer ?? ThrowNotOpen<ReplicaGroupCommitter>();
 
@@ -166,7 +167,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         }
 
         internal Task CommitAsync(string key, DateTime? expiresUtc, CancellationToken cancellationToken) =>
-            Committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>(key, 1, expiresUtc), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            Committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText(key), 1, expiresUtc), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
         /// <summary>Opens the leader, commits k1 to k3 with the follower down, compacts the log through them, commits k4, and brings the follower up with its first entries message held.</summary>
         /// <param name="leaderDir">The data directory of the leader.</param>
@@ -178,7 +179,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
             _registry = new ReplicaGroupRegistry(leaderDir, [GroupId], 3, TransferFixtures.Fingerprint, 1UL, NullLoggerFactory.Instance, options) { ElectionClock = TimeProvider.System };
             await _registry.OpenAsync(cancellationToken);
-            var local = new ClientCache<object?>(Cache, Cache);
+            var local = new ClientCache<StoredValue>(Cache, Cache);
             _committer = new ReplicaGroupCommitter(_registry, new Members(), Gateway, local, (GroupId, "n2"), new ReplicaTopologyStamp(TransferFixtures.Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
             {
                 Clock = TimeProvider.System,

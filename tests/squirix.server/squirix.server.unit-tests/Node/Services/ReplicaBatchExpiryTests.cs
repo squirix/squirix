@@ -51,13 +51,13 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, new ScriptedGateway(), clock);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
         var appended = leader.Committer.LocalAppends.Snapshot().Appended;
 
         var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "live"), (CacheName, "gone")]);
 
-        _ = await Assert.That(results[0].Entry?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(results[0].Entry?.Value)).IsEqualTo("v");
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Absent);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before);
         _ = await Assert.That(leader.Committer.LocalAppends.Snapshot().Appended).IsEqualTo(appended);
@@ -113,7 +113,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         {
             var first = leader.Committer.CommitExpiriesAsync([(CacheName, "a"), (CacheName, "b"), (CacheName, "c")]);
             await gateway.Entered.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            var write = leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "client", new NodeCacheEntry<object?>("w"), cancellationToken);
+            var write = leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "client", new NodeCacheEntry<StoredValue>(StoredValue.FromText("w")), cancellationToken);
             var second = leader.Committer.CommitExpiriesAsync([(CacheName, "d"), (CacheName, "e")]);
 
             gateway.Release();
@@ -172,15 +172,15 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, new ScriptedGateway(), clock);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
 
         var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "live"), (CacheName, "live")]);
 
         _ = await Assert.That(results[0].Status).IsEqualTo(ReplicaExpiryStatus.Live);
-        _ = await Assert.That(results[0].Entry?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(results[0].Entry?.Value)).IsEqualTo("v");
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Live);
-        _ = await Assert.That(results[1].Entry?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(results[1].Entry?.Value)).IsEqualTo("v");
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before);
     }
 
@@ -195,17 +195,17 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, new ScriptedGateway(), clock);
         await SeedExpiredAsync(leader, clock, ["a", "b"], cancellationToken);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("new"), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<StoredValue>(StoredValue.FromText("new")), cancellationToken);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
 
         var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "a"), (CacheName, "b")]);
 
         _ = await Assert.That(results[0].Status).IsEqualTo(ReplicaExpiryStatus.Tombstoned);
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Live);
-        _ = await Assert.That(results[1].Entry?.Value).IsEqualTo("new");
+        _ = await Assert.That(StoredValueProbe.Text(results[1].Entry?.Value)).IsEqualTo("new");
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
         _ = await Assert.That(leader.Raw("a", cancellationToken)).IsNull();
-        _ = await Assert.That(leader.Raw("b", cancellationToken)?.Value).IsEqualTo("new");
+        _ = await Assert.That(StoredValueProbe.Text(leader.Raw("b", cancellationToken)?.Value)).IsEqualTo("new");
     }
 
     /// <summary>A live key placed before and between expired keys takes no log index: the tombstones stay consecutive.</summary>
@@ -219,7 +219,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, new ScriptedGateway(), clock);
         await SeedExpiredAsync(leader, clock, ["a", "b"], cancellationToken);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
 
         var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "live"), (CacheName, "a"), (CacheName, "live"), (CacheName, "b")]);
@@ -250,7 +250,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, gateway, clock);
         await SeedExpiredAsync(leader, clock, ["a", "b", "c"], cancellationToken);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         gateway.Set("n2", FollowerMode.Down);
         gateway.Set("n3", FollowerMode.Down);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
@@ -267,11 +267,11 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Live);
-        _ = await Assert.That(results[1].Entry?.Value).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text(results[1].Entry?.Value)).IsEqualTo("v");
         _ = await Assert.That(results[3].Status).IsEqualTo(ReplicaExpiryStatus.Absent);
         _ = await Assert.That(written).IsEqualTo(before + 3);
         _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(written);
-        _ = await Assert.That(leader.Raw("a", cancellationToken)?.Value).IsEqualTo("a");
+        _ = await Assert.That(StoredValueProbe.Text(leader.Raw("a", cancellationToken)?.Value)).IsEqualTo("a");
     }
 }

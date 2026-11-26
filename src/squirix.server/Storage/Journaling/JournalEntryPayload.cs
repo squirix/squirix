@@ -15,20 +15,20 @@ internal static class JournalEntryPayload
     /// measured and encoded again at its real length.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The entry does not encode to its measured length.</exception>
-    internal static PooledJournalPayload Encode(in PreparedJournalEntry prepared)
+    internal static PooledJournalPayload Encode(in PreparedJournalEntryBase prepared)
     {
         byte[]? pooledBuffer = null;
         try
         {
             var length = prepared.EncodedLength;
             pooledBuffer = PayloadBuffer.Rent(length);
-            if (WriteWithin(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) == length)
+            if (WriteWithin(prepared, pooledBuffer.AsSpan(0, length)) == length)
                 return new PooledJournalPayload(pooledBuffer, length);
             PayloadBuffer.Release(pooledBuffer);
             pooledBuffer = null;
-            length = CacheEntryCodec.ComputeEncodedLength(prepared.ObjectEntry);
+            length = prepared.Measure();
             pooledBuffer = PayloadBuffer.Rent(length);
-            return CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length
+            return prepared.WriteTo(pooledBuffer.AsSpan(0, length)) != length
                 ? throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.")
                 : new PooledJournalPayload(pooledBuffer, length);
         }
@@ -45,7 +45,7 @@ internal static class JournalEntryPayload
     /// <param name="prepared">The normalized entry and its measured encoded length.</param>
     /// <returns>The owned payload, without an intermediate pooled buffer.</returns>
     /// <exception cref="InvalidOperationException">The entry does not encode to its measured length.</exception>
-    internal static byte[] EncodeOwned(in PreparedJournalEntry prepared)
+    internal static byte[] EncodeOwned(in PreparedJournalEntryBase prepared)
     {
         var bytes = GC.AllocateUninitializedArray<byte>(prepared.EncodedLength);
         WritePrepared(in prepared, bytes);
@@ -88,19 +88,21 @@ internal static class JournalEntryPayload
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="entry">The entry that supplies the deadline and tags; its value is not read.</param>
     /// <param name="valueLength">The encoded length of the value of <paramref name="entry" />.</param>
-    /// <returns>The same length <see cref="PreparedJournalEntry.MeasureEncodedLength{T}" /> returns for <paramref name="entry" />.</returns>
+    /// <returns>The same length <see cref="PreparedJournalEntryBase.MeasureEncodedLength{T}" /> returns for <paramref name="entry" />.</returns>
     internal static int MeasureSerializedBytes<T>(NodeCacheEntry<T> entry, int valueLength) =>
         CacheEntryCodec.ComputeEncodedLength(JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration), null, entry.Tags, valueLength);
 
-    internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.From(entry);
+    internal static PreparedJournalEntryBase PrepareEncode<T>(NodeCacheEntry<T> entry) => PreparedJournalEntryBase.From(entry);
 
-    internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry, int encodedLength) => PreparedJournalEntry.From(entry, encodedLength);
+    internal static PreparedJournalEntryBase PrepareEncode<T>(NodeCacheEntry<T> entry, int encodedLength) => PreparedJournalEntryBase.From(entry, encodedLength);
 
     /// <summary>Normalizes a value and prepares its immutable or snapshotted representation.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="value">The value to prepare.</param>
     /// <returns>The prepared value; the caller disposes it.</returns>
-    internal static PreparedJournalValue PrepareValue<T>(T? value) => PreparedJournalValue.Create(NodeCacheEntry<T>.NormalizeValue(value));
+    internal static PreparedJournalValue PrepareValue<T>(T? value) => value is StoredValue stored
+        ? PreparedJournalValue.FromStored(in stored)
+        : PreparedJournalValue.Create(NodeCacheEntry<T>.NormalizeValue(value));
 
     /// <summary>Decodes a journal entry payload and reports how many bytes it spans.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
@@ -117,6 +119,7 @@ internal static class JournalEntryPayload
     }
 
     /// <summary>Decodes a payload whose absolute deadline travels apart from it and reports the journal-encoded length of the entry that results.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="source">The payload; any deadline it holds is replaced.</param>
     /// <param name="expiresUtcTicks">The absolute deadline in UTC ticks, or zero for none.</param>
     /// <param name="entry">The decoded entry carrying <paramref name="expiresUtcTicks" /> and no relative expiration.</param>
@@ -125,17 +128,17 @@ internal static class JournalEntryPayload
     /// bytes past the entry and the length is not derived. Encoding treats it as a hint and measures when the entry does not fit it.
     /// </param>
     /// <returns><see langword="true" /> when the payload decodes.</returns>
-    internal static bool TryDecodeWithDeadline(ReadOnlySpan<byte> source, long expiresUtcTicks, out NodeCacheEntry<object?>? entry, out int? encodedLength)
+    internal static bool TryDecodeWithDeadline<T>(ReadOnlySpan<byte> source, long expiresUtcTicks, out NodeCacheEntry<T>? entry, out int? encodedLength)
     {
         entry = null;
         encodedLength = null;
-        if (!TryDecode<object?>(source, out var decoded, out var bytesRead) || decoded == null)
+        if (!TryDecode<T>(source, out var decoded, out var bytesRead) || decoded == null)
             return false;
 
         DateTime? expiresUtc = expiresUtcTicks == 0 ? null : new DateTime(expiresUtcTicks, DateTimeKind.Utc);
         entry = decoded.ExpiresUtc == expiresUtc && decoded.Expiration == null
             ? decoded
-            : new NodeCacheEntry<object?>(decoded.RawValue, decoded.Version, expiresUtc, null, decoded.Tags);
+            : new NodeCacheEntry<T>(decoded.Value, decoded.Version, expiresUtc, null, decoded.Tags);
         if (bytesRead != source.Length)
             return true;
 
@@ -148,20 +151,20 @@ internal static class JournalEntryPayload
     /// <param name="prepared">The measured entry.</param>
     /// <param name="destination">The slice reserved for the entry bytes.</param>
     /// <exception cref="InvalidOperationException">The encoded length differs from the destination length.</exception>
-    internal static void WritePrepared(in PreparedJournalEntry prepared, Span<byte> destination)
+    internal static void WritePrepared(in PreparedJournalEntryBase prepared, Span<byte> destination)
     {
-        if (CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, destination) != destination.Length)
+        if (prepared.WriteTo(destination) != destination.Length)
             throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.");
     }
 
     private static InvalidOperationException CreateRelativeExpirationException() =>
         new("A journal entry assembled around a prepared value must carry an absolute deadline, not a relative expiration.");
 
-    private static int WriteWithin(NodeCacheEntry<object?> entry, Span<byte> destination)
+    private static int WriteWithin(PreparedJournalEntryBase entry, Span<byte> destination)
     {
         try
         {
-            return CacheEntryCodec.WriteMeasured(entry, destination);
+            return entry.WriteTo(destination);
         }
         catch (Exception error) when (error is ArgumentException or IndexOutOfRangeException)
         {

@@ -20,7 +20,7 @@ internal static class DistributedCacheAccess
         if (current.ExpiresUtc is { } expires && expires <= now)
             return (null, null, true);
 
-        var payload = ReadPayload(current.RawValue, out var policy);
+        var payload = ReadPayload(current.Value, out var policy);
         if (policy.SlidingTicks == null)
             return (payload, null, false);
 
@@ -31,12 +31,16 @@ internal static class DistributedCacheAccess
     }
 
     /// <summary>Reads the bytes and policy of an adapter entry without copying the payload.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="value">The stored value.</param>
     /// <param name="policy">The policy read from the envelope.</param>
     /// <returns>The payload, including a possible empty value.</returns>
     /// <exception cref="ServerCallException">The entry is not a valid adapter envelope.</exception>
-    internal static ReadOnlyMemory<byte> ReadPayload(object? value, out DistributedCachePolicy policy) =>
-        value is byte[] bytes && DistributedCachePolicy.TryRead(bytes, out policy)
+    internal static ReadOnlyMemory<byte> ReadPayload<T>(T value, out DistributedCachePolicy policy)
+    {
+        var bytes = value is StoredValue { Kind: StoredValueKind.Binary } binary ? binary.Bytes : value as byte[];
+        return bytes != null && DistributedCachePolicy.TryRead(bytes, out policy)
             ? bytes.AsMemory(DistributedCachePolicy.HeaderLength)
             : throw new ServerCallException(FrameStatus.DataLoss, "The distributed cache entry has an invalid policy envelope.");
+    }
 }

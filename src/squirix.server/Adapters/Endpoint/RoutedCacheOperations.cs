@@ -153,7 +153,7 @@ internal sealed class RoutedCacheOperations<T>
             var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             var response = new GetValueAsyncResponse { Found = result.Found };
             if (result.Found)
-                response.Value = ServerWireMapping.CacheValueToWire(result.RawValue);
+                response.Value = ServerWireMapping.CacheValueToWire(result.Value);
 
             return response;
         }
@@ -311,7 +311,7 @@ internal sealed class RoutedCacheOperations<T>
                     : existing.Found switch
                     {
                         false => new GetOrAddAsyncResponse { Added = false, Found = false },
-                        _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerWireMapping.CacheValueToWire(existing.RawValue) },
+                        _ => new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerWireMapping.CacheValueToWire(existing.Value) },
                     };
             }
 
@@ -358,13 +358,13 @@ internal sealed class RoutedCacheOperations<T>
                     throw new ServerCallException(FrameStatus.InvalidArgument, "The distributed cache expiration policy is invalid.");
 
                 var write = new DistributedCacheWrite(in policy, payload.Span, ttl);
-                if (write is not T value)
+                if (!DistributedCacheWrite.TryGetEnvelope(write.Envelope, out T? value))
                     throw new ServerCallException(FrameStatus.Internal, "The node cannot store distributed cache values.");
 
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                     operationId,
                     request.Key,
-                    new NodeCacheEntry<T>(value, expiresUtc: write.DeadlineForSizing),
+                    new NodeCacheEntry<T>(value, write),
                     cancellationToken).ConfigureAwait(false);
                 return new SetAsyncResponse();
             }
@@ -415,7 +415,7 @@ internal sealed class RoutedCacheOperations<T>
                 var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
                     operationId,
                     request.Key,
-                    request.Entry.MapFromWire<T>().RawValue,
+                    request.Entry.MapFromWire<T>().Value,
                     cancellationToken).ConfigureAwait(false);
                 return new UpdateAsyncResponse { Updated = updated };
             }

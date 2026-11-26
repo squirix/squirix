@@ -107,15 +107,15 @@ public class ReplicaStateTransferApplyBenchmarks
 
         _host = await JournalBenchmarkHost.CreateAsync("replica-transfer-apply-journal", new PersistenceOptions { JournalMaxSegmentMb = 64 }, CancellationToken.None)
             .ConfigureAwait(false);
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var client = new ClientCache<object?>(physical, physical);
-        var logging = new JournalLoggingCacheDecorator<object?>(
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var client = new ClientCache<StoredValue>(physical, physical);
+        var logging = new JournalLoggingCacheDecorator<StoredValue>(
             client,
             _host.Coordinator,
             new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
             TimeProvider.System,
             physical.RawReader);
-        var local = new JournalPayloadPrepareCacheDecorator<object?>(logging);
+        var local = new JournalPayloadPrepareCacheDecorator<StoredValue>(logging);
         _meter = new Meter("replica-transfer-apply-bench");
         var appliers = new ReplicaGroupAppliers(_registry, local, GroupId, NullLogger<ReplicaGroupAppliers>.Instance, new ReplicationMetrics(_meter));
         _committers = new ReplicaGroupCommitters([], "n9", new SingleGroupLocator(), TimeProvider.System);
@@ -125,7 +125,7 @@ public class ReplicaStateTransferApplyBenchmarks
         for (var i = 0; i < _entries.Length; i++)
         {
             var key = Encoding.UTF8.GetBytes($"key-{i:D6}");
-            var payload = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>(new string('x', ValueChars)));
+            var payload = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<StoredValue>(StoredValue.FromText(new string('x', ValueChars))));
             _entries[i] = new ReplicaStateEntry(CacheName, key, payload, 0);
         }
 

@@ -163,7 +163,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         var options = new IntegrationStartOptions { UsePersistence = true, ExtraScope = "topology-rf1-data" };
         await using (var single = await StartClusterAsync("n1", options, cancellationToken))
         {
-            var entry = new NodeCacheEntry<object?> { Value = "v" };
+            var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") };
             await GetCache(single["n1"]).SetEntryAsync(Guid.NewGuid().ToString("N"), ServerCacheNames.DefaultNamespace, "rf1-key", entry, cancellationToken);
         }
 

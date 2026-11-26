@@ -50,10 +50,10 @@ internal static class RuntimeServiceRegistration
 
             if (metricsEnabled)
                 _ = services.AddMetricsHostedServices();
-            _ = services.Own<ILocalCacheRecovery<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
-            _ = services.Own<ILocalCacheSnapshotReader<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
-            _ = services.Own<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture<object?>(
-                sp.Require<ILocalCacheSnapshotReader<object?>>(),
+            _ = services.Own<ILocalCacheRecovery<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
+            _ = services.Own<ILocalCacheSnapshotReader<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
+            _ = services.Own<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture(
+                sp.Require<ILocalCacheSnapshotReader<StoredValue>>(),
                 sp.Require<CacheExpiryAuthority>()));
 
             _ = services.AddRequestRoutingServices();
@@ -80,15 +80,15 @@ internal static class RuntimeServiceRegistration
                 sp.Require<IBackpressureClientIdResolver>(),
                 sp.Require<RingAgreement>(),
                 sp.Require<FeatureState>().NetworkReplicationEnabled));
-            _ = services.Own(static sp => new RoutedCacheOperations<object?>(
-                sp.Require<IInboundEndpointCacheOperations<object?>>(),
+            _ = services.Own(static sp => new RoutedCacheOperations<StoredValue>(
+                sp.Require<IInboundEndpointCacheOperations<StoredValue>>(),
                 sp.Require<OwnerRouter>(),
                 sp.Require<OwnerRpcForwarder>(),
                 sp.Require<FeatureState>().NetworkReplicationEnabled,
                 sp.Require<TimeProvider>(),
                 sp.Require<IDistributedCacheAccess>(),
                 sp.Find<IJournalCoordinator>()));
-            _ = services.Own(static sp => sp.Require<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
+            _ = services.Own(static sp => sp.Require<IInboundEndpointCacheOperations<StoredValue>>().ForCache(ServerCacheNames.DefaultNamespace));
 
             return services;
         }
@@ -108,7 +108,7 @@ internal static class RuntimeServiceRegistration
         private NodeServices AddLocalCacheServices()
         {
             services.UseDefault(new EvictionOptions());
-            _ = services.Own<ICacheEntrySizeEstimator<object?>>(static sp => CacheEntrySizeEstimator<object?>.ForEviction(new ObjectCacheEntrySizeEstimator(), sp.Require<EvictionOptions>()));
+            _ = services.Own<ICacheEntrySizeEstimator<StoredValue>>(static sp => CacheEntrySizeEstimator<StoredValue>.ForEviction(new CacheEntrySizeEstimator<StoredValue>(), sp.Require<EvictionOptions>()));
 
             // Default server clock. Tests may register a fake TimeProvider that overrides this, so cache
             // expiration can be advanced deterministically instead of relying on real-time delays.
@@ -118,18 +118,18 @@ internal static class RuntimeServiceRegistration
             // source of truth: on network-replication-activated hosts only committed records remove an entry, so the leader decides expiry;
             // RF=1 and foundation-only hosts keep the local clock.
             _ = services.Own(static sp => sp.Require<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock);
-            _ = services.Own(static sp => new PhysicalCache<object?>(
+            _ = services.Own(static sp => new PhysicalCache<StoredValue>(
                 sp.Require<TimeProvider>(),
-                sp.Require<ICacheEntrySizeEstimator<object?>>(),
+                sp.Require<ICacheEntrySizeEstimator<StoredValue>>(),
                 sp.Require<EvictionOptions>(),
                 sp.Require<CacheExpiryAuthority>(),
                 (sp.Require<EvictionOptions>().Capacity != null || (sp.Require<EvictionOptions>().EvictOnMemoryPressure && sp.Require<FeatureState>().NetworkReplicationEnabled)) ? GroupForKey(sp.Require<INodeLocator>()) : null));
-            _ = services.Own<ILocalCache<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
-            _ = services.Own<ILocalCacheReadOperations<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
-            _ = services.Own<ILocalCacheMutationOperations<object?>>(static sp => sp.Require<PhysicalCache<object?>>());
-            _ = services.Own<ILocalCacheStats>(static sp => sp.Require<PhysicalCache<object?>>());
-            _ = services.Own<ILocalCacheRawReader<object?>>(static sp => sp.Require<PhysicalCache<object?>>().RawReader);
-            _ = services.Own<ILocalCacheExpiredKeys>(static sp => sp.Require<PhysicalCache<object?>>().ExpiredKeys);
+            _ = services.Own<ILocalCache<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
+            _ = services.Own<ILocalCacheReadOperations<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
+            _ = services.Own<ILocalCacheMutationOperations<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
+            _ = services.Own<ILocalCacheStats>(static sp => sp.Require<PhysicalCache<StoredValue>>());
+            _ = services.Own<ILocalCacheRawReader<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>().RawReader);
+            _ = services.Own<ILocalCacheExpiredKeys>(static sp => sp.Require<PhysicalCache<StoredValue>>().ExpiredKeys);
             return services;
         }
 

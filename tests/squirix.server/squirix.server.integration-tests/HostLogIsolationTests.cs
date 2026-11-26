@@ -110,10 +110,10 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync(nodeId, Options(scope, true, null), cancellationToken);
         var node = cluster[nodeId];
-        var cache = node.GetCache<object?>(CacheName);
+        var cache = node.GetCache<StoredValue>(CacheName);
         for (var i = 1; i <= 2; i++)
         {
-            var entry = new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i };
+            var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText($"value-{i}"), Version = i };
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, $"isolation-key-{i}", entry, cancellationToken);
         }
 

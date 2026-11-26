@@ -21,7 +21,7 @@ public sealed class LoadEquivalenceTests : IsolatedStorageTestBase
     [Test]
     public async Task EmptySnapshotLoadsEmpty(CancellationToken cancellationToken)
     {
-        var path = await new SnapshotWriter(Dir).WriteAsync(1, [], [], cancellationToken);
+        var path = await new SnapshotWriter(Dir).WriteAsync<object?>(1, [], [], cancellationToken);
 
         var loaded = await StoreFactory.CreateReader(16).LoadStrictAsync<object?>(path, null, cancellationToken);
 

@@ -31,7 +31,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
     public async Task GroupWalkYieldsOnlyItsEntries(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(Start);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
         Seed(physical, cancellationToken);
         var entries = new ReplicaGroupEntries(physical, Locator());
 
@@ -50,7 +50,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
     public async Task PastDeadlineEntryHiddenWithLocalExpiry(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(Start);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
         Seed(physical, cancellationToken);
         clock.Advance(Ttl + Ttl);
 
@@ -70,7 +70,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
     public async Task PastDeadlineEntryKeptWithCommittedExpiry(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(Start);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         Seed(physical, cancellationToken);
         clock.Advance(Ttl + Ttl);
 
@@ -87,7 +87,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
     public async Task WalkOfAllGroupsNamesOwners(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(Start);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
+        var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
         Seed(physical, cancellationToken);
 
         var all = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync(null, cancellationToken), cancellationToken);
@@ -126,10 +126,10 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         return locator.Instance();
     }
 
-    private static void Seed(PhysicalCache<object?> physical, CancellationToken cancellationToken)
+    private static void Seed(PhysicalCache<StoredValue> physical, CancellationToken cancellationToken)
     {
-        physical.Set(new CacheKey(CacheName, "n1-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        physical.Set(new CacheKey(CacheName, "n1-b"), new NodeCacheEntry<object?>("v"), cancellationToken);
-        physical.Set(new CacheKey(CacheName, "n2-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n1-a"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n1-b"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v")), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n2-a"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
     }
 }

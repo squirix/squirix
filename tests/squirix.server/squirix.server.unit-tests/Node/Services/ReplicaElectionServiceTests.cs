@@ -225,8 +225,8 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         await ReplicaApplyServiceTests.SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         _ = registry.TryGetLog("n2", out var group);
         var before = await group!.GetStatusAsync(cancellationToken);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback(static (_, _, _, _, _) => ValueTask.FromException(new JournalCapacityExceededException()));
         using var meter = new Meter("test");
         var appliers = ReplicaApplyServiceTests.CreateAppliers(registry, cache.Instance(), meter);

@@ -16,9 +16,9 @@ namespace Squirix.Server.Benchmarks;
 [MemoryDiagnoser]
 public class CacheWriteSizingBenchmarks
 {
-    private MemoryAdmissionCacheDecorator<object?>? _cache;
+    private MemoryAdmissionCacheDecorator<StoredValue>? _cache;
     private Meter? _meter;
-    private string _value = string.Empty;
+    private StoredValue _value;
 
     /// <summary>Gets or sets the number of UTF-16 code units in the value.</summary>
     [Params(16, 4096, 65536)]
@@ -33,23 +33,23 @@ public class CacheWriteSizingBenchmarks
     public void Setup()
     {
         _meter = new Meter("Squirix.Benchmarks.StringSizing");
-        _value = new string(Unicode ? '\u754c' : 'x', Length);
-        var estimator = new ObjectCacheEntrySizeEstimator();
-        var physical = new PhysicalCache<object?>(TimeProvider.System, estimator);
-        var client = new ClientCache<object?>(physical, physical);
+        _value = StoredValue.FromText(new string(Unicode ? '\u754c' : 'x', Length));
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, estimator);
+        var client = new ClientCache<StoredValue>(physical, physical);
         var gate = new PressureGate(
             new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1_000_000_000 }),
             new MemoryUsageAccounting(physical),
             "node",
             _meter);
-        _cache = new MemoryAdmissionCacheDecorator<object?>(client, gate, estimator);
+        _cache = new MemoryAdmissionCacheDecorator<StoredValue>(client, gate, estimator);
     }
 
     /// <summary>Writes a fresh request entry, overwriting one key so memory usage stays bounded.</summary>
     /// <returns>The completion of the write.</returns>
     /// <exception cref="InvalidOperationException">The benchmark has not been initialized.</exception>
     [Benchmark]
-    public ValueTask SetAsync() => ThrowHelper.Required(_cache, "Benchmark was not initialized.").SetEntryAsync("op", "cache", "key", new NodeCacheEntry<object?>(_value), CancellationToken.None);
+    public ValueTask SetAsync() => ThrowHelper.Required(_cache, "Benchmark was not initialized.").SetEntryAsync("op", "cache", "key", new NodeCacheEntry<StoredValue>(_value), CancellationToken.None);
 
     /// <summary>Releases the instruments.</summary>
     [GlobalCleanup]

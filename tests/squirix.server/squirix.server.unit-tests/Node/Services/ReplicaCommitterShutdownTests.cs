@@ -173,7 +173,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
             ShutdownBudget = shutdownBudget ?? StallTimeout,
         };
 
-    private static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
+    private static NodeCacheEntry<StoredValue> Entry() => new() { Value = StoredValue.FromText("v"), Version = 1 };
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 

@@ -7,6 +7,7 @@ using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -133,7 +134,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         _ => throw new ArgumentOutOfRangeException(nameof(method), method, "Unsupported method."),
     };
 
-    private static Func<RoutedCacheOperations<object?>, CancellationToken, Task>[] CreateCalls() =>
+    private static Func<RoutedCacheOperations<StoredValue>, CancellationToken, Task>[] CreateCalls() =>
     [
         static async (adapter, context) => _ = await adapter.Reads.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "c", Key = "k" }, context),
         static async (adapter, context) => _ = await adapter.Reads.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "c", Key = "k" }, context),
@@ -149,7 +150,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         static async (adapter, context) => _ = await adapter.Mutations.UpdateAsync(new UpdateAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, context),
     ];
 
-    private static async Task AssertRerouteSendsSameRequestAsync(Func<RoutedCacheOperations<object?>, CancellationToken, Task> call, ServerCallPolicy policy)
+    private static async Task AssertRerouteSendsSameRequestAsync(Func<RoutedCacheOperations<StoredValue>, CancellationToken, Task> call, ServerCallPolicy policy)
     {
         var calls = 0;
         var invoker = new CapturingCallInvoker(static method => CreateResponse(method), () => ++calls == 1 ? StaleOwnerWithHint("node-c") : null);
@@ -165,7 +166,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
     private static CacheEntryWire CreateEntry() => new() { Expiration = TimeSpan.FromMinutes(1) };
 
-    private static RoutedCacheOperations<object?> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall, IGroupLeaderTable? table = null)
+    private static RoutedCacheOperations<StoredValue> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall, IGroupLeaderTable? table = null)
     {
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
@@ -186,8 +187,8 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
             : new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, OwnerRouters.LeaderWait, TimeProvider.System, OwnerRouters.Locator(Self, Remote, "node-c"));
 
         // The cache operations and the coordinator have no setups: any call to them fails the test.
-        return new RoutedCacheOperations<object?>(
-            new IInboundEndpointCacheOperationsCreateExpectations<object?>().Instance(),
+        return new RoutedCacheOperations<StoredValue>(
+            new IInboundEndpointCacheOperationsCreateExpectations<StoredValue>().Instance(),
             router,
             new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
             false,

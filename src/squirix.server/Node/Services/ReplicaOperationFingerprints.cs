@@ -45,9 +45,9 @@ internal static class ReplicaOperationFingerprints
     internal static byte[] RemoveExpiration(string operationId, string cacheName, string key) =>
         Compute(operationId, cacheName, key, ReplicaMutationKinds.RemoveExpiration, []);
 
-    internal static byte[] Set(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry)
+    internal static byte[] Set(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry)
     {
-        if (entry.RawValue is not DistributedCacheWrite write)
+        if (entry.PendingWrite is not { } write)
             return Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToWire());
 
         var kind = write.TtlTicks is { } ttl ? string.Create(CultureInfo.InvariantCulture, $"set-distributed-ttl:{ttl}") : "set-distributed";
@@ -61,10 +61,10 @@ internal static class ReplicaOperationFingerprints
         return Compute(operationId, cacheName, key, ReplicaMutationKinds.Touch, requested);
     }
 
-    internal static byte[] AddIfAbsent(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry) =>
+    internal static byte[] AddIfAbsent(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry) =>
         Compute(operationId, cacheName, key, ReplicaMutationKinds.TryAdd, entry.MapToWire());
 
-    internal static byte[] Update(string operationId, string cacheName, string key, object? value) =>
+    internal static byte[] Update(string operationId, string cacheName, string key, in StoredValue value) =>
         Compute(operationId, cacheName, key, ReplicaMutationKinds.Update, ServerWireMapping.CacheValueToWire(value));
 
     /// <summary>Computes the canonical operation fingerprint of a client mutation, scoped to its cache.</summary>

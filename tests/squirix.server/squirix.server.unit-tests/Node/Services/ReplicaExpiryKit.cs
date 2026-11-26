@@ -52,7 +52,7 @@ internal static class ReplicaExpiryKit
     internal static async Task SeedExpiredAsync(Leader leader, FakeTimeProvider clock, string[] keys, CancellationToken cancellationToken)
     {
         foreach (var key in keys)
-            await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>(key, 1, null, Ttl), cancellationToken);
+            await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText(key), 1, null, Ttl), cancellationToken);
 
         clock.Advance(Ttl);
     }
@@ -85,8 +85,8 @@ internal static class ReplicaExpiryKit
     {
         internal Leader(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, FakeTimeProvider clock, bool budgetOnClock = false)
         {
-            Physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-            var local = new ClientCache<object?>(Physical, Physical);
+            Physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
+            var local = new ClientCache<StoredValue>(Physical, Physical);
             Committer = budgetOnClock
                 ? CreateCommitter(registry, gateway, local, clock, NullLogger<ReplicaGroupCommitter>.Instance, (TimeProvider.System, ShutdownBudget))
                 : CreateCommitter(registry, gateway, local, clock);
@@ -94,11 +94,11 @@ internal static class ReplicaExpiryKit
 
         internal ReplicaGroupCommitter Committer { get; }
 
-        internal PhysicalCache<object?> Physical { get; }
+        internal PhysicalCache<StoredValue> Physical { get; }
 
         public ValueTask DisposeAsync() => Committer.DisposeAsync();
 
-        internal NodeCacheEntry<object?>? Raw(string key, CancellationToken cancellationToken) =>
+        internal NodeCacheEntry<StoredValue>? Raw(string key, CancellationToken cancellationToken) =>
             Physical.RawReader.GetEntryRaw(new CacheKey(CacheName, key), cancellationToken);
     }
 }

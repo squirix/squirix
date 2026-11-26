@@ -170,14 +170,14 @@ internal sealed class Coordinator
 
     [Immutable]
     private sealed record CapturedSnapshotBundle(
-        List<(CacheKey Key, NodeCacheEntry<object?> Entry)> Items,
+        List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> Items,
         int ReplayFromJournalSegmentAtFlush,
         ulong NextSequenceAtFlush);
 
     [Immutable]
     private sealed class CaptureScratch
     {
-        internal List<(CacheKey Key, NodeCacheEntry<object?> Entry)> Items { get; } = [];
+        internal List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> Items { get; } = [];
 
         internal void Clear() => Items.Clear();
     }

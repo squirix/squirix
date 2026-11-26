@@ -1,8 +1,8 @@
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -63,14 +63,14 @@ public sealed class CacheEntryCodecRejectionTests : ServerUnitTestBase
     [Test]
     public async Task OutOfRangeIntegerDoesNotMapToInt()
     {
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(AboveIntRange), out _)).IsFalse();
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(BelowIntRange), out _)).IsFalse();
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(long.MaxValue), out _)).IsFalse();
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(IntMaxAsLong), out var max)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<int>(JournalEntryPayloadKit.EncodePut(AboveIntRange), out _, out _)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryRead<int>(JournalEntryPayloadKit.EncodePut(BelowIntRange), out _, out _)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryRead<int>(JournalEntryPayloadKit.EncodePut(long.MaxValue), out _, out _)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryRead<int>(JournalEntryPayloadKit.EncodePut(IntMaxAsLong), out var max, out _)).IsTrue();
         _ = await Assert.That(max!.Value).IsEqualTo(int.MaxValue);
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(IntMinAsLong), out var min)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<int>(JournalEntryPayloadKit.EncodePut(IntMinAsLong), out var min, out _)).IsTrue();
         _ = await Assert.That(min!.Value).IsEqualTo(int.MinValue);
-        _ = await Assert.That(CacheEntryCodec.TryMapEntry<long>(new NodeCacheEntry<object?>(long.MaxValue), out _)).IsTrue();
+        _ = await Assert.That(CacheEntryCodec.TryRead<long>(JournalEntryPayloadKit.EncodePut(long.MaxValue), out _, out _)).IsTrue();
     }
 
     private static bool DecodesJson(string json) => CacheEntryCodec.TryRead<object?>(JsonValueKit.EncodeEntryAround(Encoding.Latin1.GetBytes(json)), out _, out _);

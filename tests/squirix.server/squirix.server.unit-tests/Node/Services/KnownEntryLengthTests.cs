@@ -55,28 +55,28 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     {
         var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
-        var expectations = new ICacheEntrySizeEstimatorCreateExpectations<object?>();
-        _ = expectations.Setups.EstimateBytesForEncodedLength(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<int>()).Callback(static (_, _, length) => length);
-        var leader = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var leaderCache = new ClientCache<object?>(leader, leader);
+        var expectations = new ICacheEntrySizeEstimatorCreateExpectations<StoredValue>();
+        _ = expectations.Setups.EstimateBytesForEncodedLength(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int>()).Callback(static (_, _, length) => length);
+        var leader = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        var leaderCache = new ClientCache<StoredValue>(leader, leader);
         var factory = new ReplicaMutationFactory(leaderCache, "g1", 1UL, clock, NullLogger.Instance);
         var records = new List<ReplicaLogRecord>();
         var deadline = clock.GetUtcNow().UtcDateTime.AddHours(1);
         await LeaderAppliesAsync(
             leaderCache,
             records,
-            factory.PrepareSet("op-1", CacheName, "applied", new NodeCacheEntry<object?>(Tree, 1, deadline, null, Tags()), 1UL),
+            factory.PrepareSet("op-1", CacheName, "applied", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), 1UL),
             cancellationToken);
 
         await using var chain = await Chain.OpenAsync(persistence, clock, expectations.Instance(), cancellationToken);
-        await chain.Cache.SetEntryAsync(string.Empty, CacheName, "written", new NodeCacheEntry<object?>(Tree, 1, deadline, null, Tags()), cancellationToken);
-        _ = await chain.Cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<object?>(Replacement), cancellationToken);
+        await chain.Cache.SetEntryAsync(string.Empty, CacheName, "written", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), cancellationToken);
+        _ = await chain.Cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes)), cancellationToken);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
         long expected = 0;
         await foreach (var (_, entry) in chain.Physical.EnumerateLiveAsync(cancellationToken))
-            expected += PreparedJournalEntry.MeasureEncodedLength(entry);
+            expected += PreparedJournalEntryBase.MeasureEncodedLength(entry);
 
         _ = await Assert.That(CountOf(chain.Physical)).IsEqualTo(3);
         _ = await Assert.That(BytesOf(chain.Physical)).IsEqualTo(expected);
@@ -87,8 +87,8 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     public async Task DecodedPayloadReportsStoredLength()
     {
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var withDeadline = JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>(Tree, 3, deadline, null, Tags()));
-        var withoutDeadline = JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>(Tree, 3, null, null, Tags()));
+        var withDeadline = JournalEntryPayloadKit.Encode(new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, deadline, null, Tags()));
+        var withoutDeadline = JournalEntryPayloadKit.Encode(new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, null, null, Tags()));
         var relative = WithExpiration(withoutDeadline, 1);
         var both = WithExpiration(withDeadline, 9);
 
@@ -99,10 +99,10 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
                      (relative, 0L), (relative, deadline.Ticks), (both, 0L), (both, deadline.Ticks),
                  })
         {
-            var isDecoded = JournalEntryPayload.TryDecodeWithDeadline(payload, ticks, out var entry, out var length);
+            var isDecoded = JournalEntryPayload.TryDecodeWithDeadline<object?>(payload, ticks, out var entry, out var length);
 
             _ = await Assert.That(isDecoded).IsTrue();
-            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntry.MeasureEncodedLength(entry!));
+            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntryBase.MeasureEncodedLength(entry!));
             _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc));
             _ = await Assert.That(entry.Expiration).IsNull();
             _ = await Assert.That(entry.Version).IsEqualTo(3L);
@@ -115,7 +115,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
 
         var padded = new byte[withDeadline.Length + 1];
         withDeadline.CopyTo(padded, 0);
-        _ = await Assert.That(JournalEntryPayload.TryDecodeWithDeadline(padded, deadline.Ticks, out _, out var paddedLength)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecodeWithDeadline<object?>(padded, deadline.Ticks, out _, out var paddedLength)).IsTrue();
         _ = await Assert.That(paddedLength).IsNull();
     }
 
@@ -128,17 +128,17 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     public async Task DuplicatePropertyNamesAreKept(CancellationToken cancellationToken)
     {
         var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
-        var estimator = new ObjectCacheEntrySizeEstimator();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
         var duplicated = JsonElement.Parse("""{"a":1,"b":"some text","a":2}""");
-        var leader = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var leaderCache = new ClientCache<object?>(leader, leader);
+        var leader = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        var leaderCache = new ClientCache<StoredValue>(leader, leader);
         var factory = new ReplicaMutationFactory(leaderCache, "g1", 1UL, clock, NullLogger.Instance);
         var records = new List<ReplicaLogRecord>();
         await LeaderAppliesAsync(
             leaderCache,
             records,
-            factory.PrepareSet("op-1", CacheName, "dup", new NodeCacheEntry<object?>(duplicated, 2, null, null, Tags()), 1UL),
+            factory.PrepareSet("op-1", CacheName, "dup", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(duplicated).Bytes), 2, null, null, Tags()), 1UL),
             cancellationToken);
 
         long accounted;
@@ -149,8 +149,8 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
                 await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
             var stored = chain.Physical.GetEntry(new CacheKey(CacheName, "dup"), cancellationToken);
-            var json = stored!.Value is JsonUtf8Value found ? found : ThrowHelper.Throw<JsonUtf8Value>(new InvalidOperationException("The stored value must be a JSON value."));
-            _ = await Assert.That(json.ToJsonElement().GetRawText()).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
+            _ = await Assert.That(stored!.Value.Kind).IsEqualTo(StoredValueKind.Json);
+            _ = await Assert.That(System.Text.Encoding.UTF8.GetString(stored.Value.Bytes)).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
             accounted = BytesOf(chain.Physical);
             walked = await WalkedBytesAsync(chain.Physical, estimator, cancellationToken);
         }
@@ -167,7 +167,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     public async Task DurableChainAccountsWalkedBytes(CancellationToken cancellationToken)
     {
         var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
-        var estimator = new ObjectCacheEntrySizeEstimator();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
         long accounted;
         long walked;
@@ -176,13 +176,13 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         {
             var cache = chain.Cache;
             var deadline = clock.GetUtcNow().UtcDateTime.AddHours(1);
-            await cache.SetEntryAsync(string.Empty, CacheName, "plain", new NodeCacheEntry<object?>(Tree), cancellationToken);
-            await cache.SetEntryAsync(string.Empty, CacheName, "tagged", new NodeCacheEntry<object?>(Tree, 3, deadline, null, Tags()), cancellationToken);
-            await cache.SetEntryAsync(string.Empty, CacheName, "relative", new NodeCacheEntry<object?>(Tree, expiration: TimeSpan.FromMinutes(5)), cancellationToken);
-            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<object?>(Tree, 1, deadline, null, Tags()), cancellationToken);
-            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added-relative", new NodeCacheEntry<object?>(Tree, expiration: TimeSpan.FromMinutes(5)), cancellationToken);
-            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<object?>(Replacement), cancellationToken);
-            _ = await cache.UpdateAsync(string.Empty, CacheName, "tagged", Replacement, cancellationToken);
+            await cache.SetEntryAsync(string.Empty, CacheName, "plain", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes)), cancellationToken);
+            await cache.SetEntryAsync(string.Empty, CacheName, "tagged", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, deadline, null, Tags()), cancellationToken);
+            await cache.SetEntryAsync(string.Empty, CacheName, "relative", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), expiration: TimeSpan.FromMinutes(5)), cancellationToken);
+            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), cancellationToken);
+            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added-relative", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), expiration: TimeSpan.FromMinutes(5)), cancellationToken);
+            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes)), cancellationToken);
+            _ = await cache.UpdateAsync(string.Empty, CacheName, "tagged", StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes), cancellationToken);
             _ = await cache.TouchAsync(string.Empty, CacheName, "plain", TimeSpan.FromHours(2), cancellationToken);
             _ = await cache.RemoveExpirationAsync(string.Empty, CacheName, "added", cancellationToken);
             accounted = BytesOf(chain.Physical);
@@ -224,11 +224,11 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         const int iterations = 256;
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var replacementTicks = deadline.AddTicks(1).Ticks;
-        var payload = JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>("value", 3, deadline));
+        var payload = JournalEntryPayloadKit.Encode(new NodeCacheEntry<StoredValue>(StoredValue.FromText("value"), 3, deadline));
         for (var i = 0; i < iterations; i++)
         {
-            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, deadline.Ticks, out var matching, out _);
-            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, replacementTicks, out var replacement, out _);
+            _ = JournalEntryPayload.TryDecodeWithDeadline<object?>(payload, deadline.Ticks, out var matching, out _);
+            _ = JournalEntryPayload.TryDecodeWithDeadline<object?>(payload, replacementTicks, out var replacement, out _);
             GC.KeepAlive(matching);
             GC.KeepAlive(replacement);
         }
@@ -237,7 +237,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         var start = GC.GetAllocatedBytesForCurrentThread();
         for (var i = 0; i < iterations; i++)
         {
-            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, deadline.Ticks, out var entry, out _);
+            _ = JournalEntryPayload.TryDecodeWithDeadline<object?>(payload, deadline.Ticks, out var entry, out _);
             GC.KeepAlive(entry);
         }
 
@@ -245,7 +245,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         start = GC.GetAllocatedBytesForCurrentThread();
         for (var i = 0; i < iterations; i++)
         {
-            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, replacementTicks, out var entry, out _);
+            _ = JournalEntryPayload.TryDecodeWithDeadline<object?>(payload, replacementTicks, out var entry, out _);
             GC.KeepAlive(entry);
         }
 
@@ -274,31 +274,31 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     public async Task ReplicaApplyAccountsWalkedBytes(CancellationToken cancellationToken)
     {
         var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
-        var estimator = new ObjectCacheEntrySizeEstimator();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
-        var leader = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        var leaderCache = new ClientCache<object?>(leader, leader);
+        var leader = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
+        var leaderCache = new ClientCache<StoredValue>(leader, leader);
         var factory = new ReplicaMutationFactory(leaderCache, "g1", 1UL, clock, NullLogger.Instance);
         var deadline = clock.GetUtcNow().UtcDateTime.AddHours(1);
         var records = new List<ReplicaLogRecord>();
         var index = 1UL;
-        await LeaderAppliesAsync(leaderCache, records, factory.PrepareSet("op-1", CacheName, "plain", new NodeCacheEntry<object?>(Tree), index++), cancellationToken);
+        await LeaderAppliesAsync(leaderCache, records, factory.PrepareSet("op-1", CacheName, "plain", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes)), index++), cancellationToken);
         await LeaderAppliesAsync(
             leaderCache,
             records,
-            factory.PrepareSet("op-2", CacheName, "tagged", new NodeCacheEntry<object?>(Tree, 3, deadline, null, Tags()), index++),
+            factory.PrepareSet("op-2", CacheName, "tagged", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, deadline, null, Tags()), index++),
             cancellationToken);
         await LeaderAppliesAsync(
             leaderCache,
             records,
-            factory.PrepareSet("op-3", CacheName, "relative", new NodeCacheEntry<object?>(Tree, expiration: TimeSpan.FromMinutes(5)), index++),
+            factory.PrepareSet("op-3", CacheName, "relative", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), expiration: TimeSpan.FromMinutes(5)), index++),
             cancellationToken);
         await LeaderAppliesAsync(
             leaderCache,
             records,
-            await factory.PrepareTryAddAsync("op-4", CacheName, "added", new NodeCacheEntry<object?>(Tree, 1, deadline), index++, cancellationToken),
+            await factory.PrepareTryAddAsync("op-4", CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline), index++, cancellationToken),
             cancellationToken);
-        await LeaderAppliesAsync(leaderCache, records, await factory.PrepareUpdateAsync("op-5", CacheName, "tagged", Replacement, index++, cancellationToken), cancellationToken);
+        await LeaderAppliesAsync(leaderCache, records, await factory.PrepareUpdateAsync("op-5", CacheName, "tagged", StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes), index++, cancellationToken), cancellationToken);
         await LeaderAppliesAsync(
             leaderCache,
             records,
@@ -328,25 +328,25 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     [Test]
     public async Task SnapshotRecoveryAccountsWalkedBytes(CancellationToken cancellationToken)
     {
-        var estimator = new ObjectCacheEntrySizeEstimator();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         (CacheKey Key, NodeCacheEntry<object?> Entry)[] items =
         [
-            (new CacheKey(CacheName, "plain"), new NodeCacheEntry<object?>(Tree)),
-            (new CacheKey(CacheName, "tagged"), new NodeCacheEntry<object?>(Replacement, 2, deadline, null, Tags())),
+            (new CacheKey(CacheName, "plain"), new NodeCacheEntry<object?>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes))),
+            (new CacheKey(CacheName, "tagged"), new NodeCacheEntry<object?>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes), 2, deadline, null, Tags())),
         ];
         var writer = StoreFactory.CreateWriter(new PersistenceOptions { DataDir = Dir });
         var path = await writer.WriteAsync(1, items, [], cancellationToken);
 
-        var loaded = await StoreFactory.CreateReader().LoadStrictAsync<object?>(path, null, cancellationToken);
+        var loaded = await StoreFactory.CreateReader().LoadStrictAsync<StoredValue>(path, null, cancellationToken);
 
-        var replayed = new PhysicalCache<object?>(TimeProvider.System, estimator);
+        var replayed = new PhysicalCache<StoredValue>(TimeProvider.System, estimator);
         long expected = 0;
         for (var i = 0; i < loaded.Entries.Count; i++)
         {
             var (key, entry) = loaded.Entries[i];
             var length = loaded.EncodedLengths[i];
-            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntry.MeasureEncodedLength(entry));
+            _ = await Assert.That(length).IsEqualTo(PreparedJournalEntryBase.MeasureEncodedLength(entry));
             await replayed.InsertRecoveryAsync(key, entry, cancellationToken, length);
             expected += estimator.EstimateBytes(key, entry, false);
         }
@@ -359,8 +359,8 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     [Test]
     public async Task WrongHintFallsBackToMeasuredLength()
     {
-        var entry = new NodeCacheEntry<object?>(Tree, 3, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, Tags());
-        var measured = PreparedJournalEntry.MeasureEncodedLength(entry);
+        var entry = new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, Tags());
+        var measured = PreparedJournalEntryBase.MeasureEncodedLength(entry);
 
         foreach (var hint in new[] { measured - 5, measured + 5, 1 })
         {
@@ -368,10 +368,10 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             using var payload = JournalEntryPayload.Encode(in prepared);
 
             _ = await Assert.That(payload.Memory.Length).IsEqualTo(measured);
-            var isDecoded = JournalEntryPayload.TryDecode<object?>(payload.Memory.Span, out var decoded, out var bytesRead);
+            var isDecoded = JournalEntryPayload.TryDecode<StoredValue>(payload.Memory.Span, out var decoded, out var bytesRead);
             _ = await Assert.That(isDecoded).IsTrue();
             _ = await Assert.That(bytesRead).IsEqualTo(measured);
-            _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(decoded!)).IsEqualTo(measured);
+            _ = await Assert.That(PreparedJournalEntryBase.MeasureEncodedLength(decoded!)).IsEqualTo(measured);
         }
     }
 
@@ -394,7 +394,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         return estimator.Instance();
     }
 
-    private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
+    private static async Task LeaderAppliesAsync(ClientCache<StoredValue> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
     {
         var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
@@ -404,7 +404,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     private static FrozenDictionary<string, string> Tags() =>
         new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "t1", ["tier"] = "gold" }.ToFrozenDictionary(StringComparer.Ordinal);
 
-    private static async Task<long> WalkedBytesAsync(PhysicalCache<object?> cache, ObjectCacheEntrySizeEstimator estimator, CancellationToken cancellationToken)
+    private static async Task<long> WalkedBytesAsync(PhysicalCache<StoredValue> cache, CacheEntrySizeEstimator<StoredValue> estimator, CancellationToken cancellationToken)
     {
         long sum = 0;
         await foreach (var (key, entry) in cache.EnumerateLiveAsync(cancellationToken))
@@ -434,7 +434,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         private readonly IJournalCoordinator _journal;
         private readonly Ledger _manifestStore;
 
-        private Chain(Ledger manifestStore, IJournalCoordinator journal, PhysicalCache<object?> physical, JournalPayloadPrepareCacheDecorator<object?> cache)
+        private Chain(Ledger manifestStore, IJournalCoordinator journal, PhysicalCache<StoredValue> physical, JournalPayloadPrepareCacheDecorator<StoredValue> cache)
         {
             _manifestStore = manifestStore;
             _journal = journal;
@@ -442,9 +442,9 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             Cache = cache;
         }
 
-        internal JournalPayloadPrepareCacheDecorator<object?> Cache { get; }
+        internal JournalPayloadPrepareCacheDecorator<StoredValue> Cache { get; }
 
-        internal PhysicalCache<object?> Physical { get; }
+        internal PhysicalCache<StoredValue> Physical { get; }
 
         public async ValueTask DisposeAsync()
         {
@@ -455,7 +455,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         internal static async Task<Chain> OpenAsync(
             PersistenceOptions persistence,
             FakeTimeProvider clock,
-            ICacheEntrySizeEstimator<object?> estimator,
+            ICacheEntrySizeEstimator<StoredValue> estimator,
             CancellationToken cancellationToken)
         {
             var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -467,14 +467,14 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
                 NullLoggerFactory.Instance,
                 clock,
                 out _);
-            var physical = new PhysicalCache<object?>(clock, estimator);
-            var logging = new JournalLoggingCacheDecorator<object?>(
-                new ClientCache<object?>(physical, physical),
+            var physical = new PhysicalCache<StoredValue>(clock, estimator);
+            var logging = new JournalLoggingCacheDecorator<StoredValue>(
+                new ClientCache<StoredValue>(physical, physical),
                 journal,
                 new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
                 clock,
                 physical.RawReader);
-            return new Chain(manifestStore, journal, physical, new JournalPayloadPrepareCacheDecorator<object?>(logging));
+            return new Chain(manifestStore, journal, physical, new JournalPayloadPrepareCacheDecorator<StoredValue>(logging));
         }
     }
 }

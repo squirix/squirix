@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Composition;
+using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
@@ -25,8 +26,8 @@ internal static class NodeEndpointServiceRegistration
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal NodeServices AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
-            _ = services.Own<IInboundEndpointCacheOperations<object?>>(static sp =>
-                new InboundEndpointCacheOperations<object?>(sp.Require<ILogicalNamespacedCache<object?>>()));
+            _ = services.Own<IInboundEndpointCacheOperations<StoredValue>>(static sp =>
+                new InboundEndpointCacheOperations<StoredValue>(sp.Require<ILogicalNamespacedCache<StoredValue>>()));
             if (persistenceEnabled)
             {
                 _ = services.Own<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(

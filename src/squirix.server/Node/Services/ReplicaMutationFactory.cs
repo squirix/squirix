@@ -27,7 +27,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
 {
     private readonly TimeProvider _clock;
     private readonly string _groupId;
-    private readonly ILogicalNamespacedCache<object?> _local;
+    private readonly ILogicalNamespacedCache<StoredValue> _local;
     private readonly IServerLogger _log;
     private readonly ulong _term;
 
@@ -38,7 +38,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="clock">Time source that pins the absolute expiration deadlines of prepared records.</param>
     /// <param name="log">Logger of the records found inconsistent at prepare.</param>
     /// <param name="selectCapacityVictim">Selects a resident in the original owner's scope, when bounded.</param>
-    internal ReplicaMutationFactory(ILogicalNamespacedCache<object?> local, string groupId, ulong term, TimeProvider clock, IServerLogger log, Func<CacheKey, CacheKey?>? selectCapacityVictim = null)
+    internal ReplicaMutationFactory(ILogicalNamespacedCache<StoredValue> local, string groupId, ulong term, TimeProvider clock, IServerLogger log, Func<CacheKey, CacheKey?>? selectCapacityVictim = null)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
@@ -118,7 +118,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// The tombstone takes its identity from the expired entry, its version and its passed deadline, under the scope reserved for expiration,
     /// so a repeated expiry of the same entry keeps one identity and no client operation can share it.
     /// </remarks>
-    internal async ValueTask<(PreparedReplicaMutation? Tombstone, NodeCacheEntry<object?>? Current)> PrepareExpireAsync(
+    internal async ValueTask<(PreparedReplicaMutation? Tombstone, NodeCacheEntry<StoredValue>? Current)> PrepareExpireAsync(
         string cacheName,
         string key,
         ulong index,
@@ -240,7 +240,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="entry">Entry to write.</param>
     /// <param name="index">Reserved group log index.</param>
     /// <returns>The prepared mutation.</returns>
-    internal PreparedReplicaMutation PrepareSet(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, ulong index)
+    internal PreparedReplicaMutation PrepareSet(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, ulong index)
     {
         ArgumentNullException.ThrowIfNull(entry);
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -261,7 +261,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             now.Ticks,
             0);
         var mutation = Build(cacheName, record, index, key, decision.Entry);
-        if (entry.RawValue is not DistributedCacheWrite { HasSlidingExpiration: true })
+        if (entry.PendingWrite is not { HasSlidingExpiration: true })
             return mutation;
 
         // Renewals keep the same entry and compact outcome; only the mutation kind can require more bytes.
@@ -326,7 +326,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         string operationId,
         string cacheName,
         string key,
-        NodeCacheEntry<object?> entry,
+        NodeCacheEntry<StoredValue> entry,
         ulong index,
         CancellationToken cancellationToken)
     {
@@ -364,19 +364,19 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         string operationId,
         string cacheName,
         string key,
-        object? value,
+        StoredValue value,
         ulong index,
         CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        var decision = ReplicaMutationDecisions.DecideUpdate(current, value, now);
+        var decision = ReplicaMutationDecisions.DecideUpdate(current, in value, now);
         var record = new ReplicaLogRecord(
             index,
             _term,
             operationId,
             cacheName,
-            ReplicaOperationFingerprints.Update(operationId, cacheName, key, value),
+            ReplicaOperationFingerprints.Update(operationId, cacheName, key, in value),
             GroupRecordKinds.UserMutation,
             cacheName,
             ReadOnlyMemory<byte>.Empty,
@@ -411,7 +411,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <returns>The prepared mutation, carrying the outcome of the record.</returns>
     /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
     /// <exception cref="ServerCallException">The insertion and its eviction exceed the replication message budget.</exception>
-    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, PreparedJournalEntry? entry = null)
+    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, PreparedJournalEntryBase? entry = null)
     {
         if (SelectCapacityVictim != null && key != null && entry != null &&
             (string.Equals(record.MutationKind, ReplicaMutationKinds.Set, StringComparison.Ordinal) || string.Equals(record.MutationKind, ReplicaMutationKinds.TryAdd, StringComparison.Ordinal)))

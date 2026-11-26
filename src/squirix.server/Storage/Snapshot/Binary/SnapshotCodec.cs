@@ -29,7 +29,7 @@ internal static class SnapshotCodec
 
     private static ReadOnlySpan<byte> Magic => "SQSS"u8;
 
-    internal static int ComputeEntryBodyLength(CacheKey key, NodeCacheEntry<object?> entry)
+    internal static int ComputeEntryBodyLength<T>(CacheKey key, NodeCacheEntry<T> entry)
     {
         var namespaceBytes = Encoding.UTF8.GetByteCount(key.Namespace);
         var keyBytes = Encoding.UTF8.GetByteCount(key.Key);
@@ -141,11 +141,12 @@ internal static class SnapshotCodec
     }
 
     /// <summary>Encodes an entry body into a destination sized from <see cref="ComputeEntryBodyLength" />, without measuring the entry again.</summary>
+    /// <typeparam name="T">The entry value type.</typeparam>
     /// <param name="key">The entry key.</param>
     /// <param name="entry">The entry to encode.</param>
     /// <param name="destination">The span receiving exactly the computed body length.</param>
     /// <exception cref="InvalidOperationException">The body does not encode to its measured length.</exception>
-    internal static void WriteEntryBody(CacheKey key, NodeCacheEntry<object?> entry, Span<byte> destination)
+    internal static void WriteEntryBody<T>(CacheKey key, NodeCacheEntry<T> entry, Span<byte> destination)
     {
         var offset = 0;
         offset += WriteUtf8Prefixed(key.Namespace, destination[offset..]);

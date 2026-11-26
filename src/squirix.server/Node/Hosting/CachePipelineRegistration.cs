@@ -21,17 +21,17 @@ internal static class CachePipelineRegistration
 {
     internal static NodeServices AddSquirixCachePipeline(this NodeServices services, bool persistenceEnabled = false, bool metricsEnabled = false)
     {
-        _ = services.Own(static sp => new ClientCache<object?>(
-            sp.Require<ILocalCacheReadOperations<object?>>(),
-            sp.Require<ILocalCacheMutationOperations<object?>>()));
+        _ = services.Own(static sp => new ClientCache<StoredValue>(
+            sp.Require<ILocalCacheReadOperations<StoredValue>>(),
+            sp.Require<ILocalCacheMutationOperations<StoredValue>>()));
 
         AddOwnershipGuardLayer(services, persistenceEnabled);
         AddCacheDecoratorChain(services, metricsEnabled);
-        _ = services.Own<ILogicalNamespacedCache<object?>>(static sp => sp.Require<TracingCacheDecorator<object?>>());
+        _ = services.Own<ILogicalNamespacedCache<StoredValue>>(static sp => sp.Require<TracingCacheDecorator<StoredValue>>());
         _ = services.Own<IDistributedCacheAccess>(static sp => new NodeDistributedCacheAccess(
             ResolveLocalCache(sp),
-            sp.Require<PhysicalCache<object?>>(),
-            sp.Find<JournalLoggingCacheDecorator<object?>>(),
+            sp.Require<PhysicalCache<StoredValue>>(),
+            sp.Find<JournalLoggingCacheDecorator<StoredValue>>(),
             sp.Require<IBackpressureGate>(),
             sp.Require<IBackpressureClientIdResolver>()));
 
@@ -64,14 +64,14 @@ internal static class CachePipelineRegistration
     /// An answer it gives without a log record comes from a fenced read, and never reports absent a key whose expired entry has no
     /// committed tombstone yet.
     /// </remarks>
-    internal static MemoryAdmissionCacheDecorator<object?> CreateAdmissionDecorator(
-        ILogicalNamespacedCache<object?> local,
+    internal static MemoryAdmissionCacheDecorator<StoredValue> CreateAdmissionDecorator(
+        ILogicalNamespacedCache<StoredValue> local,
         PressureGate gate,
-        ICacheEntrySizeEstimator<object?> estimator,
+        ICacheEntrySizeEstimator<StoredValue> estimator,
         Func<string, string, string, bool>? hasRecordedOutcome)
     {
         var replicated = local as ReplicatedCache;
-        return new MemoryAdmissionCacheDecorator<object?>(
+        return new MemoryAdmissionCacheDecorator<StoredValue>(
             local,
             gate,
             estimator,
@@ -84,7 +84,7 @@ internal static class CachePipelineRegistration
     /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
     /// <param name="sp">Service provider.</param>
     /// <returns>The local cache pipeline.</returns>
-    private static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
+    private static ILogicalNamespacedCache<StoredValue> ResolveLocalCache(IServiceProvider sp)
     {
         var inner = sp.Require<OwnerLocalCache>().Value;
 
@@ -110,41 +110,41 @@ internal static class CachePipelineRegistration
         _ = services.Own(static sp => CreateAdmissionDecorator(
             ResolveLocalCache(sp),
             sp.Require<PressureGate>(),
-            sp.Require<ICacheEntrySizeEstimator<object?>>(),
+            sp.Require<ICacheEntrySizeEstimator<StoredValue>>(),
             HasRecordedOutcome(sp)));
         if (metricsEnabled)
         {
             _ = services.Own(static sp => new CacheMetrics(sp.Require<Meter>()));
-            _ = services.Own(static sp => new MetricsCacheDecorator<object?>(
-                sp.Require<MemoryAdmissionCacheDecorator<object?>>(),
+            _ = services.Own(static sp => new MetricsCacheDecorator<StoredValue>(
+                sp.Require<MemoryAdmissionCacheDecorator<StoredValue>>(),
                 sp.Require<CacheMetrics>()));
         }
 
-        _ = services.Own(static sp => new BackpressureCacheDecorator<object?>(
-            sp.Find<MetricsCacheDecorator<object?>>() is { } metrics
+        _ = services.Own(static sp => new BackpressureCacheDecorator<StoredValue>(
+            sp.Find<MetricsCacheDecorator<StoredValue>>() is { } metrics
                 ? metrics
-                : sp.Require<MemoryAdmissionCacheDecorator<object?>>(),
+                : sp.Require<MemoryAdmissionCacheDecorator<StoredValue>>(),
             sp.Require<IBackpressureGate>(),
             sp.Require<IBackpressureClientIdResolver>()));
         _ = services.Own(static sp =>
         {
             // Only the table of the election state names elected leaders; the static table keeps the refusal trailers of static ownership.
             var leaders = sp.Require<IGroupLeaderTable>();
-            return new OwnershipGuardCacheDecorator<object?>(
+            return new OwnershipGuardCacheDecorator<StoredValue>(
                 sp.Require<TopologyOptions>().NodeId,
                 sp.Require<INodeLocator>(),
                 leaders,
                 leaders is not StaticLeaderTable,
-                sp.Require<BackpressureCacheDecorator<object?>>(),
+                sp.Require<BackpressureCacheDecorator<StoredValue>>(),
                 sp.Find<IRoutedKeyContext>());
         });
-        _ = services.Own(static sp => new ValidationCacheDecorator<object?>(
-            sp.Require<OwnershipGuardCacheDecorator<object?>>(),
+        _ = services.Own(static sp => new ValidationCacheDecorator<StoredValue>(
+            sp.Require<OwnershipGuardCacheDecorator<StoredValue>>(),
             EntryLimits.ValueBytes(sp.Require<FeatureState>().NetworkReplicationEnabled),
             sp.Find<IRoutedKeyContext>()));
-        _ = services.Own(static sp => new DomainErrorMappingCacheDecorator<object?>(sp.Require<ValidationCacheDecorator<object?>>()));
-        _ = services.Own(static sp => new TracingCacheDecorator<object?>(
-            sp.Require<DomainErrorMappingCacheDecorator<object?>>(),
+        _ = services.Own(static sp => new DomainErrorMappingCacheDecorator<StoredValue>(sp.Require<ValidationCacheDecorator<StoredValue>>()));
+        _ = services.Own(static sp => new TracingCacheDecorator<StoredValue>(
+            sp.Require<DomainErrorMappingCacheDecorator<StoredValue>>(),
             sp.Require<TopologyOptions>().NodeId));
     }
 
@@ -153,18 +153,18 @@ internal static class CachePipelineRegistration
         if (persistenceEnabled)
         {
             _ = services.Own(static sp => new DurableMutationExecutor(sp.Require<IJournalCoordinator>(), sp.Require<IServerLoggerFactory>().CreateLogger<DurableMutationExecutor>()));
-            _ = services.Own(static sp => new JournalLoggingCacheDecorator<object?>(
-                sp.Require<ClientCache<object?>>(),
+            _ = services.Own(static sp => new JournalLoggingCacheDecorator<StoredValue>(
+                sp.Require<ClientCache<StoredValue>>(),
                 sp.Require<IJournalCoordinator>(),
                 sp.Require<DurableMutationExecutor>(),
                 sp.Require<TimeProvider>(),
-                sp.Require<ILocalCacheRawReader<object?>>()));
-            _ = services.Own(static sp => new JournalPayloadPrepareCacheDecorator<object?>(sp.Require<JournalLoggingCacheDecorator<object?>>()));
-            _ = services.Own(static sp => new OwnerLocalCache(sp.Require<JournalPayloadPrepareCacheDecorator<object?>>()));
+                sp.Require<ILocalCacheRawReader<StoredValue>>()));
+            _ = services.Own(static sp => new JournalPayloadPrepareCacheDecorator<StoredValue>(sp.Require<JournalLoggingCacheDecorator<StoredValue>>()));
+            _ = services.Own(static sp => new OwnerLocalCache(sp.Require<JournalPayloadPrepareCacheDecorator<StoredValue>>()));
             return;
         }
 
-        _ = services.Own(static sp => new OwnerLocalCache(sp.Require<ClientCache<object?>>()));
+        _ = services.Own(static sp => new OwnerLocalCache(sp.Require<ClientCache<StoredValue>>()));
     }
 
     /// <summary>Returns how memory admission asks whether the replica group of a key recorded an operation's outcome; none on single-copy hosts.</summary>

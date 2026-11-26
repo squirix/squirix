@@ -16,9 +16,11 @@ namespace Squirix.Server.Benchmarks;
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class ExpiredEntryRemovalBenchmarks
 {
+    private static readonly StoredValue SmallText = StoredValue.FromText("v");
+
     private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private CacheKey[] _keys = [];
-    private PhysicalCache<object?>? _cache;
+    private PhysicalCache<StoredValue>? _cache;
 
     /// <summary>Gets or sets the number of entries past their deadline at the time of the pass; -1 means every entry.</summary>
     [Params(0, 1024, -1)]
@@ -39,13 +41,13 @@ public class ExpiredEntryRemovalBenchmarks
     public void Setup()
     {
         var clock = new StepClock(Start);
-        _cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
+        _cache = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
         _keys = _keys.Length == Stored ? _keys : CreateKeys(Stored);
         var due = Due < 0 ? Stored : Due;
         for (var i = 0; i < Stored; i++)
         {
             var ttl = i < due ? TimeSpan.FromMinutes(1) : TimeSpan.FromDays(1);
-            _cache.Set(_keys[i], new NodeCacheEntry<object?>("v", 1, null, ttl), CancellationToken.None);
+            _cache.Set(_keys[i], new NodeCacheEntry<StoredValue>(SmallText, 1, null, ttl), CancellationToken.None);
         }
 
         clock.Now += TimeSpan.FromHours(1);

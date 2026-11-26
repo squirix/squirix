@@ -29,6 +29,13 @@ Squirix.Server does not reference the Squirix client assembly.
 ```
 
 The SDK and server compile the same internal cache message definitions and binary codec from shared C# sources.
+Each entry carries its own value kind. A named cache can hold text, binary data, numbers, booleans, JSON and null.
+A write can replace an existing key with a value of another kind. The server stores numbers and booleans inline
+and retains text and JSON as UTF-8 bytes. The SDK serializes application types and reconstructs them on read.
+Journal and snapshot writers encode the stored value directly. Recovery restores scalars inline
+and gives each text, JSON or binary value its own byte array.
+Application assemblies are required only by the client.
+
 The replication message definitions are private to the server. HTTP health and metrics are served separately.
 The [wire generator](../tools/internal/generate-wire.py) emits the checked-in C# message types from the positional schemas.
 Each operation defines the order of its fields. Flags encode booleans and optional-field presence without per-field tags.

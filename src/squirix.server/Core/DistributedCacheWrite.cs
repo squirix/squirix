@@ -37,6 +37,25 @@ internal sealed class DistributedCacheWrite
     /// <summary>Gets the relative expiration cap requested by the client, in ticks.</summary>
     internal long? TtlTicks { get; }
 
+    internal static bool TryGetEnvelope<T>(byte[] bytes, out T? value)
+    {
+        if (typeof(T) == typeof(StoredValue))
+        {
+            var binary = StoredValue.FromBinary(bytes);
+            value = System.Runtime.CompilerServices.Unsafe.As<StoredValue, T>(ref binary);
+            return true;
+        }
+
+        if (bytes is T typed)
+        {
+            value = typed;
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
     /// <summary>Resolves a Set to the envelope bytes and one absolute deadline.</summary>
     /// <typeparam name="T">The server cache value type.</typeparam>
     /// <param name="now">The owner clock at preparation.</param>
@@ -62,7 +81,7 @@ internal sealed class DistributedCacheWrite
         var envelope = HasSlidingExpiration && policy != _policy
             ? policy.Encode(Envelope.AsSpan(DistributedCachePolicy.HeaderLength))
             : Envelope;
-        if (envelope is not T value)
+        if (!TryGetEnvelope(envelope, out T? value))
             throw InvalidPolicy();
 
         // The replica log reserves zero ticks for no expiry. An older cap still replaces the value with an expired entry.

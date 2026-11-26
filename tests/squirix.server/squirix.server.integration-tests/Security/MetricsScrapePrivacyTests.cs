@@ -34,8 +34,8 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
             new IntegrationStartOptions { MetricsEnabled = true, PrometheusMetricsEnabled = true, Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
-        var cache = cluster[NodeId].GetCache<object?>(secretCacheName);
-        await cache.SetEntryAsync(IntegrationMutationOpIds.Default, secretCacheName, "k", new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken);
+        var cache = cluster[NodeId].GetCache<StoredValue>(secretCacheName);
+        await cache.SetEntryAsync(IntegrationMutationOpIds.Default, secretCacheName, "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v"), Version = 1 }, cancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, new Uri(cluster[NodeId].ManagementUri, "/metrics"));
         req.Version = HttpVersion.Version11;

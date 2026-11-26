@@ -87,8 +87,8 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
     [Test]
     public async Task PendingApplyKeepsLog(CancellationToken cancellationToken)
     {
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback(static (_, _, _, _, _) => ValueTask.FromException(new IOException("memory apply failed")));
         using var dir = new TempDirectory("squirix-owned-compaction-pending");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);

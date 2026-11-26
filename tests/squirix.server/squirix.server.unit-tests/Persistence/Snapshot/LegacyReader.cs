@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.Utils;
@@ -26,10 +25,10 @@ internal sealed class LegacyReader : ISnapshotReader
         List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries = [];
         List<int?> lengths = [];
         var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
-        using (var enumerator = new RecordEnumerator(path, cancellationToken))
+        using (var enumerator = new RecordEnumerator<T>(path, expiredAsOf, cancellationToken))
         {
             while (enumerator.MoveNext())
-                AppendRecord(enumerator.Current, expiredAsOf, entries, lengths, idempotencyRecords);
+                AppendRecord(enumerator.Current, entries, lengths, idempotencyRecords);
         }
 
         return new ValueTask<LoadResult<T>>(new LoadResult<T>(entries, idempotencyRecords, lengths));
@@ -37,21 +36,17 @@ internal sealed class LegacyReader : ISnapshotReader
 
     private static void AppendRecord<T>(
         object record,
-        DateTime? expiredAsOf,
         List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries,
         List<int?> lengths,
         List<PersistedIdempotencyRecord> records)
     {
         switch (record)
         {
-            case EntryRecord entry:
-                if (expiredAsOf is { } utcNow && IsExpired(entry.Entry, utcNow))
+            case EntryRecord<T> entry:
+                if (entry.Entry == null)
                     return;
 
-                if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped == null)
-                    throw new InvalidDataException("Binary snapshot entry payload could not be read.");
-
-                entries.Add((entry.Key, mapped));
+                entries.Add((entry.Key, entry.Entry));
                 lengths.Add(entry.EncodedLength);
                 return;
 
@@ -63,17 +58,16 @@ internal sealed class LegacyReader : ISnapshotReader
         }
     }
 
-    private static bool IsExpired(NodeCacheEntry<object?> entry, DateTime utcNow) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= utcNow;
-
     [Immutable]
-    private sealed record EntryRecord(CacheKey Key, NodeCacheEntry<object?> Entry, int? EncodedLength);
+    private sealed record EntryRecord<T>(CacheKey Key, NodeCacheEntry<T>? Entry, int? EncodedLength);
 
     [Immutable]
     private sealed record IdempotencyRecord(PersistedIdempotencyRecord Record);
 
-    private sealed class RecordEnumerator : IEnumerator<object>
+    private sealed class RecordEnumerator<T> : IEnumerator<object>
     {
         private readonly CancellationToken _cancellationToken;
+        private readonly DateTime? _expiredAsOf;
         private readonly long _footerOffset;
         private readonly SafeFileHandle _handle;
         private uint _crc;
@@ -82,9 +76,10 @@ internal sealed class LegacyReader : ISnapshotReader
         private long _offset;
         private byte[] _scratch = new byte[InitialRecordScratchSize];
 
-        internal RecordEnumerator(string path, CancellationToken cancellationToken)
+        internal RecordEnumerator(string path, DateTime? expiredAsOf, CancellationToken cancellationToken)
         {
             _cancellationToken = cancellationToken;
+            _expiredAsOf = expiredAsOf;
             _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, FileOptions.SequentialScan);
             try
             {
@@ -141,13 +136,13 @@ internal sealed class LegacyReader : ISnapshotReader
 
         public void Reset() => throw new NotSupportedException();
 
-        private static object MapRecord(RecordKind kind, ReadOnlySpan<byte> body)
+        private static object MapRecord(RecordKind kind, ReadOnlySpan<byte> body, DateTime? expiredAsOf)
         {
             switch (kind)
             {
                 case RecordKind.Entry:
-                    if (SnapshotCodec.TryReadEntryBody<object?>(body, out var key, out var entry, out var encodedLength) && entry != null)
-                        return new EntryRecord(key, entry, encodedLength);
+                    if (SnapshotCodec.TryReadEntryBody<T>(body, out var key, out var entry, out var encodedLength, expiredAsOf))
+                        return new EntryRecord<T>(key, entry, encodedLength);
 
                     throw new InvalidDataException("Binary snapshot entry body could not be read.");
 
@@ -166,7 +161,7 @@ internal sealed class LegacyReader : ISnapshotReader
                 throw new InvalidDataException("Binary snapshot record is truncated.");
 
             _crc = Crc32C.Append(_crc, recordBytes);
-            return MapRecord(kind, body);
+            return MapRecord(kind, body, _expiredAsOf);
         }
 
         private ReadOnlySpan<byte> ReadRecordBytes()

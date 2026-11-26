@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -32,7 +33,7 @@ public sealed class DefaultModeIntegrationTests : NodeIntegrationTestBase
         await cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), cancellationToken);
         var value = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, "ephemeral:key", cancellationToken);
         _ = await Assert.That(value.Found).IsTrue();
-        _ = await Assert.That(value.Value).IsEqualTo("value");
+        _ = await Assert.That(StoredValueProbe.Text(value.Value)).IsEqualTo("value");
     }
 
     /// <summary>Ensures default startup does not create journal, manifest, or snapshot files.</summary>

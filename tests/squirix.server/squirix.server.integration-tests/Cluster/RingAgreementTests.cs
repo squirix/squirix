@@ -98,7 +98,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
             OperationId = RpcOperationIdentity.New(),
             CacheName = CacheName,
             Key = key,
-            Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToWire(),
+            Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("must-not-run"), Version = 1 }.MapToWire(),
         };
         var refused = await RefusalAsync(
             (Client: client, Request: request),
@@ -124,7 +124,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var response = await client.SetEntryAsync(CreateSetRequest(RpcOperationIdentity.New(), key), cancellationToken: cancellationToken);
 
         _ = await Assert.That(response).IsNotNull();
-        var stored = cluster["n2"].GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
+        var stored = cluster["n2"].GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         _ = await Assert.That(stored.Found).IsTrue();
         await AssertReadyAsync(cluster["n1"], cancellationToken);
         await AssertReadyAsync(cluster["n2"], cancellationToken);
@@ -135,7 +135,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         OperationId = operationId,
         CacheName = CacheName,
         Key = key,
-        Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToWire(),
+        Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("must-not-run"), Version = 1 }.MapToWire(),
     };
 
     private static string FindKeyOwnedByInShortRing(string owner)
@@ -197,7 +197,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
 
     private static async Task AssertNothingExecutedAsync(ITestNodeHost owner, string key, CancellationToken cancellationToken)
     {
-        var stored = owner.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
+        var stored = owner.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
 
         _ = await Assert.That(stored.Found).IsFalse();
     }

@@ -14,6 +14,11 @@ namespace Squirix.Server.Core;
 [Immutable]
 public sealed class NodeCacheEntry<T>
 {
+    private readonly long _expires = EntryDeadline.None;
+
+    /// <summary>An adapter write carries an owner-side policy until materialization. Only native entries can carry tags.</summary>
+    private readonly object? _tagsOrWrite;
+
     /// <summary>Initializes a new instance of the <see cref="NodeCacheEntry{T}" /> class.</summary>
     public NodeCacheEntry()
     {
@@ -33,7 +38,14 @@ public sealed class NodeCacheEntry<T>
         Version = version;
         ExpiresUtc = expiresUtc;
         Expiration = expiration;
-        Tags = tags;
+        _tagsOrWrite = tags;
+    }
+
+    [SetsRequiredMembers]
+    internal NodeCacheEntry(T? value, DistributedCacheWrite write)
+        : this(value, expiresUtc: write.DeadlineForSizing)
+    {
+        _tagsOrWrite = write;
     }
 
     /// <summary>
@@ -46,16 +58,20 @@ public sealed class NodeCacheEntry<T>
     /// Gets the absolute UTC expiration time. The entry expires at the earliest of this time and the
     /// <see cref="Expiration" /> deadline.
     /// </summary>
-    public DateTime? ExpiresUtc { get; init; }
+    public DateTime? ExpiresUtc
+    {
+        get => EntryDeadline.Decode(_expires);
+        init => _expires = EntryDeadline.Encode(value);
+    }
 
     /// <summary>
     /// Gets optional user-defined tags for extension packages (for example tag invalidation).
     /// Not part of the v0.1 basic <c language="csharp">Squirix</c> client contract.
     /// </summary>
-    public FrozenDictionary<string, string>? Tags { get; }
+    public FrozenDictionary<string, string>? Tags => _tagsOrWrite as FrozenDictionary<string, string>;
 
     /// <summary>Gets the value to store. May be <see langword="null" />.</summary>
-    public required T? Value { get => StoredText.Unpack(RawValue); init => RawValue = value; }
+    public required T? Value { get; init; }
 
     /// <summary>
     /// Gets the monotonic entry version used by extension packages for optimistic concurrency.
@@ -74,7 +90,7 @@ public sealed class NodeCacheEntry<T>
         }
     }
 
-    internal T? RawValue { get; private init; }
+    internal DistributedCacheWrite? PendingWrite => _tagsOrWrite as DistributedCacheWrite;
 
     /// <summary>Normalizes a value to a form the durable codecs store directly.</summary>
     /// <param name="value">The value to normalize.</param>
@@ -88,7 +104,7 @@ public sealed class NodeCacheEntry<T>
         };
     }
 
-    internal object? Normalize() => NormalizeValue(RawValue);
+    internal object? Normalize() => NormalizeValue(Value);
 
     /// <summary>Normalizes a non-primitive cache value.</summary>
     /// <param name="value">The value.</param>
@@ -99,7 +115,7 @@ public sealed class NodeCacheEntry<T>
     /// </remarks>
     private static object? NormalizeStructured(T value) => value switch
     {
-        JsonUtf8Value or StoredText => value,
+        JsonUtf8Value or StoredValue => value,
         JsonElement element => NormalizeElement(element),
         DistributedCacheWrite write => write.Envelope,
         _ => ServerJsonSerializer.SerializeToJsonValue<object?>(value),

@@ -140,7 +140,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         };
     }
 
-    private static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
+    private static NodeCacheEntry<StoredValue> Entry() => new() { Value = StoredValue.FromText("v"), Version = 1 };
 
     private static IFollowerLog Log(ReplicaGroupRegistry registry) =>
         registry.TryGetLog(OwnedGroup, out var log) ? log : throw new InvalidOperationException("The owned group log is not open.");

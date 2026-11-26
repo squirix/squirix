@@ -59,13 +59,13 @@ public sealed class ReplicaMemoryPressureTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitVerifiedAsync(leader, cancellationToken);
         var committer = ReplicaNodeCommitters.OwnCommitter(leader);
         var reader = pressured.GetRequiredService<ICriticalMemoryPressureReader>();
-        var cache = leader.GetCache<object?>(CacheName);
+        var cache = leader.GetCache<StoredValue>(CacheName);
         var keys = OwnedKeys(leader, owner, MaxGrowingAttempts + 3);
 
         // A static leader sends the commit index of an entry with the next append only, so the pressured node applies the large entry, and
         // becomes critical, once a second write reaches it.
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[0], new NodeCacheEntry<object?> { Value = new string('x', LargeValueChars), Version = 1 }, cancellationToken);
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[1], new NodeCacheEntry<object?> { Value = "carry", Version = 1 }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[0], new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(new string('x', LargeValueChars)), Version = 1 }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[1], new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("carry"), Version = 1 }, cancellationToken);
         await reader.WaitUntilAsync(static r => r.IsCritical(), cancellationToken);
         var refusedKey = await GrowUntilRefusedAsync(cache, committer, keys, cancellationToken);
         var stored = refusedKey == null ? default : await cache.GetValueAsync(CacheName, refusedKey, cancellationToken);
@@ -100,13 +100,13 @@ public sealed class ReplicaMemoryPressureTests : NodeIntegrationTestBase
     /// <param name="keys">The keys to write, the first two of which are skipped.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The refused key, or <see langword="null" /> when every write was accepted.</returns>
-    private static async Task<string?> GrowUntilRefusedAsync(ILogicalNamespacedCache<object?> cache, ReplicaGroupCommitter committer, string[] keys, CancellationToken cancellationToken)
+    private static async Task<string?> GrowUntilRefusedAsync(ILogicalNamespacedCache<StoredValue> cache, ReplicaGroupCommitter committer, string[] keys, CancellationToken cancellationToken)
     {
         for (var i = 2; i < keys.Length; i++)
         {
             try
             {
-                await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[i], new NodeCacheEntry<object?> { Value = "grow", Version = 1 }, cancellationToken);
+                await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[i], new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("grow"), Version = 1 }, cancellationToken);
             }
             catch (ResourceExhaustedException)
             {
@@ -126,13 +126,13 @@ public sealed class ReplicaMemoryPressureTests : NodeIntegrationTestBase
     /// <param name="keys">The keys to write.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns><see langword="true" /> when a growing write was accepted.</returns>
-    private static async Task<bool> GrowUntilAcceptedAsync(ILogicalNamespacedCache<object?> cache, ReplicaGroupCommitter committer, string[] keys, CancellationToken cancellationToken)
+    private static async Task<bool> GrowUntilAcceptedAsync(ILogicalNamespacedCache<StoredValue> cache, ReplicaGroupCommitter committer, string[] keys, CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < MaxGrowingAttempts; attempt++)
         {
             try
             {
-                await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[^1], new NodeCacheEntry<object?> { Value = "resumed", Version = 1 }, cancellationToken);
+                await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, keys[^1], new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("resumed"), Version = 1 }, cancellationToken);
                 return true;
             }
             catch (ResourceExhaustedException)

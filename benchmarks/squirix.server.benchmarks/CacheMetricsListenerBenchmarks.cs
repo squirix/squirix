@@ -15,8 +15,10 @@ namespace Squirix.Server.Benchmarks;
 [MemoryDiagnoser]
 public class CacheMetricsListenerBenchmarks
 {
-    private readonly NodeCacheEntry<object?> _entry = new("value");
-    private MetricsCacheDecorator<object?>? _cache;
+    private static readonly StoredValue ValueText = StoredValue.FromText("value");
+
+    private readonly NodeCacheEntry<StoredValue> _entry = new(ValueText);
+    private MetricsCacheDecorator<StoredValue>? _cache;
     private MeterListener? _listener;
     private Meter? _meter;
 
@@ -30,10 +32,10 @@ public class CacheMetricsListenerBenchmarks
     public async Task SetupAsync()
     {
         _meter = new Meter("Squirix.Benchmarks.CacheMetrics");
-        var physical = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
-        var local = new ClientCache<object?>(physical, physical);
+        var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        var local = new ClientCache<StoredValue>(physical, physical);
         await local.SetEntryAsync("setup", "cache", "key", _entry, CancellationToken.None).ConfigureAwait(false);
-        _cache = new MetricsCacheDecorator<object?>(local, new CacheMetrics(_meter));
+        _cache = new MetricsCacheDecorator<StoredValue>(local, new CacheMetrics(_meter));
         if (Instruments == 0)
             return;
 
@@ -52,10 +54,10 @@ public class CacheMetricsListenerBenchmarks
     }
 
     /// <summary>Reads a cached value through the metrics decorator.</summary>
-    /// <returns>The cached value.</returns>
+    /// <returns>Whether the read found the seeded value.</returns>
     /// <exception cref="InvalidOperationException">The benchmark has not been initialized.</exception>
     [Benchmark]
-    public ValueTask<NodeCacheValueResult<object?>> GetAsync() => ThrowHelper.Required(_cache, "Benchmark was not initialized.").GetValueAsync("cache", "key", CancellationToken.None);
+    public async ValueTask<bool> GetAsync() => (await ThrowHelper.Required(_cache, "Benchmark was not initialized.").GetValueAsync("cache", "key", CancellationToken.None).ConfigureAwait(false)).Found;
 
     /// <summary>Overwrites a cached value through the metrics decorator.</summary>
     /// <returns>The completion of the write.</returns>

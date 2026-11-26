@@ -23,7 +23,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter) => EstimateWithPayload(
         key,
         entry,
-        payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.RawValue));
+        payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value));
 
     /// <inheritdoc />
     public long MeasureValue(T? value) => EstimateTypedPayloadBytes(value);
@@ -36,7 +36,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     public long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => EstimateBytes(key, entry, false);
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.RawValue);
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && IsUnknownTypedPayloadEstimate(entry.Value);
 
     /// <summary>Includes the resident policy metadata in estimates used by admission and the physical store.</summary>
     /// <param name="estimator">Base entry-size estimator.</param>
@@ -91,6 +91,34 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         return sum;
     }
 
+    /// <summary>Returns whether the typed payload maps to the estimator's conservative unknown bucket (non-counter path).</summary>
+    /// <param name="value">The value carried by a cache entry.</param>
+    /// <returns><see langword="true" /> when the estimator would use an unknown typed payload fallback.</returns>
+    private static bool IsUnknownTypedPayloadEstimate(T? value)
+    {
+        return value switch
+        {
+            null => false,
+            string or StoredValue => false,
+            byte[] => false,
+            bool => false,
+            char => false,
+            sbyte => false,
+            byte => false,
+            short => false,
+            ushort => false,
+            int => false,
+            uint => false,
+            float => false,
+            long => false,
+            ulong => false,
+            double => false,
+            decimal => false,
+            JsonUtf8Value => false,
+            _ => true,
+        };
+    }
+
     private static long EstimateTypedPayloadBytes(T? value)
     {
         // A dedicated null arm detects actual null presence for unconstrained T; comparing against
@@ -99,7 +127,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         return value switch
         {
             null => 0,
-            StoredText text => text.Bytes.Length,
+            StoredValue stored => stored.EstimatedPayloadBytes,
             string s => long.CreateChecked(s.Length) * sizeof(char),
             byte[] bytes => bytes.LongLength,
             bool => sizeof(bool),

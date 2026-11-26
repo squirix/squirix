@@ -26,13 +26,13 @@ public sealed class MemoryAccountingWiringTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("n1", new IntegrationStartOptions { EnableReplication = false }, cancellationToken);
         var host = cluster["n1"];
         var accounting = host.GetRequiredService<IMemoryUsageAccounting>();
-        var physical = host.GetRequiredService<PhysicalCache<object?>>();
+        var physical = host.GetRequiredService<PhysicalCache<StoredValue>>();
         var before = accounting.ReadEstimatedBytes();
-        var entry = new NodeCacheEntry<object?> { Value = "wired", Version = 1 };
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("wired"), Version = 1 };
 
-        await host.GetRequiredService<ILogicalNamespacedCache<object?>>().SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", entry, cancellationToken);
+        await host.GetRequiredService<ILogicalNamespacedCache<StoredValue>>().SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", entry, cancellationToken);
 
-        var expected = host.GetRequiredService<ICacheEntrySizeEstimator<object?>>().EstimateBytes(new CacheKey(CacheName, "k"), entry, false);
+        var expected = host.GetRequiredService<ICacheEntrySizeEstimator<StoredValue>>().EstimateBytes(new CacheKey(CacheName, "k"), entry, false);
         _ = await Assert.That(before).IsEqualTo(0L);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expected);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1L);

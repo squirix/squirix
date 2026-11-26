@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
@@ -32,11 +33,11 @@ internal static class QuorumReadTestKit
     /// <param name="replicated">The replicated cache below admission.</param>
     /// <param name="meter">The meter of the pressure gate.</param>
     /// <returns>The decorator.</returns>
-    internal static MemoryAdmissionCacheDecorator<object?> CreateAdmission(ReplicatedCache replicated, Meter meter)
+    internal static MemoryAdmissionCacheDecorator<StoredValue> CreateAdmission(ReplicatedCache replicated, Meter meter)
     {
-        var estimator = new CacheEntrySizeEstimator<object?>();
+        var estimator = new CacheEntrySizeEstimator<StoredValue>();
         var options = new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
-        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator)), "n1", meter);
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(new PhysicalCache<StoredValue>(TimeProvider.System, estimator)), "n1", meter);
         return CachePipelineRegistration.CreateAdmissionDecorator(replicated, gate, estimator, static (_, _, _) => false);
     }
 

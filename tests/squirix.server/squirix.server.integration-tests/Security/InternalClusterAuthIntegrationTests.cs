@@ -73,7 +73,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToWire(),
+                Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(value), Version = 1 }.MapToWire(),
             },
             cancellationToken: cancellationToken);
 
@@ -129,7 +129,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "cluster-forwarded-with-jwt", Version = 1 }.MapToWire(),
+                Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("cluster-forwarded-with-jwt"), Version = 1 }.MapToWire(),
             },
             cancellationToken: cancellationToken);
 
@@ -223,7 +223,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToWire(),
+                    Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("stale-owner-blocked"), Version = 1 }.MapToWire(),
                 },
                 headers,
                 cancellationToken),
@@ -284,7 +284,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "spoofed-owner-write",
-                    Entry = new NodeCacheEntry<object?> { Value = "blocked", Version = 1 }.MapToWire(),
+                    Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("blocked"), Version = 1 }.MapToWire(),
                 },
                 cancellationToken: cancellationToken),
             TimeSpan.FromSeconds(30),
@@ -334,7 +334,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToWire(),
+                    Entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("must-not-run"), Version = 1 }.MapToWire(),
                 },
                 headers,
                 cancellationToken),
@@ -358,7 +358,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(fenced.FindTrailer("squirix-error-code")).IsEqualTo("ring-fenced");
 
         var receiver = cluster["node-a"];
-        var stored = receiver.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey("default", key), cancellationToken);
+        var stored = receiver.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey("default", key), cancellationToken);
         _ = await Assert.That(stored.Found).IsFalse();
     }
 

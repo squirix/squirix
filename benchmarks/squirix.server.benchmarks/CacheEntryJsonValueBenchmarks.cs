@@ -15,7 +15,7 @@ public class CacheEntryJsonValueBenchmarks
 
     private byte[] _destination = [];
     private byte[] _encoded = [];
-    private NodeCacheEntry<object?> _entry = new() { Value = null };
+    private NodeCacheEntry<StoredValue> _entry = new() { Value = default };
 
     /// <summary>Gets or sets the number of properties of the object.</summary>
     [Params(4, 64)]
@@ -26,7 +26,7 @@ public class CacheEntryJsonValueBenchmarks
     public void Setup()
     {
         var bytes = Encoding.UTF8.GetBytes(BuildJson(PropertyCount));
-        _entry = new NodeCacheEntry<object?> { Value = JsonUtf8Value.TryCreateCopy(bytes, out var value) ? value : null };
+        _entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromJson(bytes) };
         _destination = new byte[CacheEntryCodec.ComputeEncodedLength(_entry)];
         CacheEntryCodec.Write(_entry, _destination);
         _encoded = _destination;
@@ -44,7 +44,7 @@ public class CacheEntryJsonValueBenchmarks
     /// <summary>Validates and copies the JSON bytes of the entry out of the encoded form.</summary>
     /// <returns>The number of bytes read.</returns>
     [Benchmark]
-    public int Decode() => CacheEntryCodec.TryRead<object?>(_encoded, out _, out var bytesRead) ? bytesRead : 0;
+    public int Decode() => CacheEntryCodec.TryRead<StoredValue>(_encoded, out _, out var bytesRead) ? bytesRead : 0;
 
     private static string BuildJson(int propertyCount)
     {

@@ -12,11 +12,6 @@ namespace Squirix.Server.Core;
 [Immutable]
 public readonly record struct NodeCacheValueResult<T>(bool Found, T? Value)
 {
-    /// <summary>Gets the logical value of the hit.</summary>
-    public T? Value { get => StoredText.Unpack(RawValue); init => RawValue = value; }
-
-    internal T? RawValue { get; private init; } = Value;
-
     /// <inheritdoc />
     public bool Equals(NodeCacheValueResult<T> other) => Found == other.Found && System.Collections.Generic.EqualityComparer<T?>.Default.Equals(Value, other.Value);
 

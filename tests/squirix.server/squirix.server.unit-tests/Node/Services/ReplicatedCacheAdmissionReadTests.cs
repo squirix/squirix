@@ -48,7 +48,7 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         var result = await StartAddAsync(admission, getOrAdd, NewOperationId(), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         _ = await Assert.That(result.Added).IsFalse();
         if (getOrAdd)
-            _ = await Assert.That(result.Existing.Value).IsEqualTo("b");
+            _ = await Assert.That(StoredValueProbe.Text(result.Existing.Value)).IsEqualTo("b");
 
         _ = await Assert.That(gateway.Requests - requestsBefore).IsEqualTo(2);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(logIndexBefore);
@@ -134,7 +134,7 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var admission = CreateAdmission(new ReplicatedCache(cache, committers, true), meter);
 
-        var updating = admission.UpdateAsync(NewOperationId(), CacheName, "b", "c", cancellationToken).AsTask();
+        var updating = admission.UpdateAsync(NewOperationId(), CacheName, "b", StoredValue.FromText("c"), cancellationToken).AsTask();
         var waited = !updating.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout);
         var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(updating, HangGuard, TimeProvider.System, cancellationToken);
@@ -144,8 +144,8 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(logIndexBefore);
     }
 
-    private static async Task<NodeCacheAddOrGetResult<object?>> StartAddAsync(
-        MemoryAdmissionCacheDecorator<object?> admission,
+    private static async Task<NodeCacheAddOrGetResult<StoredValue>> StartAddAsync(
+        MemoryAdmissionCacheDecorator<StoredValue> admission,
         bool getOrAdd,
         string operationId,
         CancellationToken cancellationToken)
@@ -154,6 +154,6 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
             return await admission.AddOrGetAsync(operationId, CacheName, "b", Entry("c"), cancellationToken);
 
         var added = await admission.TryAddEntryAsync(operationId, CacheName, "b", Entry("c"), cancellationToken);
-        return new NodeCacheAddOrGetResult<object?>(added, default);
+        return new NodeCacheAddOrGetResult<StoredValue>(added, default);
     }
 }

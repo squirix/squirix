@@ -9,28 +9,27 @@ using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Bridges owner-cache enumeration into snapshot-ready object entries.</summary>
-/// <typeparam name="T">The stored cache value type.</typeparam>
+/// <summary>Captures typed entries from the owner cache for the snapshot writer.</summary>
 [Immutable]
-internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
+internal sealed class LocalCacheSnapshotCapture : ISnapshotEntryCapture
 {
     private readonly CacheExpiryAuthority _expiry;
-    private readonly ILocalCacheSnapshotReader<T> _reader;
+    private readonly ILocalCacheSnapshotReader<StoredValue> _reader;
 
-    /// <summary>Initializes a new instance of the <see cref="LocalCacheSnapshotCapture{T}" /> class.</summary>
+    /// <summary>Initializes a new instance of the <see cref="LocalCacheSnapshotCapture" /> class.</summary>
     /// <param name="reader">The owner cache reader.</param>
     /// <param name="expiry">
     /// Who decides expiry. Under <see cref="CacheExpiryAuthority.CommittedRecords" /> an entry past its deadline is captured, since only a
     /// committed record removes it.
     /// </param>
-    internal LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<T> reader, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
+    internal LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<StoredValue> reader, CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock)
     {
         ArgumentNullException.ThrowIfNull(reader);
         _reader = reader;
         _expiry = expiry;
     }
 
-    public async ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<object?> Entry)> target, DateTime utcNow, CancellationToken cancellationToken)
+    public async ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)> target, DateTime utcNow, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
 
@@ -43,15 +42,7 @@ internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
             if (_expiry == CacheExpiryAuthority.LocalClock && entry.ExpiresUtc is { } exp && exp <= utcNow)
                 continue;
 
-            target.Add((key, ToSnapshotEntry(entry)));
+            target.Add((key, entry));
         }
-    }
-
-    private static NodeCacheEntry<object?> ToSnapshotEntry(NodeCacheEntry<T> source)
-    {
-        var value = source.Normalize();
-        return source is NodeCacheEntry<object?> entry && Equals(value, entry.RawValue)
-            ? entry
-            : new NodeCacheEntry<object?>(value, source.Version, source.ExpiresUtc, source.Expiration, source.Tags);
     }
 }

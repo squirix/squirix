@@ -428,9 +428,9 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
     private static ReplicaStateTransfers Transfers(ScriptedTransferGateway gateway, IServerLogger<ReplicaStateTransfers> log, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var cache = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         for (var i = 1; i <= 3; i++)
-            cache.Set(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
+            cache.Set(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<StoredValue>(StoredValue.FromText($"v{i}")), cancellationToken);
 
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);

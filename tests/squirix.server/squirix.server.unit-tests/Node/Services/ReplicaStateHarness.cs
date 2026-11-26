@@ -51,7 +51,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     internal required List<(GroupMemberState First, GroupMemberState Second)> BarrierStates { get; init; }
 
     /// <summary>Gets the cache of the node.</summary>
-    internal required PhysicalCache<object?> Cache { get; init; }
+    internal required PhysicalCache<StoredValue> Cache { get; init; }
 
     /// <summary>Gets the clock of the receiver and of the cache.</summary>
     internal required FakeTimeProvider Clock { get; init; }
@@ -99,7 +99,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <param name="expiresUtcTicks">The absolute deadline in ticks; zero for none.</param>
     /// <returns>The entry.</returns>
     internal static ReplicaStateEntry Entry(string key, string value, long expiresUtcTicks) =>
-        new(CacheName, Encoding.UTF8.GetBytes(key), ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>(value)), expiresUtcTicks);
+        new(CacheName, Encoding.UTF8.GetBytes(key), ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<StoredValue>(StoredValue.FromText(value))), expiresUtcTicks);
 
     /// <summary>Builds the header of a transfer.</summary>
     /// <param name="transferId">The transfer identifier.</param>
@@ -118,8 +118,8 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
         TempDirectory dir,
         CancellationToken cancellationToken,
         ReplicaTransferOptions? options = null,
-        ICacheEntrySizeEstimator<object?>? estimator = null,
-        Func<ILogicalNamespacedCache<object?>, ILogicalNamespacedCache<object?>>? decorateSinkCache = null)
+        ICacheEntrySizeEstimator<StoredValue>? estimator = null,
+        Func<ILogicalNamespacedCache<StoredValue>, ILogicalNamespacedCache<StoredValue>>? decorateSinkCache = null)
     {
         if (!File.Exists(GroupStoragePaths.GetMetadataPath(dir, GroupId)))
             await TransferFixtures.SeedBehindAsync(dir, cancellationToken);
@@ -128,9 +128,9 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
         var logOptions = new FollowerLogOptions { TimeProvider = clock, ShutdownTimeProvider = TimeProvider.System };
         var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, TransferFixtures.Fingerprint, 1UL, NullLoggerFactory.Instance, logOptions) { ElectionClock = clock };
         await registry.OpenAsync(cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, estimator ?? new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<StoredValue>(clock, estimator ?? new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var meter = new Meter("state-harness");
-        var local = new ClientCache<object?>(physical, physical);
+        var local = new ClientCache<StoredValue>(physical, physical);
         var events = new EventRecordingLogger();
         var appliers = new ReplicaGroupAppliers(registry, local, "n1", events, new ReplicationMetrics(meter));
         var committers = new ReplicaGroupCommitters([], "n9", Locator(), clock);
@@ -214,7 +214,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     internal void Seed(CancellationToken cancellationToken, params string[] keys)
     {
         for (var i = 0; i < keys.Length; i++)
-            Cache.Set(new CacheKey(CacheName, keys[i]), new NodeCacheEntry<object?>("old"), cancellationToken);
+            Cache.Set(new CacheKey(CacheName, keys[i]), new NodeCacheEntry<StoredValue>(StoredValue.FromText("old")), cancellationToken);
     }
 
     /// <summary>Sends one batch of entries.</summary>

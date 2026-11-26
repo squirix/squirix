@@ -48,5 +48,5 @@ public static class EntryLimitKit
     }
 
     private static int MeasureStringPayload(int stringLength) =>
-        PreparedJournalEntry.MeasureEncodedLength(new NodeCacheEntry<object?> { Value = new string('x', stringLength), Version = 1 });
+        PreparedJournalEntryBase.MeasureEncodedLength(new NodeCacheEntry<object?> { Value = new string('x', stringLength), Version = 1 });
 }

@@ -90,21 +90,21 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         await using var cluster = await StartAsync("unseeded-repaired", cancellationToken);
         var owner = cluster[WipedCluster.OwnerId];
         var key = owner.FindKeyOwnedBy(WipedCluster.CacheName, WipedCluster.OwnerId);
-        var cache = owner.GetCache<object?>(WipedCluster.CacheName);
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "before", Version = 1 }, cancellationToken);
+        var cache = owner.GetCache<StoredValue>(WipedCluster.CacheName);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("before"), Version = 1 }, cancellationToken);
 
         var wiped = await cluster.RestartWipedNodeAsync(Follower, cancellationToken);
         var copy = await WipedCluster.AwaitRepairedCopyAsync(wiped, WipedCluster.OwnerId, WipedCluster.OwnerId, cancellationToken);
         var leader = await WipedCluster.Log(owner, WipedCluster.OwnerId).GetStatusAsync(cancellationToken);
-        var local = wiped.GetRequiredService<PhysicalCache<object?>>();
+        var local = wiped.GetRequiredService<PhysicalCache<StoredValue>>();
         var cacheKey = new CacheKey(WipedCluster.CacheName, key);
         var repaired = local.GetValue(cacheKey, cancellationToken).Value;
-        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "after", Version = 2 }, cancellationToken);
+        await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("after"), Version = 2 }, cancellationToken);
 
         _ = await Assert.That(copy.CurrentTerm).IsEqualTo(leader.CurrentTerm);
-        _ = await Assert.That(repaired).IsEqualTo("before");
+        _ = await Assert.That(StoredValueProbe.Text(repaired)).IsEqualTo("before");
         await (Local: local, Key: cacheKey).WaitUntilValueAsync(
-            static (state, token) => ValueTask.FromResult(string.Equals(state.Local.GetValue(state.Key, token).Value as string, "after", StringComparison.Ordinal)),
+            static (state, token) => ValueTask.FromResult(string.Equals(System.Text.Encoding.UTF8.GetString(state.Local.GetValue(state.Key, token).Value.Bytes), "after", StringComparison.Ordinal)),
             WipedCluster.Bound,
             cancellationToken);
     }

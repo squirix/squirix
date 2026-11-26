@@ -34,14 +34,14 @@ public sealed class SnapshotCaptureBridgeTests : ServerUnitTestBase
     public async Task CaptureCarriesTagsAndSkipsExpired(CancellationToken cancellationToken)
     {
         var time = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
-        cache.Set(new CacheKey("ns", "tagged"), new NodeCacheEntry<string>("v", tags: Tags), cancellationToken);
-        cache.Set(new CacheKey("ns", "expiring"), new NodeCacheEntry<string>("e", 1, time.GetUtcNow().UtcDateTime.AddSeconds(1), tags: Tags), cancellationToken);
+        var cache = new PhysicalCache<StoredValue>(time, new CacheEntrySizeEstimator<StoredValue>());
+        cache.Set(new CacheKey("ns", "tagged"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), tags: Tags), cancellationToken);
+        cache.Set(new CacheKey("ns", "expiring"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("e"), 1, time.GetUtcNow().UtcDateTime.AddSeconds(1), tags: Tags), cancellationToken);
 
         time.Advance(TimeSpan.FromSeconds(2));
 
-        var target = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>();
-        await new LocalCacheSnapshotCapture<string>(cache).CaptureEntriesAsync(target, time.GetUtcNow().UtcDateTime, cancellationToken);
+        var target = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>();
+        await new LocalCacheSnapshotCapture(cache).CaptureEntriesAsync(target, time.GetUtcNow().UtcDateTime, cancellationToken);
 
         var (capturedKey, capturedEntry) = await Assert.That(target).HasSingleItem();
         _ = await Assert.That(capturedKey).IsEqualTo(new CacheKey("ns", "tagged"));
@@ -54,14 +54,14 @@ public sealed class SnapshotCaptureBridgeTests : ServerUnitTestBase
     public async Task CommittedCaptureKeepsExpired(CancellationToken cancellationToken)
     {
         var time = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var cache = new PhysicalCache<StoredValue>(time, new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var deadline = time.GetUtcNow().UtcDateTime.AddSeconds(1);
-        cache.Set(new CacheKey("ns", "expiring"), new NodeCacheEntry<string>("e", 1, deadline), cancellationToken);
+        cache.Set(new CacheKey("ns", "expiring"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("e"), 1, deadline), cancellationToken);
 
         time.Advance(TimeSpan.FromSeconds(2));
 
-        var target = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>();
-        await new LocalCacheSnapshotCapture<string>(cache, CacheExpiryAuthority.CommittedRecords).CaptureEntriesAsync(target, time.GetUtcNow().UtcDateTime, cancellationToken);
+        var target = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>();
+        await new LocalCacheSnapshotCapture(cache, CacheExpiryAuthority.CommittedRecords).CaptureEntriesAsync(target, time.GetUtcNow().UtcDateTime, cancellationToken);
 
         var (_, capturedEntry) = await Assert.That(target).HasSingleItem();
         _ = await Assert.That(capturedEntry.ExpiresUtc).IsEqualTo(deadline);

@@ -16,7 +16,7 @@ internal sealed partial class PhysicalCache<T>
         private long _stamp;
 
         private BoundedNode(CacheKey key, NodeCacheEntry<T> entry, EvictionScope scope)
-            : base(key, entry.RawValue, entry.ExpiresUtc, entry.Version, entry.Tags)
+            : base(key, entry.Value, entry.ExpiresUtc, entry.Version, entry.Tags)
         {
             Scope = scope;
         }

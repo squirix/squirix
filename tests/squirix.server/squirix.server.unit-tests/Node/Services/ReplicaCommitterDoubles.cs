@@ -108,7 +108,7 @@ internal static class ReplicaCommitterDoubles
     /// it records the keys of the writes applied after recovery.
     /// </summary>
     [ThreadSafe]
-    internal sealed class ScriptedApplyCache : ILogicalNamespacedCache<object?>
+    internal sealed class ScriptedApplyCache : ILogicalNamespacedCache<StoredValue>
     {
         private readonly TaskCompletionSource _applyEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _applyReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -135,21 +135,21 @@ internal static class ReplicaCommitterDoubles
         /// <summary>Gets the number of entry reads, which the prepare of a conditional write issues.</summary>
         internal int EntryReads => Volatile.Read(ref _entryReads);
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+        public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _entryReads);
-            return ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
+            return ValueTask.FromResult<NodeCacheEntry<StoredValue>?>(null);
         }
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
+        public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<StoredValue>(false, default));
 
         public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(false);
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
         {
             var attempt = Interlocked.Increment(ref _applyAttempts);
             _ = _applyEntered.TrySetResult();
@@ -168,10 +168,10 @@ internal static class ReplicaCommitterDoubles
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             ValueTask.FromResult(false);
 
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
         internal void Recover() => _recovered.Write(true);
 

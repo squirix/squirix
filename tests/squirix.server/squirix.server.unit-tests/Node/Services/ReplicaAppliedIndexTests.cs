@@ -41,7 +41,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         var applier = new ReplicaGroupApplier(cache, NullLogger.Instance);
         var factory = new ReplicaMutationFactory(cache, "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var value = JsonValueKit.Create("""{"value":12345678901234567890}""");
-        var prepared = factory.PrepareSet(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = value, Version = 1 }, 1UL);
+        var prepared = factory.PrepareSet(NewOperationId(), "cache", "k1", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromJson(value.Bytes), Version = 1 }, 1UL);
         var payload = prepared.CanonicalPayload.ToArray();
 
         await applier.ApplyAsync(1UL, payload, cancellationToken);
@@ -49,8 +49,9 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         var entry = await cache.GetEntryAsync("cache", "k1", cancellationToken);
 
         _ = await Assert.That(entry).IsNotNull();
-        var stored = (await Assert.That(entry!.Value).IsTypeOf<JsonUtf8Value>())!;
-        await SequenceAssert.EqualAsync(value.Bytes.ToArray(), stored.Bytes.ToArray());
+        var stored = entry!.Value;
+        _ = await Assert.That(stored.Kind).IsEqualTo(StoredValueKind.Json);
+        await SequenceAssert.EqualAsync(value.Bytes.ToArray(), stored.Bytes);
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(1UL);
     }
 
@@ -83,8 +84,8 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback(async (_, _, _, _, token) =>
                  {
                      _ = entered.TrySetResult();
@@ -118,8 +119,8 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
     {
         var applied = new ConcurrentQueue<string>();
         var failing = 1;
-        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .Callback((_, _, key, _, _) =>
                  {
                      if (Volatile.Read(ref failing) != 0)

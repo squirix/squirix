@@ -55,8 +55,8 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
     {
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Remote);
-        var below = new BackpressureCacheDecorator<object?>(
-            new ILogicalNamespacedCacheCreateExpectations<object?>().Instance(),
+        var below = new BackpressureCacheDecorator<StoredValue>(
+            new ILogicalNamespacedCacheCreateExpectations<StoredValue>().Instance(),
             new IBackpressureGateCreateExpectations().Instance(),
             new IBackpressureClientIdResolverCreateExpectations().Instance());
         var services = new NodeServices().AddSquirixCachePipeline()
@@ -65,13 +65,13 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
                                               .Use(leaders)
                                               .Use(below);
         await using var provider = new NodeProvider(services);
-        var guard = provider.Require<OwnershipGuardCacheDecorator<object?>>();
+        var guard = provider.Require<OwnershipGuardCacheDecorator<StoredValue>>();
 
         return await NodeAsyncAssert.ThrowsAsync<ServerCallException>(SetAsync(guard, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        static async Task SetAsync(OwnershipGuardCacheDecorator<object?> guard, CancellationToken cancellationToken)
+        static async Task SetAsync(OwnershipGuardCacheDecorator<StoredValue> guard, CancellationToken cancellationToken)
         {
-            await guard.SetEntryAsync("op", "c", "k", new NodeCacheEntry<object?> { Value = "v" }, cancellationToken);
+            await guard.SetEntryAsync("op", "c", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") }, cancellationToken);
         }
     }
 }

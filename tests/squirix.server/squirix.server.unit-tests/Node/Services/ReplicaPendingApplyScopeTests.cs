@@ -43,22 +43,22 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
 
     /// <summary>Records the apply context after an injected failure on the first write.</summary>
     [ThreadSafe]
-    private sealed class ScopeRecordingCache : ILogicalNamespacedCache<object?>
+    private sealed class ScopeRecordingCache : ILogicalNamespacedCache<StoredValue>
     {
         private readonly ConcurrentQueue<(string Key, bool ReplicaApply)> _applied = new();
         private int _failNext = 1;
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
+        public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<StoredValue>?>(null);
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
+        public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<StoredValue>(false, default));
 
         public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(false);
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
         {
             if (Interlocked.Exchange(ref _failNext, 0) == 1)
                 return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
@@ -69,10 +69,10 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             ValueTask.FromResult(false);
 
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
         internal string[] AppliedKeys()
         {

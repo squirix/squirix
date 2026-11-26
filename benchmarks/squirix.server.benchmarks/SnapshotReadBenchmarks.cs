@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.Utils;
@@ -41,6 +42,6 @@ public class SnapshotReadBenchmarks
     public async Task LoadStrictAsync()
     {
         var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
-        _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, null, CancellationToken.None).ConfigureAwait(false);
+        _ = await host.Reader.LoadStrictAsync<StoredValue>(_snapshotPath!, null, CancellationToken.None).ConfigureAwait(false);
     }
 }

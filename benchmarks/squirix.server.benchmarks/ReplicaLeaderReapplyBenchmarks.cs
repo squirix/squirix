@@ -30,7 +30,7 @@ namespace Squirix.Server.Benchmarks;
 public class ReplicaLeaderReapplyBenchmarks
 {
     private ReplicaGroupApplier? _applier;
-    private ILogicalNamespacedCache<object?>? _cache;
+    private ILogicalNamespacedCache<StoredValue>? _cache;
     private JournalBenchmarkHost? _host;
     private byte[][] _records = [];
 
@@ -84,13 +84,13 @@ public class ReplicaLeaderReapplyBenchmarks
         };
         _host = await JournalBenchmarkHost.CreateAsync("replica-reapply-bench", options, CancellationToken.None).ConfigureAwait(false);
         var cache = new InMemoryCache();
-        _cache = new JournalLoggingCacheDecorator<object?>(
+        _cache = new JournalLoggingCacheDecorator<StoredValue>(
             cache,
             _host.Coordinator,
             new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
             TimeProvider.System,
             cache);
-        var entry = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?> { Value = "v", Version = 1 });
+        var entry = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v"), Version = 1 });
         _records = new byte[Backlog][];
         var logIndex = 0UL;
         for (var i = 0; i < _records.Length; i++)
@@ -127,27 +127,27 @@ public class ReplicaLeaderReapplyBenchmarks
 
     /// <summary>Memory side of the journaled cache: the decorator under measurement writes the journal frame, this stores the entry.</summary>
     [ThreadSafe]
-    private sealed class InMemoryCache : ILogicalNamespacedCache<object?>, ILocalCacheRawReader<object?>
+    private sealed class InMemoryCache : ILogicalNamespacedCache<StoredValue>, ILocalCacheRawReader<StoredValue>
     {
-        private readonly ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>> _store = new();
+        private readonly ConcurrentDictionary<CacheKey, NodeCacheEntry<StoredValue>> _store = new();
 
-        public NodeCacheEntry<object?>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
+        public NodeCacheEntry<StoredValue>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
             _store.GetValueOrDefault(key);
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_store.GetValueOrDefault(new CacheKey(cacheName, key)));
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
+        public ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
             _store.TryGetValue(new CacheKey(cacheName, key), out var entry)
-                ? new NodeCacheValueResult<object?>(true, entry.Value)
-                : new NodeCacheValueResult<object?>(false, null));
+                ? new NodeCacheValueResult<StoredValue>(true, entry.Value)
+                : new NodeCacheValueResult<StoredValue>(false, default));
 
         public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(
             _store.TryRemove(new CacheKey(cacheName, key), out _));
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
         {
             _store[new CacheKey(cacheName, key)] = entry;
             return ValueTask.CompletedTask;
@@ -156,9 +156,9 @@ public class ReplicaLeaderReapplyBenchmarks
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
             ValueTask.FromResult(false);
 
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_store.TryAdd(new CacheKey(cacheName, key), entry));
 
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 }

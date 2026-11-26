@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using System.Threading;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
@@ -20,10 +19,11 @@ public class CacheUpdateEstimateBenchmarks
 {
     private const int PropertyCount = 40;
     private const int PropertyValueLength = 40;
+    private static readonly StoredValue SmallText = StoredValue.FromText("v");
     private static readonly CacheKey LargeKey = CacheKey.Default("large");
     private static readonly CacheKey SmallKey = CacheKey.Default("small");
-    private PhysicalCache<object?>? _cache;
-    private object? _large;
+    private PhysicalCache<StoredValue>? _cache;
+    private StoredValue _large;
     private Thread? _updater;
     private volatile bool _stopRequested;
 
@@ -47,7 +47,7 @@ public class CacheUpdateEstimateBenchmarks
     public void SetSmall()
     {
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
-        cache.Set(SmallKey, new NodeCacheEntry<object?>("v"), CancellationToken.None);
+        cache.Set(SmallKey, new NodeCacheEntry<StoredValue>(SmallText), CancellationToken.None);
     }
 
     /// <summary>Stores the large entry and, when asked, starts the thread that keeps updating it.</summary>
@@ -64,11 +64,10 @@ public class CacheUpdateEstimateBenchmarks
         }
 
         _ = json.Append('}');
-        using var document = JsonDocument.Parse(json.ToString());
-        _large = document.RootElement.Clone();
-        _cache = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
-        _cache.Set(LargeKey, new NodeCacheEntry<object?>(_large), CancellationToken.None);
-        _cache.Set(SmallKey, new NodeCacheEntry<object?>("v"), CancellationToken.None);
+        _large = StoredValue.FromJson(Encoding.UTF8.GetBytes(json.ToString()));
+        _cache = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>());
+        _cache.Set(LargeKey, new NodeCacheEntry<StoredValue>(_large), CancellationToken.None);
+        _cache.Set(SmallKey, new NodeCacheEntry<StoredValue>(SmallText), CancellationToken.None);
         if (!ConcurrentUpdater)
             return;
 

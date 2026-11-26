@@ -12,7 +12,6 @@ namespace Squirix.Server.UnitTests.Support;
 [JsonSerializable(typeof(ValuePayload))]
 [JsonSerializable(typeof(DerivedValue))]
 [JsonSerializable(typeof(IdPayload))]
-[JsonSerializable(typeof(ObjectCacheDataPayload))]
 [JsonSerializable(typeof(AdmissionDataPayload), TypeInfoPropertyName = "AdmissionDataPayload")]
 internal sealed partial class UnitTestJsonContext : JsonSerializerContext
 {

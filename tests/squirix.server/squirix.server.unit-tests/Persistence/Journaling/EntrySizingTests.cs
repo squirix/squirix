@@ -26,6 +26,6 @@ public sealed class EntrySizingTests
         var entry = new NodeCacheEntry<object?>("value", 1, absolute ? deadline : null, relative ? TimeSpan.FromMinutes(1) : null);
         var materialized = new NodeCacheEntry<object?>("value", 1, absolute || relative ? deadline : null);
 
-        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(entry)).IsEqualTo(PreparedJournalEntry.From(materialized).EncodedLength);
+        _ = await Assert.That(PreparedJournalEntryBase.MeasureEncodedLength(entry)).IsEqualTo(PreparedJournalEntryBase.From(materialized).EncodedLength);
     }
 }

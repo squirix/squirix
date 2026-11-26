@@ -30,7 +30,7 @@ internal static class LedgerWrites
                 try
                 {
                     await write.Committers.ForKey(write.CacheName, write.Key)
-                        .CommitSetAsync(write.OperationId, write.CacheName, write.Key, new NodeCacheEntry<object?> { Value = write.Value ?? write.OperationId }, token);
+                        .CommitSetAsync(write.OperationId, write.CacheName, write.Key, new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText(write.Value ?? write.OperationId) }, token);
                     return true;
                 }
                 catch (ServerCallException exception) when (exception.StatusCode is FrameStatus.Unavailable or FrameStatus.ResourceExhausted)

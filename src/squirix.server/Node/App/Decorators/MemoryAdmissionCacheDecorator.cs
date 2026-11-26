@@ -93,7 +93,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
                     return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
                 cancellationToken.ThrowIfCancellationRequested();
-                return new NodeCacheAddOrGetResult<T>(false, new NodeCacheValueResult<T>(true, existing.RawValue));
+                return new NodeCacheAddOrGetResult<T>(false, new NodeCacheValueResult<T>(true, existing.Value));
             }
         }
 
@@ -115,7 +115,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        return _estimator is ObjectCacheEntrySizeEstimator
+        return _estimator is CacheEntrySizeEstimator<StoredValue>
             ? _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)
             : RemoveExpirationWithEstimateAsync(operationId, cacheName, key, cancellationToken);
     }
@@ -142,7 +142,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
             return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
-        if (_estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator)
+        if (_estimator is CacheEntrySizeEstimator<T>)
             AdmitGrowth(keyValue, CacheEntrySizeEstimator<T>.DeadlineIndexGrowthOf(existing), _estimator.HasUnknownPayloadMagnitude(existing, false), AdmissionOperations.Set, operationId);
         else
             Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, true), AdmissionOperations.Set, operationId);
@@ -195,7 +195,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     }
 
     private static NodeCacheEntry<T> CreateExpirationMetadataReplacement(NodeCacheEntry<T> existing, bool hasExpirationUtc) => new(
-        existing.RawValue,
+        existing.Value,
         existing.Version,
         hasExpirationUtc ? existing.ExpiresUtc ?? DateTime.UnixEpoch : null,
         existing.Expiration,
@@ -259,10 +259,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private bool CanSetBeRefused(CacheKey key, NodeCacheEntry<T> proposed, out long? measuredBytes)
     {
         measuredBytes = null;
-        var builtInEstimator = _estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator;
+        var builtInEstimator = _estimator is CacheEntrySizeEstimator<T>;
 
         var upperBound = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, null, proposed, _estimator, out var magnitudeUnknown);
-        if (builtInEstimator && proposed.RawValue is string)
+        if (builtInEstimator && proposed.Value is string)
             measuredBytes = upperBound;
 
         return magnitudeUnknown

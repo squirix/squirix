@@ -72,7 +72,7 @@ public sealed class WipedOwnerTests : NodeIntegrationTestBase
     private static Task CommitAsync(ITestNodeHost leader, CancellationToken cancellationToken)
     {
         var key = leader.FindKeyOwnedBy(WipedCluster.CacheName, WipedCluster.OwnerId);
-        var entry = new NodeCacheEntry<object?> { Value = "elected", Version = 1 };
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("elected"), Version = 1 };
         return leader.GetRequiredService<ReplicaGroupCommitters>().For(WipedCluster.OwnerId).CommitSetAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, entry, cancellationToken);
     }
 

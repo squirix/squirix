@@ -37,8 +37,8 @@ public sealed class DataDirectoryLockTests : NodeIntegrationTestBase
         var ex = await refused;
         _ = await Assert.That(ex.Message).Contains("in use by another node");
 
-        var cache = first["node-a"].GetCache<object?>(CacheName);
-        var entry = new NodeCacheEntry<object?> { Value = "value-1", Version = 1 };
+        var cache = first["node-a"].GetCache<StoredValue>(CacheName);
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("value-1"), Version = 1 };
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "held-dir-key", entry, cancellationToken);
 
         await first.StopNodeAsync("node-a");

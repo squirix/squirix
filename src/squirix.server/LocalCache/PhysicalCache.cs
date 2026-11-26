@@ -300,7 +300,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
     private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
-        if (candidate.RawValue is DistributedCacheWrite write)
+        if (candidate.PendingWrite is { } write)
             candidate = write.Materialize<T>(UtcNow);
 
         if (candidate is not { Version: > 0, Expiration: null })
@@ -314,7 +314,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                     expires = relativeDeadline;
             }
 
-            candidate = new NodeCacheEntry<T>(candidate.RawValue, version, expires, candidate.Expiration, candidate.Tags);
+            candidate = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
         }
 
         var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, candidate, length) : _footprint.Estimate(key, candidate);
@@ -417,7 +417,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (node == null)
         {
             node = _scopes == null
-                ? new Node(key, normalized.RawValue, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
+                ? new Node(key, normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags)
                 : BoundedNode.Create(this, key, normalized);
             if (node == null)
                 return true;
@@ -434,7 +434,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         _footprint.Resize(node, bytes);
         var previous = node.ExpiresUtc;
-        node.Write(normalized.RawValue, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
+        node.Write(normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
         _deadlines.MovedLocked(node, previous);
         BoundedNode.RecordAccess(node);
         return false;
@@ -484,8 +484,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         internal void ResizeForDeadline(CacheKey key, Node node, DateTime? expiresUtc)
         {
-            if (_estimator is CacheEntrySizeEstimator<T> ||
-                (_estimator is ObjectCacheEntrySizeEstimator && !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(node.Value)))
+            if (_estimator is CacheEntrySizeEstimator<T>)
             {
                 const int deadlineBytes = CacheEntryDeadlineSize.IndexBytes;
                 Resize(node, node.Bytes + (expiresUtc != null ? deadlineBytes : -deadlineBytes));
@@ -518,12 +517,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
     /// </remarks>
     private class Node
     {
-        /// <summary>
-        /// The bits <see cref="_expires" /> holds for no deadline: no <see cref="DateTime" /> has them, since its ticks would exceed
-        /// <see cref="DateTime.MaxValue" />.
-        /// </summary>
-        private const long NoDeadline = -1;
-
         private long _expires;
         private Node? _next;
         private bool _removed;
@@ -543,7 +536,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             Key = key;
             Hash = key.GetHashCode();
             _value = value;
-            _expires = Encode(expiresUtc);
+            _expires = EntryDeadline.Encode(expiresUtc);
             _version = version;
             _tags = tags;
         }
@@ -552,7 +545,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal long Bytes { get; set; }
 
         /// <summary>Gets the deadline; read under the cache lock.</summary>
-        internal DateTime? ExpiresUtc => Decode(_expires);
+        internal DateTime? ExpiresUtc => EntryDeadline.Decode(_expires);
 
         /// <summary>Gets the hash code of <see cref="Key" />.</summary>
         internal int Hash { get; }
@@ -627,7 +620,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             var odd = BeginWrite();
             StoreValue(value);
             Volatile.Write(ref _version, version);
-            Volatile.Write(ref _expires, Encode(expiresUtc));
+            Volatile.Write(ref _expires, EntryDeadline.Encode(expiresUtc));
             Volatile.Write(ref _tags, tags);
             EndWrite(odd);
         }
@@ -637,7 +630,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         internal void WriteExpiresUtc(DateTime? expiresUtc)
         {
             var odd = BeginWrite();
-            Volatile.Write(ref _expires, Encode(expiresUtc));
+            Volatile.Write(ref _expires, EntryDeadline.Encode(expiresUtc));
             EndWrite(odd);
         }
 
@@ -649,10 +642,6 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             StoreValue(value);
             EndWrite(odd);
         }
-
-        private static DateTime? Decode(long expires) => expires == NoDeadline ? null : Unsafe.BitCast<long, DateTime>(expires);
-
-        private static long Encode(DateTime? expiresUtc) => expiresUtc is { } deadline ? Unsafe.BitCast<DateTime, long>(deadline) : NoDeadline;
 
         /// <summary>Makes the sequence odd.</summary>
         /// <returns>The odd sequence.</returns>
@@ -698,7 +687,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
                 return false;
 
             if (!removed)
-                read = new EntryRead(value, version, Decode(expires), tags);
+                read = new EntryRead(value, version, EntryDeadline.Decode(expires), tags);
 
             return true;
         }
