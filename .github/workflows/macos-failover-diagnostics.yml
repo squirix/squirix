@@ -1,4 +1,4 @@
-name: macOS pre-vote diagnostics on develop
+name: macOS election deadline comparison
 
 on:
     push:
@@ -9,21 +9,23 @@ permissions:
 
 jobs:
     e2e-cluster:
-        name: macOS ARM64 pre-vote baseline (${{ matrix.replica }})
+        name: macOS ARM64 election comparison (${{ matrix.replica }})
         runs-on: macos-latest
-        timeout-minutes: 20
+        timeout-minutes: 25
         strategy:
             fail-fast: false
             matrix:
                 replica: [1, 2, 3, 4, 5, 6, 7, 8]
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
             - name: Verify architecture
               run: test "$(uname -m)" = arm64
             - name: Ensure Dev HTTPS Certificate
               working-directory: ${{ runner.temp }}
               run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
-            - name: Build the test host
+            - name: Build test hosts with separate deadlines
               uses: ./.github/actions/build-release
               with:
                   artifact-os: macos-latest
@@ -31,42 +33,52 @@ jobs:
                   analyzers: "false"
                   upload-outputs: "false"
                   net10-runtime: "true"
-                  projects: tests/squirix.e2e.tests/Squirix.E2ETests.csproj
-            - name: Compare default and serial execution on the same runner
+                  projects: tests/squirix.e2e.tests/Squirix.E2ETests.csproj tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj
+            - name: Compare deadlines on the same runner
               shell: bash
               env:
                   REPLICA: ${{ matrix.replica }}
+                  BASELINE: 96e6e1d40454e2667515f7ff25815507b3fbe7fd
               run: |
                   set -euo pipefail
-                  root="$RUNNER_TEMP/squirix-failover-parallelism"
-                  mkdir -p "$root"
+                  root="$RUNNER_TEMP/squirix-election-comparison"
+                  mkdir -p "$root/unit"
+                  baseline="$RUNNER_TEMP/squirix-election-baseline"
+                  git worktree add --detach "$baseline" "$BASELINE"
+                  (
+                      cd "$baseline"
+                      mkdir -p artifacts/packages
+                      dotnet build tests/squirix.e2e.tests/Squirix.E2ETests.csproj -c Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+                  )
                   host=tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests.dll
+                  unit=tests/squirix.server/squirix.server.unit-tests/bin/Release/net10.0/Squirix.Server.UnitTests.dll
                   filter='/*/*/(FiveNodeMinorityTests|FiveNodeLeaderStopTests)/(TwoNodeMinorityFailsClosed|RfFiveSurvivesTwoLeaderStops)'
-                  order=(default serial)
-                  if ((REPLICA % 2 == 0)); then order=(serial default); fi
-                  printf 'replica=%s\norder=%s\nlogical_cores=%s\n' "$REPLICA" "${order[*]}" "$(sysctl -n hw.logicalcpu)" > "$root/runner.txt"
+                  order=(shared separate)
+                  if ((REPLICA % 2 == 0)); then order=(separate shared); fi
+                  printf 'order=%s\nlogical_cores=%s\nbaseline=%s\npatch=%s\n' "${order[*]}" "$(sysctl -n hw.logicalcpu)" "$BASELINE" "$GITHUB_SHA" > "$root/runner.txt"
                   failures=0
                   for variant in "${order[@]}"; do
-                      echo "::group::$variant"
                       output="$root/$variant"
                       mkdir -p "$output"
-                      set --
-                      if [[ "$variant" == serial ]]; then set -- --maximum-parallel-tests 1; fi
-                      export SQUIRIX_FAILOVER_TRACE_DIR="$output"
+                      checkout="$GITHUB_WORKSPACE"
+                      if [[ "$variant" == shared ]]; then checkout="$baseline"; fi
                       status=0
-                      dotnet "$host" "$@" --treenode-filter "$filter" --minimum-expected-tests 2 --detailed-stacktrace \
-                          --report-trx --report-trx-filename failover.trx --results-directory "$output" --timeout 8m \
-                          2>&1 | tee "$output/test-output.log" || status=$?
+                      (
+                          cd "$checkout"
+                          export SQUIRIX_FAILOVER_TRACE_DIR="$output"
+                          dotnet "$host" --treenode-filter "$filter" --minimum-expected-tests 2 --detailed-stacktrace \
+                              --report-trx --report-trx-filename failover.trx --results-directory "$output" --timeout 8m
+                      ) 2>&1 | tee "$output/test-output.log" || status=$?
                       printf '%s\n' "$status" > "$output/exit-code.txt"
-                      if [[ "$status" != 0 ]] || ! test -s "$output/failover.trx"; then
-                          failures=$((failures + 1))
-                      fi
-                      echo "::endgroup::"
+                      if [[ "$status" != 0 ]] || ! test -s "$output/failover.trx"; then failures=$((failures + 1)); fi
                   done
+                  unit_filter='/*/*/(ReplicaVoteConnectionTests)|(ReplicaVoteRoundTests)/*'
+                  dotnet "$unit" --treenode-filter "$unit_filter" --minimum-expected-tests 10 --report-trx \
+                      --report-trx-filename election.trx --results-directory "$root/unit" || failures=$((failures + 1))
                   test "$failures" -eq 0
             - name: Archive TRX and full traces
               if: always()
               uses: actions/upload-artifact@v7
               with:
-                  name: failover-parallelism-macos-${{ matrix.replica }}
-                  path: ${{ runner.temp }}/squirix-failover-parallelism
+                  name: election-macos-${{ matrix.replica }}
+                  path: ${{ runner.temp }}/squirix-election-comparison

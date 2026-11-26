@@ -24,8 +24,11 @@ using Squirix.Transport.Wire.Codec;
 namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Pools mutually authenticated peer streams, reserving each one for a single request and its reply.</summary>
+#pragma warning disable SQR0002 // Temporary sender tracing adds a certificate callback.
 internal sealed class NativePeerClient : IPeerClient, IDisposable
 {
+    private static readonly TimeSpan ElectionConnectTimeout = TimeSpan.FromSeconds(3);
+
     private readonly PeerHostAddresses _addresses;
     private readonly TrackedConnections _connections;
     private readonly TimeSpan _dial;
@@ -77,8 +80,18 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     {
         return operation == PeerOperation.TransferReplicaState
             ? TransferAsync(operation, request, parser, cancellationToken)
-            : ExchangeAsync(operation, request, parser, cancellationToken);
+            : ExchangeAsync(operation, request, parser, null, cancellationToken);
     }
+
+    /// <inheritdoc />
+    public Task<T> SendElectionAsync<T>(
+        PeerOperation operation,
+        WireMessage request,
+        WireParser<T> parser,
+        (TimeSpan Timeout, TimeProvider Clock) replyBudget,
+        CancellationToken cancellationToken)
+        where T : WireMessage =>
+        ExchangeAsync(operation, request, parser, replyBudget, cancellationToken);
 
     internal static SslClientAuthenticationOptions CreateTlsOptions(string host, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier)
     {
@@ -174,6 +187,11 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         return string.Empty;
     }
 
+#pragma warning disable ZA1102 // The caller disposes the optional deadline.
+    private static CancellationTokenSource? StartTimeout(TimeSpan duration, TimeProvider? clock) =>
+        clock == null ? null : new CancellationTokenSource(duration, clock);
+#pragma warning restore ZA1102
+
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private static async ValueTask<T> ReadOwnedReplyAsync<T>(Stream stream, WireParser<T> parser, int size, byte? prefix, CancellationToken cancellationToken)
         where T : WireMessage
@@ -229,7 +247,12 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
-    private async Task<T> ExchangeAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+    private async Task<T> ExchangeAsync<T>(
+        PeerOperation operation,
+        WireMessage request,
+        WireParser<T> parser,
+        (TimeSpan Timeout, TimeProvider Clock)? replyBudget,
+        CancellationToken cancellationToken)
         where T : WireMessage
     {
         _ = RemainingBudget();
@@ -248,19 +271,23 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         try
         {
             PreVoteTrace.Mark("send rent start");
-            stream = await RentAsync(cancellationToken).ConfigureAwait(false);
+            stream = await RentAsync(replyBudget?.Clock, cancellationToken).ConfigureAwait(false);
             PreVoteTrace.Mark("send rent complete");
+            using var replyTimeout = StartTimeout(replyBudget?.Timeout ?? default, replyBudget?.Clock);
+            using var exchange = replyTimeout == null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, replyTimeout.Token);
+            var token = exchange?.Token ?? cancellationToken;
+
             var budget = RemainingBudget();
             var frame = new PeerFrames.Request(size, budget ?? -1, operation, _fingerprint.Length, parentBytes, stateBytes, _fingerprintIsDigest, binaryParent);
             var metadata = new RequestMetadata(parent, state, context);
-            cancellationToken.ThrowIfCancellationRequested();
+            token.ThrowIfCancellationRequested();
             stream.RequestStarted = Stopwatch.GetTimestamp();
             sent = true;
             PreVoteTrace.Mark("send frame write start");
-            await WriteRequestAsync(stream, request, frame, metadata, cancellationToken).ConfigureAwait(false);
+            await WriteRequestAsync(stream, request, frame, metadata, token).ConfigureAwait(false);
             PreVoteTrace.Mark("send frame written; awaiting reply");
 
-            var reply = await ReadReplyAsync(stream, parser, stream.ReplyHeader, cancellationToken).ConfigureAwait(false);
+            var reply = await ReadReplyAsync(stream, parser, stream.ReplyHeader, token).ConfigureAwait(false);
             PreVoteTrace.Mark("send reply read");
             await ReturnAsync(stream).ConfigureAwait(false);
             stream = null;
@@ -355,7 +382,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
-    private async ValueTask<PeerSession> RentAsync(CancellationToken cancellationToken)
+#pragma warning disable MA0051 // Temporary per-stage connection tracing.
+    private async ValueTask<PeerSession> RentAsync(TimeProvider? electionClock, CancellationToken cancellationToken)
     {
         var idle = TakeIdle();
         if (idle != null)
@@ -366,17 +394,24 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
 
         ThrowIfRecentDialTimedOut();
 
-        using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        handshake.CancelAfter(TimeSpan.FromSeconds(5));
-        using var dial = CancellationTokenSource.CreateLinkedTokenSource(handshake.Token);
-        dial.CancelAfter(_dial);
+        // An election's cold budget covers DNS, TCP and TLS together. Other calls retain their shorter dial bound.
+        using var coldDeadline = StartTimeout(ElectionConnectTimeout, electionClock);
+        using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, coldDeadline?.Token ?? default);
+        using var dial = electionClock == null ? CancellationTokenSource.CreateLinkedTokenSource(handshake.Token) : null;
+        if (dial != null)
+        {
+            handshake.CancelAfter(TimeSpan.FromSeconds(5));
+            dial.CancelAfter(_dial);
+        }
+
+        var dialToken = dial?.Token ?? handshake.Token;
         Stream network;
         try
         {
-            var endpoint = _resolveEndpoint == null ? _addresses.Endpoint : await _resolveEndpoint(dial.Token).ConfigureAwait(false);
-            var addresses = _resolveEndpoint == null ? await _addresses.ResolveAsync(dial.Token).ConfigureAwait(false) : null;
+            var endpoint = _resolveEndpoint == null ? _addresses.Endpoint : await _resolveEndpoint(dialToken).ConfigureAwait(false);
+            var addresses = _resolveEndpoint == null ? await _addresses.ResolveAsync(dialToken).ConfigureAwait(false) : null;
             PreVoteTrace.Mark("send TCP connect start");
-            network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dial.Token, addresses).ConfigureAwait(false);
+            network = await TrackedConnectionStream.ConnectAsync(_connections, endpoint, dialToken, addresses).ConfigureAwait(false);
             PreVoteTrace.Mark("send TCP connected");
             _ = Interlocked.Exchange(ref _lastDialTimeout, 0);
         }
@@ -395,6 +430,9 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
 
             PreVoteTrace.Mark("send TLS handshake start");
             await connection.AuthenticateAsClientAsync(_tls, handshake.Token).ConfigureAwait(false);
+            if (electionClock != null)
+                handshake.Token.ThrowIfCancellationRequested();
+
             PreVoteTrace.Mark("send TLS handshake complete");
             if (network is TlsProbeStream traced)
                 traced.StopTracing();
@@ -415,6 +453,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         }
     }
 
+#pragma warning restore MA0051
     private void ThrowIfRecentDialTimedOut()
     {
         var timedOut = Interlocked.Read(ref _lastDialTimeout);
@@ -472,7 +511,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         await _transfers.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await ExchangeAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
+            return await ExchangeAsync(operation, request, parser, null, cancellationToken).ConfigureAwait(false);
         }
         finally
         {

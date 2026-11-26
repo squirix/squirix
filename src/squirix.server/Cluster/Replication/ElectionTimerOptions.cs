@@ -89,7 +89,7 @@ internal sealed class ElectionTimerOptions
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>
     internal TimeSpan MaxJitter { get; init; } = DefaultMaxJitter;
 
-    /// <summary>Gets the longest wait for one pre-vote or vote reply; an unanswered voter counts as a refusal, and a round ends earlier once its outcome is decided.</summary>
+    /// <summary>Gets the longest wait for one pre-vote or vote reply once the peer is connected; a round ends earlier when its outcome is decided.</summary>
     internal TimeSpan VoteRpcTimeout { get; init; } = DefaultVoteRpcTimeout;
 
     /// <summary>Checks that the wait for a leader of the options is bounded: positive and at most <see cref="MaxLeaderWaitTimeout" />.</summary>
