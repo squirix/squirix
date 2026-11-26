@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -170,20 +171,28 @@ internal sealed class ReplicaFollower
         if (!TryGetLog(groupId, out var log) || !_members.IsMember(groupId, ballot.CandidateId))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
+        PreVoteTrace.Mark("receive log status wait");
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        PreVoteTrace.Mark("receive log status read");
         if (status.IsTopologyMismatch(fingerprint, generation))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.TopologyMismatch, 0UL);
 
+        PreVoteTrace.Mark("receive membership readiness wait");
         var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+        PreVoteTrace.Mark("receive membership readiness checked");
         if (refusal != null)
             return new FollowerLogVoteResult(false, refusal, 0UL);
 
         // A live leader keeps its followers from campaigning: a node cut off for a while must not depose it once it returns. Only a
         // group an election driver runs for decides this; any other answers from its log as before.
         var state = _groups.StateFor(groupId);
-        return state.Transfers.RefusesPreVote(transferSource, status.CurrentTerm, ballot.Term)
-            ? new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, status.CurrentTerm)
-            : await log.CheckPreVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
+        if (state.Transfers.RefusesPreVote(transferSource, status.CurrentTerm, ballot.Term))
+            return new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, status.CurrentTerm);
+
+        PreVoteTrace.Mark("receive ballot log gate wait");
+        var result = await log.CheckPreVoteAsync(ballot, cancellationToken).ConfigureAwait(false);
+        PreVoteTrace.Mark("receive ballot read");
+        return result;
     }
 
     /// <summary>Evaluates a vote request against a group log after agreement checks.</summary>

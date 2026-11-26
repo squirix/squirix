@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Wire.Replication;
@@ -23,6 +24,8 @@ internal sealed class ElectionRoundCounter
     internal Action<string, string, string, string, ulong>? Observe { get; init; }
 
     internal Action<string, string, string, ulong, string>? ObservePreVoteResult { get; init; }
+
+    internal Func<string, string, string, ulong, Activity?>? TracePreVote { get; init; }
 
     internal bool DropHints { get; init; }
 
@@ -108,6 +111,7 @@ internal sealed class ElectionRoundCounter
 
         public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
         {
+            using var trace = _counter.TracePreVote?.Invoke(header.GroupId, header.SenderNodeId, nodeId, header.Term);
             _counter.Observe?.Invoke(header.GroupId, header.SenderNodeId, nodeId, header.TransferSource == null ? "pre-vote" : "transfer-pre-vote", header.Term);
             try
             {

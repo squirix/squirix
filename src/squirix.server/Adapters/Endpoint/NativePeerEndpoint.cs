@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Security;
@@ -13,6 +14,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
@@ -154,42 +156,78 @@ internal sealed class NativePeerEndpoint
         // Extended frames already hold a reservation. Avoid retaining those buffers in the shared pool.
         var extended = frame.Body > EntryLimits.MaxReceiveMessageSizeBytes;
         var body = extended ? GC.AllocateUninitializedArray<byte>(frame.Body) : ArrayPool<byte>.Shared.Rent(frame.Body);
-        BinaryResponse reply;
         try
         {
-            var token = deadline.Token;
-            using var reading = CancellationTokenSource.CreateLinkedTokenSource(token, graceful);
-            reading.CancelAfter(TimeSpan.FromSeconds(30));
-            await stream.ReadExactlyAsync(meta.AsMemory(0, frame.Metadata), reading.Token).ConfigureAwait(false);
-            await stream.ReadExactlyAsync(body.AsMemory(0, frame.Body), reading.Token).ConfigureAwait(false);
-            if (!_verifier.TryVerify(certificate, out var peer))
-                return false;
-            reply = await DispatchAsync(frame, meta, body.AsMemory(0, frame.Body), certificate, peer, token).ConfigureAwait(false);
-        }
-        catch (ServerCallException error)
-        {
-            reply = new BinaryResponse(error.StatusCode, error.Error);
-        }
-        catch (SquirixException error)
-        {
-            reply = BinaryResponse.FromError(error);
-        }
-        catch (InvalidDataException)
-        {
-            reply = new BinaryResponse(FrameStatus.InvalidArgument);
-        }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !abort.IsCancellationRequested)
-        {
-            await WriteAsync(stream, new BinaryResponse(FrameStatus.DeadlineExceeded), TimeProvider.System, abort).ConfigureAwait(false);
-            return false;
+            return await ReceiveAsync(stream, frame, certificate, (meta, body), deadline, graceful, abort).ConfigureAwait(false);
         }
         finally
         {
             ReturnFrameBuffers(meta, body, extended);
         }
+    }
 
-        await WriteAsync(stream, reply, TimeProvider.System, abort).ConfigureAwait(false);
-        return true;
+    private async Task<bool> ReceiveAsync(
+        SslStream stream,
+        PeerFrames.Request frame,
+        X509Certificate2 certificate,
+        (byte[] Metadata, byte[] Body) buffers,
+        TimedCancellation deadline,
+        CancellationToken graceful,
+        CancellationToken abort)
+    {
+        var (meta, body) = buffers;
+        var keepOpen = true;
+        Activity? preVote = null;
+        try
+        {
+            BinaryResponse reply;
+            try
+            {
+                var token = deadline.Token;
+                using var reading = CancellationTokenSource.CreateLinkedTokenSource(token, graceful);
+                reading.CancelAfter(TimeSpan.FromSeconds(30));
+                await stream.ReadExactlyAsync(meta.AsMemory(0, frame.Metadata), reading.Token).ConfigureAwait(false);
+                if (PreVoteTrace.HasObservers && frame.Operation is PeerOperation.PreVote or PeerOperation.TransferPreVote)
+                    preVote = PreVoteTrace.Accept(ReadTraceParent(in frame, meta));
+
+                PreVoteTrace.Mark("receive metadata read; awaiting body");
+                await stream.ReadExactlyAsync(body.AsMemory(0, frame.Body), reading.Token).ConfigureAwait(false);
+                PreVoteTrace.Mark("receive body read; verifying peer");
+                if (!_verifier.TryVerify(certificate, out var peer))
+                    return false;
+
+                PreVoteTrace.Mark("receive dispatch start");
+                reply = await DispatchAsync(frame, meta, body.AsMemory(0, frame.Body), certificate, peer, token).ConfigureAwait(false);
+                PreVoteTrace.Mark("receive dispatch complete");
+            }
+            catch (ServerCallException error)
+            {
+                reply = new BinaryResponse(error.StatusCode, error.Error);
+            }
+            catch (SquirixException error)
+            {
+                reply = BinaryResponse.FromError(error);
+            }
+            catch (InvalidDataException)
+            {
+                reply = new BinaryResponse(FrameStatus.InvalidArgument);
+            }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested && !abort.IsCancellationRequested)
+            {
+                PreVoteTrace.Mark("receive deadline exceeded");
+                reply = new BinaryResponse(FrameStatus.DeadlineExceeded);
+                keepOpen = false;
+            }
+
+            PreVoteTrace.Mark("receive reply write start");
+            await WriteAsync(stream, reply, TimeProvider.System, abort).ConfigureAwait(false);
+            PreVoteTrace.Mark("receive reply written");
+            return keepOpen;
+        }
+        finally
+        {
+            preVote?.Dispose();
+        }
     }
 
     private async Task<BinaryResponse> DispatchAsync(PeerFrames.Request frame, byte[] meta, ReadOnlyMemory<byte> body, X509Certificate2 certificate, string peer, CancellationToken cancellationToken)
