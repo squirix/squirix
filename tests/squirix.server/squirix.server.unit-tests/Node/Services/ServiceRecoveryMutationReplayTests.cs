@@ -96,6 +96,27 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         _ = await Assert.That(b.Value).IsEqualTo("vb");
     }
 
+    /// <summary>Replays the eviction even after the replacement entry's deadline has passed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredReplacementStillRemovesEvictedKey(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-expired-replacement");
+        var victim = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "victim", "old");
+        var expired = BinaryJournalTestSegmentWriter.BuildPutRecord(
+            2UL,
+            "replacement",
+            new NodeCacheEntry<object?> { Value = "new", ExpiresUtc = DateTime.UtcNow.AddMinutes(-5) });
+        expired.EvictedKey = victim.Key.Key;
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [victim, expired]);
+        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
+
+        await RunRecoveryAsync(scenario, cancellationToken);
+
+        _ = await Assert.That(scenario.Cache.GetValue(victim.Key, cancellationToken).Found).IsFalse();
+        _ = await Assert.That(scenario.Cache.GetValue(expired.Key, cancellationToken).Found).IsFalse();
+    }
+
     /// <summary>Restores older mutation frames while skipping their recorded outcomes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -123,8 +144,8 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(0)]
-    [Arguments(7)]
-    [Arguments(8)]
+    [Arguments(9)]
+    [Arguments(10)]
     [Arguments(255)]
     public async Task UnassignedOpcodeFailsRecovery(int opcodeWire, CancellationToken cancellationToken)
     {
@@ -142,7 +163,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-then-valid");
         var valid = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb");
-        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 8, "a", [valid]);
+        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 10, "a", [valid]);
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 3 }, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -154,7 +175,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     public async Task UnassignedOpcodeInEarlierSegmentFails(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-unassigned-earlier-segment");
-        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 7, "a");
+        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 9, "a");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 2, BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "b", "vb"));
         await scenario.Ledger.WriteAsync(new State { CurrentJournal = 2, NextSequence = 3 }, cancellationToken);
 

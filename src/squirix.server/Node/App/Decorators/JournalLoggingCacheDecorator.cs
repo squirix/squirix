@@ -21,6 +21,7 @@ namespace Squirix.Server.Node.App.Decorators;
 [Immutable]
 internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
+    private readonly PhysicalCache<T>? _capacityCache;
     private readonly DurableMutationExecutor _executor;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly IJournalCoordinator _journal;
@@ -32,7 +33,8 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         IJournalCoordinator journal,
         DurableMutationExecutor durableMutations,
         TimeProvider timeProvider,
-        ILocalCacheRawReader<T> rawReader)
+        ILocalCacheRawReader<T> rawReader,
+        PhysicalCache<T>? capacityCache = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(journal);
@@ -43,6 +45,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         _executor = durableMutations;
         _timeProvider = timeProvider;
         _rawReader = rawReader;
+        _capacityCache = capacityCache;
         DistributedAccess = new DistributedAccessOperations(this);
     }
 
@@ -150,8 +153,8 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
             cacheKey,
             static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, SetMemoryArgs Memory), bool>(
-                (this, new PutJournalArgs(cacheKey, payload.Memory), new SetMemoryArgs(operationId, cacheName, key, entry, payload.Memory.Length)),
-                static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, s.Journal.CacheKey, s.Journal.Payload, ct),
+                (this, new PutJournalArgs(cacheKey, payload.Memory), new SetMemoryArgs(operationId, cacheName, key, entry, payload.Memory.Length, _capacityCache == null ? null : new CapacityDecision())),
+                static (s, ownership, ct) => s.Self.AppendPutAsync(in ownership, s.Journal.CacheKey, s.Journal.Payload, s.Memory.Capacity, ct),
                 static (s, ct) => s.Self.ApplySetEntryAsync(s.Memory, ct)),
             cancellationToken).ConfigureAwait(false);
     }
@@ -203,7 +206,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         CancellationToken cancellationToken)
     {
         var cacheKey = new CacheKey(cacheName, key);
-        var args = new TryAddMutationArgs(operationId, cacheName, key, entry, prepared, cacheKey);
+        var args = new TryAddMutationArgs(operationId, cacheName, key, entry, prepared, cacheKey, _capacityCache == null ? null : new CapacityDecision());
         return _executor.ExecuteAsync(
             cacheKey,
             static (s, ct) => EvaluateTryAddPreconditionAsync(s.Self, s.Args, ct),
@@ -212,9 +215,11 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
                 static async (s, ownership, ct) =>
                 {
                     using var payload = JournalEntryPayload.Encode(s.Args.Prepared);
-                    await s.Self._journal.AppendPutAsync(ownership, s.Args.CacheKey, payload.Memory, ct).ConfigureAwait(false);
+                    await s.Self.AppendPutAsync(in ownership, s.Args.CacheKey, payload.Memory, s.Args.Capacity, ct).ConfigureAwait(false);
                 },
-                static (s, ct) => s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, s.Args.Prepared.EncodedLength, ct),
+                static (s, ct) => s.Args.Capacity is { } capacity
+                    ? ValueTask.FromResult(s.Self._capacityCache!.Upsert(s.Args.CacheKey, s.Args.Entry, s.Args.Prepared.EncodedLength, PhysicalCache<T>.WriteKind.JournaledTryAdd, ct, capacity.Victim))
+                    : s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, s.Args.Prepared.EncodedLength, ct),
                 static (s, actual) =>
                 {
                     // The precondition predicted an add under the key lock: an apply that refused it leaves a put frame the memory never took.
@@ -226,8 +231,23 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
 
     private async ValueTask<bool> ApplySetEntryAsync(SetMemoryArgs args, CancellationToken cancellationToken)
     {
-        await _inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, args.EncodedLength, cancellationToken).ConfigureAwait(false);
+        if (args.Capacity is { } capacity)
+            _ = _capacityCache!.Upsert(new CacheKey(args.CacheName, args.Key), args.Entry, args.EncodedLength, PhysicalCache<T>.WriteKind.JournaledSet, cancellationToken, capacity.Victim);
+        else
+            await _inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, args.EncodedLength, cancellationToken).ConfigureAwait(false);
         return true;
+    }
+
+    private ValueTask AppendPutAsync(in JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> payload, CapacityDecision? capacity, CancellationToken cancellationToken)
+    {
+        if (capacity != null)
+        {
+            capacity.Victim = _capacityCache!.SelectCapacityVictim(key);
+            if (capacity.Victim is { } victim)
+                return _journal.AppendPutWithEvictionAsync(ownership, key, payload, victim.Key, cancellationToken);
+        }
+
+        return _journal.AppendPutAsync(ownership, key, payload, cancellationToken);
     }
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
@@ -274,7 +294,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     private readonly record struct RemoveMemoryArgs(string OperationId, string CacheName, string Key);
 
     [Immutable]
-    private readonly record struct SetMemoryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry, int EncodedLength);
+    private readonly record struct SetMemoryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry, int EncodedLength, CapacityDecision? Capacity);
 
     [Immutable]
     private readonly record struct TryAddMutationArgs(
@@ -283,7 +303,8 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string Key,
         NodeCacheEntry<T> Entry,
         PreparedJournalEntryBase Prepared,
-        CacheKey CacheKey);
+        CacheKey CacheKey,
+        CapacityDecision? Capacity);
 
     [Immutable]
     private readonly record struct DecidedUpsertState<TArgs>(
@@ -299,6 +320,12 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     /// <summary>Decision arguments for a mutation that needs none.</summary>
     [Immutable]
     private readonly record struct NoDecisionArgs;
+
+    [Mutable]
+    private sealed class CapacityDecision
+    {
+        internal CacheKey? Victim { get; set; }
+    }
 
     /// <summary>Carries the entry a precondition decided and its encoded journal payload from the precondition to the append and apply stages.</summary>
     [Mutable]

@@ -221,6 +221,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
         _appendPipeline.AppendRecordCoreAsync(_appendPipeline.AllocateRecord(ownership.Ownership, key, JournalOperationKind.Put, entryBytes), ownership.ReleaseAfterEnqueue, cancellationToken);
 
+    public ValueTask AppendPutWithEvictionAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, string evictedKey, CancellationToken cancellationToken) =>
+        _appendPipeline.AppendRecordCoreAsync(
+            _appendPipeline.AllocateRecord(ownership.Ownership, key, JournalOperationKind.Put, entryBytes, evictedKey),
+            ownership.ReleaseAfterEnqueue,
+            cancellationToken);
+
     public ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken) => _appendPipeline.AppendRecordCoreAsync(
         _appendPipeline.AllocateRecord(ownership.Ownership, key, JournalOperationKind.Remove),
         ownership.ReleaseAfterEnqueue,
@@ -494,7 +500,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             _timeProvider = timeProvider;
         }
 
-        internal JournalRecord AllocateRecord(AsyncLockOwnership ownership, CacheKey key, JournalOperationKind operation, ReadOnlyMemory<byte> putEntryBytes = default)
+        internal JournalRecord AllocateRecord(AsyncLockOwnership ownership, CacheKey key, JournalOperationKind operation, ReadOnlyMemory<byte> putEntryBytes = default, string? evictedKey = null)
         {
             // Allocated before renting: a caller refused for not holding the gate leaves no record out of the pool.
             var sequence = _owner.AllocateSequence(in ownership);
@@ -504,6 +510,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             record.Operation = operation;
             record.Key = key;
             record.PutEntryBytes = putEntryBytes;
+            record.EvictedKey = evictedKey;
             return record;
         }
 

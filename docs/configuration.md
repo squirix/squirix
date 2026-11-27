@@ -472,6 +472,8 @@ is disabled. Memory eviction runs in the background while admission can still re
 In a replicated cluster, a node evicts from groups it leads and followers apply the committed removals.
 Use the same mode and key limit on all nodes so that a leadership change preserves the policy.
 Upgrade every replica to a version supporting capacity eviction before enabling `keyCount`; older servers cannot read its compound eviction records.
+For persistent single-copy caches, the journal stores the put and its eviction in one frame. Use a server version that
+supports those [journal frames](journal-binary-format.md) when reopening the data directory.
 
 ### Snapshot
 

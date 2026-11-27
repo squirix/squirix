@@ -33,7 +33,7 @@ internal sealed class CacheEviction<T>
 
     internal bool HasCapacity => _eviction.Capacity != null;
 
-    /// <summary>Returns the key to evict for an insertion under the leader's serialized commit gate.</summary>
+    /// <summary>Returns the key to evict for an insertion under a serialized durable mutation.</summary>
     /// <param name="key">The key being inserted.</param>
     /// <returns>The victim, or null if this write needs no eviction.</returns>
     internal CacheKey? SelectCapacityVictimLocked(CacheKey key)
@@ -50,7 +50,7 @@ internal sealed class CacheEviction<T>
             ? scope.Victim()?.Occupant.Key
             : null;
 
-    internal CacheSlot<T> Add(CacheKey key, int hash, NodeCacheEntry<T> entry, long? bytes, out CacheSlot<T> removed)
+    internal CacheSlot<T> Add(CacheKey key, int hash, NodeCacheEntry<T> entry, long? bytes, out CacheSlot<T> removed, bool capacityDecided, CacheKey? plannedVictim)
     {
         removed = default;
         var scopeKey = ScopeOf(key);
@@ -61,7 +61,17 @@ internal sealed class CacheEviction<T>
         }
 
         EvictionNode<T>? victim = null;
-        if (_expiry == CacheExpiryAuthority.LocalClock && scope.Count >= _eviction.Capacity)
+        if (plannedVictim is { } victimKey)
+        {
+            // LFU can decline an insertion if all current entries have been read.
+            if (victimKey == key)
+                return default;
+
+            if (_store.TryGetLocked(victimKey, out var existing))
+                victim = existing.Policy;
+        }
+
+        if (!capacityDecided && _expiry == CacheExpiryAuthority.LocalClock && scope.Count >= _eviction.Capacity)
         {
             victim = scope.Victim();
             if (victim == null)
@@ -85,8 +95,8 @@ internal sealed class CacheEviction<T>
         if (victim == null)
             return node.Occupant;
 
-        _store.RemoveLocked(victim.Occupant);
         removed = victim.Occupant;
+        _store.RemoveLocked(in removed);
 
         return node.Occupant;
     }

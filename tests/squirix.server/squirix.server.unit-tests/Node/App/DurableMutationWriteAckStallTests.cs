@@ -347,6 +347,9 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
 
         public long UsedBytes => 0;
 
+        public ValueTask AppendPutWithEvictionAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, string evictedKey, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
             Interlocked.Exchange(ref _faultNextPut, 0) == 1 ? WriteAckFaultAsync() : ValueTask.CompletedTask;
 

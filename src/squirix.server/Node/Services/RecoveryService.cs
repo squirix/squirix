@@ -123,6 +123,13 @@ internal sealed class RecoveryService<T> : INodeService
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry, out var bytesRead))
                     throw CreateJournalDecodeFailure();
 
+                if (record.EvictedKey is { } evictedKey)
+                {
+                    _ = await _localCache.RemoveRecoveryAsync(key with { Key = evictedKey }, cancellationToken).ConfigureAwait(false);
+                    if (string.Equals(evictedKey, key.Key, StringComparison.Ordinal))
+                        break;
+                }
+
                 if (_expiry == CacheExpiryAuthority.LocalClock && JournalEntryExpirationMaterializer.IsExpiredForRecovery(
                         entry!.ExpiresUtc,
                         entry.Expiration,

@@ -19,6 +19,7 @@ internal static class BinaryJournalCodec
     /// </summary>
     internal const int FixedPrefixSize = PayloadLengthOffset + PayloadLengthPrefixSize;
 
+    private const int EvictedKeyLengthPrefixSize = sizeof(ushort);
     private const int FingerprintLengthPrefixSize = sizeof(ushort);
     private const int KeyLengthOffset = NamespaceLengthOffset + NamespaceLengthPrefixSize;
     private const int KeyLengthPrefixSize = sizeof(ushort);
@@ -168,6 +169,7 @@ internal static class BinaryJournalCodec
         var stamp = new MutationStamp(mutationOperationId, mutationFingerprint, prefixLength);
         return opcode switch
         {
+            JournalOpcode.PutWithEvictionAndMutationOperationId => DecodePutWithEviction(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen, in stamp),
             JournalOpcode.PutWithMutationOperationId => DecodePut(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen, in stamp),
             JournalOpcode.RemoveWithMutationOperationId => DecodeMutationWithoutPayload(seq, unixMs, cacheKey, JournalOperationKind.Remove, payloadLen, in stamp),
             JournalOpcode.Put => throw new InvalidDataException(UnknownJournalOpcodeMessage),
@@ -212,13 +214,30 @@ internal static class BinaryJournalCodec
         };
     }
 
+    private static JournalRecord DecodePutWithEviction(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen, in MutationStamp stamp)
+    {
+        var payload = frameBuffer.AsSpan(offset, payloadLen);
+        if (!WireBounds.Fits(EvictedKeyLengthPrefixSize, stamp.PrefixLength, payload.Length))
+            throw new InvalidDataException("Journal eviction key length is missing.");
+
+        var start = stamp.PrefixLength + EvictedKeyLengthPrefixSize;
+        var length = BinaryPrimitives.ReadUInt16LittleEndian(payload[stamp.PrefixLength..]);
+        if (!WireBounds.Fits(length, start, payload.Length))
+            throw new InvalidDataException("Journal eviction key is truncated.");
+
+        var record = DecodePut(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen, stamp with { PrefixLength = start + length });
+        record.EvictedKey = Encoding.UTF8.GetString(payload.Slice(start, length));
+        return record;
+    }
+
     private static JournalRecord DispatchDecode(byte[] frameBuffer, ReadOnlySpan<byte> frameBody, in FrameHeader header, CacheKey cacheKey, int offset)
     {
         var payloadLen = header.PayloadLength;
         return header.Opcode switch
         {
             JournalOpcode.Put => DecodePut(header.Sequence, header.UnixMs, cacheKey, frameBuffer, offset, payloadLen, default),
-            JournalOpcode.PutWithMutationOperationId or JournalOpcode.RemoveWithMutationOperationId => DecodeMutationPrefixed(
+            JournalOpcode.PutWithEviction => DecodePutWithEviction(header.Sequence, header.UnixMs, cacheKey, frameBuffer, offset, payloadLen, default),
+            JournalOpcode.PutWithMutationOperationId or JournalOpcode.PutWithEvictionAndMutationOperationId or JournalOpcode.RemoveWithMutationOperationId => DecodeMutationPrefixed(
                     header.Opcode,
                     header.Sequence,
                     header.UnixMs,
@@ -323,6 +342,7 @@ internal static class BinaryJournalCodec
         var hasOperationId = record.MutationOperationId != null;
         return operation switch
         {
+            JournalOperationKind.Put when record.EvictedKey != null => hasOperationId ? JournalOpcode.PutWithEvictionAndMutationOperationId : JournalOpcode.PutWithEviction,
             JournalOperationKind.Put => hasOperationId ? JournalOpcode.PutWithMutationOperationId : JournalOpcode.Put,
             JournalOperationKind.Remove => hasOperationId ? JournalOpcode.RemoveWithMutationOperationId : JournalOpcode.Remove,
             JournalOperationKind.IdempotencyOutcome => JournalOpcode.IdempotencyOutcome,
@@ -364,6 +384,9 @@ internal static class BinaryJournalCodec
     private static int WritePutPayload(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context)
     {
         offset = MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, in context, destination, offset);
+        if (record.EvictedKey is { } evictedKey)
+            offset = WriteStringField(evictedKey, context.EvictedKeyLength, destination, offset);
+
         record.PutEntryBytes.Span.CopyTo(destination[offset..]);
         return offset + record.PutEntryBytes.Length;
     }
@@ -387,6 +410,8 @@ internal static class BinaryJournalCodec
         private const byte IdempotencyOutcomeWire = 3;
         private const byte IdempotencyStartedWire = 6;
         private const byte PutWire = 1;
+        private const byte PutWithEvictionWire = 7;
+        private const byte PutWithEvictionAndMutationOpIdWire = 8;
         private const byte PutWithMutationOpIdWire = 4;
         private const byte RemoveWire = 2;
         private const byte RemoveWithMutationOpIdWire = 5;
@@ -399,6 +424,8 @@ internal static class BinaryJournalCodec
             PutWithMutationOpIdWire => JournalOpcode.PutWithMutationOperationId,
             RemoveWithMutationOpIdWire => JournalOpcode.RemoveWithMutationOperationId,
             IdempotencyStartedWire => JournalOpcode.IdempotencyStarted,
+            PutWithEvictionWire => JournalOpcode.PutWithEviction,
+            PutWithEvictionAndMutationOpIdWire => JournalOpcode.PutWithEvictionAndMutationOperationId,
             _ => throw new InvalidDataException(UnknownJournalOpcodeMessage),
         };
 
@@ -410,6 +437,8 @@ internal static class BinaryJournalCodec
             JournalOpcode.PutWithMutationOperationId => PutWithMutationOpIdWire,
             JournalOpcode.RemoveWithMutationOperationId => RemoveWithMutationOpIdWire,
             JournalOpcode.IdempotencyStarted => IdempotencyStartedWire,
+            JournalOpcode.PutWithEviction => PutWithEvictionWire,
+            JournalOpcode.PutWithEvictionAndMutationOperationId => PutWithEvictionAndMutationOpIdWire,
             _ => throw new InvalidDataException(UnknownJournalOpcodeMessage),
         };
     }

@@ -9,6 +9,9 @@ internal sealed class JournalRecord
 {
     private static readonly ConcurrentBag<JournalRecord> AppendPool = [];
 
+    /// <summary>Gets or sets the key displaced by a put, within the put's namespace.</summary>
+    internal string? EvictedKey { get; set; }
+
     /// <summary>Gets or sets idempotency fingerprint; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
     internal string? IdempotencyFingerprint { get; set; }
 
@@ -44,6 +47,7 @@ internal sealed class JournalRecord
     internal void ReturnToAppendPool()
     {
         PutEntryBytes = default;
+        EvictedKey = null;
         MutationOperationId = null;
         MutationFingerprint = null;
         IdempotencyOperationId = null;

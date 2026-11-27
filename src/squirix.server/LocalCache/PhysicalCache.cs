@@ -59,11 +59,23 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _reader = new PhysicalCacheReader(this);
     }
 
-    private enum WriteKind
+    /// <summary>Specifies how a write is admitted and whether its eviction is already decided.</summary>
+    internal enum WriteKind
     {
+        /// <summary>Inserts or updates an entry.</summary>
         Set = 0,
+
+        /// <summary>Inserts only when the entry is absent.</summary>
         TryAdd = 1,
+
+        /// <summary>Restores a journal or snapshot entry without write admission checks.</summary>
         Recovery = 2,
+
+        /// <summary>Inserts or updates using the eviction decision in the journal.</summary>
+        JournaledSet = 3,
+
+        /// <summary>Inserts only when absent, using the eviction decision in the journal.</summary>
+        JournaledTryAdd = 4,
     }
 
     int ILocalCacheStats.EntryCount
@@ -295,6 +307,68 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return _eviction.SelectPressureVictimLocked(group);
     }
 
+    internal bool Upsert(
+        CacheKey key,
+        NodeCacheEntry<T> entry,
+        int? encodedLength,
+        WriteKind writeKind,
+        CancellationToken cancellationToken,
+        CacheKey? victim = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var normalized = EntryPreparation.Prepare(entry, _timeProvider);
+        var bytes = _footprint?.EstimateInsert(key, normalized, encodedLength);
+        var insertOnly = writeKind is WriteKind.TryAdd or WriteKind.JournaledTryAdd;
+        var capacityDecided = writeKind >= WriteKind.JournaledSet;
+        lock (_lock)
+        {
+            _store.AdvanceGrowthLocked();
+            var hash = key.GetHashCode();
+            _ = _store.TryGetLocked(key, hash, out var node);
+            if (node.Exists && insertOnly && !IsExpired(node.ExpiresUtc))
+                return false;
+
+            if (writeKind != WriteKind.Recovery)
+                _footprint?.CheckAdmission(bytes.GetValueOrDefault(), in node, insertOnly);
+
+            if (insertOnly && node.Exists)
+            {
+                _store.RemoveLocked(in node);
+                UntrackLocked(in node);
+                node = default;
+            }
+
+            if (!node.Exists)
+            {
+                if (_eviction.Enabled)
+                {
+                    node = _eviction.Add(key, hash, normalized, bytes, out var displaced, capacityDecided, victim);
+                    if (displaced.Exists)
+                        UntrackLocked(in displaced);
+                }
+                else
+                {
+                    node = _store.AddLocked(key, hash, normalized, null, bytes);
+                }
+
+                if (!node.Exists)
+                    return true;
+
+                _footprint?.Add(bytes.GetValueOrDefault());
+                _deadlines.RecordLocked(in node);
+
+                return true;
+            }
+
+            var previous = node.ExpiresUtc;
+            node.Write(key, normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
+            _footprint?.Resize(in node, bytes.GetValueOrDefault());
+            _deadlines.MovedLocked(in node, previous);
+            node.RecordAccess();
+            return false;
+        }
+    }
+
     /// <summary>Tells whether this node treats an entry as gone because its deadline passed on the node clock.</summary>
     /// <param name="expiresUtc">The deadline of the stored entry, or <see langword="null" /> for none.</param>
     /// <returns><see langword="false" /> under <see cref="CacheExpiryAuthority.CommittedRecords" />, where only a committed record removes an entry.</returns>
@@ -343,61 +417,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         node.MarkRemoved();
         _deadlines.CompactLocked();
-    }
-
-    private bool Upsert(CacheKey key, NodeCacheEntry<T> entry, int? encodedLength, WriteKind writeKind, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var normalized = EntryPreparation.Prepare(entry, _timeProvider);
-        var bytes = _footprint?.EstimateInsert(key, normalized, encodedLength);
-        var insertOnly = writeKind == WriteKind.TryAdd;
-        lock (_lock)
-        {
-            _store.AdvanceGrowthLocked();
-            var hash = key.GetHashCode();
-            _ = _store.TryGetLocked(key, hash, out var node);
-            if (node.Exists && insertOnly && !IsExpired(node.ExpiresUtc))
-                return false;
-
-            if (writeKind != WriteKind.Recovery)
-                _footprint?.CheckAdmission(bytes.GetValueOrDefault(), in node, insertOnly);
-
-            if (insertOnly && node.Exists)
-            {
-                _store.RemoveLocked(in node);
-                UntrackLocked(in node);
-                node = default;
-            }
-
-            if (!node.Exists)
-            {
-                if (_eviction.Enabled)
-                {
-                    node = _eviction.Add(key, hash, normalized, bytes, out var victim);
-                    if (victim.Exists)
-                        UntrackLocked(in victim);
-                }
-                else
-                {
-                    node = _store.AddLocked(key, hash, normalized, null, bytes);
-                }
-
-                if (!node.Exists)
-                    return true;
-
-                _footprint?.Add(bytes.GetValueOrDefault());
-                _deadlines.RecordLocked(in node);
-
-                return true;
-            }
-
-            var previous = node.ExpiresUtc;
-            node.Write(key, normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
-            _footprint?.Resize(in node, bytes.GetValueOrDefault());
-            _deadlines.MovedLocked(in node, previous);
-            node.RecordAccess();
-            return false;
-        }
     }
 
     private static class EntryPreparation

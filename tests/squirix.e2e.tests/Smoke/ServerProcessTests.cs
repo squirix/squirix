@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -121,6 +122,65 @@ public sealed class ServerProcessTests
         _ = await Assert.That((await cache.GetValueAsync("key", cancellationToken)).Value).IsEqualTo("authenticated");
         using var live = await server.HttpClient.GetAsync(new Uri(server.ManagementUri, "/health/live"), cancellationToken);
         _ = await Assert.That(live.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+
+    /// <summary>Verifies that journal replay keeps the same keys after a capacity eviction.</summary>
+    /// <param name="tryAdd">Whether the insertion uses the SDK conditional add.</param>
+    /// <param name="removeEvictedKey">Whether to remove the already evicted key through the SDK.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Timeout(60_000)]
+    public async Task CapacityEvictionSurvivesCrash(bool tryAdd, bool removeEvictedKey, CancellationToken cancellationToken)
+    {
+        var directory = Directory.CreateTempSubdirectory("squirix-capacity-recovery-");
+        try
+        {
+            await using (var server = await ServerProcess.StartAsync(false, cancellationToken, ConfigurePersistenceAsync))
+            {
+                await using var client = await SquirixClient.ConnectAsync(server.Uri, cancellationToken);
+                var cache = await client.GetCacheAsync<string>("limited", cancellationToken);
+                await cache.SetAsync("alpha", "first", cancellationToken: cancellationToken);
+                await cache.SetAsync("beta", "second", cancellationToken: cancellationToken);
+                _ = await Assert.That((await cache.GetValueAsync("alpha", cancellationToken)).Value).IsEqualTo("first");
+                if (tryAdd)
+                    _ = await Assert.That(await cache.TryAddAsync("gamma", "third", cancellationToken: cancellationToken)).IsTrue();
+                else
+                    await cache.SetAsync("gamma", "third", cancellationToken: cancellationToken);
+
+                _ = await Assert.That((await cache.GetValueAsync("beta", cancellationToken)).Found).IsFalse();
+                if (removeEvictedKey)
+                    _ = await Assert.That(await cache.RemoveAsync("beta", cancellationToken)).IsFalse();
+
+                await server.StopAsync(cancellationToken);
+            }
+
+            await using var restarted = await ServerProcess.StartAsync(false, cancellationToken, ConfigurePersistenceAsync);
+            await using var restartedClient = await SquirixClient.ConnectAsync(restarted.Uri, cancellationToken);
+            var recovered = await restartedClient.GetCacheAsync<string>("limited", cancellationToken);
+            _ = await Assert.That((await recovered.GetValueAsync("beta", cancellationToken)).Found).IsFalse();
+            _ = await Assert.That((await recovered.GetValueAsync("alpha", cancellationToken)).Value).IsEqualTo("first");
+            _ = await Assert.That((await recovered.GetValueAsync("gamma", cancellationToken)).Value).IsEqualTo("third");
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+
+        Task ConfigurePersistenceAsync(ProcessStartInfo start, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            start.ArgumentList.Add("--persist");
+            start.ArgumentList.Add("--data-dir");
+            start.ArgumentList.Add(directory.FullName);
+            start.ArgumentList.Add("--cache-eviction");
+            start.ArgumentList.Add("keyCount");
+            start.ArgumentList.Add("--max-keys");
+            start.ArgumentList.Add("2");
+            return Task.CompletedTask;
+        }
     }
 
     private static async Task<CacheTransportStatusCode> ProbeAnonymousAsync(Uri uri, CancellationToken cancellationToken)

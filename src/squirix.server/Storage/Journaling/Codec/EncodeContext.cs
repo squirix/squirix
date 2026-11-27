@@ -18,16 +18,19 @@ internal readonly record struct EncodeContext
     private const string MutationTooLongMessage = "Mutation operation id or fingerprint exceeds maximum encoded length.";
     private const int ResponseLengthPrefixSize = sizeof(int);
 
-    private EncodeContext(int keyNamespaceLength, int keyLength, int payloadUtf8Length, int operationIdLength, int fingerprintLength)
+    private EncodeContext(int keyNamespaceLength, int keyLength, int payloadUtf8Length, int operationIdLength, int fingerprintLength, int evictedKeyLength = 0)
     {
         KeyNamespaceLength = keyNamespaceLength;
         KeyLength = keyLength;
         PayloadUtf8Length = payloadUtf8Length;
         OperationIdLength = operationIdLength;
         FingerprintLength = fingerprintLength;
+        EvictedKeyLength = evictedKeyLength;
     }
 
     internal int BodyLength => BinaryJournalCodec.FixedPrefixSize + KeyNamespaceLength + KeyLength + PayloadUtf8Length;
+
+    internal int EvictedKeyLength { get; }
 
     /// <summary>Gets the UTF-8 length of the fingerprint, zero when the record carries none.</summary>
     internal int FingerprintLength { get; }
@@ -75,9 +78,19 @@ internal readonly record struct EncodeContext
 
     private static EncodeContext ForMutation(JournalRecord record, int namespaceLength, int keyLength, int entryLength)
     {
+        var evictedKeyLength = 0;
+        if (record.EvictedKey is { } evictedKey)
+        {
+            evictedKeyLength = Encoding.UTF8.GetByteCount(evictedKey);
+            if (evictedKeyLength > ushort.MaxValue)
+                throw new InvalidDataException("Journal eviction key exceeds maximum encoded length.");
+
+            entryLength = checked(entryLength + FieldLengthPrefixSize + evictedKeyLength);
+        }
+
         var operationId = record.MutationOperationId;
         if (operationId == null)
-            return new EncodeContext(namespaceLength, keyLength, entryLength, 0, 0);
+            return new EncodeContext(namespaceLength, keyLength, entryLength, 0, 0, evictedKeyLength);
 
         var operationIdLength = Encoding.UTF8.GetByteCount(operationId);
         var fingerprint = record.MutationFingerprint;
@@ -85,7 +98,7 @@ internal readonly record struct EncodeContext
         if (operationIdLength > ushort.MaxValue || fingerprintLength > ushort.MaxValue)
             throw new InvalidDataException(MutationTooLongMessage);
 
-        var payloadLength = FieldLengthPrefixSize + operationIdLength + FieldLengthPrefixSize + fingerprintLength + entryLength;
-        return new EncodeContext(namespaceLength, keyLength, payloadLength, operationIdLength, fingerprintLength);
+        var payloadLength = checked(FieldLengthPrefixSize + operationIdLength + FieldLengthPrefixSize + fingerprintLength + entryLength);
+        return new EncodeContext(namespaceLength, keyLength, payloadLength, operationIdLength, fingerprintLength, evictedKeyLength);
     }
 }

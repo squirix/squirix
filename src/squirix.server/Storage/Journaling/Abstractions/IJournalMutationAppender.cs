@@ -15,5 +15,7 @@ internal interface IJournalMutationAppender
 {
     ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
 
+    ValueTask AppendPutWithEvictionAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, string evictedKey, CancellationToken cancellationToken);
+
     ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken);
 }
