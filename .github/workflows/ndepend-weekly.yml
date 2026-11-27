@@ -1,0 +1,134 @@
+name: Weekly NDepend
+
+on:
+    schedule:
+        # Sunday 03:00 in Krasnoyarsk (UTC+7).
+        - cron: "0 20 * * 6"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    actions: read
+
+env:
+    MSBuildEnableWorkloadResolver: false
+
+jobs:
+    ndepend:
+        name: NDepend
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        steps:
+            -   name: Require NDependLicense
+                shell: bash
+                env:
+                    NDEPEND_LICENSE: ${{ secrets.NDependLicense }}
+                run: |
+                    if [[ -z "${NDEPEND_LICENSE}" ]]; then
+                      echo "Missing secrets.NDependLicense." >&2
+                      echo "Add the NDepend GitHub Action activation data as secret NDependLicense." >&2
+                      echo "See https://www.ndepend.com/activation_githubaction" >&2
+                      exit 1
+                    fi
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+                with:
+                    global-json-file: global.json
+
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
+
+            -   name: Build Assemblies For Analysis
+                run: dotnet build squirix.slnx --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+
+            -   name: Synchronize NDepend project
+                run: |
+                    python3 build/ndepend/sync_ndproj.py
+                    if ! git diff --exit-code --quiet -- squirix.ndproj; then
+                        echo "squirix.ndproj is out of date with build/ndepend/squirix.ndrules." >&2
+                        echo "Run python3 build/ndepend/sync_ndproj.py and commit the regenerated squirix.ndproj." >&2
+                        exit 1
+                    fi
+
+            # Start with unexpired artifacts so intervening CI runs cannot hide the last passing analysis.
+            # Accept ci.yml artifacts during the transition to this workflow.
+            -   name: Resolve NDepend Baseline
+                id: ndepend-baseline
+                env:
+                    GH_TOKEN: ${{ github.token }}
+                    BRANCH: ${{ github.ref_name }}
+                run: |
+                    set -euo pipefail
+                    shopt -s inherit_errexit
+                    find_baseline() {
+                      local branch="$1" ids id eligible passed
+                      ids=$(B="$branch" gh api --paginate -X GET "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+                        -f name=ndepend -F per_page=100 \
+                        --jq '.artifacts[] | select(.expired == false and .workflow_run.head_branch == env.B and .workflow_run.id != (env.GITHUB_RUN_ID | tonumber)) | .workflow_run.id' | sort -run)
+                      for id in ${ids}; do
+                        eligible=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}" \
+                          --jq '.event != "pull_request" and (.path == ".github/workflows/ci.yml" or .path == ".github/workflows/ndepend-weekly.yml")')
+                        if [[ "$eligible" != true ]]; then
+                          continue
+                        fi
+                        passed=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/jobs?per_page=100" \
+                          --jq '.jobs[] | select(.name == "NDepend" and .conclusion == "success") | .id')
+                        if [[ -n "${passed}" ]]; then
+                          echo "${id}"
+                          return
+                        fi
+                      done
+                    }
+                    run_id=$(find_baseline "${BRANCH}")
+                    if [[ -z "${run_id}" && "${BRANCH}" != "develop" ]]; then
+                      run_id=$(find_baseline develop)
+                    fi
+                    if [[ -n "${run_id}" ]]; then
+                      echo "NDepend baseline: run ${run_id}"
+                    elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+                      echo "::warning::No passed NDepend analysis found; this run has no baseline."
+                    else
+                      echo "::error::No passed NDepend analysis found to compare with; dispatch this workflow to bootstrap a new baseline." >&2
+                      exit 1
+                    fi
+                    echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
+
+            # The Linux action invokes its analyzer through dotnet. Filter only that invocation.
+            -   name: Prepare NDepend Console Filter
+                run: |
+                    filter_dir="$(mktemp -d)"
+                    install -m 755 tools/ci/ndepend-console.sh "$filter_dir/dotnet"
+                    ln -s "$(command -v dotnet)" "$filter_dir/dotnet-original"
+                    echo "$filter_dir" >> "$GITHUB_PATH"
+
+            -   name: Run NDepend Analysis
+                uses: ndepend/ndepend-action@be6c2e0830c672a6062cbfa00ac03c1c90d7eaa5 # v2 branch
+                with:
+                    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    license: ${{ secrets.NDependLicense }}
+                    customconfig: squirix.ndproj
+                    baseline: ${{ steps.ndepend-baseline.outputs.run-id }}
+                    stopIfQGFailed: true
+                    retention-days: 90
+
+            # The action looks for the `ndepend` artifact among the first 30 artifacts of the baseline run only, and on a
+            # miss it analyzes without a baseline, which passes the new-issues gate unchecked.
+            -   name: Verify NDepend Baseline Was Used
+                if: steps.ndepend-baseline.outputs.run-id != ''
+                env:
+                    BASELINE_RUN_ID: ${{ steps.ndepend-baseline.outputs.run-id }}
+                run: |
+                    if ! find "${RUNNER_TEMP}/NDependBaseLine" -name '*.ndar' -not -path '*/Baseline/*' | grep -q .; then
+                      echo "::error::The NDepend action did not load the analysis of run ${BASELINE_RUN_ID} as its baseline." >&2
+                      exit 1
+                    fi

@@ -11,9 +11,6 @@ outputs:
   docker:
     description: "'true' when files that affect the server image changed."
     value: ${{ steps.filter.outputs.docker }}
-  ndepend:
-    description: "'true' when the NDepend gate configuration changed."
-    value: ${{ steps.filter.outputs.ndepend }}
 
 runs:
   using: composite
@@ -80,9 +77,3 @@ runs:
             - '.globalconfig'
             - '.editorconfig'
             - 'squirix.slnx'
-          ndepend:
-            # NDepend gate config edits (rules/project/sync scripts) run the NDepend
-            # job without triggering the full code matrix (excluded from `code` above).
-            - 'build/ndepend/**'
-            - '**/*.ndproj'
-            - '**/*.ndrules'
