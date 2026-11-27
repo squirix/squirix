@@ -322,7 +322,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(buffer, true);
             Dispose();
             ReleaseUser();
         }
@@ -357,7 +357,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
             return;
         }
 
-        using var message = new WireSegments();
+        using var message = new WireSegments(buffer);
         var header = request.Frame.WriteTo(message, request.Id);
         WriteTimeout(header.Span, request.Deadline, TimeProvider.System.GetUtcNow());
         foreach (var chunk in message.Chunks())

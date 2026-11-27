@@ -11,8 +11,9 @@ namespace Squirix.Internal.Cluster.Transport;
 /// <param name="Size">Encoded body size.</param>
 /// <param name="MutationOperationId">Identity to write for this attempt, empty when omitted.</param>
 /// <param name="ValueBytes">Serialized value length declared by an extended write.</param>
+/// <param name="HasBorrowedBytes">Whether the encoder can send existing value bytes directly.</param>
 [Immutable]
-internal readonly record struct BinaryClientRequest(int Control, WireMessage Message, int Size, string? MutationOperationId, int ValueBytes = 0)
+internal readonly record struct BinaryClientRequest(int Control, WireMessage Message, int Size, string? MutationOperationId, int ValueBytes, bool HasBorrowedBytes)
 {
     internal int HeaderBytes => Frames.RequestBytes + (Size > Frames.MaxRequestBytes ? Frames.ExtendedRequestBytes : 0);
 
@@ -24,6 +25,13 @@ internal readonly record struct BinaryClientRequest(int Control, WireMessage Mes
 
     internal Memory<byte> WriteTo(WireSegments segments, int id, int timeout = 0)
     {
+        if (!HasBorrowedBytes && Size <= Frames.MaxRequestBytes)
+        {
+            var frame = segments.ReserveFrame(HeaderBytes + Size);
+            WriteTo(frame.Span, id, timeout);
+            return frame[..HeaderBytes];
+        }
+
         var header = segments.GetMemory(HeaderBytes)[..HeaderBytes];
         WriteHeader(header.Span, id, timeout);
         segments.Advance(header.Length);

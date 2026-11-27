@@ -372,7 +372,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                ArrayPool<byte>.Shared.Return(buffer, true);
                 Abort();
             }
         }
@@ -392,7 +392,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
                 if (frameSize > buffer.Length)
                 {
-                    await SendLargeAsync(item, now).ConfigureAwait(false);
+                    await SendLargeAsync(item, now, buffer).ConfigureAwait(false);
                     continue;
                 }
 
@@ -404,9 +404,9 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 await _tls.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
         }
 
-        private async Task SendLargeAsync(PendingCall item, DateTime now)
+        private async Task SendLargeAsync(PendingCall item, DateTime now, byte[] buffer)
         {
-            using var message = new WireSegments();
+            using var message = new WireSegments(buffer);
             _ = item.Request.WriteTo(message, item.Id, RemainingMilliseconds(item, now));
             await message.SendAsync(_tls, _stopToken).ConfigureAwait(false);
         }

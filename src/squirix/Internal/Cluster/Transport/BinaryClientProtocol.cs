@@ -77,14 +77,14 @@ internal static class BinaryClientProtocol
             control |= Frames.TracedRequest;
         }
 
-        var bodySize = request.CalculateSize(mutationOperationId);
+        var bodySize = request.CalculateSize(mutationOperationId, out var hasBorrowedBytes);
         var frameLimit = supportsExtendedFrames ? Frames.MaxExtendedBodyBytes : Frames.MaxRequestBytes;
         if (bodySize > frameLimit)
             throw RequestTooLarge();
 
         var valueSize = bodySize <= Frames.MaxRequestBytes ? 0 : CacheWritePayload.Length(original);
         return valueSize is { } size
-            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId, size)
+            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId, size, hasBorrowedBytes)
             : throw RequestTooLarge();
     }
 

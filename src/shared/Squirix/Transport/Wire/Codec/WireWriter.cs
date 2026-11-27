@@ -31,6 +31,8 @@ internal ref struct WireWriter
         MutationOperationId = mutationOperationId;
     }
 
+    internal bool HasBorrowedBytes { get; private set; }
+
     internal int Written { get; private set; }
 
     internal string? MutationOperationId { get; }
@@ -107,7 +109,12 @@ internal ref struct WireWriter
 
     internal void TailBytes(ReadOnlyMemory<byte> value)
     {
-        if (_output is WireSegments segments && !value.IsEmpty)
+        if (!_hasDestination && _output == null)
+        {
+            HasBorrowedBytes |= !value.IsEmpty;
+            Written = checked(Written + value.Length);
+        }
+        else if (_output is WireSegments segments && !value.IsEmpty)
         {
             segments.Write(value);
             Written = checked(Written + value.Length);
