@@ -20,8 +20,11 @@ internal sealed class GetValueAsyncResponse : WireMessage
     internal static bool HasRawPayload(byte flags) =>
         HasBinaryPayload(flags) || (flags & ~FoundFlag) == PresentKind(CacheValue.KindOneofCase.JsonUtf8);
 
-    internal static GetValueAsyncResponse FromOwnedBinary(byte flags, byte[] payload) =>
-        new() { Found = (flags & FoundFlag) != 0, Value = CacheValue.FromOwnedBinary(payload) };
+    internal static GetValueAsyncResponse FromOwnedRawPayload(byte flags, byte[] payload) => new()
+    {
+        Found = (flags & FoundFlag) != 0,
+        Value = HasBinaryPayload(flags) ? CacheValue.FromOwnedBinary(payload) : CacheValueWire.FromJson(payload),
+    };
 
     internal override void Encode(ref WireWriter writer)
     {

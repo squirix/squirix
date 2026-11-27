@@ -154,14 +154,14 @@ internal static class BinaryClientProtocol
         await stream.ReadExactlyAsync(scratch.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
         var flags = scratch[0];
         var distributed = ReferenceEquals(parser, GetDistributedAsyncResponse.Parser);
-        if (distributed || GetValueAsyncResponse.HasBinaryPayload(flags))
+        if (distributed || GetValueAsyncResponse.HasRawPayload(flags))
         {
             var found = distributed && DecodeDistributedFlag(flags);
             var payload = GC.AllocateUninitializedArray<byte>(size - 1);
             await stream.ReadExactlyAsync(payload, cancellationToken).ConfigureAwait(false);
             WireMessage response = distributed
                 ? GetDistributedAsyncResponse.FromOwnedPayload(found, payload)
-                : GetValueAsyncResponse.FromOwnedBinary(flags, payload);
+                : GetValueAsyncResponse.FromOwnedRawPayload(flags, payload);
             return new BinaryClientReply(response, null);
         }
 

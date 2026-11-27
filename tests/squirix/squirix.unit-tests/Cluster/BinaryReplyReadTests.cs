@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Internal.Cluster.Transport;
+using Squirix.TestKit;
 using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -79,6 +80,65 @@ public sealed class BinaryReplyReadTests
         _ = await Assert.That(stream.ReadByte()).IsEqualTo(29);
     }
 
+    /// <summary>Reads fragmented JSON into the published payload and leaves the next frame unread.</summary>
+    /// <param name="found">Whether the found flag is present.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task LargeJsonLookupReadsIntoPublishedPayload(bool found, CancellationToken cancellationToken)
+    {
+        const int payloadLength = 65536;
+        var frame = new byte[payloadLength + 2];
+        frame[0] = byte.CreateChecked(found ? 27 : 26);
+        frame.AsSpan(1, payloadLength).Fill(byte.CreateChecked('x'));
+        frame[1] = byte.CreateChecked('"');
+        frame[payloadLength] = byte.CreateChecked('"');
+        frame[^1] = 29;
+        await using var stream = new FragmentedReplyStream(frame);
+        var scratch = new byte[1024];
+
+        var read = await BinaryClientProtocol.ReadLargeLookupReplyAsync(stream, GetValueAsyncResponse.Parser, payloadLength + 1, scratch, cancellationToken);
+        var response = await Assert.That(read.Response).IsTypeOf<GetValueAsyncResponse>();
+        _ = await Assert.That(response!.Found).IsEqualTo(found);
+        var json = response.Value!.JsonUtf8;
+        _ = await Assert.That(stream.PayloadReads > 1).IsTrue();
+        _ = await Assert.That(json.Equals(stream.FirstPayloadDestination)).IsTrue();
+        _ = await Assert.That(json.Span.SequenceEqual(frame.AsSpan(1, payloadLength))).IsTrue();
+        _ = await Assert.That(stream.ReadByte()).IsEqualTo(29);
+    }
+
+    /// <summary>Rejects JSON flags that also set a reserved bit or omit the value bit.</summary>
+    /// <param name="flags">The invalid flags byte.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(59)]
+    [Arguments(25)]
+    public async Task LargeJsonLookupRejectsInvalidFlags(int flags, CancellationToken cancellationToken)
+    {
+        var frame = new byte[65537];
+        frame[0] = byte.CreateChecked(flags);
+        await using var stream = new MemoryStream(frame);
+        var scratch = new byte[1024];
+
+        var read = BinaryClientProtocol.ReadLargeLookupReplyAsync(stream, GetValueAsyncResponse.Parser, frame.Length, scratch, cancellationToken);
+        _ = await AsyncAssert.ThrowsAsync<InvalidDataException, BinaryClientReply>(read, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+    }
+
+    /// <summary>Rejects a JSON reply shorter than the length declared by the frame.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LargeJsonLookupRejectsTruncatedPayload(CancellationToken cancellationToken)
+    {
+        var frame = new byte[65536];
+        frame[0] = 27;
+        await using var stream = new FragmentedReplyStream(frame);
+        var scratch = new byte[1024];
+
+        var read = BinaryClientProtocol.ReadLargeLookupReplyAsync(stream, GetValueAsyncResponse.Parser, frame.Length + 1, scratch, cancellationToken);
+        _ = await AsyncAssert.ThrowsAsync<EndOfStreamException, BinaryClientReply>(read, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+    }
+
     /// <summary>A blocking reply whose caller has gone away is drained in scratch-size chunks.</summary>
     [Test]
     public async Task AbandonedReplyLeavesNextFrameReadable()
@@ -92,5 +152,26 @@ public sealed class BinaryReplyReadTests
 
         _ = await Assert.That(result.Response).IsNull();
         _ = await Assert.That(stream.ReadByte()).IsEqualTo(91);
+    }
+
+    private sealed class FragmentedReplyStream : MemoryStream
+    {
+        internal FragmentedReplyStream(byte[] frame)
+            : base(frame)
+        {
+        }
+
+        internal ReadOnlyMemory<byte> FirstPayloadDestination { get; private set; }
+        internal int PayloadReads { get; private set; }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (Position == 1)
+                FirstPayloadDestination = buffer;
+            if (Position > 0)
+                PayloadReads++;
+
+            return base.ReadAsync(buffer[..Math.Min(buffer.Length, 1024)], cancellationToken);
+        }
     }
 }
