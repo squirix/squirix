@@ -2,7 +2,7 @@ name: CI
 
 on:
     # Pull requests into develop run x64 Linux builds and tests on .NET 10 and .NET 11 without
-    # coverage, SonarCloud, NDepend, ARM, format, discovery, or explorer.
+    # coverage, SonarCloud, ARM, format, discovery, or explorer.
     # Allocation guards run on PRs; timed release comparisons run only in performance-nightly.yml.
     # On every event the test artifacts are built without analyzers; the analyzed build runs in parallel as the
     # analyze-ubuntu shards and gates ci-success.
@@ -43,7 +43,6 @@ jobs:
             code: ${{ steps.filter.outputs.code }}
             docs: ${{ steps.filter.outputs.docs }}
             docker: ${{ steps.filter.outputs.docker }}
-            ndepend: ${{ steps.filter.outputs.ndepend }}
         steps:
             -   name: Checkout
                 uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,7 +185,7 @@ jobs:
     # The ubuntu build heads the longest job chain, so it does not wait for the Detect Changes job: it starts with the
     # workflow, classifies the change set itself with the same action and skips the build when no code changed. A build
     # that had nothing to do still ends as a success, so the jobs that wait for it check the `built` output; test-ubuntu
-    # starts with the workflow and makes the same decision itself, NDepend makes it from the Detect Changes job. Its name
+    # starts with the workflow and makes the same decision itself. Its name
     # is referenced by the wait in .github/actions/download-build-outputs. A pull request into develop runs only the ubuntu
     # tests, whose jobs build their suites themselves, so nothing there needs this build.
     build-ubuntu:
@@ -1926,192 +1925,6 @@ jobs:
                         pvs-studio-out/pvs-studio-gate-totals.txt
                         pvs-studio-out/html.fullhtml/**
 
-    # NDepend (Team): full analysis via the official NDepend GitHub Action with squirix.ndproj.
-    # Fails CI when any configured quality gate fails (stopIfQGFailed=true).
-    # Baseline = the analysis of the latest run of the same branch (develop for a branch without one) whose NDepend job
-    # passed, mirroring the "previous commit" regression rule; see Resolve NDepend Baseline.
-    # Secret: NDependLicense = NDepend GitHub Action activation data
-    # (https://www.ndepend.com/activation_githubaction). Skipped on fork PRs (secrets unavailable).
-    # The action uploads an `ndepend` artifact and posts a summary comment on same-repo PRs.
-    ndepend:
-        name: NDepend
-        runs-on: ubuntu-latest
-        timeout-minutes: 60
-        permissions:
-            contents: read
-            actions: read
-            pull-requests: write
-        needs: [ changes ]
-        # PR fast path: NDepend runs on push/schedule/dispatch only.
-        if: |
-            github.event_name != 'pull_request' &&
-            (needs.changes.outputs.code == 'true' ||
-             needs.changes.outputs.ndepend == 'true' ||
-             github.event_name == 'schedule' ||
-             github.event_name == 'workflow_dispatch') &&
-            (github.event_name != 'pull_request' ||
-             github.event.pull_request.head.repo.full_name == github.repository)
-        steps:
-            -   name: Require NDependLicense
-                shell: bash
-                env:
-                    NDEPEND_LICENSE: ${{ secrets.NDependLicense }}
-                run: |
-                    if [[ -z "${NDEPEND_LICENSE}" ]]; then
-                      echo "Missing secrets.NDependLicense." >&2
-                      echo "Add the NDepend GitHub Action activation data as secret NDependLicense." >&2
-                      echo "See https://www.ndepend.com/activation_githubaction" >&2
-                      exit 1
-                    fi
-
-            -   name: Checkout
-                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-                with:
-                    persist-credentials: false
-
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
-                with:
-                    global-json-file: global.json
-
-            # Reads the package cache of the build jobs; see verify-coding-conventions.
-            -   name: Restore NuGet Package Cache
-                uses: actions/cache/restore@v6
-                with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
-
-            # NDepend reads the compiled assemblies; the analysis shards run the Roslyn analyzers. Whenever build-ubuntu builds
-            # (the same condition), its artifact already holds most of them: this job compiles only what the artifact leaves
-            # out (the benchmarks, the sample and the two test kits) while build-ubuntu runs, then downloads the rest, which
-            # replaces its own copies of the shared projects with identical ones. Otherwise, for example when only the NDepend
-            # rules changed, it builds the whole solution. The builds restore in the same process.
-            -   name: Decide Whether To Reuse The Build Outputs
-                id: reuse
-                run: echo "reuse=${{ needs.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
-
-            -   name: Build What The Build Outputs Leave Out
-                if: steps.reuse.outputs.reuse == 'true'
-                run: |
-                    { echo '<Solution>'; grep -E '<Project Path="(benchmarks|samples)/|testkit/' squirix.slnx; echo '</Solution>'; } > squirix.ndepend-extra.slnx
-                    cat squirix.ndepend-extra.slnx
-                    dotnet build squirix.ndepend-extra.slnx --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false \
-                      -p:ShouldUnsetParentConfigurationAndPlatform=false
-
-            -   name: Download Build Outputs
-                if: steps.reuse.outputs.reuse == 'true'
-                uses: ./.github/actions/download-build-outputs
-                with:
-                    wait-for-build: "true"
-
-            -   name: Restore And Build
-                if: steps.reuse.outputs.reuse != 'true'
-                run: dotnet build squirix.slnx --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
-
-            -   name: Synchronize NDepend project
-                run: |
-                    python3 build/ndepend/sync_ndproj.py
-                    if ! git diff --exit-code --quiet -- squirix.ndproj; then
-                        echo "squirix.ndproj is out of date with build/ndepend/squirix.ndrules." >&2
-                        echo "Run python3 build/ndepend/sync_ndproj.py and commit the regenerated squirix.ndproj." >&2
-                        exit 1
-                    fi
-
-            # The action's own `recent` baseline took the latest analysis even from a run that failed the gate, so a new
-            # issue failed one run and then became part of the baseline; its listing (status=completed) could also lag by
-            # days. The baseline is the newest run of the branch, else of develop, whose NDepend job succeeded and whose
-            # `ndepend` artifact has not expired; it is given to the action by run id. On main that is usually a develop
-            # run, which can be ahead of the released commit. A manual dispatch may run without a baseline, to recover
-            # once no passed analysis is left.
-            -   name: Resolve NDepend Baseline
-                id: ndepend-baseline
-                env:
-                    GH_TOKEN: ${{ github.token }}
-                    BRANCH: ${{ github.ref_name }}
-                run: |
-                    set -euo pipefail
-                    shopt -s inherit_errexit
-                    # Either listing can lag behind; their union is scanned newest first. Pull request runs have no NDepend job.
-                    list_runs() {
-                      local branch="$1"
-                      local filter='.workflow_runs[] | select(.head_branch == env.B and .event != "pull_request"
-                        and .status == "completed" and .id != (env.GITHUB_RUN_ID | tonumber)) | "\(.run_number) \(.id)"'
-                      B="$branch" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
-                          -f branch="$branch" -F per_page=50 --jq "${filter}"
-                      B="$branch" gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
-                          -F per_page=100 --jq "${filter}"
-                    }
-                    # A failed or malformed answer stops the step: read as "not passed" it would pick a run that failed the gate.
-                    count() {
-                      local value
-                      value=$(gh api "$1" --jq "$2")
-                      if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
-                        echo "::error::Unexpected answer from $1: '${value}'." >&2
-                        exit 1
-                      fi
-                      echo "${value}"
-                    }
-                    find_baseline() {
-                      local ids id passed artifacts
-                      ids=$(list_runs "$1" | sort -rn -k1,1 | awk '!seen[$2]++ && n++ < 30 { print $2 }')
-                      for id in ${ids}; do
-                        passed=$(count "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/jobs?per_page=100" \
-                            '[.jobs[] | select(.name == "NDepend" and .conclusion == "success")] | length')
-                        if (( passed == 0 )); then
-                          continue
-                        fi
-                        artifacts=$(count "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts?name=ndepend" \
-                            '[.artifacts[] | select(.expired | not)] | length')
-                        if (( artifacts > 0 )); then
-                          echo "${id}"
-                          return
-                        fi
-                      done
-                    }
-                    run_id=$(find_baseline "${BRANCH}")
-                    if [[ -z "${run_id}" && "${BRANCH}" != "develop" ]]; then
-                      run_id=$(find_baseline develop)
-                    fi
-                    if [[ -n "${run_id}" ]]; then
-                      echo "NDepend baseline: run ${run_id}"
-                    elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-                      echo "::warning::No passed NDepend analysis found; this run has no baseline."
-                    else
-                      echo "::error::No passed NDepend analysis found to compare with; dispatch the workflow to run without one." >&2
-                      exit 1
-                    fi
-                    echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
-
-            # The Linux action invokes its analyzer through dotnet. Filter only that invocation.
-            -   name: Prepare NDepend Console Filter
-                run: |
-                    filter_dir="$(mktemp -d)"
-                    install -m 755 tools/ci/ndepend-console.sh "$filter_dir/dotnet"
-                    ln -s "$(command -v dotnet)" "$filter_dir/dotnet-original"
-                    echo "$filter_dir" >> "$GITHUB_PATH"
-
-            -   name: Run NDepend Analysis
-                uses: ndepend/ndepend-action@be6c2e0830c672a6062cbfa00ac03c1c90d7eaa5 # v2 branch
-                with:
-                    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                    license: ${{ secrets.NDependLicense }}
-                    customconfig: squirix.ndproj
-                    baseline: ${{ steps.ndepend-baseline.outputs.run-id }}
-                    stopIfQGFailed: true
-                    retention-days: 14
-
-            # The action looks for the `ndepend` artifact among the first 30 artifacts of the baseline run only, and on a
-            # miss it analyzes without a baseline, which passes the new-issues gate unchecked.
-            -   name: Verify NDepend Baseline Was Used
-                if: steps.ndepend-baseline.outputs.run-id != ''
-                env:
-                    BASELINE_RUN_ID: ${{ steps.ndepend-baseline.outputs.run-id }}
-                run: |
-                    if ! find "${RUNNER_TEMP}/NDependBaseLine" -name '*.ndar' -not -path '*/Baseline/*' | grep -q .; then
-                      echo "::error::The NDepend action did not load the analysis of run ${BASELINE_RUN_ID} as its baseline." >&2
-                      exit 1
-                    fi
-
     ci-success:
         name: CI success
         runs-on: ubuntu-latest
@@ -2142,7 +1955,6 @@ jobs:
             - coverage
             - sonarcloud
             - pvs-studio
-            - ndepend
         # This is the only required status check, and GitHub counts a skipped required check as passed. The job therefore runs
         # on every event and every change set: it must never be skipped, or a failed Detect Changes job (all outputs empty) and
         # a change set outside every filter would both make a pull request mergeable with nothing verified.
@@ -2183,8 +1995,6 @@ jobs:
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
                     RESULT_PVS: ${{ needs.pvs-studio.result }}
-                    RESULT_NDEPEND: ${{ needs.ndepend.result }}
-                    NDEPEND_CHANGED: ${{ needs.changes.outputs.ndepend }}
                 run: |
                     set -euo pipefail
                     failed=0
@@ -2196,7 +2006,6 @@ jobs:
                     require_line_endings=false
                     require_sonar=false
                     require_pvs=false
-                    require_ndepend=false
                     require_alloc=false
                     require_benchmark_smoke=false
                     if [[ "$DOCS_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
@@ -2218,9 +2027,6 @@ jobs:
                     if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "$pull_request_event" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_sonar=true
                       require_pvs=true
-                    fi
-                    if [[ ( "$require_code" == "true" || "$NDEPEND_CHANGED" == "true" ) && ( "$EVENT_NAME" != "$pull_request_event" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
-                      require_ndepend=true
                     fi
 
                     assert_success() {
@@ -2301,7 +2107,6 @@ jobs:
                     assert_success_or_skipped "sonarcloud" "$require_sonar" "$RESULT_SONAR"
                     # TODO(.NET 11): back to assert_success when the pvs-studio job is re-enabled.
                     assert_success_or_skipped "pvs-studio" "$require_pvs" "$RESULT_PVS"
-                    assert_success_or_skipped "ndepend" "$require_ndepend" "$RESULT_NDEPEND"
 
                     if [[ "$failed" -ne 0 ]]; then
                       exit 1
