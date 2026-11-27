@@ -34,6 +34,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private readonly VolatileDouble _appendLatency = new();
 
+    private readonly JournalMutationBarrier _barrier;
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
     private readonly VolatileField<Exception> _flushLoopFailure = new();
     private readonly JournalSlowOperationReporter _slowOperations;
@@ -72,6 +73,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         StallProbe = new JournalStallProbe(log, timeProvider);
         var probedWriter = new ProbedJournalSegmentWriter(segmentWriter, StallProbe);
         _stopper = new JournalStopper(this, probedWriter, log);
+        _barrier = new JournalMutationBarrier(this);
         _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate, timeProvider);
         DurabilityPipeline = new JournalDurabilityCoordinator(this, this, loggerFactory.CreateLogger<JournalDurabilityCoordinator>(), _producerGate);
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
@@ -258,70 +260,24 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask<TResult> ExecuteAppendBarrierAsync<TState, TResult>(
+    public ValueTask<TResult> ExecuteAppendBarrierAsync<TState, TResult>(
         TState state,
         Func<TState, JournalAppendContext, CancellationToken, ValueTask<TResult>> action,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        var (guard, timestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
-        var released = false;
-        try
-        {
-            return await action(state, new JournalAppendContext(guard.Ownership, Release), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            Release();
-        }
-
-        void Release()
-        {
-            if (released)
-                return;
-
-            released = true;
-            ExitMutationGate(guard, timestamp, nameof(ExecuteAppendBarrierAsync));
-        }
-    }
+        CancellationToken cancellationToken) => _barrier.ExecuteAppendBarrierAsync(state, action, cancellationToken);
 
     public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(
         Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
         CancellationToken cancellationToken) => ExecuteUnderSnapshotBarrierAsync(action, static (handler, ownership, ct) => handler(ownership, ct), cancellationToken);
 
-    public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
+    public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
         TState state,
         Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        var (gateGuard, acquiredTimestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return await action(state, gateGuard.Ownership, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            ExitMutationGate(gateGuard, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
-        }
-    }
+        CancellationToken cancellationToken) => _barrier.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
-    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
+    public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
         TState state,
         Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        var (gateGuard, acquiredTimestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await action(state, gateGuard.Ownership, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            ExitMutationGate(gateGuard, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
-        }
-    }
+        CancellationToken cancellationToken) => _barrier.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
     public void FailJournalPipeline(Exception reason) => DurabilityPipeline.FailJournalPipeline(reason);
 
@@ -416,38 +372,111 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
         finally
         {
-            ExitMutationGate(holder, acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
+            _barrier.ExitMutationGate(holder, acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
         }
     }
 
-    private async ValueTask<(AsyncLockHolder GateGuard, long AcquiredTimestamp)> EnterSnapshotBarrierAsync(CancellationToken cancellationToken)
+    /// <summary>Controls admission, release and hold-time measurement for mutation barrier acquisitions.</summary>
+    [Immutable]
+    private sealed class JournalMutationBarrier
     {
-        DurabilityPipeline.ThrowIfJournalThreadFailed();
+        private readonly JournalCoordinator _owner;
 
-        AsyncLockHolder gateGuard;
-        try
+        internal JournalMutationBarrier(JournalCoordinator owner)
         {
-            await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            gateGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            throw new InvalidOperationException("journal coordinator is disposed.", ex);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            StallProbe.ReportWaitCanceled("journal barrier");
-            throw;
+            _owner = owner;
         }
 
-        return (gateGuard, StallProbe.GateAcquired(nameof(ExecuteUnderSnapshotBarrierAsync)));
-    }
+        internal async ValueTask<TResult> ExecuteAppendBarrierAsync<TState, TResult>(
+            TState state,
+            Func<TState, JournalAppendContext, CancellationToken, ValueTask<TResult>> action,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+            var (guard, timestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
+            var released = false;
+            try
+            {
+                return await action(state, new JournalAppendContext(guard.Ownership, Release), cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Release();
+            }
 
-    private void ExitMutationGate(AsyncLockHolder gateGuard, long acquiredTimestamp, string operation)
-    {
-        StallProbe.GateReleased();
-        gateGuard.Dispose();
-        _slowOperations.ReportMutationGateHold(acquiredTimestamp, operation);
+            void Release()
+            {
+                if (released)
+                    return;
+
+                released = true;
+                ExitMutationGate(guard, timestamp, nameof(ExecuteAppendBarrierAsync));
+            }
+        }
+
+        internal async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
+            TState state,
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+            var (gateGuard, acquiredTimestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await action(state, gateGuard.Ownership, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                ExitMutationGate(gateGuard, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
+            }
+        }
+
+        internal async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
+            TState state,
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+            var (gateGuard, acquiredTimestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await action(state, gateGuard.Ownership, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                ExitMutationGate(gateGuard, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
+            }
+        }
+
+        internal void ExitMutationGate(AsyncLockHolder gateGuard, long acquiredTimestamp, string operation)
+        {
+            _owner.StallProbe.GateReleased();
+            gateGuard.Dispose();
+            _owner._slowOperations.ReportMutationGateHold(acquiredTimestamp, operation);
+        }
+
+        private async ValueTask<(AsyncLockHolder GateGuard, long AcquiredTimestamp)> EnterSnapshotBarrierAsync(CancellationToken cancellationToken)
+        {
+            _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
+
+            AsyncLockHolder gateGuard;
+            try
+            {
+                await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                gateGuard = await _owner.MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                throw new InvalidOperationException("journal coordinator is disposed.", ex);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _owner.StallProbe.ReportWaitCanceled("journal barrier");
+                throw;
+            }
+
+            return (gateGuard, _owner.StallProbe.GateAcquired(nameof(ExecuteUnderSnapshotBarrierAsync)));
+        }
     }
 
     /// <summary>Append encoding and ring enqueue for a journal coordinator.</summary>
