@@ -120,9 +120,9 @@ public class TracingDecoratorBenchmarks
 
         public long UsedBytes => 0;
 
-        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => CompleteAsync();
+        public ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => CompleteAsync();
 
-        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => CompleteAsync();
+        public ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken) => CompleteAsync();
 
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => CompleteAsync();
 

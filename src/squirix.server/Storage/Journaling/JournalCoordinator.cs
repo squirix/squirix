@@ -216,11 +216,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
-    public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
-        _appendPipeline.AppendRecordCoreAsync(_appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.Put, entryBytes), cancellationToken);
+    public ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
+        _appendPipeline.AppendRecordCoreAsync(_appendPipeline.AllocateRecord(ownership.Ownership, key, JournalOperationKind.Put, entryBytes), ownership.ReleaseAfterEnqueue, cancellationToken);
 
-    public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => _appendPipeline.AppendRecordCoreAsync(
-        _appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.Remove),
+    public ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken) => _appendPipeline.AppendRecordCoreAsync(
+        _appendPipeline.AllocateRecord(ownership.Ownership, key, JournalOperationKind.Remove),
+        ownership.ReleaseAfterEnqueue,
         cancellationToken);
 
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
@@ -255,6 +256,33 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // A faulted or canceled checkpoint aborts the cut: nothing is built or published over frames that may never become durable.
         await DurabilityPipeline.AwaitFlushAsync(new ValueTask<TaskCompletionSource>(checkpoint), cancellationToken).ConfigureAwait(false);
         return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<TResult> ExecuteAppendBarrierAsync<TState, TResult>(
+        TState state,
+        Func<TState, JournalAppendContext, CancellationToken, ValueTask<TResult>> action,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        var (guard, timestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
+        var released = false;
+        try
+        {
+            return await action(state, new JournalAppendContext(guard.Ownership, Release), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Release();
+        }
+
+        void Release()
+        {
+            if (released)
+                return;
+
+            released = true;
+            ExitMutationGate(guard, timestamp, nameof(ExecuteAppendBarrierAsync));
+        }
     }
 
     public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(
@@ -338,8 +366,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     void IJournalCoordinatorAppendState.RecordAppendMetrics(int frameLength, long startedMs)
     {
         var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
-        var currentLatency = _appendLatency.Read();
-        _appendLatency.Write(currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
+
+        // Grouped writes can now acknowledge concurrently after publication.
+        lock (_appendLatency)
+        {
+            var currentLatency = _appendLatency.Read();
+            _appendLatency.Write(currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
+        }
+
         _ = Interlocked.Add(ref _bytes, frameLength);
         _ = Interlocked.Increment(ref _ops);
         OnAppended?.Invoke(this, EventArgs.Empty);
@@ -431,7 +465,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             _timeProvider = timeProvider;
         }
 
-        internal JournalRecord AllocateRecord(in AsyncLockOwnership ownership, CacheKey key, JournalOperationKind operation, ReadOnlyMemory<byte> putEntryBytes = default)
+        internal JournalRecord AllocateRecord(AsyncLockOwnership ownership, CacheKey key, JournalOperationKind operation, ReadOnlyMemory<byte> putEntryBytes = default)
         {
             // Allocated before renting: a caller refused for not holding the gate leaves no record out of the pool.
             var sequence = _owner.AllocateSequence(in ownership);
@@ -444,7 +478,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return record;
         }
 
-        internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
+        internal async ValueTask AppendRecordCoreAsync(JournalRecord record, Action? releaseAfterEnqueue, CancellationToken cancellationToken)
         {
             _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
             await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -472,7 +506,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 }
 
                 var startedMs = Environment.TickCount64;
-                await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
+                await EnqueueAppendAsync(frameBytes, frameLen, releaseAfterEnqueue, cancellationToken).ConfigureAwait(false);
 
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
@@ -500,7 +534,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             }
         }
 
-        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
+        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, Action? releaseAfterEnqueue, CancellationToken cancellationToken)
         {
             var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) : null;
             var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
@@ -518,10 +552,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 throw;
             }
 
-            // The durability wait stays outside the gate: the gate covers only the publishing, so a
-            // slow journal thread never blocks shutdown drain on fsync latency.
             if (appendAck != null)
+            {
+                // The frame is on the ring in sequence order. Its key lease and in-flight slot remain held through apply.
+                releaseAfterEnqueue?.Invoke();
                 await AwaitWriteAckAfterEnqueueAsync(appendAck).ConfigureAwait(false);
+            }
         }
 
         private async ValueTask EnqueueTrackedAppendAsync(JournalWorkItem item, byte[] frameBytes, int frameLength, TaskCompletionSource? trackAck, CancellationToken cancellationToken)

@@ -36,6 +36,88 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
 
     private static readonly string KeyW = CacheKey.Default("w").ToString();
 
+    /// <summary>Independent frames queued behind a stalled writer are combined into fewer file writes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task QueuedFramesShareSegmentWrites(CancellationToken cancellationToken)
+    {
+        const int count = 32;
+        await using var journal = await CreateWarmJournalAsync(cancellationToken);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
+        var memory = new AppliedKeys();
+        var requests = new Task<int>[count];
+        var keys = new string[count];
+        var expectedSequence = journal.Journal.NextSequence + count;
+        var writesBefore = journal.Writer.WriteCount;
+        journal.Writer.Write.Arm();
+        try
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var key = $"queued-{i}";
+                keys[i] = CacheKey.Default(key).ToString();
+                requests[i] = memory.PutAsync(executor, journal.Journal, key, cancellationToken);
+                if (i == 0)
+                    await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            }
+
+            await journal.Journal.WaitUntilAsync(j => j.NextSequence == expectedSequence, StallTimeout, TimeProvider.System, cancellationToken);
+            using var bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            bound.CancelAfter(StallTimeout);
+            using var gate = await journal.Journal.MutationGate.LockAsync(bound.Token);
+            _ = await Assert.That(memory.Snapshot).IsEmpty();
+        }
+        finally
+        {
+            journal.Writer.Write.Release();
+        }
+
+        _ = await Task.WhenAll(requests).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var writeCount = journal.Writer.WriteCount - writesBefore;
+        _ = await Assert.That(writeCount).IsGreaterThan(0);
+        _ = await Assert.That(writeCount).IsLessThan(count / 2);
+        _ = await Assert.That(memory.Snapshot).IsEqualTo(StallableJournal.Describe(keys));
+        await journal.ShutdownAsync();
+        _ = await Assert.That(journal.Recover(string.Empty, 0, cancellationToken)).IsEqualTo(StallableJournal.Describe([.. keys, KeyW]));
+    }
+
+    /// <summary>Another key enters the journal during a stalled write without either mutation applying before durability.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OtherKeyQueuesDuringStalledWrite(CancellationToken cancellationToken)
+    {
+        await using var journal = await CreateWarmJournalAsync(cancellationToken);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
+        var memory = new AppliedKeys();
+        journal.Writer.Write.Arm();
+        var first = memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
+        Task<int> second;
+        try
+        {
+            await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            var before = journal.Journal.NextSequence;
+            second = memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
+            await journal.Journal.WaitUntilAsync(j => j.NextSequence > before, StallTimeout, TimeProvider.System, cancellationToken);
+
+            // Once the second sequence is allocated, taking the gate proves that its frame was published.
+            using var bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            bound.CancelAfter(StallTimeout);
+            using var gate = await journal.Journal.MutationGate.LockAsync(bound.Token);
+            _ = await Assert.That(first.IsCompleted || second.IsCompleted).IsFalse();
+            _ = await Assert.That(memory.Snapshot).IsEmpty();
+        }
+        finally
+        {
+            journal.Writer.Write.Release();
+        }
+
+        _ = await Task.WhenAll(first, second).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await journal.ShutdownAsync();
+        var keyB = CacheKey.Default("b").ToString();
+        _ = await Assert.That(memory.Snapshot).IsEqualTo(StallableJournal.Describe([KeyA, keyB]));
+        _ = await Assert.That(journal.Recover(string.Empty, 0, cancellationToken)).IsEqualTo(StallableJournal.Describe([KeyA, keyB, KeyW]));
+    }
+
     /// <summary>
     /// A frame the journal thread dequeued but could not write yet has its caller faulted commit-unknown by the stop, but the frame stays
     /// accepted: once the write is released it is written and replayed, so an acknowledged frame is never silently lost.
@@ -265,10 +347,10 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
 
         public long UsedBytes => 0;
 
-        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
+        public ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
             Interlocked.Exchange(ref _faultNextPut, 0) == 1 ? WriteAckFaultAsync() : ValueTask.CompletedTask;
 
-        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
 

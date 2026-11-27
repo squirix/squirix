@@ -69,10 +69,10 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     internal Exception? LatchedFailure { get; set; }
 
     /// <inheritdoc />
-    public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
+    public ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
-    public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => default;
+    public ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => default;
