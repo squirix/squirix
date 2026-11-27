@@ -20,7 +20,7 @@ using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests;
 
-/// <summary>Journal group commit enabled through the public server options on a hosted node, driven over gRPC.</summary>
+/// <summary>Journal group commit on a persistent hosted node driven through the binary endpoint.</summary>
 public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
 {
     private const string CacheName = "default";
@@ -28,17 +28,17 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     private const int MaxBursts = 20;
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(60);
 
-    /// <summary>The default public options keep the journal on per-mutation flushes.</summary>
+    /// <summary>Enabling persistence selects the grouped journal without additional configuration.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DefaultOptionsKeepGroupCommitOff(CancellationToken cancellationToken)
+    public async Task PersistenceUsesGroupedJournalByDefault(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-group-commit-default");
         var (app, _) = await StartAsync(dir, null, cancellationToken);
         await using (app)
         {
-            _ = await Assert.That(app.Services.GetRequiredService<PersistenceOptions>().IsJournalGroupCommitEnabled).IsFalse();
-            _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsFalse();
+            _ = await Assert.That(app.Services.GetRequiredService<PersistenceOptions>().IsJournalGroupCommitEnabled).IsTrue();
+            _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsTrue();
         }
     }
 
@@ -108,7 +108,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         const string key = "same-key";
         using var dir = new TempDirectory("squirix-group-commit-same-key");
         GetValueAsyncResponse before;
-        var (app, uri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
+        var (app, uri) = await StartAsync(dir, null, cancellationToken);
         await using (app)
         {
             using var channel = CreateBinaryChannel(uri);
@@ -124,7 +124,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             before = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         }
 
-        var (restarted, restartedUri) = await StartAsync(dir, ConfigureGroupCommit, cancellationToken);
+        var (restarted, restartedUri) = await StartAsync(dir, null, cancellationToken);
         await using (restarted)
         {
             using var channel = CreateBinaryChannel(restartedUri);
