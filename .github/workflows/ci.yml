@@ -16,6 +16,10 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.run_stress
         runs-on: windows-latest
         timeout-minutes: 60
+        strategy:
+            fail-fast: false
+            matrix:
+                order: [develop-first, pr-first]
         steps:
             -   name: Checkout
                 uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,26 +45,52 @@ jobs:
                     echo "TEMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
                     echo "TMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
 
-            -   name: Restore And Build
-                run: dotnet build squirix.slnx --configuration Release
-
+            -   name: Fetch and build both pinned revisions
+                shell: pwsh
+                run: |
+                    git fetch --no-tags origin c8ff455bce5ef9319cb1a7199cf9a59e128449ea ead0c26d79e59b5a3ea7b45c95844de6720d0b06
+                    if ($LASTEXITCODE) { exit $LASTEXITCODE }
+                    foreach ($arm in @("develop","pr")) {
+                        $sha = if ($arm -eq "develop") {"c8ff455bce5ef9319cb1a7199cf9a59e128449ea"} else {"ead0c26d79e59b5a3ea7b45c95844de6720d0b06"}
+                        $dir = Join-Path $env:RUNNER_TEMP "source-$arm"
+                        git worktree add --detach $dir $sha
+                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+                        Push-Location $dir
+                        $file = 'tests/squirix.e2e.tests/Cache/MultiNode/Failover/NoQuorumFailoverTests.cs'
+                        $old = ': exception.GetType().Name;'
+                        $new = ': exception is SquirixTransportException transport ? $"{transport.StatusCode}: {transport.Message}" : exception.GetType().Name;'
+                        $body = [IO.File]::ReadAllText((Resolve-Path $file))
+                        if (!$body.Contains($old)) { throw "Unexpected diagnostics helper" }
+                        [IO.File]::WriteAllText((Resolve-Path $file), $body.Replace($old,$new))
+                        dotnet build tests/squirix.e2e.tests/Squirix.E2ETests.csproj --configuration Release
+                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+                        Pop-Location
+                    }
             -   name: Ensure Dev HTTPS Certificate
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
-
-            -   name: Repeat failover group on develop
+            -   name: Alternate matched failover groups
                 shell: pwsh
+                env:
+                    ORDER: ${{ matrix.order }}
                 run: |
-                    foreach ($pass in 1..10) {
-                        dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj --configuration Release --no-build --treenode-filter '/*/Squirix.E2ETests.Cache.MultiNode.Failover*/*/*[Suite!=Stress]' --minimum-expected-tests 90 --report-trx --results-directory "rf3-control/pass-$pass" 2>&1 | Tee-Object "pass-$pass.log"
-                        if (Select-String -Quiet -Path "pass-$pass.log" -Pattern 'failed ReadAndWriteContinueOnRfThreeMajority') { exit 2 }
-                        if (!(Test-Path "rf3-control/pass-$pass/*.trx")) { exit 1 }
+                    $failed = 0
+                    $evidence = Join-Path $env:GITHUB_WORKSPACE "paired"
+                    foreach ($pass in 1..5) {
+                        $a = (($env:ORDER -eq "develop-first") -eq ($pass % 2 -eq 1))
+                        $arms = if ($a) {@("develop","pr")} else {@("pr","develop")}
+                        foreach ($arm in $arms) {
+                            Push-Location (Join-Path $env:RUNNER_TEMP "source-$arm")
+                            dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj --configuration Release --no-build --treenode-filter '/*/Squirix.E2ETests.Cache.MultiNode.Failover*/*/*[Suite!=Stress]' --minimum-expected-tests 90 --report-trx --results-directory "$evidence/$arm/$pass"
+                            if ($LASTEXITCODE) { $failed++ }
+                            Pop-Location
+                        }
                     }
-                    exit 0
-
-            -   name: Upload control test results
+                    if ($failed) { exit 2 }
+            -   name: Upload both arms
                 if: always()
                 uses: actions/upload-artifact@v7
                 with:
-                    name: rf3-develop-control
-                    path: rf3-control/
+                    name: paired-${{ matrix.order }}
+                    path: paired/
+                    if-no-files-found: error
