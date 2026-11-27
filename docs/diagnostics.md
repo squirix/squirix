@@ -21,9 +21,8 @@ diagnostics surfaces currently exposed by the node host.
 - `clientPool.peers`: configured peer count from topology (`Peers.Length`)
 - `coordination.leases`: `configured`, `active`, `pendingGrants`, `pendingReleases`
 - `coordination.watches`: `configured`, `active`, `droppedEvents`, `bufferedEvents`
-- `memoryPressure.state`: coarse pressure derived from configured limits and the approximate byte total the node's local
-  cache records — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
-  The admission policy itself is not owned by the cache.
+- `memoryPressure.state`: `normal`, `high`, or `critical`, based on configured limits and the estimated bytes the node holds.
+  The `memoryPressure` section appears when [memory accounting](configuration.md#memory-pressure-squirixsettingsjson) is enabled.
 - `memoryPressure.maxEstimatedCacheBytes`: resolved estimated byte limit (explicit setting or 80% RAM default); it bounds
   every copy the node holds
 - `memoryPressure.estimatedCacheBytes`: current approximate bytes of every entry the node holds, follower copies and
@@ -226,8 +225,8 @@ Log events, in the `Squirix.Server` categories of the sender and the receiver:
 
 See the [runbook](operational-runbook.md#state-transfer) for what to do when transfers keep failing.
 
-Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `Gate`, and memory-pressure
-components; they are not part of the generic operation observability model. journal, snapshot, recovery,
+Memory-pressure metrics require both metrics collection and [memory accounting](configuration.md#memory-pressure-squirixsettingsjson).
+`MemoryPressureMetricsService` and the admission policy produce them. Journal, snapshot, recovery,
 manifest, and storage health metrics remain owned by the storage layer (`JournalCoordinator`, `JournalReader`,
 `Coordinator`, `JournalMetricsExporterService`, and related storage services).
 

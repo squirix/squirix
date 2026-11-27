@@ -19,13 +19,15 @@ internal static class HealthDetailsResponseMapper
                 snapshot.Coordination.Watch.ActiveWatches,
                 snapshot.Coordination.Watch.DroppedEvents,
                 snapshot.Coordination.Watch.BufferedEvents));
-        var memoryPressure = new HealthMemoryPressureDetails(
-            snapshot.MemoryPressure.State,
-            snapshot.MemoryPressure.MaxEstimatedCacheBytes,
-            snapshot.MemoryPressure.EstimatedBytes,
-            snapshot.MemoryPressure.EntryCount,
-            snapshot.MemoryPressure.RejectedWriteCount,
-            snapshot.MemoryPressure.WriteRejectionActive);
+        var memoryPressure = snapshot.MemoryPressure is { } pressure
+            ? new HealthMemoryPressureDetails(
+                pressure.State,
+                pressure.MaxEstimatedCacheBytes,
+                pressure.EstimatedBytes,
+                pressure.EntryCount,
+                pressure.RejectedWriteCount,
+                pressure.WriteRejectionActive)
+            : null;
         var journalDisk = new HealthJournalDiskDetails(
             snapshot.JournalDisk.State,
             snapshot.JournalDisk.MaxBytes,

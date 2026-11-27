@@ -101,7 +101,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         await lag.Cluster[lag.Lagging].AbruptShutdownAsync();
 
         var beforeEnter = new Hold(HoldPoint.Enter);
-        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, beforeEnter.Configure), cancellationToken);
+        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, beforeEnter.Configure, accountMemoryOnNode: lag.Lagging), cancellationToken);
         await beforeEnter.Reached.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var (health, description) = await restarted.ReplicaGroupsAsync(cancellationToken);
         var admitted = lag.Cluster[lag.Survivor].GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(GroupId).StateFor(SlotOf(restarted, lag.Lagging));
@@ -188,7 +188,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         await lag.Cluster[lag.Lagging].AbruptShutdownAsync();
 
         var beforeEnter = new Hold(HoldPoint.Enter);
-        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, beforeEnter.Configure, true), cancellationToken);
+        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, beforeEnter.Configure, true, accountMemoryOnNode: lag.Lagging), cancellationToken);
         await beforeEnter.Reached.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var copy = (await Log(restarted).GetStatusAsync(cancellationToken)).MemberState;
         beforeEnter.Release();
@@ -223,7 +223,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         await sampling.CancelAsync();
         var highest = await peak;
         var snapshots = ((await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0) - before;
-        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, null, true), cancellationToken);
+        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, null, true, accountMemoryOnNode: lag.Lagging), cancellationToken);
         var copy = (await Log(restarted).GetStatusAsync(cancellationToken)).MemberState;
         var (_, entries) = await MeasureAsync(restarted, cancellationToken);
 
@@ -318,7 +318,8 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         PartitionFabric? fabric,
         Action<TestServiceCollection>? services,
         bool tightJournal = false,
-        TimeSpan? stallBudget = null)
+        TimeSpan? stallBudget = null,
+        string? accountMemoryOnNode = null)
     {
         var persistence = tightJournal
             ? new PersistenceOptions { JournalMaxSegmentMb = JournalSegmentLimits.MinimumSegmentMb(EntryLimits.MaxReplicatedValueBytes), JournalMaxTotalBytesMb = TightJournalMb, ReplicaLogCompactionEntries = Threshold }
@@ -334,6 +335,12 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
             ElectionTiming = WipedCluster.Timing,
             PartitionFabric = fabric,
             PersistenceOptions = persistence,
+            MemoryPressureByNode = accountMemoryOnNode == null
+                ? null
+                : new Dictionary<string, PressureOptions>(StringComparer.Ordinal)
+                {
+                    [accountMemoryOnNode] = new() { MemoryAccountingEnabled = true, MaxEstimatedCacheBytes = 1024L * 1024 * 1024 },
+                },
             MetricsEnabled = true,
             PrometheusMetricsEnabled = true,
             ServicesConfigure = serviceCollection =>
@@ -393,7 +400,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     private static async Task StartLaggingAsync(Lag lag, Action<TestServiceCollection>? services, CancellationToken cancellationToken, bool tightJournal = false)
     {
         await lag.Cluster.StopNodeAsync(lag.Former);
-        _ = await lag.Cluster.StartNodeAsync(lag.Lagging, Options(lag.Scope, false, lag.Fabric, services, tightJournal, lag.StallBudget), cancellationToken);
+        _ = await lag.Cluster.StartNodeAsync(lag.Lagging, Options(lag.Scope, false, lag.Fabric, services, tightJournal, lag.StallBudget, lag.Lagging), cancellationToken);
     }
 
     private static string ValueOf(int index, int paddingBytes = 0)

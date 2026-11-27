@@ -18,8 +18,8 @@ Critical memory pressure and journal disk at the configured hard quota do **not*
 appends fail with `JOURNAL_DISK_QUOTA` (`ResourceExhausted`).
 
 When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age,
-retention-cleanup status, and journal on-disk pressure. All nodes report client pool peers, stubbed coordination
-leases/watches (`configured = false`), and memory pressure aggregates (no raw keys or values).
+retention-cleanup status, and journal on-disk pressure. All nodes report client pool peers and stubbed coordination
+leases/watches (`configured = false`). Nodes started with `--memory-accounting` also report aggregate cache memory pressure.
 
 Full field reference: [diagnostics.md](diagnostics.md).
 

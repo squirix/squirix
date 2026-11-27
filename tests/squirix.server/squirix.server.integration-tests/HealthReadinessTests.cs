@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -44,8 +46,17 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     [Test]
     public async Task ReadyDetailsReportsReadinessSignals(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("node_health_A", new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
-        var node = cluster["node_health_A"];
+        const string nodeId = "node_health_A";
+        var options = new IntegrationStartOptions
+        {
+            UsePersistence = true,
+            MemoryPressureByNode = new Dictionary<string, PressureOptions>(StringComparer.Ordinal)
+            {
+                [nodeId] = new() { MemoryAccountingEnabled = true, MaxEstimatedCacheBytes = 1024 * 1024 },
+            },
+        };
+        await using var cluster = await StartClusterAsync(nodeId, options, cancellationToken);
+        var node = cluster[nodeId];
         var cache = GetCache(node);
 
         await cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), cancellationToken);
@@ -59,6 +70,29 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         await AssertMemoryPressureReadinessAsync(json);
         await AssertJournalDiskReadinessAsync(json);
         await AssertRetentionCleanupReadinessAsync(json);
+    }
+
+    /// <summary>All health routes remain available when memory accounting is off, and diagnostics report no measurement even after a write.</summary>
+    /// <param name="usePersistence">Whether to start with persistence enabled.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task HealthRoutesWorkWithoutMemoryAccounting(bool usePersistence, CancellationToken cancellationToken)
+    {
+        const string nodeId = "node-health-no-accounting";
+        await using var cluster = await StartClusterAsync(nodeId, new IntegrationStartOptions { UsePersistence = usePersistence }, cancellationToken);
+        var node = cluster[nodeId];
+        await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:off", BuildEntry("v", version: 1), cancellationToken);
+
+        using var live = await HttpClient.GetAsync(new Uri(node.ManagementUri, "/health/live"), cancellationToken);
+        using var ready = await HttpClient.GetAsync(new Uri(node.ManagementUri, "/health/ready"), cancellationToken);
+        var json = await FetchReadyDetailsAsync(node.ManagementUri, cancellationToken);
+
+        _ = await Assert.That(live.IsSuccessStatusCode).IsTrue();
+        _ = await Assert.That(ready.IsSuccessStatusCode).IsTrue();
+        _ = await Assert.That(json.TryGetProperty("memoryPressure", out _)).IsFalse();
+        await AssertJournalReadinessAsync(json);
     }
 
     /// <summary>A snapshot cut covers every applied frame, so the journal backlog reported afterwards is zero.</summary>
@@ -141,9 +175,8 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(memMax.ValueKind).IsEqualTo(JsonValueKind.Number);
         _ = await Assert.That(memMax.GetInt64() > 0).IsTrue();
         _ = await Assert.That(memoryPressure.TryGetProperty("estimatedCacheBytes", out var memEst)).IsTrue();
-        _ = await Assert.That(memEst.ValueKind).IsEqualTo(JsonValueKind.Number);
-        _ = await Assert.That(memoryPressure.TryGetProperty("entryCount", out var memEntries)).IsTrue();
-        _ = await Assert.That(memEntries.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(memEst.GetInt64() > 0).IsTrue();
+        _ = await Assert.That(memoryPressure.GetProperty("entryCount").GetInt64()).IsEqualTo(1L);
         _ = await Assert.That(memoryPressure.TryGetProperty("rejectedWriteCount", out var memRej)).IsTrue();
         _ = await Assert.That(memRej.ValueKind).IsEqualTo(JsonValueKind.Number);
         _ = await Assert.That(memoryPressure.TryGetProperty("writeRejectionActive", out var memWra)).IsTrue();

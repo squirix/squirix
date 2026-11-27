@@ -19,14 +19,14 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class CachePipelineRegistration
 {
-    internal static NodeServices AddSquirixCachePipeline(this NodeServices services, bool persistenceEnabled = false, bool metricsEnabled = false)
+    internal static NodeServices AddSquirixCachePipeline(this NodeServices services, bool persistenceEnabled = false, bool metricsEnabled = false, bool admitBeforeCommit = false)
     {
         _ = services.Own(static sp => new ClientCache<StoredValue>(
             sp.Require<ILocalCacheReadOperations<StoredValue>>(),
             sp.Require<ILocalCacheMutationOperations<StoredValue>>()));
 
         AddOwnershipGuardLayer(services, persistenceEnabled);
-        AddCacheDecoratorChain(services, metricsEnabled);
+        AddCacheDecoratorChain(services, metricsEnabled, admitBeforeCommit);
         _ = services.Own<ILogicalNamespacedCache<StoredValue>>(static sp => sp.Require<TracingCacheDecorator<StoredValue>>());
         _ = services.Own<IDistributedCacheAccess>(static sp => new NodeDistributedCacheAccess(
             ResolveLocalCache(sp),
@@ -105,25 +105,30 @@ internal static class CachePipelineRegistration
     /// </summary>
     /// <param name="services">Service collection receiving the decorator chain registrations.</param>
     /// <param name="metricsEnabled">Whether to wrap the cache with operation metrics.</param>
-    private static void AddCacheDecoratorChain(NodeServices services, bool metricsEnabled)
+    /// <param name="admitBeforeCommit">Whether writes must be admitted before a durable commit.</param>
+    private static void AddCacheDecoratorChain(NodeServices services, bool metricsEnabled, bool admitBeforeCommit)
     {
-        _ = services.Own(static sp => CreateAdmissionDecorator(
-            ResolveLocalCache(sp),
-            sp.Require<PressureGate>(),
-            sp.Require<ICacheEntrySizeEstimator<StoredValue>>(),
-            HasRecordedOutcome(sp)));
+        if (admitBeforeCommit)
+        {
+            _ = services.Own(static sp => CreateAdmissionDecorator(
+                ResolveLocalCache(sp),
+                sp.Require<PressureGate>(),
+                sp.Require<ICacheEntrySizeEstimator<StoredValue>>(),
+                HasRecordedOutcome(sp)));
+        }
+
         if (metricsEnabled)
         {
             _ = services.Own(static sp => new CacheMetrics(sp.Require<Meter>()));
             _ = services.Own(static sp => new MetricsCacheDecorator<StoredValue>(
-                sp.Require<MemoryAdmissionCacheDecorator<StoredValue>>(),
+                AfterMemoryAdmission(sp),
                 sp.Require<CacheMetrics>()));
         }
 
         _ = services.Own(static sp => new BackpressureCacheDecorator<StoredValue>(
             sp.Find<MetricsCacheDecorator<StoredValue>>() is { } metrics
                 ? metrics
-                : sp.Require<MemoryAdmissionCacheDecorator<StoredValue>>(),
+                : AfterMemoryAdmission(sp),
             sp.Require<IBackpressureGate>(),
             sp.Require<IBackpressureClientIdResolver>()));
         _ = services.Own(static sp =>
@@ -144,11 +149,14 @@ internal static class CachePipelineRegistration
                 : sp.Require<OwnershipGuardCacheDecorator<StoredValue>>(),
             EntryLimits.ValueBytes(sp.Require<FeatureState>().NetworkReplicationEnabled),
             sp.Find<IRoutedKeyContext>()));
-        _ = services.Own(static sp => new DomainErrorMappingCacheDecorator<StoredValue>(sp.Require<ValidationCacheDecorator<StoredValue>>()));
+        _ = services.Own(static sp => new DomainErrorMappingCacheDecorator<StoredValue>(sp.Require<ValidationCacheDecorator<StoredValue>>(), sp.Find<PressureGate>()));
         _ = services.Own(static sp => new TracingCacheDecorator<StoredValue>(
             sp.Require<DomainErrorMappingCacheDecorator<StoredValue>>(),
             sp.Require<TopologyOptions>().NodeId));
     }
+
+    private static ILogicalNamespacedCache<StoredValue> AfterMemoryAdmission(IServiceProvider services) =>
+        services.Find<MemoryAdmissionCacheDecorator<StoredValue>>() is { } admission ? admission : ResolveLocalCache(services);
 
     private static void AddOwnershipGuardLayer(NodeServices services, bool persistenceEnabled)
     {

@@ -19,6 +19,9 @@ internal sealed record UnresolvedMemoryPressureOptions
     /// </summary>
     internal long? MaxEstimatedCacheBytes { get; init; }
 
+    /// <summary>Gets a value indicating whether cache memory accounting is enabled.</summary>
+    internal bool MemoryAccountingEnabled { get; init; }
+
     /// <summary>Validates unresolved scalars before RAM budget resolution.</summary>
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
     internal void Validate()

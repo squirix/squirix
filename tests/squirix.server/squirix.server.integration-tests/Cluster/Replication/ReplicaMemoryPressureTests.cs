@@ -51,7 +51,11 @@ public sealed class ReplicaMemoryPressureTests : NodeIntegrationTestBase
             UsePersistence = true,
             CleanTestDir = true,
             ExtraScope = "replica-memory-pressure",
-            MemoryPressureByNode = new Dictionary<string, PressureOptions>(StringComparer.Ordinal) { [PressuredNode] = new() { MaxEstimatedCacheBytes = PressuredLimitBytes } },
+            MemoryPressureByNode = new Dictionary<string, PressureOptions>(StringComparer.Ordinal)
+            {
+                [owner] = new() { MemoryAccountingEnabled = true, MaxEstimatedCacheBytes = 1024 * 1024 },
+                [PressuredNode] = new() { MemoryAccountingEnabled = true, MaxEstimatedCacheBytes = PressuredLimitBytes },
+            },
         };
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", options, cancellationToken);
         var leader = cluster[owner];
@@ -114,7 +118,7 @@ public sealed class ReplicaMemoryPressureTests : NodeIntegrationTestBase
             }
 
             // The reply of the pressured node to this write is what the next write is judged by: wait for the leader to hold it.
-            await committer.WaitUntilAsync(static c => c.MemberPressure.IsAnyFresh(), cancellationToken);
+            await committer.WaitUntilAsync(static c => c.MemberPressure!.IsAnyFresh(), cancellationToken);
         }
 
         return null;
@@ -137,7 +141,7 @@ public sealed class ReplicaMemoryPressureTests : NodeIntegrationTestBase
             }
             catch (ResourceExhaustedException)
             {
-                await committer.WaitUntilAsync(static c => !c.MemberPressure.IsAnyFresh(), cancellationToken);
+                await committer.WaitUntilAsync(static c => !c.MemberPressure!.IsAnyFresh(), cancellationToken);
             }
         }
 

@@ -57,7 +57,7 @@ internal static class NodeHost
             if (_options.EvictionBudgetBytes is { } budget)
             {
                 args.Eviction = new Squirix.Server.Core.EvictionOptions { EvictOnMemoryPressure = true };
-                args.MemoryPressureOptions = new Squirix.Server.Node.MemoryPressure.PressureOptions { MaxEstimatedCacheBytes = budget };
+                args.MemoryPressureOptions = new Squirix.Server.Node.MemoryPressure.PressureOptions { MaxEstimatedCacheBytes = budget, MemoryAccountingEnabled = true };
             }
 
             args.SecurityOptions = _options.SecurityOptions;

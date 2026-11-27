@@ -33,4 +33,17 @@ public sealed class ResourceExhaustedException : Exception
         : base(message, innerException)
     {
     }
+
+    internal ResourceExhaustedException(bool wasCritical, bool isTryAdd)
+        : this()
+    {
+        WasCritical = wasCritical;
+        IsTryAdd = isTryAdd;
+    }
+
+    /// <summary>Gets the critical state observed by RAM-only admission, when the refusal still needs to be recorded.</summary>
+    internal bool? WasCritical { get; }
+
+    /// <summary>Gets a value indicating whether RAM-only admission refused a conditional insert.</summary>
+    internal bool IsTryAdd { get; }
 }

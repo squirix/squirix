@@ -167,23 +167,11 @@ internal static class ReplicaGroupCommitterStarts
         /// <remarks>
         /// The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose. An
         /// elected leader posts every reply to the election state, and queues a follower out of the write quorum for repair once it answers.
-        /// Every leader, static or elected, records the memory pressure flag of every reply.
+        /// Leaders with memory admission enabled also record each reply's memory pressure flag.
         /// </remarks>
         private ReplicaFollowerSender[] CreateSenders(string[] members, int leaderIndex, in FollowerLogStatus status, in ReplicaRpcHeader header, ReplicaReadIndexRound? rounds)
         {
-            var pressure = committer.MemberPressure;
-            Action<int, FollowerLogAppendResult> replies = (slot, reply) => pressure.Observe(slot, reply.MemoryPressure);
-            if (committer.Election is { } election)
-            {
-                var answering = new ReplicaAnsweringFollowers(committer.Registry.EligibilityFor(committer.GroupId), committer.Probe.Repairs, election.Clock, election.Options.ElectionTimeout);
-                replies = (slot, reply) =>
-                {
-                    pressure.Observe(slot, reply.MemoryPressure);
-                    election.RecordFollowerReply(slot, in reply);
-                    answering.Observe(slot, in reply);
-                };
-            }
-
+            var replies = committer.CreateReplyObserver(committer.MemberPressure);
             var log = committer.Log;
             return ReplicaFollowerSenders.Create(
                 rounds?.Observing(committer.Gateway, members) ?? committer.Gateway,
@@ -193,6 +181,30 @@ internal static class ReplicaGroupCommitterStarts
                 in header,
                 new ReplicaFollowerSenders.SenderTiming(committer.CommitBudget, committer.ShutdownBudget, committer.BudgetTimeProvider) { Replies = replies },
                 budget => ReplicaFollowerLog.ReplicaFollowerSenderLeakedOnShutdown(log, budget));
+        }
+
+        private Action<int, FollowerLogAppendResult>? CreateReplyObserver(ReplicaMemberPressure? pressure)
+        {
+            if (committer.Election is not { } election)
+                return pressure == null ? null : ObservePressure(pressure);
+
+            var answering = new ReplicaAnsweringFollowers(committer.Registry.EligibilityFor(committer.GroupId), committer.Probe.Repairs, election.Clock, election.Options.ElectionTimeout);
+            return ObserveElection(election, answering, pressure);
+
+            static Action<int, FollowerLogAppendResult> ObservePressure(ReplicaMemberPressure tracker)
+            {
+                return (slot, reply) => tracker.Observe(slot, reply.MemoryPressure);
+            }
+
+            static Action<int, FollowerLogAppendResult> ObserveElection(ReplicaGroupState state, ReplicaAnsweringFollowers answeringFollowers, ReplicaMemberPressure? tracker)
+            {
+                return (slot, reply) =>
+                {
+                    tracker?.Observe(slot, reply.MemoryPressure);
+                    state.RecordFollowerReply(slot, in reply);
+                    answeringFollowers.Observe(slot, in reply);
+                };
+            }
         }
     }
 

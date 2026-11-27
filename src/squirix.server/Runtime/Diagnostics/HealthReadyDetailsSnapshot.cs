@@ -15,7 +15,7 @@ internal sealed class HealthReadyDetailsSnapshot
 
     internal required HealthJournalDiskSnapshot JournalDisk { get; init; }
 
-    internal required HealthMemoryPressureSnapshot MemoryPressure { get; init; }
+    internal required HealthMemoryPressureSnapshot? MemoryPressure { get; init; }
 
     /// <summary>Gets the retained size of every served replica group log; empty when replication is not configured.</summary>
     internal IReadOnlyList<HealthReplicaGroupSnapshot> ReplicaGroups { get; init; } = [];

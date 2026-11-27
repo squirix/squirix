@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -55,7 +56,7 @@ internal static class PressureBootstrap
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static UnresolvedMemoryPressureOptions ApplyEnvironment(UnresolvedMemoryPressureOptions options)
+    internal static UnresolvedMemoryPressureOptions ApplyEnvironment(UnresolvedMemoryPressureOptions options)
     {
         var result = options;
 
@@ -71,6 +72,17 @@ internal static class PressureBootstrap
         if (critical != null)
             result = result with { CriticalPressureThresholdPercent = critical.Value };
 
-        return result;
+        var accounting = EnvVariables.ReadString("SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED")?.Trim();
+        if (string.IsNullOrEmpty(accounting))
+            return result;
+
+        var enabled = accounting switch
+        {
+            "1" => true,
+            "0" => false,
+            _ when bool.TryParse(accounting, out var parsed) => parsed,
+            _ => throw new InvalidOperationException("SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED must be true, false, 1 or 0."),
+        };
+        return result with { MemoryAccountingEnabled = enabled };
     }
 }

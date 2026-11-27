@@ -26,9 +26,7 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<TopologyOptions, ConfigValidator>(services, cluster);
         AddValidatedMtlsOptions(services, args);
         AddValidatedInstance<AdmissionOptions, AdmissionOptionsValidator>(services, args.BackpressureOptions ?? new AdmissionOptions());
-        var unresolvedMemoryPressure = await PressureBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
-        var memoryPressure = args.MemoryPressureOptions ?? OptionsResolver.Resolve(unresolvedMemoryPressure, GcMemoryBudgetProvider.Instance);
-        AddValidatedInstance<PressureOptions, PressureOptionsValidator>(services, memoryPressure);
+        AddValidatedInstance<PressureOptions, PressureOptionsValidator>(services, args.MemoryPressureOptions);
 
         if (args.PersistenceOptions != null)
             await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, cancellationToken).ConfigureAwait(false);

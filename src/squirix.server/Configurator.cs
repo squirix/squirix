@@ -104,6 +104,7 @@ public static class Configurator
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
+        target.MemoryAccountingEnabled = source.MemoryAccountingEnabled;
         target.MetricsEnabled = source.MetricsEnabled;
         target.PrometheusMetricsEnabled = source.PrometheusMetricsEnabled;
         target.PrometheusMetricsPath = source.PrometheusMetricsPath;

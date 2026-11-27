@@ -14,22 +14,24 @@ namespace Squirix.Server.UnitTests.Memory;
 [Immutable]
 public sealed class PressureOptionsResolverTests
 {
-    /// <summary>Verifies unset max bytes defaults to 80% of available memory.</summary>
+    /// <summary>Verifies unset max bytes defaults to 80% of available memory and memory accounting is disabled.</summary>
     [Test]
     public async Task ResolveDefaultsMaxBytesToRamCap()
     {
         var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(1_000_000));
 
         _ = await Assert.That(resolved.MaxEstimatedCacheBytes).IsEqualTo(800_000L);
+        _ = await Assert.That(resolved.MemoryAccountingEnabled).IsFalse();
     }
 
-    /// <summary>Verifies explicit max bytes below the RAM cap are preserved.</summary>
+    /// <summary>Verifies explicit max bytes below the RAM cap and enabled memory accounting are preserved.</summary>
     [Test]
     public async Task ResolvePreservesConfiguredMaxBelowCap()
     {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000 }, RocksDoubles.CreateMemoryBudget(1_000_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000, MemoryAccountingEnabled = true }, RocksDoubles.CreateMemoryBudget(1_000_000));
 
         _ = await Assert.That(resolved.MaxEstimatedCacheBytes).IsEqualTo(500_000L);
+        _ = await Assert.That(resolved.MemoryAccountingEnabled).IsTrue();
     }
 
     /// <summary>Verifies explicit max bytes above the RAM cap fail resolution.</summary>

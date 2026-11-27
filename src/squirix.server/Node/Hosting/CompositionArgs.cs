@@ -22,6 +22,8 @@ internal sealed class CompositionArgs
 
     internal EvictionOptions? Eviction { get; set; }
 
+    internal bool? MemoryAccountingEnabled { get; set; }
+
     internal PressureOptions? MemoryPressureOptions { get; set; }
 
     internal X509Certificate2? ServerCertificate { get; set; }

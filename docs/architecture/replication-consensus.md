@@ -171,9 +171,9 @@ elects a replacement.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Memory pressure.** Every copy of a group holds the same entries, so the group holds only what its smallest member can
-  hold. A follower sets `memory_pressure` in the reply to an append, a heartbeat, or a catch-up request while its own node is
+  hold. Enable `--memory-accounting` on every member to enforce memory pressure throughout the group. An enabled follower sets `memory_pressure` in the reply to an append, a heartbeat, or a catch-up request while its own node is
   at critical memory pressure; a node that does not send the field reads as not pressured, so the field needs no cluster
-  version bump. Each leader, static or elected, keeps the time of the last flagged reply per member slot in the state of its
+  version bump. Each enabled leader, static or elected, keeps the time of the last flagged reply per member slot in the state of its
   committer, which outlives the pipelines it replaces. A reply without the flag clears the slot, and a flag lapses after one
   election timeout, so a member that stopped replying cannot block the group for good. A fresh flag counts whether or not the
   member is in the write quorum. While one is fresh, the leader refuses writes that grow memory with `RESOURCE_EXHAUSTED`

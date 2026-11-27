@@ -103,12 +103,44 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
         new(_committers.ForKey(cacheName, key).CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
 
     /// <inheritdoc />
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken));
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
+    {
+        var committer = _committers.ForKey(cacheName, key);
+        var live = await ExistingForAddAsync(committer, operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+        return live == null && await committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, in value, cancellationToken));
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    public async ValueTask<NodeCacheAddOrGetResult<StoredValue>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
+    {
+        var committer = _committers.ForKey(cacheName, key);
+        var live = await ExistingForAddAsync(committer, operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (live == null && await committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+            return new NodeCacheAddOrGetResult<StoredValue>(true, default);
+
+        var observed = live == null
+            ? await GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false)
+            : new NodeCacheValueResult<StoredValue>(true, live.Value);
+        return new NodeCacheAddOrGetResult<StoredValue>(false, observed);
+    }
+
+    /// <inheritdoc />
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken)
+    {
+        var committer = _committers.ForKey(cacheName, key);
+        if (await PeekEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false) == null &&
+            !committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+        {
+            var confirmed = await PeekFencedEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+            if (confirmed.Live == null && !confirmed.ExpiryPending && !committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+                return false;
+        }
+
+        return await committer.CommitUpdateAsync(operationId, cacheName, key, in value, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Reads an adapter entry, serializing sliding access through the group commit gate.</summary>
     /// <param name="operationId">Client operation identifier for Refresh.</param>
@@ -178,6 +210,18 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return new NodeCacheEntryPeek<StoredValue>(entry, IsExpired(entry?.ExpiresUtc));
+    }
+
+    private async ValueTask<NodeCacheEntry<StoredValue>?> ExistingForAddAsync(ReplicaGroupCommitter committer, string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        // A no-op can answer without appending only after the read fence. The fence can apply a
+        // previously committed operation ID, in which case the committer must replay its outcome.
+        if (await PeekEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false) == null ||
+            committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+            return null;
+
+        var confirmed = await PeekFencedEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId) ? null : confirmed.Live;
     }
 
     /// <summary>Expires the key on the leader and reports what the committed decision leaves.</summary>

@@ -93,6 +93,18 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         _ = await Assert.That(target.ConfigurationGeneration).IsEqualTo(9u);
     }
 
+    /// <summary>CopyOptions preserves an explicit opt-out of memory accounting.</summary>
+    [Test]
+    public async Task CopyPreservesAccountingOverride()
+    {
+        var source = new SquirixServerOptions { MemoryAccountingEnabled = false };
+        var target = new SquirixServerOptions { MemoryAccountingEnabled = true };
+
+        Configurator.CopyOptions(source, target);
+
+        _ = await Assert.That(target.MemoryAccountingEnabled).IsFalse();
+    }
+
     /// <summary>ResolveEffectiveDataDirectory falls back to the per-node directory under the test root hosting uses.</summary>
     [Test]
     public async Task EffectiveDataDirFallsBackToDefault()

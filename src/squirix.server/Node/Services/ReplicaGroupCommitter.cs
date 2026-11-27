@@ -207,8 +207,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the logger for lifecycle failures.</summary>
     internal IServerLogger Log { get; }
 
-    /// <summary>Gets the memory pressure the members of the group reported in their replies; it outlives the pipelines, which are recreated.</summary>
-    internal ReplicaMemberPressure MemberPressure => Volatile.Read(ref _memberPressure) ?? CreateMemberPressure();
+    /// <summary>Gets the reported member pressure for the lifetime of this committer when memory admission is enabled.</summary>
+    internal ReplicaMemberPressure? MemberPressure => TrackMemberPressure ? Volatile.Read(ref _memberPressure) ?? CreateMemberPressure() : null;
+
+    /// <summary>Initializes a value indicating whether append replies are tracked for memory admission.</summary>
+    internal bool TrackMemberPressure { private get; init; } = true;
 
     /// <summary>Gets or initializes the metrics the committer reports its refusals to; <see langword="null" /> reports none.</summary>
     internal ReplicationMetrics? Metrics { get; init; }

@@ -61,7 +61,11 @@ public sealed class EvictionSettingsTests : IsolatedStorageTestBase
         using var held = ListenPortPool.ServerUnitTests.HoldPort();
         var services = TestNodeBuilder.CreateServices();
         _ = await services.ConfigureNodeAsync(
-            options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port)),
+            options =>
+            {
+                options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port));
+                options.MemoryAccountingEnabled = memory;
+            },
             path,
             configureComposition: static args => args.ManagementUri = new Uri("https://127.0.0.1:0"),
             cancellationToken: cancellationToken);
@@ -78,6 +82,31 @@ public sealed class EvictionSettingsTests : IsolatedStorageTestBase
         {
             await host.StopAsync(cancellationToken);
         }
+    }
+
+    /// <summary>Rejects memory eviction when the host explicitly disables accounting, even if the environment enables it.</summary>
+    /// <param name="cancellationToken">Test cancellation.</param>
+    [Test]
+    [NotInParallel]
+    public async Task MemoryEvictionRequiresAccounting(CancellationToken cancellationToken)
+    {
+        using var accounting = new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED", "true");
+        using var held = ListenPortPool.ServerUnitTests.HoldPort();
+        var services = TestNodeBuilder.CreateServices();
+
+        var configure = services.ConfigureNodeAsync(
+            options =>
+            {
+                options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port));
+                options.MemoryAccountingEnabled = false;
+                Configurator.ApplyCacheEvictionOverrides(options, "memory", null);
+            },
+            loadDiscoveredSettings: false,
+            configureComposition: static args => args.ManagementUri = new Uri("https://127.0.0.1:0"),
+            cancellationToken: cancellationToken);
+
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(configure, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(error.Message).Contains("Memory-pressure eviction requires memory accounting", StringComparison.Ordinal);
     }
 
     /// <summary>Rejects invalid modes and limits before the host starts.</summary>

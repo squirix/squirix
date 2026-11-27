@@ -48,6 +48,25 @@ public sealed class ReplicaMemberPressureCommitterTests : ServerUnitTestBase
         _ = await Assert.That(committer.HasMemberPressure()).IsFalse();
     }
 
+    /// <summary>A leader with memory admission disabled commits writes when its followers report critical pressure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UntrackedLeaderIgnoresPressure(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-member-pressure-disabled");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.SetMemoryPressure("n2", true);
+        gateway.SetMemoryPressure("n3", true);
+        await using var committer = CreateCommitterOnBudgetClock(registry, gateway, new FakeTimeProvider(), false);
+
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "k2", Entry("k2"), cancellationToken);
+
+        _ = await Assert.That(committer.MemberPressure).IsNull();
+        _ = await Assert.That(committer.HasMemberPressure()).IsFalse();
+    }
+
     /// <summary>A refusal that finds an old flag asks the followers for a reply, which clears the flag of a member that recovered.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -72,7 +91,7 @@ public sealed class ReplicaMemberPressureCommitterTests : ServerUnitTestBase
         clock.Advance(registry.Election.ElectionTimeout / 2);
         var refused = committer.HasMemberPressure();
         await gateway.WaitUntilAsync(g => g.Requests > sent, cancellationToken);
-        await committer.WaitUntilAsync(static c => !c.MemberPressure.IsAnyFresh(), cancellationToken);
+        await committer.WaitUntilAsync(static c => !c.MemberPressure!.IsAnyFresh(), cancellationToken);
 
         _ = await Assert.That(refused).IsTrue();
         _ = await Assert.That(committer.HasMemberPressure()).IsFalse();
@@ -107,7 +126,7 @@ public sealed class ReplicaMemberPressureCommitterTests : ServerUnitTestBase
         var cache = new StubCache();
         await using var committer = CreateElectedCommitter(registry, "n2", gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1"));
 
-        _ = await Assert.That(committer.MemberPressure.IsAnyFresh()).IsFalse();
+        _ = await Assert.That(committer.MemberPressure!.IsAnyFresh()).IsFalse();
         _ = await committer.PromoteAsync(2UL, cancellationToken);
         _ = await committer.VerifyReplicasAsync(cancellationToken);
         _ = await committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter("n2", NullLogger.Instance, null), cancellationToken);

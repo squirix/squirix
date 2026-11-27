@@ -24,7 +24,7 @@ internal static class RuntimeServiceRegistration
 {
     extension(NodeServices services)
     {
-        internal NodeServices AddSquirixRuntimeServices(bool metricsEnabled)
+        internal NodeServices AddSquirixRuntimeServices(bool metricsEnabled, bool memoryAccountingEnabled, long? localWriteLimit)
         {
             _ = services.AddRequestContextServices();
             _ = services.Own<IBackpressureClientIdResolver>(static sp => sp.Require<AdmissionOptions>().HasPerClientLimits
@@ -34,22 +34,13 @@ internal static class RuntimeServiceRegistration
                 sp.Require<AdmissionOptions>(),
                 sp.Require<BackpressureMetrics>(),
                 sp.Require<TimeProvider>()));
-            _ = services.Own<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.Require<PressureOptions>()));
-            _ = services.Own(static sp => new MemoryUsageAccounting(sp.Require<ILocalCacheStats>()));
-            _ = services.Own<IMemoryUsageAccounting>(static sp => sp.Require<MemoryUsageAccounting>());
             _ = services.AddObservabilityServices();
-            _ = services.Own(static sp => new PressureGate(
-                sp.Require<IMemoryPressureStateEvaluator>(),
-                sp.Require<IMemoryUsageAccounting>(),
-                sp.Require<TopologyOptions>().NodeId,
-                sp.Find<Meter>()));
-            _ = services.Own<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
-                sp.Require<IMemoryPressureStateEvaluator>(),
-                sp.Require<IMemoryUsageAccounting>()));
-            _ = services.AddLocalCacheServices();
+            if (memoryAccountingEnabled)
+                _ = services.AddMemoryAccountingServices();
+            _ = services.AddLocalCacheServices(memoryAccountingEnabled, localWriteLimit);
 
             if (metricsEnabled)
-                _ = services.AddMetricsHostedServices();
+                _ = services.AddMetricsHostedServices(memoryAccountingEnabled);
             _ = services.Own<ILocalCacheRecovery<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
             _ = services.Own<ILocalCacheSnapshotReader<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
             _ = services.Own<ISnapshotEntryCapture>(static sp => new LocalCacheSnapshotCapture(
@@ -93,9 +84,28 @@ internal static class RuntimeServiceRegistration
             return services;
         }
 
-        private NodeServices AddMetricsHostedServices()
+        private NodeServices AddMemoryAccountingServices()
+        {
+            _ = services.Own<IMemoryPressureStateEvaluator>(static sp => new StateEvaluator(sp.Require<PressureOptions>()));
+            _ = services.Own(static sp => new MemoryUsageAccounting(sp.Require<ILocalCacheStats>()));
+            _ = services.Own<IMemoryUsageAccounting>(static sp => sp.Require<MemoryUsageAccounting>());
+            _ = services.Own(static sp => new PressureGate(
+                sp.Require<IMemoryPressureStateEvaluator>(),
+                sp.Require<IMemoryUsageAccounting>(),
+                sp.Require<TopologyOptions>().NodeId,
+                sp.Find<Meter>()));
+            _ = services.Own<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
+                sp.Require<IMemoryPressureStateEvaluator>(),
+                sp.Require<IMemoryUsageAccounting>()));
+            return services;
+        }
+
+        private NodeServices AddMetricsHostedServices(bool memoryAccountingEnabled)
         {
             _ = services.RunService(static sp => new ItemsGaugeReporterService(sp.Require<ILocalCacheStats>(), sp.Require<Meter>()));
+            if (!memoryAccountingEnabled)
+                return services;
+
             _ = services.Own(static sp => new MemoryPressureMetrics(sp.Require<Meter>()));
             _ = services.RunService(static sp => new MemoryPressureMetricsService(
                 sp.Require<TopologyOptions>(),
@@ -105,10 +115,11 @@ internal static class RuntimeServiceRegistration
             return services;
         }
 
-        private NodeServices AddLocalCacheServices()
+        private NodeServices AddLocalCacheServices(bool memoryAccountingEnabled, long? localWriteLimit)
         {
             services.UseDefault(new EvictionOptions());
-            _ = services.Own<ICacheEntrySizeEstimator<StoredValue>>(static sp => CacheEntrySizeEstimator<StoredValue>.ForEviction(new CacheEntrySizeEstimator<StoredValue>(), sp.Require<EvictionOptions>()));
+            if (memoryAccountingEnabled)
+                _ = services.Own<ICacheEntrySizeEstimator<StoredValue>>(static sp => CacheEntrySizeEstimator<StoredValue>.ForEviction(new CacheEntrySizeEstimator<StoredValue>(), sp.Require<EvictionOptions>()));
 
             // Default server clock. Tests may register a fake TimeProvider that overrides this, so cache
             // expiration can be advanced deterministically instead of relying on real-time delays.
@@ -118,12 +129,13 @@ internal static class RuntimeServiceRegistration
             // source of truth: on network-replication-activated hosts only committed records remove an entry, so the leader decides expiry;
             // RF=1 and foundation-only hosts keep the local clock.
             _ = services.Own(static sp => sp.Require<FeatureState>().NetworkReplicationEnabled ? CacheExpiryAuthority.CommittedRecords : CacheExpiryAuthority.LocalClock);
-            _ = services.Own(static sp => new PhysicalCache<StoredValue>(
+            _ = services.Own(sp => new PhysicalCache<StoredValue>(
                 sp.Require<TimeProvider>(),
-                sp.Require<ICacheEntrySizeEstimator<StoredValue>>(),
+                sp.Find<ICacheEntrySizeEstimator<StoredValue>>(),
                 sp.Require<EvictionOptions>(),
                 sp.Require<CacheExpiryAuthority>(),
-                (sp.Require<EvictionOptions>().Capacity != null || (sp.Require<EvictionOptions>().EvictOnMemoryPressure && sp.Require<FeatureState>().NetworkReplicationEnabled)) ? GroupForKey(sp.Require<INodeLocator>()) : null));
+                (sp.Require<EvictionOptions>().Capacity != null || (sp.Require<EvictionOptions>().EvictOnMemoryPressure && sp.Require<FeatureState>().NetworkReplicationEnabled)) ? GroupForKey(sp.Require<INodeLocator>()) : null,
+                localWriteLimit));
             _ = services.Own<ILocalCache<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
             _ = services.Own<ILocalCacheReadOperations<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());
             _ = services.Own<ILocalCacheMutationOperations<StoredValue>>(static sp => sp.Require<PhysicalCache<StoredValue>>());

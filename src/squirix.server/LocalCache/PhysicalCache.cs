@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.LocalCache;
@@ -24,7 +25,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     private readonly DeadlineIndex _deadlines;
     private readonly CacheEviction<T> _eviction;
     private readonly CacheExpiryAuthority _expiry;
-    private readonly Footprint _footprint;
+    private readonly Footprint? _footprint;
     private readonly Lock _lock = new();
     private readonly PhysicalCacheReader _reader;
     private readonly SlotStore<T> _store = new();
@@ -32,28 +33,37 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     /// <summary>Initializes a new instance of the <see cref="PhysicalCache{T}" /> class.</summary>
     /// <param name="timeProvider">The node clock.</param>
-    /// <param name="estimator">Estimates the bytes of an entry; the cache records the estimate of every entry it stores.</param>
+    /// <param name="estimator">Estimates the bytes of each stored entry, or <see langword="null" /> to disable memory accounting.</param>
     /// <param name="eviction">The eviction options; unbounded LRU when <see langword="null" />.</param>
     /// <param name="expiry">
     /// Who decides expiry. <see cref="CacheExpiryAuthority.LocalClock" /> treats an entry past its deadline as absent;
     /// <see cref="CacheExpiryAuthority.CommittedRecords" /> keeps it present until a committed record removes it.
     /// </param>
     /// <param name="groupForKey">Original replication owner of a key for bounded caches.</param>
+    /// <param name="criticalMemoryThresholdBytes">The first critical byte count for RAM-only write admission, or <see langword="null" /> when an outer layer decides admission.</param>
     internal PhysicalCache(
         TimeProvider timeProvider,
-        ICacheEntrySizeEstimator<T> estimator,
+        ICacheEntrySizeEstimator<T>? estimator,
         EvictionOptions? eviction = null,
         CacheExpiryAuthority expiry = CacheExpiryAuthority.LocalClock,
-        Func<CacheKey, string>? groupForKey = null)
+        Func<CacheKey, string>? groupForKey = null,
+        long? criticalMemoryThresholdBytes = null)
     {
-        ArgumentNullException.ThrowIfNull(estimator);
         _timeProvider = timeProvider;
         var options = eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru };
-        _footprint = new Footprint(CacheEntrySizeEstimator<T>.ForEviction(estimator, options));
+        if (estimator != null)
+            _footprint = new Footprint(CacheEntrySizeEstimator<T>.ForEviction(estimator, options), criticalMemoryThresholdBytes);
         _eviction = new CacheEviction<T>(options, expiry, groupForKey, _store);
         _expiry = expiry;
         _deadlines = new DeadlineIndex(this);
         _reader = new PhysicalCacheReader(this);
+    }
+
+    private enum WriteKind
+    {
+        Set = 0,
+        TryAdd = 1,
+        Recovery = 2,
     }
 
     int ILocalCacheStats.EntryCount
@@ -65,7 +75,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    long ILocalCacheStats.EstimatedBytes => _footprint.Read();
+    long ILocalCacheStats.EstimatedBytes => _footprint?.Read() ?? 0;
 
     /// <summary>Gets the keys past their deadline that no committed record removed yet, read from the deadline index.</summary>
     internal ILocalCacheExpiredKeys ExpiredKeys => _deadlines;
@@ -145,7 +155,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
     {
-        Set(key, entry, cancellationToken, encodedLength);
+        _ = Upsert(key, entry, encodedLength, WriteKind.Recovery, cancellationToken);
         return ValueTask.CompletedTask;
     }
 
@@ -168,7 +178,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             var previous = node.ExpiresUtc;
             if (previous != null)
             {
-                _footprint.ResizeForDeadline(key, in node, null);
+                _footprint?.ResizeForDeadline(key, in node, null);
                 node.WriteExpiresUtc(null);
                 _deadlines.MovedLocked(in node, previous);
             }
@@ -185,13 +195,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(RemoveLocked(key));
     }
 
-    public void Set(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var (normalized, bytes) = _footprint.PrepareInsert(key, entry, encodedLength, _timeProvider);
-        lock (_lock)
-            _ = UpsertLocked(key, normalized, bytes, false);
-    }
+    public void Set(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null) =>
+        _ = Upsert(key, entry, encodedLength, WriteKind.Set, cancellationToken);
 
     public bool Touch(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
     {
@@ -203,10 +208,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 return false;
 
             var expiresUtc = UtcNow.SaturatedAdd(expiration);
-            if (node.ExpiresUtc == null)
-                _footprint.ResizeForDeadline(key, in node, expiresUtc);
-
             var previous = node.ExpiresUtc;
+            if (previous == null)
+                _footprint?.ResizeForDeadline(key, in node, expiresUtc);
+
             node.WriteExpiresUtc(expiresUtc);
             _deadlines.MovedLocked(in node, previous);
             node.RecordAccess();
@@ -214,27 +219,23 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public bool TryAdd(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var (normalized, bytes) = _footprint.PrepareInsert(key, entry, encodedLength, _timeProvider);
-        lock (_lock)
-            return UpsertLocked(key, normalized, bytes, true);
-    }
+    public bool TryAdd(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null) =>
+        Upsert(key, entry, encodedLength, WriteKind.TryAdd, cancellationToken);
 
     public bool Update(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var measuredValue = _footprint.MeasureValue(value);
+        var measuredValue = _footprint?.MeasureValue(value) ?? 0;
         lock (_lock)
         {
             _store.AdvanceGrowthLocked();
             if (!TryGetLiveLocked(key, false, out var node))
                 return false;
 
-            var bytes = _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue);
+            var bytes = _footprint?.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue) ?? 0;
+            _footprint?.CheckAdmission(bytes, in node);
             node.WriteValue(key, value);
-            _footprint.Resize(in node, bytes);
+            _footprint?.Resize(in node, bytes);
             node.RecordAccess();
             return true;
         }
@@ -335,7 +336,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <param name="node">The entry already removed from the store.</param>
     private void UntrackLocked(in CacheSlot<T> node)
     {
-        _footprint.Release(in node);
+        _footprint?.Release(in node);
 
         if (node.Policy is { } bounded)
             _eviction.Remove(in node, bounded);
@@ -344,49 +345,80 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _deadlines.CompactLocked();
     }
 
-    private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> normalized, long bytes, bool insertOnly)
+    private bool Upsert(CacheKey key, NodeCacheEntry<T> entry, int? encodedLength, WriteKind writeKind, CancellationToken cancellationToken)
     {
-        _store.AdvanceGrowthLocked();
-        var hash = key.GetHashCode();
-        _ = _store.TryGetLocked(key, hash, out var node);
-        if (node.Exists && insertOnly && IsExpired(node.ExpiresUtc))
+        cancellationToken.ThrowIfCancellationRequested();
+        var normalized = EntryPreparation.Prepare(entry, _timeProvider);
+        var bytes = _footprint?.EstimateInsert(key, normalized, encodedLength);
+        var insertOnly = writeKind == WriteKind.TryAdd;
+        lock (_lock)
         {
-            _store.RemoveLocked(in node);
-            UntrackLocked(in node);
-            node = default;
-        }
+            _store.AdvanceGrowthLocked();
+            var hash = key.GetHashCode();
+            _ = _store.TryGetLocked(key, hash, out var node);
+            if (node.Exists && insertOnly && !IsExpired(node.ExpiresUtc))
+                return false;
 
-        if (!node.Exists)
-        {
-            if (_eviction.Enabled)
+            if (writeKind != WriteKind.Recovery)
+                _footprint?.CheckAdmission(bytes.GetValueOrDefault(), in node, insertOnly);
+
+            if (insertOnly && node.Exists)
             {
-                node = _eviction.Add(key, hash, normalized, bytes, out var victim);
-                if (victim.Exists)
-                    UntrackLocked(in victim);
-            }
-            else
-            {
-                node = _store.AddLocked(key, hash, normalized, null, bytes);
+                _store.RemoveLocked(in node);
+                UntrackLocked(in node);
+                node = default;
             }
 
             if (!node.Exists)
+            {
+                if (_eviction.Enabled)
+                {
+                    node = _eviction.Add(key, hash, normalized, bytes, out var victim);
+                    if (victim.Exists)
+                        UntrackLocked(in victim);
+                }
+                else
+                {
+                    node = _store.AddLocked(key, hash, normalized, null, bytes);
+                }
+
+                if (!node.Exists)
+                    return true;
+
+                _footprint?.Add(bytes.GetValueOrDefault());
+                _deadlines.RecordLocked(in node);
+
                 return true;
+            }
 
-            _footprint.Add(bytes);
-            _deadlines.RecordLocked(in node);
+            var previous = node.ExpiresUtc;
+            node.Write(key, normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
+            _footprint?.Resize(in node, bytes.GetValueOrDefault());
+            _deadlines.MovedLocked(in node, previous);
+            node.RecordAccess();
+            return false;
+        }
+    }
 
-            return true;
+    private static class EntryPreparation
+    {
+        internal static NodeCacheEntry<T> Prepare(NodeCacheEntry<T> entry, TimeProvider clock)
+        {
+            if (entry.PendingWrite is { } write)
+                entry = write.Materialize<T>(clock.GetUtcNow().UtcDateTime);
+
+            return entry is { Version: > 0, Expiration: null }
+                ? entry
+                : new NodeCacheEntry<T>(entry.Value, Math.Max(1, entry.Version), ResolveDeadline(entry, clock), entry.Expiration, entry.Tags);
         }
 
-        if (insertOnly)
-            return false;
-
-        var previous = node.ExpiresUtc;
-        node.Write(key, normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
-        _footprint.Resize(in node, bytes);
-        _deadlines.MovedLocked(in node, previous);
-        node.RecordAccess();
-        return false;
+        private static DateTime? ResolveDeadline(NodeCacheEntry<T> entry, TimeProvider clock)
+        {
+            if (entry.Expiration is not { } ttl)
+                return entry.ExpiresUtc;
+            var relative = clock.GetUtcNow().UtcDateTime.SaturatedAdd(ttl);
+            return entry.ExpiresUtc is { } absolute && absolute <= relative ? absolute : relative;
+        }
     }
 
     /// <summary>The recorded bytes of the stored entries and their running total.</summary>
@@ -398,40 +430,48 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     [ThreadSafe]
     private sealed class Footprint
     {
+        private readonly long? _criticalMemoryThresholdBytes;
         private readonly ICacheEntrySizeEstimator<T> _estimator;
         private long _total;
 
-        internal Footprint(ICacheEntrySizeEstimator<T> estimator)
+        internal Footprint(ICacheEntrySizeEstimator<T> estimator, long? criticalMemoryThresholdBytes)
         {
             _estimator = estimator;
+            _criticalMemoryThresholdBytes = criticalMemoryThresholdBytes;
         }
 
         internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, long measuredValue) => _estimator.EstimateBytesForMeasuredValue(key, entry, measuredValue);
 
         internal long MeasureValue(T? value) => _estimator.MeasureValue(value);
 
-        /// <summary>Resolves the deadline of an entry about to be stored and estimates its bytes, before the cache lock is taken.</summary>
+        /// <summary>Estimates an entry before the cache lock is taken.</summary>
         /// <param name="key">The key the entry is stored under.</param>
-        /// <param name="candidate">The entry to store.</param>
+        /// <param name="entry">The prepared entry to store.</param>
         /// <param name="knownEncodedLength">
-        /// The journal-encoded length of <paramref name="candidate" />, or <see langword="null" /> to measure. It is used only for an entry without a relative
+        /// The journal-encoded length of <paramref name="entry" />, or <see langword="null" /> to measure. It is used only for an entry without a relative
         /// expiration: resolving a relative expiration adds a deadline the length may not cover, so that entry is measured.
         /// </param>
-        /// <param name="clock">The node clock for relative deadlines.</param>
-        /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
-        internal (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength, TimeProvider clock)
-        {
-            if (candidate.PendingWrite is { } write)
-                candidate = write.Materialize<T>(clock.GetUtcNow().UtcDateTime);
-
-            candidate = Normalize(candidate, clock);
-            var bytes = knownEncodedLength is { } length && candidate.Expiration == null
-                ? _estimator.EstimateBytesForEncodedLength(key, candidate, length)
-                : _estimator.EstimateBytes(key, candidate, false);
-            return (candidate, bytes);
-        }
+        /// <returns>The estimated bytes.</returns>
+        internal long EstimateInsert(CacheKey key, NodeCacheEntry<T> entry, int? knownEncodedLength) =>
+            knownEncodedLength is { } length && entry.Expiration == null
+                ? _estimator.EstimateBytesForEncodedLength(key, entry, length)
+                : _estimator.EstimateBytes(key, entry, false);
 
         internal long Read() => Volatile.Read(ref _total);
+
+        internal void CheckAdmission(long bytes, in CacheSlot<T> node, bool isTryAdd = false)
+        {
+            if (_criticalMemoryThresholdBytes is not { } threshold)
+                return;
+
+            var growth = bytes - (node.Exists ? node.Bytes : 0);
+            if (growth <= 0)
+                return;
+
+            var wasCritical = _total >= threshold;
+            if (wasCritical || growth >= threshold - _total)
+                throw new ResourceExhaustedException(wasCritical, isTryAdd);
+        }
 
         internal void Release(in CacheSlot<T> node) => Add(-node.Bytes);
 
@@ -439,14 +479,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         internal void ResizeForDeadline(CacheKey key, in CacheSlot<T> node, DateTime? expiresUtc)
         {
+            long bytes;
             if (_estimator is CacheEntrySizeEstimator<T>)
             {
-                const int deadlineBytes = CacheEntryDeadlineSize.IndexBytes;
-                Resize(in node, node.Bytes + (expiresUtc != null ? deadlineBytes : -deadlineBytes));
-                return;
+                var deadlineGrowth = expiresUtc != null ? CacheEntryDeadlineSize.IndexBytes : -CacheEntryDeadlineSize.IndexBytes;
+                bytes = node.Bytes + deadlineGrowth;
+            }
+            else
+            {
+                bytes = _estimator.EstimateBytes(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags), false);
             }
 
-            Resize(in node, _estimator.EstimateBytes(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags), false));
+            CheckAdmission(bytes, in node);
+            Resize(in node, bytes);
         }
 
         internal void Resize(in CacheSlot<T> node, long bytes)
@@ -454,19 +499,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             var previous = node.Bytes;
             node.Bytes = bytes;
             Add(bytes - previous);
-        }
-
-        private static NodeCacheEntry<T> Normalize(NodeCacheEntry<T> entry, TimeProvider clock) =>
-            entry is { Version: > 0, Expiration: null }
-                ? entry
-                : new NodeCacheEntry<T>(entry.Value, Math.Max(1, entry.Version), ResolveDeadline(entry, clock), entry.Expiration, entry.Tags);
-
-        private static DateTime? ResolveDeadline(NodeCacheEntry<T> entry, TimeProvider clock)
-        {
-            if (entry.Expiration is not { } ttl)
-                return entry.ExpiresUtc;
-            var relative = clock.GetUtcNow().UtcDateTime.SaturatedAdd(ttl);
-            return entry.ExpiresUtc is { } absolute && absolute <= relative ? absolute : relative;
         }
     }
 

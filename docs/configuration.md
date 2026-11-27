@@ -86,14 +86,19 @@ for credential refresh, transport compatibility and migration from per-RPC authe
 
 ## Memory pressure (`Squirix.settings.json`)
 
-The optional `Squirix:MemoryPressure` section is merged when present (same file discovery as `Squirix:Cluster`).
-Environment variables listed below override merged file values. Memory pressure is **always active** at runtime.
-The node may reject **growing** writes under critical estimated memory usage. Those rejections occur before durable
-journal append. Cache calls return **`ResourceExhausted`** with stable pressure details (bounded payloads; field semantics are
-in the table below).
+Cache memory accounting is disabled by default. Enable it with `squirix-server run --memory-accounting` or
+set `SquirixServerOptions.MemoryAccountingEnabled` before starting an embedded node. An explicit host option takes
+precedence over `SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED`, which overrides `memoryAccountingEnabled` in the
+discovered `Squirix:MemoryPressure` section. Restart the node to apply the setting. Enable accounting on each node
+that should participate in memory pressure admission. The `--metrics` flag controls metrics collection independently.
+
+With accounting enabled, the node may reject **growing** writes under critical estimated memory usage before
+durable journal append. Cache calls return **`ResourceExhausted`** with pressure details. The binary transport
+applies its payload and concurrent extended-request buffer limits in both modes.
 
 | Field                              | Type  | Default                        | Validation                                                                                          |
 | ---------------------------------- | ----- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `memoryAccountingEnabled`         | bool  | `false`                        | JSON boolean                                                                                       |
 | `MaxEstimatedCacheBytes`           | long? | `80%` of available process RAM | unset uses the RAM default; when set must be `> 0` and `<= 80%` of available process RAM at startup |
 | `HighPressureThresholdPercent`     | int   | `80`                           | `(0, 100]`                                                                                          |
 | `CriticalPressureThresholdPercent` | int   | `95`                           | `(0, 100]`, must be `>` `HighPressureThresholdPercent`                                              |
@@ -113,8 +118,8 @@ refused, and only when they grow memory. A follower always applies a committed e
 past the limit; removes and writes that shrink an entry always pass.
 
 A node at critical pressure also reports it to the leaders of the groups it follows, which refuse growing writes for those
-groups while the report is less than an election timeout old, because every copy of a group holds the same entries. This needs
-no setting. The refusal is the same `ResourceExhausted` and counts under `squirix_memory_rejections_total` with
+groups while the report is less than an election timeout old, because every copy of a group holds the same entries.
+With metrics collection enabled, these `ResourceExhausted` responses count under `squirix_memory_rejections_total` with
 `reason="replica_pressure"`; see [operational-runbook.md](operational-runbook.md#memory-pressure).
 
 The estimate of an entry includes the cache's own bookkeeping for it, the index of expiration deadlines too: an entry with
@@ -126,6 +131,7 @@ Example fragment:
 {
     "Squirix": {
         "MemoryPressure": {
+            "memoryAccountingEnabled": true,
             "maxEstimatedCacheBytes": 1073741824,
             "highPressureThresholdPercent": 80,
             "criticalPressureThresholdPercent": 95
@@ -160,9 +166,8 @@ CLI validation:
 
 - `squirix-server validate-config --settings PATH` validates `Squirix:Cluster` only.
 - `squirix-server validate-config --settings PATH --strict` also validates optional `MemoryPressure`, `Snapshot`, and
-  `PrometheusMetrics` sections when they are present. Host startup always resolves memory pressure (80% RAM default when
-  `MaxEstimatedCacheBytes` is unset) even when the JSON section is absent; `--strict` only checks the section if it
-  exists in the file.
+  `PrometheusMetrics` sections when they are present. Host startup also resolves `MaxEstimatedCacheBytes` for binary
+  transport buffer limits even with accounting disabled. The limit defaults to 80% of available process RAM.
 
 Example:
 
@@ -387,7 +392,7 @@ The following optional settings are available at startup.
 | Section | Loaded from `Squirix.settings.json`? | Notes |
 | --- | --- | --- |
 | `CacheEviction` | Yes | Disabled by default. See [Cache eviction](#cache-eviction) for key-count and memory modes. |
-| `MemoryPressure` | Yes | Merged when present |
+| `MemoryPressure` | Yes | Configures optional cache memory accounting and pressure limits |
 | `Snapshot` | Yes | Merged when present |
 | `PrometheusMetrics` | Yes | Enables HTTP export when metrics collection is on. Disabled by default |
 | Persistence knobs (`PersistenceOptions`) | No | Host defaults when `--persist` / `UsePersistence()`; not a JSON section today |
@@ -444,21 +449,22 @@ Omitting `Squirix:CacheEviction` disables eviction. The same default applies to 
 | CacheEviction object | Behavior |
 | --- | --- |
 | `{"mode":"keyCount","maxKeys":10000}` | Keeps up to 10,000 entries per named cache per original replication group. The limit must be a positive 32-bit integer. |
-| `{"mode":"memory"}` | Starts reclaiming entries when estimated cache memory on the node reaches its configured high memory-pressure threshold (80% by default). |
+| `{"mode":"memory"}` | Starts reclaiming entries when estimated cache memory on the node reaches its high pressure threshold (80% by default). Requires memory accounting. |
 
 The standalone host accepts the same modes without a settings file:
 
 ```sh
 squirix-server run --cache-eviction keyCount --max-keys 10000
-squirix-server run --cache-eviction memory
+squirix-server run --cache-eviction memory --memory-accounting
 squirix-server run --cache-eviction disabled
 ```
 
-The flags also apply to `doctor`. Command-line values override the selected file for this process.
+The eviction flags also apply to `doctor`. Command-line values override file settings for this process.
 With an existing `keyCount` configuration, `--max-keys` alone changes the limit.
 With no file and no eviction flags, eviction is disabled.
 
-Memory eviction runs in the background. Admission can still reject writes at critical pressure.
+Key-count eviction works independently of memory accounting. The server rejects memory eviction at startup if accounting
+is disabled. Memory eviction runs in the background while admission can still reject writes at critical pressure.
 In a replicated cluster, a node evicts from groups it leads and followers apply the committed removals.
 Use the same mode and key limit on all nodes so that a leadership change preserves the policy.
 Upgrade every replica to a version supporting capacity eviction before enabling `keyCount`; older servers cannot read its compound eviction records.
@@ -697,6 +703,7 @@ the same auth pipeline used by in-process overrides. Docker images set
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key: base64 of at least 32 bytes. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                           |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
+| `SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED`        | Overrides `MemoryPressure.memoryAccountingEnabled`. Accepts `true`, `false`, `1`, or `0`.                                                                                                                         |
 | `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |

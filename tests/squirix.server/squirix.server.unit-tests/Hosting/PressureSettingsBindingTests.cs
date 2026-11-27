@@ -32,11 +32,12 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
 
         using var settings = await TempSettingsFile.WriteAsync(
             "squirix-mp-",
-            """{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""",
+            """{"MemoryPressure":{"memoryAccountingEnabled":true,"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""",
             cancellationToken);
         var (found, merged) = await PressureBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, cancellationToken);
 
         _ = await Assert.That(found).IsTrue();
+        _ = await Assert.That(merged.MemoryAccountingEnabled).IsTrue();
         _ = await Assert.That(merged.MaxEstimatedCacheBytes).IsEqualTo(4096);
         _ = await Assert.That(merged.HighPressureThresholdPercent).IsEqualTo(70);
         _ = await Assert.That(merged.CriticalPressureThresholdPercent).IsEqualTo(90);
@@ -49,6 +50,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
     {
         var baseline = new UnresolvedMemoryPressureOptions
         {
+            MemoryAccountingEnabled = true,
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 80,
             CriticalPressureThresholdPercent = 95,
@@ -58,6 +60,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
         var (found, merged) = await PressureBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, cancellationToken);
 
         _ = await Assert.That(found).IsTrue();
+        _ = await Assert.That(merged.MemoryAccountingEnabled).IsTrue();
         _ = await Assert.That(merged.MaxEstimatedCacheBytes).IsEqualTo(1024);
         _ = await Assert.That(merged.HighPressureThresholdPercent).IsEqualTo(60);
         _ = await Assert.That(merged.CriticalPressureThresholdPercent).IsEqualTo(95);

@@ -32,8 +32,7 @@ internal static class ReplicaGroupCommitterSignals
         /// </remarks>
         internal bool HasMemberPressure()
         {
-            var pressure = committer.MemberPressure;
-            if (!pressure.IsAnyFresh())
+            if (committer.MemberPressure is not { } pressure || !pressure.IsAnyFresh())
                 return false;
 
             if (committer.Election == null && pressure.NeedsRefresh())

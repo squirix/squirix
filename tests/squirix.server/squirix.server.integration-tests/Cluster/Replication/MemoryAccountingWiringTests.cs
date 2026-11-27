@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -23,8 +24,17 @@ public sealed class MemoryAccountingWiringTests : NodeIntegrationTestBase
     [Test]
     public async Task PipelineWriteShowsInAccounting(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("n1", new IntegrationStartOptions { EnableReplication = false }, cancellationToken);
-        var host = cluster["n1"];
+        const string nodeId = "n1";
+        var options = new IntegrationStartOptions
+        {
+            EnableReplication = false,
+            MemoryPressureByNode = new Dictionary<string, PressureOptions>(StringComparer.Ordinal)
+            {
+                [nodeId] = new() { MemoryAccountingEnabled = true, MaxEstimatedCacheBytes = 1024 * 1024 },
+            },
+        };
+        await using var cluster = await StartClusterAsync(nodeId, options, cancellationToken);
+        var host = cluster[nodeId];
         var accounting = host.GetRequiredService<IMemoryUsageAccounting>();
         var physical = host.GetRequiredService<PhysicalCache<StoredValue>>();
         var before = accounting.ReadEstimatedBytes();

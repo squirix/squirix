@@ -27,6 +27,7 @@ internal static class NodeConfiguration
                 args.WaitForRecovery = options.WaitForRecovery;
                 args.PersistenceOptions = persistenceOptions;
                 args.BackpressureOptions = options.Backpressure.ToAdmissionOptions();
+                args.MemoryAccountingEnabled = options.MemoryAccountingEnabled;
                 args.MetricsEnabled = options.MetricsEnabled;
                 args.PrometheusMetricsOptions = new PrometheusMetricsEndpointOptions
                 {
