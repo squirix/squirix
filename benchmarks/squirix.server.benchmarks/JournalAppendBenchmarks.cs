@@ -54,7 +54,7 @@ public class JournalAppendBenchmarks
 
     /// <summary>Disposes the journal coordinator created during setup.</summary>
     /// <returns>A task that completes when cleanup finishes.</returns>
-    [GlobalCleanup]
+    [IterationCleanup]
     public async Task CleanupAsync()
     {
         if (_host != null)
@@ -62,9 +62,9 @@ public class JournalAppendBenchmarks
         _host = null;
     }
 
-    /// <summary>Creates the journal coordinator and payload for the current parameter set.</summary>
+    /// <summary>Creates a fresh journal for each iteration so earlier writes do not consume its segment capacity.</summary>
     /// <returns>A task that completes when setup finishes.</returns>
-    [GlobalSetup]
+    [IterationSetup]
     public async Task SetupAsync()
     {
         var options = new PersistenceOptions
