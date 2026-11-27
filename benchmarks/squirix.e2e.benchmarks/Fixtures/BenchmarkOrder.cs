@@ -23,6 +23,7 @@ public sealed class BenchmarkOrder
     /// <param name="createdAt">Creation timestamp.</param>
     /// <param name="lines">Order lines.</param>
     /// <param name="tags">Diagnostic tags.</param>
+    [JsonConstructor]
     public BenchmarkOrder(string id, string customerId, DateTimeOffset createdAt, IReadOnlyList<BenchmarkOrderLine> lines, IReadOnlyDictionary<string, string> tags)
     {
         ArgumentNullException.ThrowIfNull(lines);
@@ -45,10 +46,8 @@ public sealed class BenchmarkOrder
     public string Id { get; set; } = string.Empty;
 
     /// <summary>Gets the order lines.</summary>
-    [JsonInclude]
     public IReadOnlyList<BenchmarkOrderLine> Lines { get; }
 
     /// <summary>Gets diagnostic tags.</summary>
-    [JsonInclude]
     public IReadOnlyDictionary<string, string> Tags { get; }
 }
