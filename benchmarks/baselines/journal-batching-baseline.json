@@ -4,7 +4,7 @@
   "timeTolerance": 0.2,
   "allocationTolerance": 0.05,
   "maxRelativeStandardError": 0.05,
-  "minSamples": 10,
+  "minSamples": 96,
   "suites": [
     {
       "name": "journal",
