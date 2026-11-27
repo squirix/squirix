@@ -151,7 +151,7 @@ internal sealed class DurableMutationExecutor
         KeyedExecutionState state,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
-        CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
+        CancellationToken cancellationToken) => _journal.ExecuteAppendBarrierAsync(
         new KeyedPrepareWithPipelineState<TState, TResult>(this, state, precondition, pipeline.State, pipeline.AppendJournal),
         static (s, ownership, ct) => s.Mutator.PrepareKeyedPlanCoreAsync(s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ownership, ct),
         cancellationToken);
@@ -160,8 +160,8 @@ internal sealed class DurableMutationExecutor
         KeyedExecutionState state,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         TState mutationState,
-        Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal,
-        AsyncLockOwnership ownership,
+        Func<TState, JournalAppendContext, CancellationToken, ValueTask> appendJournal,
+        JournalAppendContext ownership,
         CancellationToken cancellationToken)
     {
         // Admission is decided first, under the gate: a pending snapshot cut refuses new writers so it can drain the admitted ones.
@@ -283,7 +283,7 @@ internal sealed class DurableMutationExecutor
             KeyedExecutionState executionState,
             Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
-            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal)
+            Func<TState, JournalAppendContext, CancellationToken, ValueTask> appendJournal)
         {
             Mutator = mutator;
             ExecutionState = executionState;
@@ -292,7 +292,7 @@ internal sealed class DurableMutationExecutor
             AppendJournal = appendJournal;
         }
 
-        internal Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> AppendJournal { get; }
+        internal Func<TState, JournalAppendContext, CancellationToken, ValueTask> AppendJournal { get; }
 
         internal KeyedExecutionState ExecutionState { get; }
 

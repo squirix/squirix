@@ -195,10 +195,10 @@ class PerformanceGuardTests(unittest.TestCase):
 
     def testRunnerUsesNativeProcessesAndTenMeasurements(self):
         filters = ["*Fixture.Read", "*Fixture.Empty"]
-        arguments = RUNNER.benchmark_arguments(Path("Server.dll"), filters, Path("reports"))
+        arguments = RUNNER.benchmark_arguments(Path("Server.dll"), filters, Path("reports"), 96)
         self.assertEqual(["dotnet", "Server.dll", "--filter", *filters], arguments[:5])
         self.assertNotIn("--inProcess", arguments)
-        self.assertEqual("10", arguments[arguments.index("--iterationCount") + 1])
+        self.assertEqual("96", arguments[arguments.index("--iterationCount") + 1])
         self.assertEqual("10", arguments[arguments.index("--warmupCount") + 1])
         self.assertEqual("500", arguments[arguments.index("--iterationTime") + 1])
         self.assertEqual("DontRemove", arguments[arguments.index("--outliers") + 1])

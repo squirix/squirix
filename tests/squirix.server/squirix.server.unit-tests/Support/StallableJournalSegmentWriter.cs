@@ -15,6 +15,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
 {
     private readonly IJournalSegmentWriter _inner;
     private int _disposeCount;
+    private int _writeCount;
 
     /// <summary>Initializes a new instance of the <see cref="StallableJournalSegmentWriter" /> class over the default file writer.</summary>
     internal StallableJournalSegmentWriter()
@@ -44,6 +45,9 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
     /// <summary>Gets the stall switch applied to <see cref="IJournalSegmentWriter.Write" />.</summary>
     internal Stall Write { get; } = new();
 
+    /// <summary>Gets the number of completed segment writes.</summary>
+    internal int WriteCount => Volatile.Read(ref _writeCount);
+
     /// <summary>Releases every stall, then disposes the inner writer.</summary>
     public void Dispose()
     {
@@ -69,6 +73,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
     {
         Write.BlockIfArmed();
         _inner.Write(buffer, fileOffset);
+        _ = Interlocked.Increment(ref _writeCount);
         AfterWrite.BlockIfArmed();
     }
 

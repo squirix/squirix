@@ -51,7 +51,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public long UsedBytes => _inner.UsedBytes;
 
-    public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
+    public ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
         _tracer.IsEnabled
             ? TracedAsync(
                 JournalOperationKind.Put,
@@ -60,7 +60,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
                 static (inner, args) => inner.AppendPutAsync(args.ownership, args.key, args.entryBytes, args.cancellationToken))
             : _inner.AppendPutAsync(ownership, key, entryBytes, cancellationToken);
 
-    public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) =>
+    public ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken) =>
         _tracer.IsEnabled
             ? TracedAsync(
                 JournalOperationKind.Remove,
@@ -108,6 +108,18 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
                 (action, cancellationToken),
                 static (inner, args) => inner.ExecuteUnderSnapshotBarrierAsync(args.action, args.cancellationToken))
             : _inner.ExecuteUnderSnapshotBarrierAsync(action, cancellationToken);
+
+    public ValueTask<TResult> ExecuteAppendBarrierAsync<TState, TResult>(
+        TState state,
+        Func<TState, JournalAppendContext, CancellationToken, ValueTask<TResult>> action,
+        CancellationToken cancellationToken) =>
+        _tracer.IsEnabled
+            ? TracedAsync(
+                JournalOperationKind.UnderSnapshotBarrier,
+                null,
+                (state, action, cancellationToken),
+                static (inner, args) => inner.ExecuteAppendBarrierAsync(args.state, args.action, args.cancellationToken))
+            : _inner.ExecuteAppendBarrierAsync(state, action, cancellationToken);
 
     public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
         TState state,

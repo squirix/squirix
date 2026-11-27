@@ -14,7 +14,6 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Replication;
-using Squirix.Server.Threading;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -161,9 +160,9 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
             _ = setups.NextSequence.Gets().Callback(() => journal.NextSequence);
             _ = setups.RecentAppendLatencyMs.Gets().Callback(() => journal.RecentAppendLatencyMs);
             _ = setups.UsedBytes.Gets().Callback(() => journal.UsedBytes);
-            _ = setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+            _ = setups.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
                .Callback(journal.AppendPutAsync);
-            _ = setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
+            _ = setups.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
                .Callback(journal.AppendRemoveAsync);
             _ = setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).Callback(journal.AwaitDurabilityCommitAsync);
             _ = setups.FailJournalPipeline(Arg.Any<Exception>()).Callback(journal.FailJournalPipeline);

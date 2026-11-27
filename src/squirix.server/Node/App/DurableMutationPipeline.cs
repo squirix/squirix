@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Threading;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.App;
 
@@ -14,7 +14,7 @@ internal readonly record struct DurableMutationPipeline<TState, TResult>
 {
     internal DurableMutationPipeline(
         TState state,
-        Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal,
+        Func<TState, JournalAppendContext, CancellationToken, ValueTask> appendJournal,
         Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
         Action<TState, TResult>? afterApply = null)
     {
@@ -31,7 +31,7 @@ internal readonly record struct DurableMutationPipeline<TState, TResult>
     internal Action<TState, TResult>? AfterApply { get; }
 
     /// <summary>Gets the journal append stage; it runs under the mutation gate and passes the given gate ownership to its journal append.</summary>
-    internal Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> AppendJournal { get; }
+    internal Func<TState, JournalAppendContext, CancellationToken, ValueTask> AppendJournal { get; }
 
     internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 

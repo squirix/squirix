@@ -26,31 +26,19 @@ public class ManifestSegmentRollBenchmarks
     private int _rollsPerInvoke;
 
     /// <summary>Disposes benchmark resources.</summary>
-    [GlobalCleanup]
-    public async Task GlobalCleanupAsync()
+    [IterationCleanup]
+    public void Cleanup()
     {
         _overflowPayload = null;
 
         if (_host != null)
-            await _host.DisposeAsync().ConfigureAwait(false);
+            _host.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _host = null;
     }
 
     /// <summary>Creates journal host configured for 1 MiB segments.</summary>
-    [GlobalSetup]
-    public async Task GlobalSetupAsync()
-    {
-        _rollsPerInvoke = ManifestBenchmarkSupport.ResolveRollsPerInvoke();
-        var options = new PersistenceOptions
-        {
-            JournalMaxSegmentMb = 1,
-            JournalMaxSegmentCount = 1024,
-        };
-        _host = await JournalBenchmarkHost.CreateAsync("manifest-roll-bench", options, CancellationToken.None).ConfigureAwait(false);
-        _overflowPayload = new byte[OverflowPayloadSize];
-        Array.Fill(_overflowPayload, Convert.ToByte('z'));
-        _overflowKey = new CacheKey("bench", "overflow");
-    }
+    [IterationSetup]
+    public void Setup() => CreateHostAsync().GetAwaiter().GetResult();
 
     /// <summary>Forces segment rolls via oversized append frames (production roll + manifest path).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
@@ -76,10 +64,9 @@ public class ManifestSegmentRollBenchmarks
         var fillPayload = new byte[FillPayloadBytes];
         Array.Fill(fillPayload, Convert.ToByte('x'));
         var fillKey = new CacheKey("bench", "fill");
-        var fillFrameLen = FrameLength(fillPayload, fillKey);
         const long maxBytes = 1024L * 1024L;
 
-        while (pipelined.EventLoop.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
+        while (pipelined.EventLoop.ActiveSegmentWrittenBytes + overflowFrameLen <= maxBytes)
             await pipelined.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
 
         await pipelined.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
@@ -96,5 +83,19 @@ public class ManifestSegmentRollBenchmarks
             PutEntryBytes = payload,
         };
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
+    }
+
+    private async Task CreateHostAsync()
+    {
+        _rollsPerInvoke = ManifestBenchmarkSupport.ResolveRollsPerInvoke();
+        var options = new PersistenceOptions
+        {
+            JournalMaxSegmentMb = 1,
+            JournalMaxSegmentCount = 1024,
+        };
+        _host = await JournalBenchmarkHost.CreateAsync("manifest-roll-bench", options, CancellationToken.None).ConfigureAwait(false);
+        _overflowPayload = new byte[OverflowPayloadSize];
+        Array.Fill(_overflowPayload, Convert.ToByte('z'));
+        _overflowKey = new CacheKey("bench", "overflow");
     }
 }
