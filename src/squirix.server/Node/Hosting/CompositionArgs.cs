@@ -22,6 +22,8 @@ internal sealed class CompositionArgs
 
     internal EvictionOptions? Eviction { get; set; }
 
+    internal string? SettingsFilePath { get; set; }
+
     internal bool? MemoryAccountingEnabled { get; set; }
 
     internal PressureOptions? MemoryPressureOptions { get; set; }

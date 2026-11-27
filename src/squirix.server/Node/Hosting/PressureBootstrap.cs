@@ -13,11 +13,12 @@ internal static class PressureBootstrap
 {
     /// <summary>Loads memory pressure settings using the same settings file discovery as cluster bootstrap, then applies environment overrides.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="settingsFilePath">File selected for this node. When omitted, use normal discovery.</param>
     /// <returns>Loaded settings before RAM budget resolution.</returns>
-    internal static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken = default)
+    internal static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken, string? settingsFilePath = null)
     {
         var baseline = new UnresolvedMemoryPressureOptions();
-        var path = SettingsJson.FindSettingsPath();
+        var path = settingsFilePath ?? SettingsJson.FindSettingsPath();
         if (path == null)
             return ApplyEnvironment(baseline);
 
@@ -54,6 +55,12 @@ internal static class PressureBootstrap
                 return (true, merged);
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static void ValidateEviction(EvictionOptions? eviction, bool memoryAccountingEnabled)
+    {
+        if (eviction?.EvictOnMemoryPressure == true && !memoryAccountingEnabled)
+            throw new InvalidOperationException("Memory-pressure eviction requires memory accounting. Enable --memory-accounting or choose a count-based capacity.");
     }
 
     internal static UnresolvedMemoryPressureOptions ApplyEnvironment(UnresolvedMemoryPressureOptions options)

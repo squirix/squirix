@@ -92,6 +92,7 @@ public static class Configurator
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(target);
 
+        target.SettingsFilePath = source.SettingsFilePath;
         target.Eviction = source.Eviction;
         target.ClusterId = source.ClusterId;
         target.NodeId = source.NodeId;
@@ -150,6 +151,12 @@ public static class Configurator
         configure?.Invoke(options);
         ApplyRuntimeDefaults(options);
         options.Validate();
+        if (options.Eviction?.EvictOnMemoryPressure == true)
+        {
+            var raw = await PressureBootstrap.LoadAsync(cancellationToken, options.SettingsFilePath).ConfigureAwait(false);
+            PressureBootstrap.ValidateEviction(options.Eviction, options.MemoryAccountingEnabled ?? raw.MemoryAccountingEnabled);
+        }
+
         return options;
     }
 
@@ -270,6 +277,7 @@ public static class Configurator
             var options = ThrowHelper.Required(
                 JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
                 "Cannot deserialize Squirix.Cluster.");
+            options.SettingsFilePath = validatedPath;
             options.Eviction = EvictionSettings.Read(root);
             if (options.DataDirectory != null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);

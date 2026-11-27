@@ -162,11 +162,10 @@ internal static class ServerHostingComposition
         var persistenceEnabled = persistence != null;
         var uri = cluster.Uri;
         var pressure = args.MemoryPressureOptions ?? OptionsResolver.Resolve(
-            await PressureBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false), GcMemoryBudgetProvider.Instance);
+            await PressureBootstrap.LoadAsync(cancellationToken, args.SettingsFilePath).ConfigureAwait(false), GcMemoryBudgetProvider.Instance);
         if (args.MemoryAccountingEnabled is { } enabled)
             pressure = pressure with { MemoryAccountingEnabled = enabled };
-        if (args.Eviction?.EvictOnMemoryPressure == true && !pressure.MemoryAccountingEnabled)
-            throw new InvalidOperationException("Memory-pressure eviction requires memory accounting. Enable --memory-accounting or choose a count-based capacity.");
+        PressureBootstrap.ValidateEviction(args.Eviction, pressure.MemoryAccountingEnabled);
 
         var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(cluster, args, persistenceEnabled);
 

@@ -18,7 +18,7 @@ See [containerization.md](containerization.md) for dev and release image layouts
 
 The standalone CLI and `SquirixServer.StartAsync()` load `Squirix:Cluster` through `Configurator`.
 The host also loads `Squirix:PrometheusMetrics` from the selected settings file. An explicit `--settings custom.json`
-selects those sections and `Squirix:CacheEviction` from that file. `MemoryPressure` and `Snapshot` use standard file discovery independently.
+selects those sections, `Squirix:CacheEviction`, and `Squirix:MemoryPressure` from that file. `Snapshot` uses standard file discovery independently.
 Keep all sections in `Squirix.settings.json` in the working directory to apply them together.
 `validate-config --settings custom.json --strict` validates optional sections in the named file.
 
@@ -89,8 +89,10 @@ for credential refresh, transport compatibility and migration from per-RPC authe
 Cache memory accounting is disabled by default. Enable it with `squirix-server run --memory-accounting` or
 set `SquirixServerOptions.MemoryAccountingEnabled` before starting an embedded node. An explicit host option takes
 precedence over `SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED`, which overrides `memoryAccountingEnabled` in the
-discovered `Squirix:MemoryPressure` section. Restart the node to apply the setting. Enable accounting on each node
+`Squirix:MemoryPressure` section in the selected settings file. Restart the node to apply the setting. Enable accounting on each node
 that should participate in memory pressure admission. The `--metrics` flag controls metrics collection independently.
+Use `squirix-server doctor --settings PATH --cache-eviction memory` to check the same file and eviction settings as
+`run`. Include `--memory-accounting` in both commands when enabling accounting from the command line.
 
 With accounting enabled, the node may reject **growing** writes under critical estimated memory usage before
 durable journal append. Cache calls return **`ResourceExhausted`** with pressure details. The binary transport

@@ -129,6 +129,8 @@ public sealed class SquirixServerOptions
 
     internal EvictionOptions? Eviction { get; set; }
 
+    internal string? SettingsFilePath { get; set; }
+
     /// <summary>Validates the current configuration without throwing.</summary>
     /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>
     /// <returns><see langword="true" /> when configuration is valid.</returns>

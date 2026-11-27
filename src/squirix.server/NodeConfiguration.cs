@@ -24,6 +24,7 @@ internal static class NodeConfiguration
             args =>
             {
                 args.Eviction = options.Eviction;
+                args.SettingsFilePath = options.SettingsFilePath;
                 args.WaitForRecovery = options.WaitForRecovery;
                 args.PersistenceOptions = persistenceOptions;
                 args.BackpressureOptions = options.Backpressure.ToAdmissionOptions();

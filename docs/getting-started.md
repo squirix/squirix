@@ -171,7 +171,7 @@ See [bootstrap client failover](bootstrap-client-failover.md) and [configuration
 ```bash
 squirix-server init [--settings Squirix.settings.json]
 squirix-server validate-config --settings Squirix.settings.json [--strict]
-squirix-server doctor [--settings Squirix.settings.json]
+squirix-server doctor [--settings Squirix.settings.json] [--cache-eviction memory] [--memory-accounting]
 squirix-server version
 ```
 

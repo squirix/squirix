@@ -24,7 +24,7 @@ internal static class Program
 
         private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
-                                        "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
+                                        "  doctor [--strict] [--persist] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
 
         internal static async Task<int> RunAsync(string[] args)
         {
@@ -51,7 +51,7 @@ internal static class Program
 
         private static async Task<int> DoctorAsync(SquirixServerCommand command)
         {
-            var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
+            var options = await LoadOptionsAsync(command).ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, "[Squirix.Server] Doctor").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Runtime: {Environment.Version}").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  OS: {Environment.OSVersion}").ConfigureAwait(false);
@@ -94,13 +94,8 @@ internal static class Program
             return 0;
         }
 
-        private static async Task<SquirixServerOptions> LoadOptionsAsync(SquirixServerCommand command, CancellationToken cancellationToken = default)
-        {
-            var settingsPath = ResolveSettingsPath(command);
-            var options = settingsPath == null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
-            command.ApplyOverrides(options);
-            return options;
-        }
+        private static Task<SquirixServerOptions> LoadOptionsAsync(SquirixServerCommand command) =>
+            Configurator.CreateHostingOptionsAsync(command.ApplyOverrides, command.SettingsPath, cancellationToken: CancellationToken.None);
 
         private static Task<SquirixServerOptions> LoadSettingsAsync(string path, CancellationToken cancellationToken = default) =>
             Configurator.LoadAsync(path, cancellationToken);
@@ -111,17 +106,7 @@ internal static class Program
 
         private static async Task<int> RunServerAsync(SquirixServerCommand command)
         {
-            var options = await Configurator.CreateHostingOptionsAsync(
-                options =>
-                {
-                    if (command.EnableMetrics)
-                        options.MetricsEnabled = true;
-
-                    command.ApplyOverrides(options);
-                },
-                command.SettingsPath,
-                cancellationToken: CancellationToken.None).ConfigureAwait(false);
-
+            var options = await LoadOptionsAsync(command).ConfigureAwait(false);
             var server = await SquirixServer.StartAsync(options, CancellationToken.None).ConfigureAwait(false);
             await using var lifetime = server.ConfigureAwait(false);
             await WriteRunServerStatusAsync(command, options, server.ManagementUri, CancellationToken.None).ConfigureAwait(false);
@@ -262,6 +247,8 @@ internal static class Program
 
             internal void ApplyOverrides(SquirixServerOptions options)
             {
+                if (EnableMetrics)
+                    options.MetricsEnabled = true;
                 if (MemoryAccountingEnabled)
                     options.MemoryAccountingEnabled = true;
 
@@ -278,8 +265,8 @@ internal static class Program
                         return HelpCommand();
                 }
 
-                if (state.MemoryAccountingEnabled && !string.Equals(name, "run", StringComparison.Ordinal))
-                    throw new InvalidOperationException("--memory-accounting applies only to run.");
+                if (state.MemoryAccountingEnabled && name is not ("run" or "doctor"))
+                    throw new InvalidOperationException("--memory-accounting applies only to run and doctor.");
 
                 var command = new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnableMetrics, state.SettingsPath)
                 {

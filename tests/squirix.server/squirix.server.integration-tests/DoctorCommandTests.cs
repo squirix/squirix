@@ -26,6 +26,41 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         "[Squirix.Server] Error: Durable replica state in the data directory does not match the configured topology; " +
         "see the MISMATCH, UNREADABLE, or MISSING lines above.";
 
+    /// <summary>Doctor checks memory eviction against the same file, environment and flag as run.</summary>
+    /// <param name="fileEnabled">Whether accounting is enabled in the selected file.</param>
+    /// <param name="environment">The environment override in the child process.</param>
+    /// <param name="flag">Whether the operator explicitly enables accounting.</param>
+    /// <param name="success">Whether the resulting combination may start.</param>
+    /// <param name="cancellationToken">Test cancellation.</param>
+    [Test]
+    [Arguments(false, null, false, false)]
+    [Arguments(true, null, false, true)]
+    [Arguments(true, "false", false, false)]
+    [Arguments(false, "true", false, true)]
+    [Arguments(false, "false", true, true)]
+    public async Task DoctorChecksMemoryEviction(bool fileEnabled, string? environment, bool flag, bool success, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-memory");
+        var path = Path.Join(dir, "custom.json");
+        var section = fileEnabled ? ""","MemoryPressure":{"memoryAccountingEnabled":true}""" : string.Empty;
+        await File.WriteAllTextAsync(path, """{"Cluster":{}""" + section + "}", cancellationToken);
+        var hostDll = await FindHostDllAsync();
+        var arguments = $"exec \"{hostDll}\" doctor --settings \"{path}\" --cache-eviction memory";
+        if (flag)
+            arguments += " --memory-accounting";
+        var (exit, output) = await RunHostAsync(arguments, cancellationToken, accountingOverride: environment);
+        _ = await Assert.That(exit).IsEqualTo(success ? 0 : 1);
+        if (success)
+        {
+            _ = await Assert.That(output).Contains("Configuration: valid", StringComparison.Ordinal);
+        }
+        else
+        {
+            _ = await Assert.That(output).Contains("Memory-pressure eviction requires memory accounting", StringComparison.Ordinal);
+            _ = await Assert.That(output).DoesNotContain("Configuration: valid", StringComparison.Ordinal);
+        }
+    }
+
     /// <summary>Verifies doctor honors the replication opt-in passed on the command line.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -362,7 +397,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         return null;
     }
 
-    private static async Task<(int ExitCode, string Output)> RunHostAsync(string arguments, CancellationToken cancellationToken, string? testRoot = null)
+    private static async Task<(int ExitCode, string Output)> RunHostAsync(string arguments, CancellationToken cancellationToken, string? testRoot = null, string? accountingOverride = null)
     {
         var dotnetPath = ResolveDotnetPath() ?? "dotnet";
         var info = new ProcessStartInfo(dotnetPath, arguments)
@@ -375,6 +410,11 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         // The child inherits this process's SQUIRIX_TEST_ROOT; a test that inspects the default data directory pins its own.
         if (testRoot != null)
             info.Environment["SQUIRIX_TEST_ROOT"] = testRoot;
+
+        if (accountingOverride == null)
+            _ = info.Environment.Remove("SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED");
+        else
+            info.Environment["SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED"] = accountingOverride;
 
         var started = Process.Start(info);
         using var process = await Assert.That(started).IsNotNull();
