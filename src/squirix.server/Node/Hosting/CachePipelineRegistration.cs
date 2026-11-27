@@ -139,7 +139,9 @@ internal static class CachePipelineRegistration
                 sp.Find<IRoutedKeyContext>());
         });
         _ = services.Own(static sp => new ValidationCacheDecorator<StoredValue>(
-            sp.Require<OwnershipGuardCacheDecorator<StoredValue>>(),
+            sp.Require<IGroupLeaderTable>() is StaticLeaderTable { SoleOwner: not null }
+                ? sp.Require<BackpressureCacheDecorator<StoredValue>>()
+                : sp.Require<OwnershipGuardCacheDecorator<StoredValue>>(),
             EntryLimits.ValueBytes(sp.Require<FeatureState>().NetworkReplicationEnabled),
             sp.Find<IRoutedKeyContext>()));
         _ = services.Own(static sp => new DomainErrorMappingCacheDecorator<StoredValue>(sp.Require<ValidationCacheDecorator<StoredValue>>()));

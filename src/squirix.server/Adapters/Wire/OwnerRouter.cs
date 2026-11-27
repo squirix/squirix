@@ -45,6 +45,7 @@ internal sealed class OwnerRouter
     private readonly IReplicaGroupLocator _replicaGroups;
     private readonly RingAgreement _ringAgreement;
     private readonly IGroupLeaderTable _table;
+    private readonly string? _soleOwner;
 
     /// <summary>Initializes a new instance of the <see cref="OwnerRouter" /> class.</summary>
     /// <param name="ownershipResolver">Resolves the ring owner of a key, which names its replica group.</param>
@@ -77,6 +78,7 @@ internal sealed class OwnerRouter
         _invocationState = invocationState;
         _ringAgreement = ringAgreement;
         _table = table;
+        _soleOwner = (table as StaticLeaderTable)?.SoleOwner;
         _leaderWait = leaderWait;
         _attemptBudget = leaderWait + ElectionTimerOptions.LeaderRefusalMargin > RpcAttemptTimeout.PerAttempt
             ? leaderWait + ElectionTimerOptions.LeaderRefusalMargin
@@ -124,8 +126,11 @@ internal sealed class OwnerRouter
             return local(state, cancellationToken);
         }
 
-        var groupId = _ownershipResolver.GetOwner(canonicalName, key);
+        var groupId = _soleOwner ?? _ownershipResolver.GetOwner(canonicalName, key);
         KeyContext?.RecordRoute(canonicalName, key, null, groupId);
+        if (_soleOwner != null)
+            return local(state, cancellationToken);
+
         var route = ResolveNow(groupId);
 
         // An internal call is itself the single hop: it runs here or is refused. Elected right before it, this node may still wait for its own

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App.Decorators;
@@ -49,6 +50,32 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
 
         _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That((failure.FindTrailer("squirix-leader-node-id"), failure.FindTrailer("squirix-leader-term"))).IsEqualTo((Remote, "6"));
+    }
+
+    /// <summary>A sole peer reaches admission without consulting an owner even outside an RPC context.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SolePeerKeepsLocalAdmission(CancellationToken cancellationToken)
+    {
+        var cluster = new TopologyOptions(new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") }) { NodeId = Self };
+        var gate = new IBackpressureGateCreateExpectations();
+        _ = gate.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), "client", cancellationToken)
+                .ReturnValue(ValueTask.FromResult((Decision.Accepted(), Lease.Empty)));
+        var clients = new IBackpressureClientIdResolverCreateExpectations();
+        _ = clients.Setups.Resolve().ReturnValue("client");
+        var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") };
+        var store = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        _ = store.Setups.SetEntryAsync("op", "c", "k", entry, cancellationToken).ReturnValue(ValueTask.CompletedTask);
+        var admission = new BackpressureCacheDecorator<StoredValue>(store.Instance(), gate.Instance(), clients.Instance());
+        var services = new NodeServices().AddSquirixClusterLocator(cluster).AddSquirixCachePipeline()
+                                         .Use(FeatureState.Disabled)
+                                         .Use(admission);
+        await using var provider = new NodeProvider(services);
+
+        await provider.Require<ValidationCacheDecorator<StoredValue>>().SetEntryAsync("op", "c", "k", entry, cancellationToken);
+
+        store.Verify();
+        gate.Verify();
     }
 
     private static async Task<ServerCallException> RefuseAsync(IGroupLeaderTable leaders, CancellationToken cancellationToken)
