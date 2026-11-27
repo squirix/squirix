@@ -20,17 +20,14 @@ public sealed class SquirixServerJournalOptions
 
     /// <summary>
     /// Gets or sets the maximum time a durable mutation waits for others before the journal issues one shared flush (group commit).
-    /// The default value, <see cref="TimeSpan.Zero" />, selects the server default of 2 milliseconds.
+    /// Defaults to 2 milliseconds. Zero makes the group eligible to flush immediately.
     /// </summary>
-    /// <remarks>
-    /// Must be zero or between 1 and 100 whole milliseconds ("00:00:00.002" in settings). A value greater than zero requires
-    /// <see cref="SquirixServerOptions.PersistenceEnabled" />.
-    /// </remarks>
-    public TimeSpan GroupCommitMaxWait { get; set; } = TimeSpan.Zero;
+    /// <remarks>Accepts 0 to 100 whole milliseconds. With zero wait, writers already waiting can still share a flush.</remarks>
+    public TimeSpan GroupCommitMaxWait { get; set; } = TimeSpan.FromMilliseconds(2);
 
     internal PersistenceOptions ToPersistenceOptions() => new()
     {
         JournalGroupCommitMaxBatch = GroupCommitMaxBatch,
-        JournalGroupCommitMaxWait = GroupCommitMaxWait == TimeSpan.Zero ? TimeSpan.FromMilliseconds(2) : GroupCommitMaxWait,
+        JournalGroupCommitMaxWait = GroupCommitMaxWait,
     };
 }

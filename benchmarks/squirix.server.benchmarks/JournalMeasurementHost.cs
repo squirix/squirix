@@ -67,7 +67,7 @@ internal sealed class JournalMeasurementHost : IAsyncDisposable
         var options = new PersistenceOptions
         {
             DataDir = dataDir,
-            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : TimeSpan.Zero,
+            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : null,
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,
             JournalMaxTotalBytesMb = 32768,

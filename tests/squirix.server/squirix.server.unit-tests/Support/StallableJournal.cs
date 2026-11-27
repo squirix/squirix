@@ -68,7 +68,7 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, CancellationToken cancellationToken) => CreateAsync(
         dataDir,
-        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : null,
         1,
         cancellationToken);
 
@@ -79,7 +79,7 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, TimeProvider clock, CancellationToken cancellationToken) => CreateCoreAsync(
         dataDir,
-        TimeSpan.Zero,
+        null,
         1,
         null,
         DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb),
@@ -88,11 +88,11 @@ internal sealed class StallableJournal : IAsyncDisposable
 
     /// <summary>Creates a journal over a fresh stallable writer with explicit group commit batching.</summary>
     /// <param name="dataDir">Empty journal data directory.</param>
-    /// <param name="groupCommitMaxWait">Group commit batch deadline; <see cref="TimeSpan.Zero" /> disables group commit.</param>
+    /// <param name="groupCommitMaxWait">Optional group commit window. A zero window makes pending batches immediately eligible for flush.</param>
     /// <param name="groupCommitMaxBatch">Waiter count that makes a group commit batch due before its deadline.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static Task<StallableJournal> CreateAsync(string dataDir, TimeSpan groupCommitMaxWait, int groupCommitMaxBatch, CancellationToken cancellationToken) =>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, TimeSpan? groupCommitMaxWait, int groupCommitMaxBatch, CancellationToken cancellationToken) =>
         CreateCoreAsync(dataDir, groupCommitMaxWait, groupCommitMaxBatch, null, DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), TimeProvider.System, cancellationToken);
 
     /// <summary>Creates a journal over a fresh stallable writer whose on-disk journal is capped at <paramref name="maxTotalBytesMb" />.</summary>
@@ -103,7 +103,7 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, int maxTotalBytesMb, CancellationToken cancellationToken) => CreateCoreAsync(
         dataDir,
-        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : null,
         1,
         null,
         DefaultLimits(maxTotalBytesMb),
@@ -126,7 +126,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         int maxSegmentCount,
         CancellationToken cancellationToken) => CreateCoreAsync(
         dataDir,
-        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : null,
         1,
         null,
         (maxTotalBytesMb, maxSegmentMb, maxSegmentCount),
@@ -180,7 +180,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         IServerLogger log,
         CancellationToken cancellationToken) => CreateCoreAsync(
         dataDir,
-        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : null,
         1,
         (shutdownBudget, graceJoinFloor, stageFloor, log),
         DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb),
@@ -301,7 +301,7 @@ internal sealed class StallableJournal : IAsyncDisposable
 
     private static async Task<StallableJournal> CreateCoreAsync(
         string dataDir,
-        TimeSpan groupCommitMaxWait,
+        TimeSpan? groupCommitMaxWait,
         int groupCommitMaxBatch,
         (TimeSpan Budget, TimeSpan GraceFloor, TimeSpan StageFloor, IServerLogger Log)? shutdown,
         (int TotalMb, int SegmentMb, int SegmentCount) limits,

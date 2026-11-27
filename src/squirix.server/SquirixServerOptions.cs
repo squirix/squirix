@@ -232,12 +232,12 @@ public sealed class SquirixServerOptions
             return ex.Message;
         }
 
-        return ValidateJournal(options.Journal, options.PersistenceEnabled) ??
+        return ValidateJournal(options.Journal) ??
                ForwardingCallPolicyDefaults.ValidateConnectTimeout(options.ForwardConnectTimeout) ??
                PrometheusEndpointOptionsValidator.ValidatePath(options.PrometheusMetricsEnabled, options.PrometheusMetricsPath);
     }
 
-    private static string? ValidateJournal(SquirixServerJournalOptions? journal, bool persistenceEnabled)
+    private static string? ValidateJournal(SquirixServerJournalOptions? journal)
     {
         if (journal == null)
             return "Journal cannot be null.";
@@ -251,9 +251,7 @@ public sealed class SquirixServerOptions
             return ex.Message;
         }
 
-        return journal.GroupCommitMaxWait > TimeSpan.Zero && !persistenceEnabled
-            ? "Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled."
-            : null;
+        return null;
     }
 
     private static void Validate(SquirixServerOptions options)

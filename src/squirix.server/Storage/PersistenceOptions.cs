@@ -19,16 +19,16 @@ internal sealed record PersistenceOptions
     internal string DataDir { get; init; } = string.Empty;
 
     /// <summary>Gets a value indicating whether a journal group commit is enabled.</summary>
-    internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
+    internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait != null;
 
-    /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
+    /// <summary>Gets the number of waiting mutations that makes a batch eligible to flush before the deadline.</summary>
     internal int JournalGroupCommitMaxBatch { get; init; } = PersistenceOptionsDefaults.JournalGroupCommitMaxBatch;
 
     /// <summary>
     /// Gets the maximum time to wait for additional journal appends before issuing a shared durability flush.
-    /// When zero, a group commit is disabled and each durable mutation flushes independently.
+    /// Zero requests an immediate grouped flush. An absent window selects individual checkpoints in internal callers.
     /// </summary>
-    internal TimeSpan JournalGroupCommitMaxWait { get; init; } = PersistenceOptionsDefaults.JournalGroupCommitMaxWait;
+    internal TimeSpan? JournalGroupCommitMaxWait { get; init; }
 
     /// <summary>Gets the maximum number of journal segments; a write that would exceed it is refused until retention frees segments.</summary>
     internal int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;
@@ -134,7 +134,7 @@ internal sealed record PersistenceOptions
         if (JournalGroupCommitMaxBatch is < 1 or > MaxGroupCommitBatch)
             throw new InvalidOperationException($"Journal GroupCommitMaxBatch must be between 1 and {MaxGroupCommitBatch}.");
 
-        var wait = JournalGroupCommitMaxWait;
+        var wait = JournalGroupCommitMaxWait.GetValueOrDefault();
         if (wait == TimeSpan.Zero)
             return;
 
@@ -144,7 +144,7 @@ internal sealed record PersistenceOptions
 
     private static class PersistenceOptionsDefaults
     {
-        /// <summary>Default maximum number of concurrent durable mutations sharing one durability flush.</summary>
+        /// <summary>Default number of waiting mutations that triggers an early flush.</summary>
         internal const int JournalGroupCommitMaxBatch = 32;
 
         /// <summary>Default per-coordinator journal write-coalescing buffer size in bytes.</summary>
@@ -167,9 +167,6 @@ internal sealed record PersistenceOptions
 
         /// <summary>Default consecutive manifest retention-cleanup failures required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWrites = 3;
-
-        /// <summary>Default maximum wait for an additional journal appends before a shared durability flush; zero disables group commit.</summary>
-        internal static readonly TimeSpan JournalGroupCommitMaxWait = TimeSpan.Zero;
 
         /// <summary>Default journal I/O stall duration before readiness reports degraded; the same order as the replication commit budget.</summary>
         internal static readonly TimeSpan JournalStallDegradedThreshold = TimeSpan.FromSeconds(5);

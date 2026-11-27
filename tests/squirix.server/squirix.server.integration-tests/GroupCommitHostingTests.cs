@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
@@ -28,17 +29,42 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     private const int MaxBursts = 20;
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(60);
 
-    /// <summary>Enabling persistence selects the grouped journal without additional configuration.</summary>
+    /// <summary>Checks the effective window on the running host and writes a value through its endpoint.</summary>
+    /// <param name="persistent">Whether the node opens persistent storage.</param>
+    /// <param name="configuredMs">Explicit window, or null to keep the default.</param>
+    /// <param name="effectiveMs">Expected window, or null for an in-memory node.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PersistenceUsesGroupedJournalByDefault(CancellationToken cancellationToken)
+    [Arguments(true, null, 2)]
+    [Arguments(true, 0, 0)]
+    [Arguments(true, 7, 7)]
+    [Arguments(false, 7, null)]
+    public async Task HostHonorsJournalWindow(bool persistent, int? configuredMs, int? effectiveMs, CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-group-commit-default");
-        var (app, _) = await StartAsync(dir, null, cancellationToken);
+        using var dir = new TempDirectory("squirix-group-commit-window");
+        var (app, uri) = await StartAsync(persistent ? (string)dir : null, ConfigureWindow, cancellationToken);
         await using (app)
         {
-            _ = await Assert.That(app.Services.GetRequiredService<PersistenceOptions>().IsJournalGroupCommitEnabled).IsTrue();
-            _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsTrue();
+            var options = app.Services.Find<PersistenceOptions>();
+            if (effectiveMs is { } wait)
+            {
+                _ = await Assert.That(GetJournal(app).IsJournalGroupCommitEnabled).IsTrue();
+                _ = await Assert.That(options?.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.FromMilliseconds(wait));
+            }
+            else
+            {
+                _ = await Assert.That(options).IsNull();
+            }
+
+            using var channel = CreateBinaryChannel(uri);
+            var client = new CacheWireClient(channel);
+            _ = await client.SetEntryAsync(CreateSet("window", "value"), cancellationToken: cancellationToken);
+        }
+
+        void ConfigureWindow(SquirixServerOptions options)
+        {
+            if (configuredMs is { } wait)
+                options.Journal.GroupCommitMaxWait = TimeSpan.FromMilliseconds(wait);
         }
     }
 
@@ -176,7 +202,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
         };
     }
 
-    private static async Task<(ServerApplication App, Uri Uri)> StartAsync(string dataDirectory, Action<SquirixServerOptions>? configure, CancellationToken cancellationToken)
+    private static async Task<(ServerApplication App, Uri Uri)> StartAsync(string? dataDirectory, Action<SquirixServerOptions>? configure, CancellationToken cancellationToken)
     {
         var services = TestNodeBuilder.CreateServices();
         var uri = GetNextHttpUri();
@@ -185,7 +211,8 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
             options =>
             {
                 options.Uri = uri;
-                options.UsePersistence(dataDirectory);
+                if (dataDirectory != null)
+                    options.UsePersistence(dataDirectory);
                 configure?.Invoke(options);
             },
             loadDiscoveredSettings: false,
