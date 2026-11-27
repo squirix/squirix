@@ -36,7 +36,8 @@ internal static class RuntimeServiceRegistration
             _ = services.Own<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
                 sp.Require<INodeLocator>(),
                 sp.Require<TopologyOptions>()));
-            services.UseDefault<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
+            var soleNode = nodeIds is [var only] && string.Equals(only, cluster.NodeId, StringComparison.Ordinal);
+            services.UseDefault<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId, soleNode));
             return services;
         }
     }

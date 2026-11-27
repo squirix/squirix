@@ -8,6 +8,7 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
@@ -95,9 +96,51 @@ public sealed class OwnerRouterTests
         _ = await Assert.That(string.Join(',', calls.Targets)).IsEqualTo(Remote);
     }
 
-    /// <summary>A node fenced by a ring mismatch refuses with the ring-fenced marker before it resolves any owner.</summary>
+    /// <summary>Only a ring consisting of this peer skips owner resolution; either route records the chosen group.</summary>
+    /// <param name="singlePeer">Whether this node is the only configured peer.</param>
     [Test]
-    public async Task FencedRouterRefusesBeforeResolvingOwner()
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task StaticTopologyRoutesToExpectedPeer(bool singlePeer)
+    {
+        var self = new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") };
+        var remote = new ServerPeer { NodeId = Remote, Uri = new Uri("https://localhost:6002") };
+        var topology = new TopologyOptions(singlePeer ? [self] : [self, remote]) { NodeId = Self };
+        var ownership = new INodeOwnershipResolverCreateExpectations();
+        if (!singlePeer)
+        {
+            _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
+            _ = ownership.Setups.GetOwner("cache", "key").ReturnValue(Remote);
+        }
+
+        await using var provider = new NodeProvider(new NodeServices().AddSquirixClusterLocator(topology));
+        var context = new BinaryRequestAccessor { Current = new BinaryRequestContext { Path = "/cache/Get" } };
+        var router = new OwnerRouter(
+            ownership.Instance(),
+            CreateInvocationState(false),
+            RingAgreements.Create(),
+            provider.Require<IGroupLeaderTable>(),
+            OwnerRouters.LeaderWait,
+            TimeProvider.System,
+            OwnerRouters.Locator(Self))
+        {
+            KeyContext = context,
+        };
+        var calls = new RouterCalls();
+
+        var result = await calls.RunAsync(router, "cache", "key");
+
+        _ = await Assert.That(result).IsEqualTo(singlePeer ? RouterCalls.Local : Remote);
+        _ = await Assert.That(context.FindGroup("cache", "key")).IsEqualTo(singlePeer ? Self : Remote);
+        ownership.Verify();
+    }
+
+    /// <summary>A node fenced by a ring mismatch refuses with the ring-fenced marker before it resolves any owner.</summary>
+    /// <param name="soleNode">Whether this node is the only peer.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FencedRouterRefusesBeforeResolvingOwner(bool soleNode)
     {
         var agreement = RingAgreements.Create();
         agreement.ReportOutboundMismatch(Remote);
@@ -107,7 +150,7 @@ public sealed class OwnerRouterTests
             new INodeOwnershipResolverCreateExpectations().Instance(),
             CreateInvocationState(false),
             agreement,
-            new StaticLeaderTable(Self),
+            new StaticLeaderTable(Self, soleNode),
             OwnerRouters.LeaderWait,
             TimeProvider.System,
             OwnerRouters.Locator(Self));

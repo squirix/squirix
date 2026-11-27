@@ -20,11 +20,16 @@ internal sealed class StaticLeaderTable : IGroupLeaderTable
 
     /// <summary>Initializes a new instance of the <see cref="StaticLeaderTable" /> class.</summary>
     /// <param name="selfId">The identifier of this node, the leader of its own group.</param>
-    internal StaticLeaderTable(string selfId)
+    /// <param name="soleNode">Whether this node is the only configured member of the ring.</param>
+    internal StaticLeaderTable(string selfId, bool soleNode = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selfId);
         _selfId = selfId;
+        SoleOwner = soleNode ? selfId : null;
     }
+
+    /// <summary>Gets the owner shared by every key in a single-node ring.</summary>
+    internal string? SoleOwner { get; }
 
     /// <inheritdoc />
     public bool HasLocalAuthority(string groupId, out ulong term)
