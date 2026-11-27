@@ -666,13 +666,14 @@ public sealed class ConnectionPrefaceTests
 
     internal sealed class ProbeConnection : IAsyncDisposable
     {
-        internal ProbeConnection()
+        internal ProbeConnection(PipeOptions? inputOptions = null)
         {
+            Incoming = new Pipe(inputOptions ?? PipeOptions.Default);
             Transport = new TransportPipe(Incoming.Reader, Outgoing.Writer);
             Native = new BinaryConnection("preface", Transport, null, null, CancellationToken.None, CancellationToken.None);
         }
 
-        internal Pipe Incoming { get; } = new();
+        internal Pipe Incoming { get; }
 
         internal Pipe Outgoing { get; } = new();
 

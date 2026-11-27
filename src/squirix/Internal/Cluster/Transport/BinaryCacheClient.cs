@@ -198,6 +198,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
     private sealed class Connection : IAsyncDisposable
     {
         private const int PendingCapacity = 128;
+        private const int InitialReplyBufferBytes = 256;
 
         private readonly TcpClient _socket;
         private readonly SslStream _tls;
@@ -269,8 +270,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 throw new IOException("The binary cache connection closed.", error);
             }
 
-            var completion = new TaskCompletionSource<BinaryClientReply>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var pending = new PendingCall(id, request, parser, options.Deadline, completion, token);
+            var pending = new PendingCall(id, in request, parser, options.Deadline, token);
             Volatile.Write(ref _pending[id], pending);
             if (!_outgoing.Writer.TryWrite(pending))
             {
@@ -279,19 +279,19 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
 
             // Cancellation completes the caller's task. The reader still owns the wire slot.
-            var registration = completion.Task.IsCompleted
+            var registration = pending.Task.IsCompleted
                 ? default
                 : token.UnsafeRegister(
                     static (state, canceledToken) =>
                     {
-                        if (state is TaskCompletionSource<BinaryClientReply> reply)
+                        if (state is PendingCall reply)
                             _ = reply.TrySetCanceled(canceledToken);
                     },
-                    completion);
+                    pending);
             BinaryClientReply result;
             try
             {
-                result = await completion.Task.ConfigureAwait(false);
+                result = await pending.Task.ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!options.CallerToken.IsCancellationRequested)
             {
@@ -325,7 +325,17 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             _ = _slots.Writer.TryComplete();
             _socket.Dispose();
             for (var i = 0; i < _pending.Length; i++)
-                _ = Interlocked.Exchange(ref _pending[i], null)?.Completion.TrySetResult(default);
+                _ = Interlocked.Exchange(ref _pending[i], null)?.TrySetResult(default);
+        }
+
+        private static void EnsureReplyBuffer(ref byte[] buffer, int size)
+        {
+            if (size <= buffer.Length || size > Frames.MaxBatchBytes)
+                return;
+
+            var expanded = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
+            ArrayPool<byte>.Shared.Return(buffer);
+            buffer = expanded;
         }
 
         private static void WriteRequest(Span<byte> buffer, PendingCall item, DateTime now) =>
@@ -362,7 +372,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                ArrayPool<byte>.Shared.Return(buffer, true);
                 Abort();
             }
         }
@@ -382,7 +392,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
                 if (frameSize > buffer.Length)
                 {
-                    await SendLargeAsync(item, now).ConfigureAwait(false);
+                    await SendLargeAsync(item, now, buffer).ConfigureAwait(false);
                     continue;
                 }
 
@@ -394,40 +404,16 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 await _tls.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
         }
 
-        private async Task SendLargeAsync(PendingCall item, DateTime now)
+        private async Task SendLargeAsync(PendingCall item, DateTime now, byte[] buffer)
         {
-            var length = item.Request.HeaderBytes + item.Request.Size;
-            if (item.Request.Size > Frames.MaxRequestBytes)
-            {
-                await SendExtendedAsync(item, now).ConfigureAwait(false);
-                return;
-            }
-
-            var buffer = ArrayPool<byte>.Shared.Rent(length);
-            try
-            {
-                WriteRequest(buffer, item, now);
-                await _tls.WriteAsync(buffer.AsMemory(0, length), _stopToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
-        }
-
-        private async Task SendExtendedAsync(PendingCall item, DateTime now)
-        {
-            using var message = new WireSegments();
-            var header = message.GetMemory(item.Request.HeaderBytes);
-            item.Request.WriteHeader(header.Span, item.Id, RemainingMilliseconds(item, now));
-            message.Advance(item.Request.HeaderBytes);
-            item.Request.Message.WriteTo(message, item.Request.MutationOperationId);
+            using var message = new WireSegments(buffer);
+            _ = item.Request.WriteTo(message, item.Id, RemainingMilliseconds(item, now));
             await message.SendAsync(_tls, _stopToken).ConfigureAwait(false);
         }
 
         private async Task ReadAsync()
         {
-            var smallBody = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
+            var smallBody = ArrayPool<byte>.Shared.Rent(InitialReplyBufferBytes);
             try
             {
                 while (IsAvailable)
@@ -443,13 +429,14 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                     if (id >= _pending.Length || Volatile.Read(ref _pending[id]) is not { } pending)
                         throw new InvalidDataException("Unexpected binary cache reply.");
 
-                    if (size > smallBody.Length && BinaryClientProtocol.CanReadLargeLookupReply(pending.Parser, status))
+                    if (size > Frames.MaxBatchBytes && BinaryClientProtocol.CanReadLargeLookupReply(pending.Parser, status))
                     {
                         var direct = await BinaryClientProtocol.ReadLargeLookupReplyAsync(_tls, pending.Parser, size, smallBody, _stopToken).ConfigureAwait(false);
                         PublishReply(id, pending, in direct);
                         continue;
                     }
 
+                    EnsureReplyBuffer(ref smallBody, size);
                     var body = size <= smallBody.Length ? smallBody : ArrayPool<byte>.Shared.Rent(size);
                     try
                     {
@@ -481,15 +468,26 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 return;
 
             _ = _slots.Writer.TryWrite(id);
-            _ = pending.Completion.TrySetResult(reply);
+            _ = pending.TrySetResult(reply);
         }
 
-        private sealed record PendingCall(
-            int Id,
-            BinaryClientRequest Request,
-            IWireParser Parser,
-            DateTime Deadline,
-            TaskCompletionSource<BinaryClientReply> Completion,
-            CancellationToken CancellationToken);
+        private sealed class PendingCall : TaskCompletionSource<BinaryClientReply>
+        {
+            internal PendingCall(int id, in BinaryClientRequest request, IWireParser parser, DateTime deadline, CancellationToken cancellationToken)
+                : base(TaskCreationOptions.RunContinuationsAsynchronously)
+            {
+                Id = id;
+                Request = request;
+                Parser = parser;
+                Deadline = deadline;
+                CancellationToken = cancellationToken;
+            }
+
+            internal int Id { get; }
+            internal BinaryClientRequest Request { get; }
+            internal IWireParser Parser { get; }
+            internal DateTime Deadline { get; }
+            internal CancellationToken CancellationToken { get; }
+        }
     }
 }

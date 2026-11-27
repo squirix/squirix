@@ -47,6 +47,12 @@ public sealed class AsyncBinaryCompletionTests
     public Task RoundTripsAllAsyncOperations(CancellationToken cancellationToken) =>
         WithPeerAsync(VerifyAllOperationsAsync, cancellationToken);
 
+    /// <summary>Reads replies across both buffer boundaries without changing a previously returned payload.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task FragmentedRepliesSurviveBufferGrowth(CancellationToken cancellationToken) =>
+        WithPeerAsync(VerifyFragmentedRepliesAsync, cancellationToken);
+
     /// <summary>Observes mutation identity on the actual connection and checks that retries reuse it.</summary>
     /// <param name="replay">Whether the server advertises mutation replay.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -131,6 +137,36 @@ public sealed class AsyncBinaryCompletionTests
         await NegotiateAsync(stream, certificate, replay, token);
         await connecting;
         await scenario(client, stream, token);
+    }
+
+    private static async Task VerifyFragmentedRepliesAsync(BinaryCacheClient client, SslStream stream, CancellationToken token)
+    {
+        var request = new GetDistributedAsyncRequest { CacheName = "default", Key = "buffer" };
+        var sizes = new[] { 255, 256, Frames.MaxBatchBytes - 1, Frames.MaxBatchBytes, 31 };
+        var values = new byte[sizes.Length][];
+        var replies = new GetDistributedAsyncResponse[sizes.Length];
+        for (var i = 0; i < sizes.Length; i++)
+        {
+            var pending = client.GetDistributedAsync(request, LiveCallOptions(token));
+            var id = await ReadRequestAsync(stream, BinaryOperation.GetDistributed, request, token);
+            var expected = new byte[sizes[i]];
+            Array.Fill(expected, byte.CreateChecked(i + 1));
+            values[i] = expected;
+            var message = new GetDistributedAsyncResponse { Found = true, Value = expected };
+            var size = message.CalculateSize();
+            var frame = new byte[Frames.ReplyBytes + size];
+            Frames.WriteReplyMessage(frame, id, size, 0, message);
+            var split = Frames.ReplyBytes + (size / 2);
+            await stream.WriteAsync(frame.AsMemory(0, split), token);
+            await stream.WriteAsync(frame.AsMemory(split), token);
+            replies[i] = await pending.WaitAsync(token);
+        }
+
+        for (var i = 0; i < sizes.Length; i++)
+        {
+            _ = await Assert.That(replies[i].Found).IsTrue();
+            _ = await Assert.That(replies[i].Value.Span.SequenceEqual(values[i])).IsTrue();
+        }
     }
 
     private static async Task VerifyAllOperationsAsync(BinaryCacheClient client, SslStream stream, CancellationToken token)

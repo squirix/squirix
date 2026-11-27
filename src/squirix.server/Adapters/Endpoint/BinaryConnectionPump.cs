@@ -126,6 +126,7 @@ internal sealed class BinaryConnectionPump
     {
         waitingForSlot = false;
         var buffer = result.Buffer;
+        var (page, pageOffset) = BinaryReadPage.Find(in buffer);
         var consumed = buffer.Start;
         var examined = consumed;
         QueuedCall[]? queued = null;
@@ -154,17 +155,17 @@ internal sealed class BinaryConnectionPump
                 if (frame.Size == Frames.ExtendedSize || buffer.Length < frame.Size)
                     return new PartialFrame(slot, frame);
 
-                var body = ArrayPool<byte>.Shared.Rent(frame.Size);
-                buffer.Slice(0, frame.Size).CopyTo(body);
+                var body = FrameBody.Read(in buffer, frame.Size, page, pageOffset + Frames.RequestBytes);
+                pageOffset += Frames.RequestBytes + frame.Size;
                 buffer = buffer.Slice(frame.Size);
                 consumed = examined = buffer.Start;
                 if (stop.IsCancellationRequested)
                 {
-                    ArrayPool<byte>.Shared.Return(body);
+                    body.DiscardUndispatched();
                     break;
                 }
 
-                Dispatch(slot, in frame, body, ref queued, ref queuedCount);
+                Dispatch(slot, in frame, in body, ref queued, ref queuedCount);
             }
 
             examined = buffer.End;
@@ -188,7 +189,7 @@ internal sealed class BinaryConnectionPump
         return reachedEof && _slots.Reader.TryPeek(out _) ? throw new EndOfStreamException() : reachedEof;
     }
 
-    private void Dispatch(int slot, in RequestFrame frame, byte[] body, ref QueuedCall[]? batch, ref int count)
+    private void Dispatch(int slot, in RequestFrame frame, in FrameBody body, ref QueuedCall[]? batch, ref int count)
     {
         var operation = Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(frame.Control));
         var predecessor = _previousOrdered;
@@ -206,6 +207,7 @@ internal sealed class BinaryConnectionPump
             _previousOrdered = completion.Task;
         }
 
+        body.Page?.Retain();
         batch ??= ArrayPool<QueuedCall>.Shared.Rent(DispatchBatchLimit);
         batch[count++] = new QueuedCall(slot, frame, body, _timeProvider.GetTimestamp(), predecessor, completion);
         if (count == DispatchBatchLimit)
@@ -214,7 +216,7 @@ internal sealed class BinaryConnectionPump
 
     private void DispatchInline(in QueuedCall call)
     {
-        var pending = ExecuteCallAsync(call);
+        var pending = ExecuteCallAsync(call, call.Body.Page != null);
         if (pending.IsCompletedSuccessfully)
         {
             _jobs[call.Slot] = Task.CompletedTask;
@@ -316,7 +318,7 @@ internal sealed class BinaryConnectionPump
 
         QueuedCall[]? batch = null;
         var count = 0;
-        Dispatch(partial.Slot, partial.Frame, body, ref batch, ref count);
+        Dispatch(partial.Slot, partial.Frame, new FrameBody(body), ref batch, ref count);
         QueueExecution(ref batch, ref count);
         return true;
     }
@@ -343,7 +345,7 @@ internal sealed class BinaryConnectionPump
             cancellationToken.ThrowIfCancellationRequested();
             QueuedCall[]? batch = null;
             var count = 0;
-            Dispatch(partial.Slot, partial.Frame with { Size = size, ValueBytes = valueBytes }, body, ref batch, ref count);
+            Dispatch(partial.Slot, partial.Frame with { Size = size, ValueBytes = valueBytes }, new FrameBody(body), ref batch, ref count);
             QueueExecution(ref batch, ref count);
             return true;
         }
@@ -400,7 +402,7 @@ internal sealed class BinaryConnectionPump
         }
     }
 
-    private async ValueTask<PendingResponse?> ExecuteCallAsync(QueuedCall call)
+    private async ValueTask<PendingResponse?> ExecuteCallAsync(QueuedCall call, bool borrowUntilReturn = false)
     {
         try
         {
@@ -408,7 +410,16 @@ internal sealed class BinaryConnectionPump
                 return null;
 
             var elapsed = _timeProvider.GetElapsedTime(call.Received);
-            var response = await _process(call.Frame, call.Body.AsMemory(0, call.Frame.Size), elapsed, call.Predecessor).ConfigureAwait(false);
+            var pending = _process(call.Frame, call.Body.Bytes.AsMemory(call.Body.Offset, call.Frame.Size), elapsed, call.Predecessor);
+
+            // The reader still owns this page until inline dispatch returns to ConsumeBuffered.
+            if (borrowUntilReturn && !pending.IsCompleted)
+            {
+                call.Body.Page!.Retain();
+                borrowUntilReturn = false;
+            }
+
+            var response = await pending.ConfigureAwait(false);
             return new PendingResponse(call.Slot, call.Frame.Id, response);
         }
         catch (OperationCanceledException) when (_connectionClosed.IsCancellationRequested)
@@ -427,8 +438,8 @@ internal sealed class BinaryConnectionPump
         {
             if (call.Frame.ValueBytes != null)
                 _largeRequests!.Release(call.Frame.Size);
-            else
-                ArrayPool<byte>.Shared.Return(call.Body);
+            else if (!borrowUntilReturn)
+                call.Body.Release();
             if (call.Completion is { } completion)
             {
                 // A rejected or expired request still links its successor to older mutations.
@@ -447,10 +458,42 @@ internal sealed class BinaryConnectionPump
     private readonly record struct QueuedCall(
         int Slot,
         RequestFrame Frame,
-        byte[] Body,
+        FrameBody Body,
         long Received,
         Task Predecessor,
         TaskCompletionSource? Completion);
+
+    private readonly record struct FrameBody(byte[] Bytes, int Offset = 0, BinaryReadPage? Page = null)
+    {
+        internal static FrameBody Read(in ReadOnlySequence<byte> input, int size, BinaryReadPage? contiguousPage, int bodyOffset)
+        {
+            if (contiguousPage != null)
+                return new FrameBody(contiguousPage.Bytes, bodyOffset, contiguousPage);
+
+            var first = input.First;
+            if (size <= first.Length && BinaryReadPage.Find(first) is ({ } page, var offset))
+                return new FrameBody(page.Bytes, offset, page);
+
+            var bytes = ArrayPool<byte>.Shared.Rent(size);
+            input.Slice(0, size).CopyTo(bytes);
+            return new FrameBody(bytes);
+        }
+
+        internal void DiscardUndispatched()
+        {
+            // A page has no call reference until dispatch; only a copied body needs returning here.
+            if (Page == null)
+                ArrayPool<byte>.Shared.Return(Bytes);
+        }
+
+        internal void Release()
+        {
+            if (Page == null)
+                ArrayPool<byte>.Shared.Return(Bytes);
+            else
+                Page.Release();
+        }
+    }
 
     private readonly record struct PendingResponse(int Slot, int Id, BinaryResponse Response);
 

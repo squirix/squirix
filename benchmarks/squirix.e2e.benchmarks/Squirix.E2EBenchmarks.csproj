@@ -13,6 +13,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
+        <ProjectReference Include="..\..\src\squirix.extensions.caching\Squirix.Extensions.Caching.csproj"/>
         <ProjectReference Include="..\..\tests\squirix.server\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
     </ItemGroup>
 

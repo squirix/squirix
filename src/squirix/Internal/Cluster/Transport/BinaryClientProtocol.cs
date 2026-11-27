@@ -77,14 +77,14 @@ internal static class BinaryClientProtocol
             control |= Frames.TracedRequest;
         }
 
-        var bodySize = request.CalculateSize(mutationOperationId);
+        var bodySize = request.CalculateSize(mutationOperationId, out var hasBorrowedBytes);
         var frameLimit = supportsExtendedFrames ? Frames.MaxExtendedBodyBytes : Frames.MaxRequestBytes;
         if (bodySize > frameLimit)
             throw RequestTooLarge();
 
         var valueSize = bodySize <= Frames.MaxRequestBytes ? 0 : CacheWritePayload.Length(original);
         return valueSize is { } size
-            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId, size)
+            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId, size, hasBorrowedBytes)
             : throw RequestTooLarge();
     }
 
@@ -154,14 +154,14 @@ internal static class BinaryClientProtocol
         await stream.ReadExactlyAsync(scratch.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
         var flags = scratch[0];
         var distributed = ReferenceEquals(parser, GetDistributedAsyncResponse.Parser);
-        if (distributed || GetValueAsyncResponse.HasBinaryPayload(flags))
+        if (distributed || GetValueAsyncResponse.HasRawPayload(flags))
         {
             var found = distributed && DecodeDistributedFlag(flags);
             var payload = GC.AllocateUninitializedArray<byte>(size - 1);
             await stream.ReadExactlyAsync(payload, cancellationToken).ConfigureAwait(false);
             WireMessage response = distributed
                 ? GetDistributedAsyncResponse.FromOwnedPayload(found, payload)
-                : GetValueAsyncResponse.FromOwnedBinary(flags, payload);
+                : GetValueAsyncResponse.FromOwnedRawPayload(flags, payload);
             return new BinaryClientReply(response, null);
         }
 

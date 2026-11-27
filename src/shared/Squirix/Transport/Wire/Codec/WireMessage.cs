@@ -7,10 +7,13 @@ internal abstract class WireMessage
 {
     internal abstract void Encode(ref WireWriter writer);
 
-    internal int CalculateSize(string? mutationOperationId = null)
+    internal int CalculateSize(string? mutationOperationId = null) => CalculateSize(mutationOperationId, out _);
+
+    internal int CalculateSize(string? mutationOperationId, out bool hasBorrowedBytes)
     {
         var writer = new WireWriter(mutationOperationId);
         Encode(ref writer);
+        hasBorrowedBytes = writer.HasBorrowedBytes;
         return writer.Written;
     }
 

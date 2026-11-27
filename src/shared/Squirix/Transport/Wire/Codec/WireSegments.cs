@@ -14,21 +14,28 @@ internal sealed class WireSegments : IBufferWriter<byte>, IDisposable
     private const int MetadataBytes = 16 * 1024;
 
     private readonly List<Segment> _segments = [];
+    private Memory<byte> _scratch;
     private byte[]? _current;
+    private Memory<byte> _frame;
     private int _used;
+
+    internal WireSegments(byte[]? scratch = null)
+    {
+        _scratch = scratch;
+    }
 
     public void Advance(int count) => _used += count;
 
     public Memory<byte> GetMemory(int sizeHint = 0)
     {
         var capacity = Math.Max(1, sizeHint);
-        if (_current == null || _current.Length - _used < capacity)
-        {
-            Seal();
-            _current = ArrayPool<byte>.Shared.Rent(Math.Max(MetadataBytes, capacity));
-        }
+        var block = _current ?? _scratch;
+        if (block.Length - _used >= capacity)
+            return block[_used..];
 
-        return _current.AsMemory(_used);
+        Seal();
+        _current = ArrayPool<byte>.Shared.Rent(Math.Max(MetadataBytes, capacity));
+        return _current;
     }
 
     public Span<byte> GetSpan(int sizeHint = 0) => GetMemory(sizeHint).Span;
@@ -46,8 +53,15 @@ internal sealed class WireSegments : IBufferWriter<byte>, IDisposable
 
         _current = null;
         _used = 0;
+        _scratch = default;
+        _frame = default;
         _segments.Clear();
     }
+
+    /// <summary>Reserves a complete ordinary frame for a single TLS write.</summary>
+    /// <param name="length">Length of the encoded frame, including its header.</param>
+    /// <returns>The writable frame, valid until disposal.</returns>
+    internal Memory<byte> ReserveFrame(int length) => _frame = GetMemory(length)[..length];
 
     internal void Write(ReadOnlyMemory<byte> value)
     {
@@ -57,6 +71,12 @@ internal sealed class WireSegments : IBufferWriter<byte>, IDisposable
 
     internal IEnumerable<ReadOnlyMemory<byte>> Chunks()
     {
+        if (!_frame.IsEmpty)
+        {
+            yield return _frame;
+            yield break;
+        }
+
         Seal();
         for (var i = 0; i < _segments.Count; i++)
         {
@@ -78,11 +98,17 @@ internal sealed class WireSegments : IBufferWriter<byte>, IDisposable
 
     private void Seal()
     {
-        if (_current == null)
-            return;
+        if (_current != null)
+        {
+            _segments.Add(new Segment(_current.AsMemory(0, _used), _current));
+            _current = null;
+        }
+        else if (_used != 0)
+        {
+            _segments.Add(new Segment(_scratch[.._used], null));
+            _scratch = _scratch[_used..];
+        }
 
-        _segments.Add(new Segment(_current.AsMemory(0, _used), _current));
-        _current = null;
         _used = 0;
     }
 

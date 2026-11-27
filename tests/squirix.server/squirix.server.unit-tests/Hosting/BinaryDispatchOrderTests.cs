@@ -1,6 +1,7 @@
 using System;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Endpoint;
@@ -75,6 +76,102 @@ public sealed class BinaryDispatchOrderTests
             await stop.CancelAsync();
             await processing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
         }
+    }
+
+    /// <summary>A suspended call retains its pipe bytes while the reader processes subsequent frames.</summary>
+    /// <param name="ordered">Whether the first call starts inline on the reader.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SuspendedCallKeepsInputPage(bool ordered, CancellationToken cancellationToken)
+    {
+        await using var connection = new ConnectionPrefaceTests.ProbeConnection(new PipeOptions(BinaryReadPage.Pool));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(10));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        byte[]? firstPage = null;
+        var valid = false;
+        var prefixValid = false;
+        var pump = new BinaryConnectionPump(
+            connection.Transport,
+            connection.Abort,
+            async (frame, body, _, _) =>
+            {
+                if (frame.Id == 0)
+                {
+                    await entered.Task.WaitAsync(stop.Token).ConfigureAwait(false);
+                    prefixValid = MemoryMarshal.TryGetArray(body, out var prefix) && ReferenceEquals(prefix.Array, firstPage) &&
+                                  body.Length == 1 && body.Span[0] == 42;
+                }
+                else if (frame.Id == 1)
+                {
+                    entered.SetResult();
+                    await release.Task.WaitAsync(stop.Token).ConfigureAwait(false);
+                    valid = MemoryMarshal.TryGetArray(body, out var segment) && ReferenceEquals(segment.Array, firstPage) &&
+                            body.Span.IndexOfAnyExcept<byte>(1) < 0;
+                }
+
+                return new BinaryResponse(FrameStatus.Ok);
+            },
+            NullLogger.Instance,
+            TimeProvider.System,
+            connection.ConnectionClosed);
+
+        var processing = pump.RunAsync(stop.Token);
+        try
+        {
+            var writer = connection.Incoming.Writer;
+            firstPage = WritePage(writer, 1, ordered ? BinaryOperation.SetDistributed : BinaryOperation.GetValue);
+            _ = await writer.FlushAsync(stop.Token);
+            await ReadReplyAsync(connection.Outgoing.Reader, 0, stop.Token);
+            _ = await Assert.That(prefixValid).IsTrue();
+            for (var id = 2; id <= 4; id++)
+            {
+                var nextPage = WritePage(writer, id, BinaryOperation.GetValue);
+                _ = await Assert.That(ReferenceEquals(firstPage, nextPage)).IsFalse();
+                _ = await writer.FlushAsync(stop.Token);
+                await ReadReplyAsync(connection.Outgoing.Reader, id, stop.Token);
+            }
+
+            release.SetResult();
+            await ReadReplyAsync(connection.Outgoing.Reader, 1, stop.Token);
+            _ = await Assert.That(valid).IsTrue();
+        }
+        finally
+        {
+            _ = release.TrySetResult();
+            await stop.CancelAsync();
+            await processing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
+        }
+    }
+
+    private static byte[] WritePage(PipeWriter writer, int id, BinaryOperation operation)
+    {
+        var memory = writer.GetMemory(4096);
+        var bytes = memory.Span;
+        if (id == 1)
+        {
+            Frames.WriteRequest(bytes, 0, 1, (Unsafe.BitCast<BinaryOperation, int>(BinaryOperation.GetValue) << 16) | 5000);
+            bytes[Frames.RequestBytes] = 42;
+            bytes = bytes[(Frames.RequestBytes + 1)..];
+        }
+
+        Frames.WriteRequest(bytes, id, bytes.Length - Frames.RequestBytes, (Unsafe.BitCast<BinaryOperation, int>(operation) << 16) | 5000);
+        bytes[Frames.RequestBytes..].Fill(byte.CreateChecked(id));
+        var array = MemoryMarshal.TryGetArray<byte>(memory, out var segment) ? segment.Array! : throw new InvalidOperationException();
+        writer.Advance(memory.Length);
+        return array;
+    }
+
+    private static async Task ReadReplyAsync(PipeReader reader, int expectedId, CancellationToken cancellationToken)
+    {
+        var read = await reader.ReadAtLeastAsync(Frames.ReplyBytes, cancellationToken);
+        var (id, _, status) = Frames.ReadReply(read.Buffer.FirstSpan);
+        reader.AdvanceTo(read.Buffer.GetPosition(Frames.ReplyBytes));
+        _ = await Assert.That(id).IsEqualTo(expectedId);
+        _ = await Assert.That(status).IsEqualTo(0);
     }
 
     private static async Task SendRequestsAsync(PipeWriter input, bool fragmented, CancellationToken cancellationToken)
