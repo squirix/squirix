@@ -69,7 +69,7 @@ public class JournalAppendBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalGroupCommitMaxWait = GroupCommitMaxWait,
+            JournalGroupCommitMaxWait = GroupCommitMaxWait == TimeSpan.Zero ? null : GroupCommitMaxWait,
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,
         };

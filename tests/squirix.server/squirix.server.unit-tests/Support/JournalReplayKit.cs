@@ -48,7 +48,7 @@ internal sealed class JournalReplayKit
             DataDir = dir,
             JournalMaxSegmentMb = journalMaxSegmentMb,
             JournalMaxTotalBytesMb = journalMaxTotalBytesMb,
-            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : TimeSpan.Zero,
+            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : null,
         };
     }
 

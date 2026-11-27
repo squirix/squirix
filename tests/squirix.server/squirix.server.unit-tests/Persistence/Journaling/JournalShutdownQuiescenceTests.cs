@@ -66,7 +66,6 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -175,7 +174,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         {
             DataDir = dataDir,
             JournalMaxSegmentMb = 4,
-            JournalGroupCommitMaxWait = groupCommitMaxWait,
+            JournalGroupCommitMaxWait = groupCommitMaxWait == TimeSpan.Zero ? null : groupCommitMaxWait,
             JournalGroupCommitMaxBatch = 8,
         };
 

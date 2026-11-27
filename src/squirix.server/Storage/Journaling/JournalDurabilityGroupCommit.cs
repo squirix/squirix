@@ -173,7 +173,7 @@ internal sealed class JournalDurabilityGroupCommit
                 return Timeout.Infinite;
 
             // Clamped to the batch window as a defensive bound: the wait never outlasts one MaxWait whatever the clock reports.
-            var maxWait = _opt.JournalGroupCommitMaxWait;
+            var maxWait = _opt.JournalGroupCommitMaxWait.GetValueOrDefault();
             var remaining = maxWait - _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp);
             var wait = remaining < maxWait ? remaining : maxWait;
 
@@ -268,7 +268,7 @@ internal sealed class JournalDurabilityGroupCommit
                 return false;
             }
 
-            var due = _acks.Count >= _opt.JournalGroupCommitMaxBatch || _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp) >= _opt.JournalGroupCommitMaxWait;
+            var due = _acks.Count >= _opt.JournalGroupCommitMaxBatch || _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp) >= _opt.JournalGroupCommitMaxWait.GetValueOrDefault();
             if (!due)
             {
                 batch = _acks;

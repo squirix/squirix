@@ -28,7 +28,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     {
         var options = new SquirixServerOptions();
 
-        _ = await Assert.That(options.Journal.GroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
+        _ = await Assert.That(options.Journal.GroupCommitMaxWait).IsEqualTo(TimeSpan.FromMilliseconds(2));
         _ = await Assert.That(options.Journal.GroupCommitMaxBatch).IsEqualTo(32);
         _ = await Assert.That(options.Journal.ToPersistenceOptions().JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.FromMilliseconds(2));
         _ = await Assert.That(options.TryValidate(out _)).IsTrue();
@@ -166,14 +166,14 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
         _ = await Assert.That(errors[0]).IsEqualTo("Journal cannot be null.");
     }
 
-    /// <summary>Setting an explicit wait without persistence is rejected and says to enable persistence.</summary>
+    /// <summary>A journal setting alone leaves the node in memory.</summary>
     [Test]
-    public async Task WaitWithoutPersistenceFailsValidation()
+    public async Task JournalWaitDoesNotEnablePersistence()
     {
-        var options = new SquirixServerOptions { Journal = new SquirixServerJournalOptions { GroupCommitMaxWait = TimeSpan.FromMilliseconds(2) } };
+        var options = new SquirixServerOptions { Journal = new SquirixServerJournalOptions { GroupCommitMaxWait = TimeSpan.FromMilliseconds(7) } };
 
-        _ = await Assert.That(options.TryValidate(out var errors)).IsFalse();
-        _ = await Assert.That(errors[0]).Contains("PersistenceEnabled", StringComparison.Ordinal);
+        _ = await Assert.That(options.TryValidate(out _)).IsTrue();
+        _ = await Assert.That(options.PersistenceEnabled).IsFalse();
     }
 
     /// <summary>Validate throws for an invalid setting.</summary>
@@ -204,7 +204,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     {
         var options = await LoadAsync("{}", cancellationToken);
 
-        _ = await Assert.That(options.Journal.GroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
+        _ = await Assert.That(options.Journal.GroupCommitMaxWait).IsEqualTo(TimeSpan.FromMilliseconds(2));
         _ = await Assert.That(options.Journal.GroupCommitMaxBatch).IsEqualTo(32);
     }
 
@@ -231,14 +231,17 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
         _ = await Assert.That(error).Contains("00:00:00.005", StringComparison.Ordinal);
     }
 
-    /// <summary>A legacy zero wait selects the default group commit window.</summary>
+    /// <summary>An explicit zero selects immediate grouping.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task SettingsFileZeroWaitUsesGroupedJournal(CancellationToken cancellationToken)
     {
         var options = await LoadAsync("""{"GroupCommitMaxWait":"0"}""", cancellationToken);
+        var persistence = options.Journal.ToPersistenceOptions();
 
-        _ = await Assert.That(options.Journal.ToPersistenceOptions().JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.FromMilliseconds(2));
+        _ = await Assert.That(options.Journal.GroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
+        _ = await Assert.That(persistence.JournalGroupCommitMaxWait).IsEqualTo(TimeSpan.Zero);
+        _ = await Assert.That(persistence.IsJournalGroupCommitEnabled).IsTrue();
     }
 
     /// <summary>Settings validation (validate-config) reports a Journal error.</summary>

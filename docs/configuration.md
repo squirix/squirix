@@ -494,8 +494,7 @@ Journal group commit is configured through `SquirixServerOptions.Journal` (`Squi
 `Squirix:Cluster:Journal` settings object; every key is optional and keeps the default listed below. Group commit lets
 concurrent RF=1 durable mutations share a node journal flush. A durability wait can add up to `GroupCommitMaxWait`
 before the flush starts; the flush itself takes additional time.
-Persistent nodes always use group commit for the local journal. Omitting the wait or specifying zero selects a 2 ms window.
-Existing positive waits retain their configured value. Changes apply on the next host start.
+Persistent nodes always use group commit for the local journal. Omitting the wait selects a 2 ms window. With an explicit zero, the journal flushes already waiting writes together as soon as it can. Changes apply on the next host start.
 
 ```json
 {
@@ -513,7 +512,7 @@ Existing positive waits retain their configured value. Changes apply on the next
 
 | Field                 | Type     | Default    | Validation                                                                                         |
 | --------------------- | -------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| `GroupCommitMaxWait`  | TimeSpan | `00:00:00` | `0` (use the 2 ms server default) or `1..100` whole milliseconds; a positive value needs `PersistenceEnabled` |
+| `GroupCommitMaxWait`  | TimeSpan | `00:00:00.002` | `0..100` whole milliseconds. Zero adds no batching delay. |
 | `GroupCommitMaxBatch` | int      | `32`       | `1..4096`; reaching the batch threshold triggers a flush                                |
 
 `TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form; a number is rejected and the error names the field.
@@ -784,7 +783,6 @@ hosting ignores:
 - `Backpressure MaxQueueWait cannot exceed 00:01:00.`
 - `Journal GroupCommitMaxBatch must be between 1 and 4096.`
 - `Journal GroupCommitMaxWait must be zero or between 1 and 100 whole milliseconds (for example "00:00:00.005").`
-- `Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled.`
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `AutomaticFailoverEnabled requires ReplicaCount of at least 3: groups of one or two replicas never elect a leader.`

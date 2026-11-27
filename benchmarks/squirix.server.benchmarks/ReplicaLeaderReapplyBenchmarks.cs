@@ -78,7 +78,7 @@ public class ReplicaLeaderReapplyBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(GroupCommitMaxWaitMs),
+            JournalGroupCommitMaxWait = GroupCommitMaxWaitMs == 0 ? null : TimeSpan.FromMilliseconds(GroupCommitMaxWaitMs),
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,
         };
