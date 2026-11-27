@@ -60,7 +60,7 @@ jobs:
                         Push-Location $dir
                         $file = 'tests/squirix.e2e.tests/Cache/MultiNode/Failover/NoQuorumFailoverTests.cs'
                         $old = ': exception.GetType().Name;'
-                        $new = ': exception is SquirixTransportException transport ? $"{transport.StatusCode}: {transport.Message}" : exception.GetType().Name;'
+                        $new = ': $"{exception.GetType().Name} {(exception as SquirixTransportException)?.StatusCode}: {exception.Message}";'
                         $body = [IO.File]::ReadAllText((Resolve-Path $file))
                         if (!$body.Contains($old)) { throw "Unexpected diagnostics helper" }
                         [IO.File]::WriteAllText((Resolve-Path $file), $body.Replace($old,$new))
