@@ -406,32 +406,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         private async Task SendLargeAsync(PendingCall item, DateTime now)
         {
-            var length = item.Request.HeaderBytes + item.Request.Size;
-            if (item.Request.Size > Frames.MaxRequestBytes)
-            {
-                await SendExtendedAsync(item, now).ConfigureAwait(false);
-                return;
-            }
-
-            var buffer = ArrayPool<byte>.Shared.Rent(length);
-            try
-            {
-                WriteRequest(buffer, item, now);
-                await _tls.WriteAsync(buffer.AsMemory(0, length), _stopToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
-        }
-
-        private async Task SendExtendedAsync(PendingCall item, DateTime now)
-        {
             using var message = new WireSegments();
-            var header = message.GetMemory(item.Request.HeaderBytes);
-            item.Request.WriteHeader(header.Span, item.Id, RemainingMilliseconds(item, now));
-            message.Advance(item.Request.HeaderBytes);
-            item.Request.Message.WriteTo(message, item.Request.MutationOperationId);
+            _ = item.Request.WriteTo(message, item.Id, RemainingMilliseconds(item, now));
             await message.SendAsync(_tls, _stopToken).ConfigureAwait(false);
         }
 

@@ -357,31 +357,11 @@ internal sealed class SynchronousBinaryConnection : IDisposable
             return;
         }
 
-        if (request.Frame.Size > Frames.MaxRequestBytes)
-        {
-            using var message = new WireSegments();
-            var header = message.GetSpan(request.Frame.HeaderBytes);
-            request.Frame.WriteHeader(header, request.Id);
-            WriteTimeout(header, request.Deadline, TimeProvider.System.GetUtcNow());
-            message.Advance(request.Frame.HeaderBytes);
-            request.Frame.Message.WriteTo(message, request.Frame.MutationOperationId);
-            foreach (var chunk in message.Chunks())
-                _tls.Write(chunk.Span);
-
-            return;
-        }
-
-        var large = ArrayPool<byte>.Shared.Rent(length);
-        try
-        {
-            request.Frame.WriteTo(large, request.Id);
-            WriteTimeout(large, request.Deadline, TimeProvider.System.GetUtcNow());
-            _tls.Write(large.AsSpan(0, length));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(large);
-        }
+        using var message = new WireSegments();
+        var header = request.Frame.WriteTo(message, request.Id);
+        WriteTimeout(header.Span, request.Deadline, TimeProvider.System.GetUtcNow());
+        foreach (var chunk in message.Chunks())
+            _tls.Write(chunk.Span);
     }
 
     private void FlushBatch(Span<byte> bytes, ReadOnlySpan<BufferedFrame> frames)

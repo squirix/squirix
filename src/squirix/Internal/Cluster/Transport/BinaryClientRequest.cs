@@ -22,7 +22,16 @@ internal readonly record struct BinaryClientRequest(int Control, WireMessage Mes
         Message.WriteTo(frame.Slice(HeaderBytes, Size), MutationOperationId);
     }
 
-    internal void WriteHeader(Span<byte> frame, int id, int timeout = 0)
+    internal Memory<byte> WriteTo(WireSegments segments, int id, int timeout = 0)
+    {
+        var header = segments.GetMemory(HeaderBytes)[..HeaderBytes];
+        WriteHeader(header.Span, id, timeout);
+        segments.Advance(header.Length);
+        Message.WriteTo(segments, MutationOperationId);
+        return header;
+    }
+
+    private void WriteHeader(Span<byte> frame, int id, int timeout)
     {
         if (Size > Frames.MaxRequestBytes)
         {
