@@ -273,8 +273,8 @@ public sealed class WriteAheadMutationCodecTests
     /// <param name="opcodeWire">The raw opcode byte.</param>
     [Test]
     [Arguments(0)]
-    [Arguments(7)]
-    [Arguments(8)]
+    [Arguments(9)]
+    [Arguments(10)]
     [Arguments(255)]
     public void DecodeRejectsUnassignedOpcode(int opcodeWire)
     {

@@ -47,16 +47,28 @@ public sealed class BinaryJournalCodecRoundTripTests
         _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
     }
 
-    /// <summary>Decode rejects put frames whose payload length exceeds the buffer.</summary>
+    /// <summary>Decode rejects a truncated put payload or eviction key.</summary>
+    /// <param name="eviction">Whether to damage the eviction field instead of the frame payload length.</param>
     [Test]
-    public async Task DecodeRejectsTruncatedPutPayload()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task DecodeRejectsTruncatedPutPayload(bool eviction)
     {
-        var record = CreateRecord(JournalOperationKind.Put);
+        var record = eviction ? CreateGuardRecord(7) : CreateRecord(JournalOperationKind.Put);
         var prepared = BinaryJournalCodec.PrepareEncode(record);
         var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
-        BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(21), bodyBytes.Length);
+        if (eviction)
+        {
+            var offset = BinaryJournalCodec.FixedPrefixSize + prepared.KeyNamespaceLength + prepared.KeyLength;
+            BinaryPrimitives.WriteUInt16LittleEndian(bodyBytes.AsSpan(offset), ushort.MaxValue);
+        }
+        else
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(21), bodyBytes.Length);
+        }
+
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bodyBytes, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
-        _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains(eviction ? "eviction key is truncated" : "truncated", StringComparison.Ordinal);
     }
 
     /// <summary>Decode rejects an idempotency outcome whose response length is negative rather than letting it escape as a non-data exception.</summary>
@@ -153,6 +165,8 @@ public sealed class BinaryJournalCodecRoundTripTests
     [Arguments(4, "07000000000000007B00000000000000050200050010000000C3A96BF09F988005006F702DC3A9070066702DF09F9880")]
     [Arguments(5, "07000000000000007B00000000000000030200050015000000C3A96BF09F9880050069642DC3A9070066702DF09F98800100000001")]
     [Arguments(6, "07000000000000007B00000000000000060200050009000000C3A96BF09F9880050069642DC3A90000")]
+    [Arguments(7, "07000000000000007B00000000000000070200050009000000C3A96BF09F98800400762DC3A9010203")]
+    [Arguments(8, "07000000000000007B00000000000000080200050019000000C3A96BF09F988005006F702DC3A9070066702DF09F98800400762DC3A9010203")]
     public async Task EncodeKeepsFrameBytes(int caseIndex, string expectedHex)
     {
         var record = CreateGuardRecord(caseIndex);
@@ -162,6 +176,7 @@ public sealed class BinaryJournalCodecRoundTripTests
 
         var decoded = BinaryJournalCodec.Decode(bodyBytes, bodyBytes.Length);
         _ = await Assert.That(decoded.Operation).IsEqualTo(record.Operation);
+        _ = await Assert.That(decoded.EvictedKey).IsEqualTo(record.EvictedKey);
         _ = await Assert.That(decoded.Key).IsEqualTo(record.Key);
         _ = await Assert.That(decoded.MutationOperationId).IsEqualTo(record.MutationOperationId);
         _ = await Assert.That(decoded.MutationFingerprint).IsEqualTo(record.MutationFingerprint);
@@ -267,6 +282,18 @@ public sealed class BinaryJournalCodecRoundTripTests
                 IdempotencyResponseBytes = IdempotencyResponseFixture,
             },
             6 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.IdempotencyStarted, Key = key, IdempotencyOperationId = "id-é" },
+            7 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.Put, Key = key, PutEntryBytes = entry, EvictedKey = "v-é" },
+            8 => new JournalRecord
+            {
+                Sequence = 7,
+                UnixMs = 123,
+                Operation = JournalOperationKind.Put,
+                Key = key,
+                PutEntryBytes = entry,
+                EvictedKey = "v-é",
+                MutationOperationId = operationId,
+                MutationFingerprint = fingerprint,
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(caseIndex), caseIndex, "Unknown guard case."),
         };
     }

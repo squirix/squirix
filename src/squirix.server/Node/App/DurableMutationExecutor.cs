@@ -21,13 +21,15 @@ internal sealed class DurableMutationExecutor
     private readonly IJournalCoordinator _journal;
     private readonly KeyedAsyncLock<CacheKey> _keyLocks = new();
     private readonly IServerLogger<DurableMutationExecutor> _logger;
+    private readonly bool _serializeNamespace;
 
-    internal DurableMutationExecutor(IJournalCoordinator journal, IServerLogger<DurableMutationExecutor> logger)
+    internal DurableMutationExecutor(IJournalCoordinator journal, IServerLogger<DurableMutationExecutor> logger, bool serializeNamespace = false)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(logger);
         _journal = journal;
         _logger = logger;
+        _serializeNamespace = serializeNamespace;
     }
 
     /// <summary>Gets the number of keys currently held or awaited by keyed mutations.</summary>
@@ -43,10 +45,10 @@ internal sealed class DurableMutationExecutor
         ArgumentNullException.ThrowIfNull(pipeline.AppendJournal);
         ArgumentNullException.ThrowIfNull(pipeline.ApplyMemory);
 
-        // Every mutation holds its key lock and an in-flight apply slot from prepare to apply, with group commit on or off. The pre-apply
-        // durability wait never runs under the global mutation gate, so distinct keys share a flush and no other mutation can be applied between
-        // this one's journal frame and its memory apply. The path waits for the journal startup itself, so this entry point needs no state machine.
-        return ExecuteKeyedAsync(conflictKey, precondition, pipeline, cancellationToken);
+        // A bounded durable put can write two keys. Keep its capacity decision stable until apply by serializing writes in its namespace.
+        // The pre-apply durability wait still runs outside the global mutation gate and unrelated namespaces can share a flush.
+        var lockKey = _serializeNamespace ? conflictKey with { Key = string.Empty } : conflictKey;
+        return ExecuteKeyedAsync(lockKey, precondition, pipeline, cancellationToken);
     }
 
     /// <summary>

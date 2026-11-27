@@ -21,4 +21,10 @@ internal enum JournalOpcode
 
     /// <summary>Write-ahead idempotency intent (operation id + fingerprint, no response bytes).</summary>
     IdempotencyStarted = 6,
+
+    /// <summary>Put with a length-prefixed victim key in the same namespace.</summary>
+    PutWithEviction = 7,
+
+    /// <summary>Put with an operation id followed by a length-prefixed victim key.</summary>
+    PutWithEvictionAndMutationOperationId = 8,
 }

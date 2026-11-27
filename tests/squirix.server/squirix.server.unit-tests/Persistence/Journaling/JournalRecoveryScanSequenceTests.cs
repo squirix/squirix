@@ -20,7 +20,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalRecoveryScanSequenceTests : IsolatedStorageTestBase
 {
-    private const byte UnassignedOpcode = 8;
+    private const byte UnassignedOpcode = 9;
 
     /// <summary>A directory without segments yields the manifest baseline.</summary>
     /// <returns>A task that completes when the assertion finishes.</returns>

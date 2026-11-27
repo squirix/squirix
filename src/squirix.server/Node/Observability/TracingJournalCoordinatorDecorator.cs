@@ -60,6 +60,15 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
                 static (inner, args) => inner.AppendPutAsync(args.ownership, args.key, args.entryBytes, args.cancellationToken))
             : _inner.AppendPutAsync(ownership, key, entryBytes, cancellationToken);
 
+    public ValueTask AppendPutWithEvictionAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, string evictedKey, CancellationToken cancellationToken) =>
+        _tracer.IsEnabled
+            ? TracedAsync(
+                JournalOperationKind.Put,
+                JournalCoordinatorTracing.ForKey(_inner, key, entryBytes.Length),
+                (ownership, key, entryBytes, evictedKey, cancellationToken),
+                static (inner, args) => inner.AppendPutWithEvictionAsync(args.ownership, args.key, args.entryBytes, args.evictedKey, args.cancellationToken))
+            : _inner.AppendPutWithEvictionAsync(ownership, key, entryBytes, evictedKey, cancellationToken);
+
     public ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken) =>
         _tracer.IsEnabled
             ? TracedAsync(

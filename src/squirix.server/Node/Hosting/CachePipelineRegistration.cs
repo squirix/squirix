@@ -162,13 +162,17 @@ internal static class CachePipelineRegistration
     {
         if (persistenceEnabled)
         {
-            _ = services.Own(static sp => new DurableMutationExecutor(sp.Require<IJournalCoordinator>(), sp.Require<IServerLoggerFactory>().CreateLogger<DurableMutationExecutor>()));
+            _ = services.Own(static sp => new DurableMutationExecutor(
+                sp.Require<IJournalCoordinator>(),
+                sp.Require<IServerLoggerFactory>().CreateLogger<DurableMutationExecutor>(),
+                UsesJournaledCapacity(sp)));
             _ = services.Own(static sp => new JournalLoggingCacheDecorator<StoredValue>(
                 sp.Require<ClientCache<StoredValue>>(),
                 sp.Require<IJournalCoordinator>(),
                 sp.Require<DurableMutationExecutor>(),
                 sp.Require<TimeProvider>(),
-                sp.Require<ILocalCacheRawReader<StoredValue>>()));
+                sp.Require<ILocalCacheRawReader<StoredValue>>(),
+                UsesJournaledCapacity(sp) ? sp.Require<PhysicalCache<StoredValue>>() : null));
             _ = services.Own(static sp => new JournalPayloadPrepareCacheDecorator<StoredValue>(sp.Require<JournalLoggingCacheDecorator<StoredValue>>()));
             _ = services.Own(static sp => new OwnerLocalCache(sp.Require<JournalPayloadPrepareCacheDecorator<StoredValue>>()));
             return;
@@ -176,6 +180,9 @@ internal static class CachePipelineRegistration
 
         _ = services.Own(static sp => new OwnerLocalCache(sp.Require<ClientCache<StoredValue>>()));
     }
+
+    private static bool UsesJournaledCapacity(IServiceProvider services) =>
+        !services.Require<FeatureState>().NetworkReplicationEnabled && services.Require<PhysicalCache<StoredValue>>().HasCapacity;
 
     /// <summary>Returns how memory admission asks whether the replica group of a key recorded an operation's outcome; none on single-copy hosts.</summary>
     /// <param name="sp">The service provider.</param>

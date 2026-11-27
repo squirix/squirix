@@ -22,7 +22,7 @@ u32 crc32c           // CRC32C over body
 ```text
 u64 sequence
 i64 unixMs
-u8  opcode           // Put=1, Remove=2, IdempotencyOutcome=3, PutWithMutationOperationId=4, RemoveWithMutationOperationId=5, IdempotencyStarted=6
+u8  opcode           // see payload table
 u16 namespaceLen
 u16 keyLen
 u32 payloadLen       // per opcode, see below
@@ -33,18 +33,25 @@ u32 payloadLen       // per opcode, see below
 
 ## Payload by opcode
 
-| Opcode | Name                          | Payload                                                 |
-|--------|-------------------------------|---------------------------------------------------------|
-| 1      | Put                           | cache-entry blob (`CacheEntryCodec`)                    |
-| 2      | Remove                        | empty (`payloadLen = 0`)                                |
-| 3      | IdempotencyOutcome            | structured idempotency outcome                          |
-| 4      | PutWithMutationOperationId    | mutation prefix, then the cache-entry blob              |
-| 5      | RemoveWithMutationOperationId | mutation prefix only                                    |
-| 6      | IdempotencyStarted            | structured write-ahead idempotency intent               |
+| Opcode   | Name                                  | Payload                                                   |
+| -------- | ------------------------------------- | --------------------------------------------------------- |
+| 1        | Put                                   | cache-entry blob (`CacheEntryCodec`)                      |
+| 2        | Remove                                | empty (`payloadLen = 0`)                                  |
+| 3        | IdempotencyOutcome                    | structured idempotency outcome                            |
+| 4        | PutWithMutationOperationId            | mutation prefix, then the cache-entry blob                |
+| 5        | RemoveWithMutationOperationId         | mutation prefix only                                      |
+| 6        | IdempotencyStarted                    | structured write-ahead idempotency intent                 |
+| 7        | PutWithEviction                       | eviction key, then the cache-entry blob                   |
+| 8        | PutWithEvictionAndMutationOperationId | mutation prefix, eviction key, then the cache-entry blob  |
 
-New records use opcodes 1 and 2. Recovery reads older opcodes 3 through 6. The mutation prefix of opcodes 4
-and 5 is `u16 operationIdLen`, the UTF-8 operation ID, `u16 fingerprintLen`, and the UTF-8 fingerprint. Recovery
-applies the cache mutation from those frames and skips the historical outcome and intent records.
+Ordinary writes use opcodes 1 and 2. Key-count eviction on a persistent single-copy cache uses opcode 7 when a put
+selects a victim. The eviction key is a `u16` byte length followed by the UTF-8 key in the put's namespace. The put and
+its eviction share the same checksum and durability decision. A frame with its own key as the victim records an
+insertion declined by the eviction policy.
+
+Recovery reads older opcodes 3 through 6. The mutation prefix of opcodes 4, 5, and 8 is `u16 operationIdLen`, the UTF-8
+operation ID, `u16 fingerprintLen`, and the UTF-8 fingerprint. Recovery applies the cache mutation from those frames
+and skips the historical outcome and intent records.
 
 ## Cache-entry frames
 
@@ -56,9 +63,9 @@ Replay applies frames in order. A `Remove` deletes the key regardless of its exp
 expiration (replication factor 1), an expired `Put` also removes the key, superseding any earlier value. With
 replicated expiration, recovery preserves the entry even after its deadline. The leader removes it through a
 replicated mutation. Recovering from a snapshot and replaying the remaining frames follows the same rules as
-replaying the journal.
+replaying the journal. A put with eviction removes the recorded victim even if the incoming entry has already expired.
 
 ## File format version
 
-The file header version is `4`. A segment with any other non-zero version under the journal magic is rejected on read and recovery
+The file header version is `5`. A segment with any other non-zero version under the journal magic is rejected on read and recovery
 with an error, and is never truncated or repaired. An opcode value outside the table above fails decoding.
