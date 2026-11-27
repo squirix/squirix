@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Composition;
 using Squirix.Server.Logging;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -49,10 +50,13 @@ internal sealed class NativeBinaryEndpoint
 
     internal sealed class StreamPipe : IDuplexPipe
     {
+        private static readonly StreamPipeReaderOptions ReaderOptions = new(leaveOpen: true);
+        private static readonly StreamPipeWriterOptions WriterOptions = new(minimumBufferSize: Frames.MaxBatchBytes, leaveOpen: true);
+
         internal StreamPipe(Stream stream)
         {
-            Input = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
-            Output = PipeWriter.Create(stream, new StreamPipeWriterOptions(leaveOpen: true));
+            Input = PipeReader.Create(stream, ReaderOptions);
+            Output = PipeWriter.Create(stream, WriterOptions);
         }
 
         public PipeReader Input { get; }
