@@ -584,8 +584,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             if (appendAck != null)
             {
                 // The frame is on the ring in sequence order. Its key lease and in-flight slot remain held through apply.
-                releaseAfterEnqueue?.Invoke();
                 await AwaitWriteAckAfterEnqueueAsync(appendAck).ConfigureAwait(false);
+                releaseAfterEnqueue?.Invoke();
             }
         }
 
