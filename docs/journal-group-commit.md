@@ -1,14 +1,14 @@
 # Journal group commit
 
-Durable mutations append a journal record and wait for a durability flush before the caller gets its response. Without
-group commit, each mutation pays for its own durability flush (typically one fsync round-trip per commit).
+Persistent nodes use group commit for local journal writes. A durable mutation waits for the flush that covers its
+journal record before applying the change and acknowledging the caller.
 
 ## Defaults
 
 | Setting | Default | Valid values and effect |
 | --- | --- | --- |
-| `Journal.GroupCommitMaxWait` | `00:00:00` | Zero disables group commit. A wait of 1 to 100 whole milliseconds enables it and sets the batch deadline. |
-| `Journal.GroupCommitMaxBatch` | `32` | 1 to 4096. When group commit is enabled, this many waiting writes trigger an early flush. |
+| `Journal.GroupCommitMaxWait` | `00:00:00` | Zero selects the 2 ms server default, including in older configurations. Set 1 to 100 whole milliseconds to override the wait. |
+| `Journal.GroupCommitMaxBatch` | `32` | 1 to 4096. This many waiting writes trigger an early flush. |
 
 The journal flushes when either threshold is reached. An early flush covers all writes already waiting and can cover
 more than `GroupCommitMaxBatch`.
@@ -36,14 +36,9 @@ Group commit never lets a caller or a reader see a value before its journal byte
 - **Shutdown and flush failure.** A graceful stop flushes pending records and lets their writes apply. If the final
   flush fails or shutdown interrupts it, the caller can receive an unknown commit outcome.
 
-## When to enable group commit
-
-Consider enabling it when many durable writers on distinct keys can share an expensive fsync and throughput matters
-more than tail latency. Keep the default for isolated writers and measure on the storage and OS used in production.
-
 ## Tuning guide (operator / integrator)
 
-Start with a 2 ms wait and the default batch threshold. Longer waits can improve throughput at the cost of tail
+Start with a 2 ms wait and the default batch threshold. An isolated write can incur the full window before its flush. Longer waits can improve throughput at the cost of tail
 latency. Raising the batch threshold can reduce flush frequency under load, but can also make writers wait longer.
 
 Effects to account for:
@@ -63,7 +58,7 @@ Effects to account for:
 
 Suggested sweep:
 
-1. Fix `MaxBatch = 32`, vary `MaxWait` (for example `0`, `1`, `2`, `5`, `10 ms`) and measure throughput and p99 commit
+1. Fix `MaxBatch = 32`, vary `MaxWait` (for example `1`, `2`, `5`, `10 ms`) and measure throughput and p99 commit
    latency.
 2. At the best `MaxWait`, vary `MaxBatch` (for example `16`, `32`, `64`, `128`) until throughput stops improving or p99
    exceeds your budget.
