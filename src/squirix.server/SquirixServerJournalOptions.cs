@@ -4,7 +4,7 @@ using Squirix.Server.Storage;
 
 namespace Squirix.Server;
 
-/// <summary>Configures the node journal. Defaults leave journal group commit off: every durable mutation flushes the journal on its own.</summary>
+/// <summary>Configures the node journal. Persistent nodes use group commit for local journal durability.</summary>
 /// <remarks>
 /// Group commit lets concurrent durable mutations share one journal flush at the cost of up to <see cref="GroupCommitMaxWait" />
 /// of extra commit latency. It requires persistence (see <see cref="SquirixServerOptions.UsePersistence" />).
@@ -14,19 +14,16 @@ public sealed class SquirixServerJournalOptions
 {
     /// <summary>
     /// Gets or sets the number of waiting durable mutations at which the journal flushes without waiting for <see cref="GroupCommitMaxWait" />;
-    /// one flush may cover more. Default is <c language="csharp">32</c>; must be between 1 and 4096. Used only when <see cref="GroupCommitMaxWait" /> is greater than zero.
+    /// one flush may cover more. Default is <c language="csharp">32</c>; must be between 1 and 4096.
     /// </summary>
     public int GroupCommitMaxBatch { get; set; } = 32;
 
     /// <summary>
     /// Gets or sets the maximum time a durable mutation waits for others before the journal issues one shared flush (group commit).
-    /// Default is <see cref="TimeSpan.Zero" />: group commit is off and every durable mutation flushes on its own.
+    /// Defaults to 2 milliseconds. Zero makes the group eligible to flush immediately.
     /// </summary>
-    /// <remarks>
-    /// Must be zero or between 1 and 100 whole milliseconds ("00:00:00.002" in settings). A value greater than zero requires
-    /// <see cref="SquirixServerOptions.PersistenceEnabled" />.
-    /// </remarks>
-    public TimeSpan GroupCommitMaxWait { get; set; } = TimeSpan.Zero;
+    /// <remarks>Accepts 0 to 100 whole milliseconds. With zero wait, writers already waiting can still share a flush.</remarks>
+    public TimeSpan GroupCommitMaxWait { get; set; } = TimeSpan.FromMilliseconds(2);
 
     internal PersistenceOptions ToPersistenceOptions() => new()
     {

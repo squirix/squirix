@@ -1,25 +1,28 @@
 # Journal group commit
 
-Durable mutations append a journal record and wait for a durability flush before the caller gets its response. Without
-group commit, each mutation pays for its own durability flush (typically one fsync round-trip per commit).
+Persistent nodes use group commit for local journal writes. On a node that uses the local journal for durability, a mutation
+waits for the flush covering its record before applying the change and acknowledging the caller.
 
 ## Defaults
 
 | Setting | Default | Valid values and effect |
 | --- | --- | --- |
-| `Journal.GroupCommitMaxWait` | `00:00:00` | Zero disables group commit. A wait of 1 to 100 whole milliseconds enables it and sets the batch deadline. |
-| `Journal.GroupCommitMaxBatch` | `32` | 1 to 4096. When group commit is enabled, this many waiting writes trigger an early flush. |
+| `Journal.GroupCommitMaxWait` | `00:00:00.002` | Accepts 0 to 100 whole milliseconds. Zero makes waiting writes eligible to flush immediately. |
+| `Journal.GroupCommitMaxBatch` | `32` | 1 to 4096. This many waiting writes trigger an early flush. |
 
 The journal flushes when either threshold is reached. An early flush covers all writes already waiting and can cover
 more than `GroupCommitMaxBatch`.
 
+Before this change, zero selected an individual checkpoint per mutation. An existing explicit zero now preserves
+zero batching delay and allows simultaneous writers to share a flush. An omitted setting now uses 2 ms.
+
 Both are public hosting settings under `SquirixServerOptions.Journal` or `Squirix:Cluster:Journal`. For example,
-`"GroupCommitMaxWait": "00:00:00.002"` sets a 2 ms wait. A positive wait requires persistence. See
+`"GroupCommitMaxWait": "00:00:00.002"` sets a 2 ms wait. These settings apply when persistence is enabled. See
 [configuration](configuration.md#journal).
 
 ## Durability guarantee
 
-Group commit never lets a caller or a reader see a value before its journal bytes are fsynced:
+When the local journal supplies the durability guarantee, a caller or reader sees the new value only after fsync.
 
 - **Apply after fsync.** A mutation appends, waits for the shared flush, and applies to memory afterwards. Readers see
   the value only after it is durable. If fsync fails, the mutation leaves the value out of memory.
@@ -36,19 +39,14 @@ Group commit never lets a caller or a reader see a value before its journal byte
 - **Shutdown and flush failure.** A graceful stop flushes pending records and lets their writes apply. If the final
   flush fails or shutdown interrupts it, the caller can receive an unknown commit outcome.
 
-## When to enable group commit
-
-Consider enabling it when many durable writers on distinct keys can share an expensive fsync and throughput matters
-more than tail latency. Keep the default for isolated writers and measure on the storage and OS used in production.
-
 ## Tuning guide (operator / integrator)
 
-Start with a 2 ms wait and the default batch threshold. Longer waits can improve throughput at the cost of tail
+Start with a 2 ms wait and the default batch threshold. An isolated write can incur the full window before its flush. Longer waits can improve throughput at the cost of tail
 latency. Raising the batch threshold can reduce flush frequency under load, but can also make writers wait longer.
 
 Effects to account for:
 
-- **One durability wait per hosted write.** A hosted write waits once, for a flush that covers its mutation frame and other
+- **One durability wait per local journal write.** A write using local journal durability waits once, for a flush that covers its mutation frame and other
   pending writes.
 - **Hot key.** Writers queue for the same key in arrival order and hold it across the durability wait. A hot key
   completes about one write per fsync. Writers on distinct keys can share a flush when they reach

@@ -409,7 +409,7 @@ There is **no** `Squirix:Persistence` JSON merge in public hosting — putting a
 | ----------------------------- | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DataDir`                     | string | `%LocalAppData%/squirix/<cluster>/<node>` or temp fallback | Required, non-empty when persistence is enabled                                                                                            |
 | `JournalMaxSegmentMb`         | int    | `514` without replication, `64` with replication           | At least `514` without replication or `34` with replication, to fit the largest journal frame                                              |
-| Journal group commit wait     | span   | `0` (disabled)                                             | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
+| Journal group commit wait     | span   | `2 ms`                                                     | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | Journal group commit batch    | int    | `32`                                                       | Set through `SquirixServerOptions.Journal`, see [Journal](#journal)                                                                        |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
 | `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | At least `514` without replication or `34` with replication, to fit one full journal frame                                                 |
@@ -494,8 +494,8 @@ Journal group commit is configured through `SquirixServerOptions.Journal` (`Squi
 `Squirix:Cluster:Journal` settings object; every key is optional and keeps the default listed below. Group commit lets
 concurrent RF=1 durable mutations share a node journal flush. A durability wait can add up to `GroupCommitMaxWait`
 before the flush starts; the flush itself takes additional time.
-It is off by default and requires persistence (`PersistenceEnabled`, `UsePersistence()` or `--persist`). Changes apply on
-the next host start.
+Persistent nodes always use group commit for the local journal. Omitting the wait selects a 2 ms window.
+With an explicit zero, the journal flushes already waiting writes together as soon as it can. Changes apply on the next host start.
 
 ```json
 {
@@ -511,10 +511,10 @@ the next host start.
 }
 ```
 
-| Field                 | Type     | Default    | Validation                                                                                         |
-| --------------------- | -------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| `GroupCommitMaxWait`  | TimeSpan | `00:00:00` | `0` (group commit off) or `1..100` whole milliseconds; a positive value needs `PersistenceEnabled` |
-| `GroupCommitMaxBatch` | int      | `32`       | `1..4096`; used only when `GroupCommitMaxWait` is greater than zero                                |
+| Field                 | Type     | Default        | Validation                                                |
+| --------------------- | -------- | -------------- | --------------------------------------------------------- |
+| `GroupCommitMaxWait`  | TimeSpan | `00:00:00.002` | `0..100` whole milliseconds. Zero adds no batching delay. |
+| `GroupCommitMaxBatch` | int      | `32`           | `1..4096`; reaching the batch threshold triggers a flush  |
 
 `TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form; a number is rejected and the error names the field.
 A bare `"5"` is read as five days and rejected by the range check. With RF>1, this setting affects the node cache journal,
@@ -784,7 +784,6 @@ hosting ignores:
 - `Backpressure MaxQueueWait cannot exceed 00:01:00.`
 - `Journal GroupCommitMaxBatch must be between 1 and 4096.`
 - `Journal GroupCommitMaxWait must be zero or between 1 and 100 whole milliseconds (for example "00:00:00.005").`
-- `Journal GroupCommitMaxWait greater than zero requires persistence. Set PersistenceEnabled.`
 - `Persistence DataDir is required.`
 - `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `AutomaticFailoverEnabled requires ReplicaCount of at least 3: groups of one or two replicas never elect a leader.`

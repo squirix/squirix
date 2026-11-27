@@ -56,10 +56,10 @@ def execute(arguments, cwd, log, environment, timeout=1800):
             raise subprocess.CalledProcessError(return_code, arguments)
 
 
-def benchmark_arguments(assembly, filters, artifacts):
+def benchmark_arguments(assembly, filters, artifacts, iterations):
     return [
         "dotnet", str(assembly), "--filter", *filters,
-        "--launchCount", "1", "--warmupCount", "10", "--iterationCount", "10",
+        "--launchCount", "1", "--warmupCount", "10", "--iterationCount", str(iterations),
         "--iterationTime", "500", "--outliers", "DontRemove",
         "--exporters", "json", "--artifacts", str(artifacts),
         "--buildTimeout", "600", "--stopOnFirstError",
@@ -204,7 +204,7 @@ def run(manifest_path, artifacts):
                         checkout, logs / f'{suite["name"]}-{label}{suffix}-build.log', environment, timeout=600)
                     assembly = project.parent / "bin" / "Release" / "net10.0" / f"{project.stem}.dll"
                     execute(
-                        benchmark_arguments(assembly, suite["filters"], destination / label / suite["name"]),
+                        benchmark_arguments(assembly, suite["filters"], destination / label / suite["name"], manifest["minSamples"]),
                         project.parent, logs / f'{suite["name"]}-{label}{suffix}-benchmark.log', environment)
         for index, suite in enumerate(manifest["suites"]):
             run_pair(index, suite, 1, reports)

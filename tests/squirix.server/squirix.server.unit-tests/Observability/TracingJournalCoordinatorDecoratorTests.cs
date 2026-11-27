@@ -115,9 +115,9 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         ActivitySource.AddActivityListener(listener);
         var innerExpectations = new IJournalCoordinatorCreateExpectations();
         _ = innerExpectations.Setups.IsJournalGroupCommitEnabled.Gets().ReturnValue(false);
-        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
                              .ReturnValue(ValueTask.CompletedTask);
-        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), new OpenTelemetryJournalOperationTracer());
 
         await journal.AppendPutAsync(default, key, payload, cancellationToken);
@@ -142,13 +142,13 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         var tracerExpectations = new IJournalOperationTracerCreateExpectations();
         _ = tracerExpectations.Setups.IsEnabled.Gets().ReturnValue(false);
         var innerExpectations = new IJournalCoordinatorCreateExpectations();
-        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
                              .Callback((_, _, _, _) =>
                               {
                                   calls++;
                                   return ValueTask.CompletedTask;
                               });
-        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
+        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
                              .Callback((_, _, _) => ValueTask.FromException(failure));
         await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), tracerExpectations.Instance());
 
@@ -202,17 +202,19 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     }
 
     /// <summary>Ensures traced journal puts reflect strict fsync and group-commit settings from persistence options.</summary>
-    /// <param name="groupCommitMaxWaitMilliseconds">Group-commit wait window; zero disables group commit.</param>
+    /// <param name="groupCommitEnabled">Whether the journal uses grouped durability.</param>
+    /// <param name="groupCommitMaxWaitMilliseconds">Maximum batching delay for a grouped journal.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(5)]
-    [Arguments(0)]
-    public async Task PutAsyncContextReflectsDurability(int groupCommitMaxWaitMilliseconds, CancellationToken cancellationToken)
+    [Arguments(true, 5)]
+    [Arguments(true, 0)]
+    [Arguments(false, 0)]
+    public async Task PutAsyncContextReflectsDurability(bool groupCommitEnabled, int groupCommitMaxWaitMilliseconds, CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
             DataDir = Dir,
-            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
+            JournalGroupCommitMaxWait = groupCommitEnabled ? TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds) : null,
             JournalMaxSegmentMb = 16,
         };
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -229,11 +231,11 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutUnderGateAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
-        if (groupCommitMaxWaitMilliseconds > 0)
+        if (groupCommitEnabled)
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         var (_, context) = await Assert.That(beginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
-        _ = await Assert.That(context.GroupCommitEnabled).IsEqualTo(groupCommitMaxWaitMilliseconds > 0);
+        _ = await Assert.That(context.GroupCommitEnabled).IsEqualTo(groupCommitEnabled);
     }
 
     /// <summary>A durability wait that finishes asynchronously leaves the caller's current activity as it was, not the closed wait span.</summary>

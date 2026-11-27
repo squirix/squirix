@@ -13,11 +13,12 @@ using static Squirix.Tools.SqrTool;
 
 var runs = new[]
 {
+    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "/*/*/DurableMutationWriteAckStallTests/*", "Grouped journal write stalls and recovery"),
     new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "/*/*/NodeCallPolicyTests/*", "CallPolicy unit tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RoutingDeadlineFlowTests/*", "Routing deadline flow integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcMutationIdempotencyIntegrationTests/*", "Mutation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/CrossNodeOpIdIdempotencyTests/*", "Cross-node operation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcIdempotencyRestartTests/*", "Idempotency restart integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/GroupReplayMatrixTests/*", "Replicated mutation retry matrix"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/GroupIdempotencyAuthorityTests/*", "Group operation idempotency integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/LeaderOverlapRecoveryTests/*", "Leader overlap recovery integration tests"),
     new ResiliencyRun("tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "/*/Squirix.E2ETests.Cache.MultiNode.Failover*/*/*[Suite!=Stress]", "Failover end-to-end tests"),
 };
 
@@ -96,6 +97,10 @@ for (var iteration = 1; iteration <= iterations; iteration++)
             configuration,
             "--treenode-filter",
             run.Filter,
+            "--minimum-expected-tests",
+            "1",
+            "--zero-tests-policy",
+            "strict",
         };
         if (noBuild)
             list.Add("--no-build");

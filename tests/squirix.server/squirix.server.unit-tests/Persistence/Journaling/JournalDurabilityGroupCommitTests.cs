@@ -22,6 +22,26 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 {
+    /// <summary>A zero window groups already waiting writers on the first drain without advancing the clock.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ZeroWaitFlushesPendingWritersTogether(CancellationToken cancellationToken)
+    {
+        var options = new SquirixServerJournalOptions { GroupCommitMaxWait = TimeSpan.Zero }.ToPersistenceOptions();
+        var flushes = new AtomicCounter();
+        var group = CreateGroupCommit(flushes.IncrementAction, options, new FakeTimeProvider());
+        var first = AsSingleUseTaskAsync(group.AwaitCommitAsync(cancellationToken));
+        var second = AsSingleUseTaskAsync(group.AwaitCommitAsync(cancellationToken));
+
+        _ = await Assert.That(group.GetJournalThreadWaitTimeoutMs()).IsEqualTo(0);
+        _ = await Assert.That(first.IsCompleted || second.IsCompleted).IsFalse();
+        group.DrainDueBatchesOnJournalThread();
+
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(flushes.Value).IsEqualTo(1);
+        _ = await Assert.That(group.LargestBatch).IsEqualTo(2);
+    }
+
     /// <summary>Ensures waits admitted after CancelPending fail fast instead of parking on a dead batch.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -91,12 +111,12 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(third.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(fourth.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(pending.IsCompleted).IsFalse();
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         groupCommit.DrainDueBatchesOnJournalThread();
         await pending;
 
         var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         groupCommit.DrainDueBatchesOnJournalThread();
         await followUp.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
         _ = await Assert.That(followUp.IsCompletedSuccessfully).IsTrue();
@@ -187,7 +207,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(canceled.IsCanceled).IsTrue();
 
         var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         groupCommit.DrainDueBatchesOnJournalThread();
         await second.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
 
@@ -212,7 +232,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
         var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(groupCommit, static g => g.DrainDueBatchesOnJournalThread());
 
         await first.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
@@ -243,7 +263,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         probe.GroupCommit = groupCommit;
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(groupCommit, static g => g.DrainDueBatchesOnJournalThread());
 
         await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
@@ -278,7 +298,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         await first.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
         _ = await Assert.That(first.IsCanceled).IsTrue();
 
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         groupCommit.DrainDueBatchesOnJournalThread();
         await second.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
 
@@ -302,11 +322,11 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
         time.StepWallClock(TimeSpan.FromSeconds(-30));
         var waitMs = groupCommit.GetJournalThreadWaitTimeoutMs();
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         groupCommit.DrainDueBatchesOnJournalThread();
         await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
 
-        _ = await Assert.That(waitMs).IsLessThanOrEqualTo(Convert.ToInt32(options.JournalGroupCommitMaxWait.TotalMilliseconds));
+        _ = await Assert.That(waitMs).IsLessThanOrEqualTo(Convert.ToInt32(options.JournalGroupCommitMaxWait.GetValueOrDefault().TotalMilliseconds));
         _ = await Assert.That(ack.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
     }
@@ -370,7 +390,8 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         foreach (var ack in acks)
             _ = await Assert.That(ack.IsCompletedSuccessfully).IsTrue();
 
-        _ = await Assert.That(flushCounter.Value >= 1).IsTrue();
+        _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
+        _ = await Assert.That(groupCommit.LargestBatch).IsEqualTo(acks.Length);
     }
 
     /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
@@ -459,14 +480,14 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<TaskCanceledException>(last, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
         group.DrainDueBatchesOnJournalThread();
         _ = await Assert.That((survivor.IsCompleted, flushes.Value)).IsEqualTo((false, 0));
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         group.DrainDueBatchesOnJournalThread();
         await survivor;
         _ = await Assert.That(flushes.Value).IsEqualTo(1);
 
         var next = AsSingleUseTaskAsync(group.AwaitCommitAsync(cancellationToken));
         _ = await Assert.That(next.IsCompleted).IsFalse();
-        time.Advance(options.JournalGroupCommitMaxWait);
+        time.Advance(options.JournalGroupCommitMaxWait.GetValueOrDefault());
         group.DrainDueBatchesOnJournalThread();
         await next;
         _ = await Assert.That(flushes.Value).IsEqualTo(2);

@@ -23,41 +23,33 @@ namespace Squirix.Server.UnitTests.Node.App;
 public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
+    /// <param name="waitMilliseconds">The configured group commit window.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FsyncCompletesBeforeMemoryApply(CancellationToken cancellationToken)
+    [Arguments(0)]
+    [Arguments(2)]
+    public async Task FsyncCompletesBeforeMemoryApply(int waitMilliseconds, CancellationToken cancellationToken)
     {
-        var options = new PersistenceOptions
+        await using var journal = await StallableJournal.CreateAsync(Dir, TimeSpan.FromMilliseconds(waitMilliseconds), 32, cancellationToken);
+        var executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
+        var memory = new AppliedKeys();
+        var timeout = TimeSpan.FromSeconds(10);
+
+        journal.Writer.Flush.Arm();
+        var put = memory.PutAsync(executor, journal.Journal, "k", cancellationToken);
+        try
         {
-            DataDir = Dir,
-            JournalMaxSegmentMb = 1,
-            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
-            JournalGroupCommitMaxBatch = 8,
-        };
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
-        await using var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            NullLoggerFactory.Instance,
-            TimeProvider.System,
-            out _);
-        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
-        var applyState = new ApplyCounter(false);
+            await journal.Writer.Flush.Entered.WaitAsync(timeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(await PendingProbe.StaysPendingAsync(put)).IsTrue();
+            _ = await Assert.That(memory.Snapshot).IsEmpty();
+        }
+        finally
+        {
+            journal.Writer.Flush.Release();
+        }
 
-        var applied = await executor.ExecuteAsync(
-            CacheKey.Default("k"),
-            static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
-                (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
-                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
-                static (s, ct) => s.Apply.ApplyAsync(ct)),
-            cancellationToken);
-
-        _ = await Assert.That(applied).IsEqualTo(1);
-        _ = await Assert.That(applyState.Calls).IsEqualTo(1);
-        await journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
+        _ = await Assert.That(await put.WaitAsync(timeout, TimeProvider.System, cancellationToken)).IsEqualTo(1);
+        _ = await Assert.That(memory.Snapshot).IsEqualTo(CacheKey.Default("k").ToString());
     }
 
     /// <summary>
@@ -76,7 +68,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : TimeSpan.Zero,
+            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : null,
         };
 
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);

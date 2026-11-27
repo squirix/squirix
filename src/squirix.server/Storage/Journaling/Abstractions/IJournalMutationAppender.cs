@@ -13,7 +13,7 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 /// </remarks>
 internal interface IJournalMutationAppender
 {
-    ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
+    ValueTask AppendPutAsync(JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
 
-    ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken);
+    ValueTask AppendRemoveAsync(JournalAppendContext ownership, CacheKey key, CancellationToken cancellationToken);
 }

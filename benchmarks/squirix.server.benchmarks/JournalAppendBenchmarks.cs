@@ -53,23 +53,23 @@ public class JournalAppendBenchmarks
     }
 
     /// <summary>Disposes the journal coordinator created during setup.</summary>
-    /// <returns>A task that completes when cleanup finishes.</returns>
-    [GlobalCleanup]
-    public async Task CleanupAsync()
+    [IterationCleanup]
+    public void Cleanup()
     {
         if (_host != null)
-            await _host.DisposeAsync().ConfigureAwait(false);
+            _host.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _host = null;
     }
 
-    /// <summary>Creates the journal coordinator and payload for the current parameter set.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
-    [GlobalSetup]
-    public async Task SetupAsync()
+    /// <summary>Creates a fresh journal for each iteration so earlier writes do not consume its segment capacity.</summary>
+    [IterationSetup]
+    public void Setup() => CreateHostAsync().GetAwaiter().GetResult();
+
+    private async Task CreateHostAsync()
     {
         var options = new PersistenceOptions
         {
-            JournalGroupCommitMaxWait = GroupCommitMaxWait,
+            JournalGroupCommitMaxWait = GroupCommitMaxWait == TimeSpan.Zero ? null : GroupCommitMaxWait,
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,
         };
