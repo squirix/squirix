@@ -186,7 +186,8 @@ elects a replacement.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
   from the quorum check (leader) or a recent leader contact (follower), and the highest term it saw.
 
-Default timing: election timeout 1 s, jitter up to 1 s, heartbeat interval 100 ms, vote RPC timeout 250 ms. On
+Default timing: election timeout 1 s, jitter up to 1 s, heartbeat interval 100 ms, vote RPC timeout 250 ms once connected. A cold election connection has a
+separate 3 s bound for TCP and TLS together, with the 500 ms TCP dial limit still in effect. On
 three-node starts with nodes about 0.4 s apart, a 500 ms timeout deposed a provisional owner and elected a needless second
 term in half of the runs, and 1 s in none. A failover takes the election timeout plus the jitter to detect the stopped
 leader, then one election round, which a follower that is gone does not prolong once the others decided it; nor does
