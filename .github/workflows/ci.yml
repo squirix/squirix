@@ -1298,7 +1298,7 @@ jobs:
                       --exporters json --artifacts "$artifacts" 2>&1 | tee benchmark-smoke-server.log
                     python3 tools/ci/check-benchmark-smoke.py "$artifacts" "${filters[@]}"
 
-            -   name: Smoke E2E Replication Benchmarks
+            -   name: Smoke E2E Benchmarks
                 if: ${{ !cancelled() && steps.gate.outputs.smoke == 'true' }}
                 shell: bash
                 env:
@@ -1310,6 +1310,7 @@ jobs:
                       '*FailoverBenchmarks.*'
                       '*LeaderAuthorityBenchmarks.*'
                       '*PublicSdkOperationsBenchmarks.*'
+                      '*DistributedCacheWriteBenchmarks.*'
                     )
                     artifacts="$BDN_ARTIFACTS/smoke/e2e"
                     dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj \
