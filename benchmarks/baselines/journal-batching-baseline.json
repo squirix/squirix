@@ -1,0 +1,27 @@
+{
+  "baselineTag": "journal-write-batching@d0d177988",
+  "baselineCommit": "d0d17798875b90d4fcca326811ad3bf23afecd68",
+  "timeTolerance": 0.2,
+  "allocationTolerance": 0.05,
+  "maxRelativeStandardError": 0.05,
+  "minSamples": 10,
+  "suites": [
+    {
+      "name": "journal",
+      "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
+      "entryPoint": "tools/ci/performance-guard/Program.cs",
+      "sources": [
+        "JournalDecidedEntryContentionBenchmarks.cs"
+      ],
+      "filters": [
+        "*JournalDecidedEntryContentionBenchmarks.ConcurrentIndependentSetsAsync"
+      ],
+      "cases": [
+        {
+          "name": "JournalDecidedEntryContentionBenchmarks.ConcurrentIndependentSetsAsync",
+          "checkTime": true
+        }
+      ]
+    }
+  ]
+}

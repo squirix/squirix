@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -26,6 +27,7 @@ public class JournalDecidedEntryContentionBenchmarks
     private const int OperationsPerInvoke = 500;
     private const string SmallCache = "small";
     private static readonly TimeSpan ContenderPause = TimeSpan.FromMilliseconds(10);
+    private readonly string[] _independentKeys = new string[128];
     private JournalLoggingCacheDecorator<string>? _decorator;
     private JournalBenchmarkHost? _host;
     private string _largeValue = string.Empty;
@@ -40,6 +42,20 @@ public class JournalDecidedEntryContentionBenchmarks
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
         _decorator = null;
+    }
+
+    /// <summary>Commits one concurrent wave of independent keys through the file-backed journal.</summary>
+    /// <returns>A task that completes after every durable write is acknowledged.</returns>
+    [Benchmark(OperationsPerInvoke = 128)]
+    public Task ConcurrentIndependentSetsAsync()
+    {
+        var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
+        var entry = ThrowHelper.Required(_smallEntry, "Benchmark entry was not initialized.");
+        var writes = new Task[_independentKeys.Length];
+        for (var index = 0; index < writes.Length; index++)
+            writes[index] = decorator.SetEntryAsync("op", SmallCache, _independentKeys[index], entry, CancellationToken.None).AsTask();
+
+        return Task.WhenAll(writes);
     }
 
     /// <summary>Runs small sets with nothing else contending for the mutation gate.</summary>
@@ -66,6 +82,9 @@ public class JournalDecidedEntryContentionBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
+        for (var index = 0; index < _independentKeys.Length; index++)
+            _independentKeys[index] = $"key-{index}";
+
         var options = new PersistenceOptions
         {
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),

@@ -494,7 +494,8 @@ Journal group commit is configured through `SquirixServerOptions.Journal` (`Squi
 `Squirix:Cluster:Journal` settings object; every key is optional and keeps the default listed below. Group commit lets
 concurrent RF=1 durable mutations share a node journal flush. A durability wait can add up to `GroupCommitMaxWait`
 before the flush starts; the flush itself takes additional time.
-Persistent nodes always use group commit for the local journal. Omitting the wait selects a 2 ms window. With an explicit zero, the journal flushes already waiting writes together as soon as it can. Changes apply on the next host start.
+Persistent nodes always use group commit for the local journal. Omitting the wait selects a 2 ms window.
+With an explicit zero, the journal flushes already waiting writes together as soon as it can. Changes apply on the next host start.
 
 ```json
 {
@@ -510,10 +511,10 @@ Persistent nodes always use group commit for the local journal. Omitting the wai
 }
 ```
 
-| Field                 | Type     | Default    | Validation                                                                                         |
-| --------------------- | -------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| Field                 | Type     | Default        | Validation                                                |
+| --------------------- | -------- | -------------- | --------------------------------------------------------- |
 | `GroupCommitMaxWait`  | TimeSpan | `00:00:00.002` | `0..100` whole milliseconds. Zero adds no batching delay. |
-| `GroupCommitMaxBatch` | int      | `32`       | `1..4096`; reaching the batch threshold triggers a flush                                |
+| `GroupCommitMaxBatch` | int      | `32`           | `1..4096`; reaching the batch threshold triggers a flush  |
 
 `TimeSpan` values are strings in `[d.]hh:mm:ss[.fffffff]` form; a number is rejected and the error names the field.
 A bare `"5"` is read as five days and rejected by the range check. With RF>1, this setting affects the node cache journal,
