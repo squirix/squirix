@@ -53,6 +53,8 @@ jobs:
                     foreach ($arm in @("develop","pr")) {
                         $sha = if ($arm -eq "develop") {"c8ff455bce5ef9319cb1a7199cf9a59e128449ea"} else {"ead0c26d79e59b5a3ea7b45c95844de6720d0b06"}
                         $dir = Join-Path $env:RUNNER_TEMP "source-$arm"
+                        git fetch --depth=1 origin $sha
+                        if ($LASTEXITCODE) { exit $LASTEXITCODE }
                         git worktree add --detach $dir $sha
                         if ($LASTEXITCODE) { exit $LASTEXITCODE }
                         Push-Location $dir
