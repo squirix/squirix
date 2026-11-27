@@ -29,6 +29,19 @@ internal interface IJournalSnapshotBarrier
         [RequireStaticDelegate] Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
         CancellationToken cancellationToken);
 
+    /// <summary>Orders a single durable mutation through ring publication. Its key and in-flight slot cover the subsequent write acknowledgment.</summary>
+    /// <typeparam name="TState">State supplied to the mutation.</typeparam>
+    /// <typeparam name="TResult">Result of the prepare phase.</typeparam>
+    /// <param name="state">The mutation state.</param>
+    /// <param name="action">Prepares and appends a single frame.</param>
+    /// <param name="cancellationToken">Cancels admission.</param>
+    /// <returns>The result after the append completes.</returns>
+    ValueTask<TResult> ExecuteAppendBarrierAsync<TState, TResult>(
+        TState state,
+        [RequireStaticDelegate] Func<TState, JournalAppendContext, CancellationToken, ValueTask<TResult>> action,
+        CancellationToken cancellationToken) => ExecuteUnderSnapshotBarrierAsync(
+            (state, action), static (args, ownership, ct) => args.action(args.state, ownership, ct), cancellationToken);
+
     ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(
         [RequireStaticDelegate] Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
         CancellationToken cancellationToken);

@@ -53,6 +53,12 @@ jobs:
                       --treenode-filter '/*/*/ServerLoggerFactoryTests/DisabledRequestScopeAllocatesNothing' \
                       --minimum-expected-tests 1 --zero-tests-policy strict
 
+            -   name: Check grouped journal segment writes
+                run: |
+                    dotnet test --project tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj -c Release --no-build \
+                      --treenode-filter '/*/*/DurableMutationWriteAckStallTests/QueuedFramesShareSegmentWrites' \
+                      --minimum-expected-tests 1 --zero-tests-policy strict
+
             -   name: Compare Hot Paths With Pinned Sources
                 run: python3 tools/ci/run-performance-guard.py benchmarks/baselines/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
 

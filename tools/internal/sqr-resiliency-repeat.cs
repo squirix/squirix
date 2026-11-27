@@ -13,6 +13,7 @@ using static Squirix.Tools.SqrTool;
 
 var runs = new[]
 {
+    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "/*/*/DurableMutationWriteAckStallTests/*", "Grouped journal write stalls and recovery"),
     new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "/*/*/NodeCallPolicyTests/*", "CallPolicy unit tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RoutingDeadlineFlowTests/*", "Routing deadline flow integration tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcMutationIdempotencyIntegrationTests/*", "Mutation idempotency integration tests"),
