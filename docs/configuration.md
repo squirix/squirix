@@ -109,7 +109,9 @@ usually the pod memory limit). Legacy JSON fields such as `enabled` and `rejectW
 The pressure percentages are relative to `MaxEstimatedCacheBytes`, not to process RAM. With the defaults, high pressure
 starts at 64% of available process RAM (`80%` of the `80%` budget), and critical pressure at 76% (`95%` of that budget).
 Admission also checks the estimated size after a growing write: it may reject a write that would reach critical pressure
-even when current usage is below the threshold. This is an estimate for cache entries, not a hard cap on process memory.
+even when current usage is below the threshold. With key-count eviction, admission checks the incoming entry before the
+cache removes the eviction victim. An insertion can therefore be refused even if the two entries have the same size.
+The budget applies to estimated cache entries. Process memory also includes the runtime and other server components.
 
 The estimated bytes and the entry count cover every entry the node holds: the groups it leads, the copies it holds as a
 follower, and the entries recovered at start. `MaxEstimatedCacheBytes` bounds all of it, so a node that holds several
