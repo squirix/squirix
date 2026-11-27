@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,11 +13,12 @@ internal static class PressureBootstrap
 {
     /// <summary>Loads memory pressure settings using the same settings file discovery as cluster bootstrap, then applies environment overrides.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="settingsFilePath">File selected for this node. When omitted, use normal discovery.</param>
     /// <returns>Loaded settings before RAM budget resolution.</returns>
-    internal static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken = default)
+    internal static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken, string? settingsFilePath = null)
     {
         var baseline = new UnresolvedMemoryPressureOptions();
-        var path = SettingsJson.FindSettingsPath();
+        var path = settingsFilePath ?? SettingsJson.FindSettingsPath();
         if (path == null)
             return ApplyEnvironment(baseline);
 
@@ -55,7 +57,13 @@ internal static class PressureBootstrap
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static UnresolvedMemoryPressureOptions ApplyEnvironment(UnresolvedMemoryPressureOptions options)
+    internal static void ValidateEviction(EvictionOptions? eviction, bool memoryAccountingEnabled)
+    {
+        if (eviction?.EvictOnMemoryPressure == true && !memoryAccountingEnabled)
+            throw new InvalidOperationException("Memory-pressure eviction requires memory accounting. Enable --memory-accounting or choose a count-based capacity.");
+    }
+
+    internal static UnresolvedMemoryPressureOptions ApplyEnvironment(UnresolvedMemoryPressureOptions options)
     {
         var result = options;
 
@@ -71,6 +79,17 @@ internal static class PressureBootstrap
         if (critical != null)
             result = result with { CriticalPressureThresholdPercent = critical.Value };
 
-        return result;
+        var accounting = EnvVariables.ReadString("SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED")?.Trim();
+        if (string.IsNullOrEmpty(accounting))
+            return result;
+
+        var enabled = accounting switch
+        {
+            "1" => true,
+            "0" => false,
+            _ when bool.TryParse(accounting, out var parsed) => parsed,
+            _ => throw new InvalidOperationException("SQUIRIX_MEMORY_PRESSURE_ACCOUNTING_ENABLED must be true, false, 1 or 0."),
+        };
+        return result with { MemoryAccountingEnabled = enabled };
     }
 }

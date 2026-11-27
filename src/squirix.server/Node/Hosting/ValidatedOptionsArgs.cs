@@ -16,7 +16,7 @@ internal sealed class ValidatedOptionsArgs
 
     internal required MtlsCertificate Certificate { get; init; }
 
-    internal PressureOptions? MemoryPressureOptions { get; init; }
+    internal required PressureOptions MemoryPressureOptions { get; init; }
 
     internal required MtlsOptions MtlsOptions { get; init; }
 

@@ -65,7 +65,8 @@ internal sealed class PressureGate
         if (reason == AdmissionRejection.None)
             return;
 
-        throw Reject(operation, ReasonOf(reason));
+        RecordRejection(operation, ReasonOf(reason));
+        throw new ResourceExhaustedException();
     }
 
     /// <summary>
@@ -74,7 +75,14 @@ internal sealed class PressureGate
     /// </summary>
     /// <param name="operation">Bounded admission operation label for metrics (never a cache name or key).</param>
     /// <exception cref="ResourceExhaustedException">Always.</exception>
-    internal void ThrowReplicaPressureRejection(string operation) => throw Reject(operation, ReplicaPressureReason);
+    internal void ThrowReplicaPressureRejection(string operation)
+    {
+        RecordRejection(operation, ReplicaPressureReason);
+        throw new ResourceExhaustedException();
+    }
+
+    internal void ReportLocalRejection(ResourceExhaustedException rejection) =>
+        RecordRejection(rejection.IsTryAdd ? AdmissionOperations.TryAdd : AdmissionOperations.Set, rejection.WasCritical == true ? CriticalPressureReason : EstimatedLimitReason);
 
     private static string ReasonOf(AdmissionRejection reason) => reason switch
     {
@@ -84,11 +92,11 @@ internal sealed class PressureGate
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Unsupported memory admission rejection."),
     };
 
-    private ResourceExhaustedException Reject(string operation, string reason)
+    private void RecordRejection(string operation, string reason)
     {
         _accounting.RecordAdmissionRejection();
         if (_rejectionsTotal == null)
-            return new ResourceExhaustedException();
+            return;
 
         var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
         var tags = new TagList
@@ -98,6 +106,5 @@ internal sealed class PressureGate
             { "reason", reason },
         };
         _rejectionsTotal.Add(1, in tags);
-        return new ResourceExhaustedException();
     }
 }

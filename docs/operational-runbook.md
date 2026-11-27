@@ -102,8 +102,8 @@ Ring mismatch signals:
 
 ## Memory pressure
 
-Use `/health/ready/details` (`memoryPressure`) and the `Squirix` meter instruments documented in
-[configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson).
+With [memory accounting enabled](configuration.md#memory-pressure-squirixsettingsjson), inspect
+`/health/ready/details` (`memoryPressure`). When metrics collection is also enabled, inspect the `Squirix` meter instruments.
 Growing writes rejected under critical memory pressure fail before journal append.
 The estimated bytes and entry count cover every copy the node holds, follower copies and recovered entries included, and
 `MaxEstimatedCacheBytes` bounds all of it. Raise it when the replication factor grows: a node with several copies admits

@@ -48,9 +48,9 @@ internal sealed class SlotStore<T>
     /// <param name="hash">The hash used to look for the key.</param>
     /// <param name="entry">The entry to publish.</param>
     /// <param name="policy">Optional eviction metadata.</param>
-    /// <param name="bytes">The exact charge for the new occupant.</param>
+    /// <param name="bytes">The charge for the new occupant, or <see langword="null" /> when memory accounting is disabled.</param>
     /// <returns>The published occupant.</returns>
-    internal CacheSlot<T> AddLocked(CacheKey key, int hash, NodeCacheEntry<T> entry, EvictionNode<T>? policy, long bytes)
+    internal CacheSlot<T> AddLocked(CacheKey key, int hash, NodeCacheEntry<T> entry, EvictionNode<T>? policy, long? bytes)
     {
         if (_previous == null && _table.NeedsRebuild(Count))
         {
@@ -450,7 +450,7 @@ internal sealed class SlotStore<T>
 
         internal SlotPage<T> PageFor(int slot) => ReadPage(slot)!;
 
-        internal CacheSlot<T> Add(CacheKey key, int hash, NodeCacheEntry<T> entry, EvictionNode<T>? policy, long bytes, out int slot)
+        internal CacheSlot<T> Add(CacheKey key, int hash, NodeCacheEntry<T> entry, EvictionNode<T>? policy, long? bytes, out int slot)
         {
             if (_available < 0)
                 AppendPage();
@@ -472,7 +472,8 @@ internal sealed class SlotStore<T>
             var identity = page.NextIdentity(offset, ref _lastIdentity);
             ref var storedHash = ref page[offset];
             page.PrepareVersion(entry.Version);
-            page.SetCharge(offset, bytes);
+            if (bytes is { } charge)
+                page.SetCharge(offset, charge);
             page.PrepareMetadata(entry.ExpiresUtc, entry.Tags, policy);
             page.StorePayload(offset, new SlotPayload<T>(key, entry.Value), space.Used + 1 == page.Length);
             space = space.Free == 0

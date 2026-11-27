@@ -143,7 +143,7 @@ internal static class ServerHostingComposition
             sp.Find<ReplicaGroupRegistry>(),
             sp.Find<IReplicaMembership>(),
             sp.Find<ReplicaTransferReceiver>(),
-            sp.Require<ICriticalMemoryPressureReader>()));
+            sp.Find<ICriticalMemoryPressureReader>()));
         _ = services.Own(static sp => new ReplicaRpcGateway(sp.Require<IServerClientPool>()));
         _ = services.Own<IReplicaRpcGateway>(static sp => sp.Require<ReplicaRpcGateway>());
         _ = services.Own<IReplicaVoteGateway>(static sp => sp.Require<ReplicaRpcGateway>());
@@ -161,6 +161,12 @@ internal static class ServerHostingComposition
         var persistence = args.PersistenceOptions == null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions, replicated);
         var persistenceEnabled = persistence != null;
         var uri = cluster.Uri;
+        var pressure = args.MemoryPressureOptions ?? OptionsResolver.Resolve(
+            await PressureBootstrap.LoadAsync(cancellationToken, args.SettingsFilePath).ConfigureAwait(false), GcMemoryBudgetProvider.Instance);
+        if (args.MemoryAccountingEnabled is { } enabled)
+            pressure = pressure with { MemoryAccountingEnabled = enabled };
+        PressureBootstrap.ValidateEviction(args.Eviction, pressure.MemoryAccountingEnabled);
+
         var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(cluster, args, persistenceEnabled);
 
         _ = await services.AddSquirixValidatedOptionsAsync(
@@ -169,18 +175,18 @@ internal static class ServerHostingComposition
             {
                 BackpressureOptions = args.BackpressureOptions,
                 PersistenceOptions = persistence,
-                MemoryPressureOptions = args.MemoryPressureOptions,
+                MemoryPressureOptions = pressure,
                 PrometheusMetricsOptions = args.PrometheusMetricsOptions,
                 MtlsOptions = mtlsOptions,
                 Certificate = mtlsMaterial,
             },
             cancellationToken).ConfigureAwait(false);
 
-        RegisterRuntimeServices(services, args);
+        RegisterRuntimeServices(services, args, pressure.MemoryAccountingEnabled, pressure.MemoryAccountingEnabled && !persistenceEnabled && !replicated ? pressure.CriticalBytes : null);
         AddSquirixClusterStack(services, cluster, args);
         RegisterPersistenceAndReplication(services, cluster, persistence, mtlsOptions, args);
 
-        _ = services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled);
+        _ = services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled, pressure.MemoryAccountingEnabled && (persistenceEnabled || replicated));
         _ = services.AddSquirixNodeEndpointServices(persistenceEnabled);
         var authEnabled = services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
@@ -197,7 +203,7 @@ internal static class ServerHostingComposition
         _ = services.RunService(static sp => sp.Require<NativeClientService>());
     }
 
-    private static void RegisterRuntimeServices(NodeServices services, CompositionArgs args)
+    private static void RegisterRuntimeServices(NodeServices services, CompositionArgs args, bool memoryAccountingEnabled, long? localWriteLimit)
     {
         if (args.MetricsEnabled)
         {
@@ -207,7 +213,7 @@ internal static class ServerHostingComposition
 
         if (args.Eviction != null)
             _ = services.Use(args.Eviction);
-        _ = services.AddSquirixRuntimeServices(args.MetricsEnabled);
+        _ = services.AddSquirixRuntimeServices(args.MetricsEnabled, memoryAccountingEnabled, localWriteLimit);
     }
 
     /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>
@@ -502,6 +508,7 @@ internal static class ServerHostingComposition
                 new ReplicaTopologyStamp(fingerprint.AsMemory(), topology.ConfigurationGeneration),
                 sp.Require<IServerLoggerFactory>().CreateLogger<ReplicaGroupCommitter>())
             {
+                TrackMemberPressure = sp.Require<PressureOptions>().MemoryAccountingEnabled,
                 SelectCapacityVictim = physical.HasCapacity ? physical.SelectCapacityVictim : null,
                 Recovery = sp.Require<IJournalCoordinator>(),
                 Applier = sp.Require<ReplicaGroupAppliers>().For(groupId),

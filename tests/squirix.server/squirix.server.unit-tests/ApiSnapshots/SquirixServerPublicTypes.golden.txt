@@ -120,6 +120,8 @@ P:Squirix.Server.SquirixServerOptions::ForwardConnectTimeout:System.TimeSpan.get
 P:Squirix.Server.SquirixServerOptions::ForwardConnectTimeout:System.TimeSpan.set
 P:Squirix.Server.SquirixServerOptions::Journal:Squirix.Server.SquirixServerJournalOptions.get
 P:Squirix.Server.SquirixServerOptions::Journal:Squirix.Server.SquirixServerJournalOptions.set
+P:Squirix.Server.SquirixServerOptions::MemoryAccountingEnabled:System.Nullable<System.Boolean>.get
+P:Squirix.Server.SquirixServerOptions::MemoryAccountingEnabled:System.Nullable<System.Boolean>.set
 P:Squirix.Server.SquirixServerOptions::MetricsEnabled:System.Boolean.get
 P:Squirix.Server.SquirixServerOptions::MetricsEnabled:System.Boolean.set
 P:Squirix.Server.SquirixServerOptions::NodeId:System.String.get

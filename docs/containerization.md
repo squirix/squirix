@@ -162,6 +162,9 @@ Check health from the host.
 curl -k https://localhost:5201/health
 ```
 
+To enable estimated cache memory accounting in a container, add `--memory-accounting` to its Compose `command`.
+Enable it on every node that should enforce memory pressure limits. See [memory pressure settings](configuration.md#memory-pressure-squirixsettingsjson).
+
 To enable the scrape, set `Squirix:PrometheusMetrics:enabled` to `true` in the mounted node settings and add
 `--metrics` to that node's Compose `command` before starting it.
 

@@ -33,7 +33,8 @@ internal sealed class HealthReadyDetailsResponse
     internal HealthJournalDiskDetails JournalDisk { get; }
 
     [JsonInclude]
-    internal HealthMemoryPressureDetails MemoryPressure { get; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal HealthMemoryPressureDetails? MemoryPressure { get; }
 
     [JsonInclude]
     internal HealthReplicaGroupDetails[] ReplicaGroups { get; }

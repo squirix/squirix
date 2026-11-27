@@ -22,9 +22,9 @@ internal static class Program
         private const string DoctorReplicaMismatch =
             "Durable replica state in the data directory does not match the configured topology; see the MISMATCH, UNREADABLE, or MISSING lines above.";
 
-        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" +
+        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
-                                        "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
+                                        "  doctor [--strict] [--persist] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
 
         internal static async Task<int> RunAsync(string[] args)
         {
@@ -51,7 +51,7 @@ internal static class Program
 
         private static async Task<int> DoctorAsync(SquirixServerCommand command)
         {
-            var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
+            var options = await LoadOptionsAsync(command).ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, "[Squirix.Server] Doctor").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  Runtime: {Environment.Version}").ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"  OS: {Environment.OSVersion}").ConfigureAwait(false);
@@ -94,13 +94,8 @@ internal static class Program
             return 0;
         }
 
-        private static async Task<SquirixServerOptions> LoadOptionsAsync(SquirixServerCommand command, CancellationToken cancellationToken = default)
-        {
-            var settingsPath = ResolveSettingsPath(command);
-            var options = settingsPath == null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
-            command.ApplyOverrides(options);
-            return options;
-        }
+        private static Task<SquirixServerOptions> LoadOptionsAsync(SquirixServerCommand command) =>
+            Configurator.CreateHostingOptionsAsync(command.ApplyOverrides, command.SettingsPath, cancellationToken: CancellationToken.None);
 
         private static Task<SquirixServerOptions> LoadSettingsAsync(string path, CancellationToken cancellationToken = default) =>
             Configurator.LoadAsync(path, cancellationToken);
@@ -111,17 +106,7 @@ internal static class Program
 
         private static async Task<int> RunServerAsync(SquirixServerCommand command)
         {
-            var options = await Configurator.CreateHostingOptionsAsync(
-                options =>
-                {
-                    if (command.EnableMetrics)
-                        options.MetricsEnabled = true;
-
-                    command.ApplyOverrides(options);
-                },
-                command.SettingsPath,
-                cancellationToken: CancellationToken.None).ConfigureAwait(false);
-
+            var options = await LoadOptionsAsync(command).ConfigureAwait(false);
             var server = await SquirixServer.StartAsync(options, CancellationToken.None).ConfigureAwait(false);
             await using var lifetime = server.ConfigureAwait(false);
             await WriteRunServerStatusAsync(command, options, server.ManagementUri, CancellationToken.None).ConfigureAwait(false);
@@ -252,6 +237,8 @@ internal static class Program
 
             private int? MaxKeys { get; init; }
 
+            private bool MemoryAccountingEnabled { get; init; }
+
             internal static SquirixServerCommand Parse(string[] args)
             {
                 var name = ResolveName(args);
@@ -260,6 +247,11 @@ internal static class Program
 
             internal void ApplyOverrides(SquirixServerOptions options)
             {
+                if (EnableMetrics)
+                    options.MetricsEnabled = true;
+                if (MemoryAccountingEnabled)
+                    options.MemoryAccountingEnabled = true;
+
                 Configurator.ApplyCacheEvictionOverrides(options, EvictionMode, MaxKeys);
                 Configurator.ApplyCommandLineOverrides(options, Uri, DataDirectory, Persist, EnableReplication);
             }
@@ -273,11 +265,16 @@ internal static class Program
                         return HelpCommand();
                 }
 
+                if (state.MemoryAccountingEnabled && name is not ("run" or "doctor"))
+                    throw new InvalidOperationException("--memory-accounting applies only to run and doctor.");
+
                 var command = new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnableMetrics, state.SettingsPath)
                 {
                     EvictionMode = state.EvictionMode,
                     MaxKeys = state.MaxKeys,
+                    MemoryAccountingEnabled = state.MemoryAccountingEnabled,
                 };
+
                 return (state.EvictionMode != null || state.MaxKeys != null) && name is not ("run" or "doctor")
                     ? throw new InvalidOperationException("Cache eviction flags apply only to run and doctor.")
                     : command;
@@ -303,7 +300,7 @@ internal static class Program
 
             private static string ResolveName(string[] args) => args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
-            /// <summary>Applies no-value switches: <c language="csharp">--strict</c>, <c language="csharp">--persist</c>, <c language="csharp">--enable-replication</c>, and <c language="csharp">--metrics</c>.</summary>
+            /// <summary>Applies switches that take no value.</summary>
             /// <param name="flag">The raw command-line argument.</param>
             /// <param name="state">The accumulated flag state.</param>
             /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
@@ -322,6 +319,9 @@ internal static class Program
                         return true;
                     case "--metrics":
                         state.SetEnableMetrics();
+                        return true;
+                    case "--memory-accounting":
+                        state.SetMemoryAccountingEnabled();
                         return true;
                     default:
                         return false;
@@ -386,6 +386,8 @@ internal static class Program
 
                 internal int? MaxKeys { get; set; }
 
+                internal bool MemoryAccountingEnabled { get; private set; }
+
                 internal bool Persist { get; private set; }
 
                 internal string? SettingsPath { get; private set; }
@@ -399,6 +401,8 @@ internal static class Program
                 internal void SetEnableMetrics() => EnableMetrics = true;
 
                 internal void SetEnableReplication() => EnableReplication = true;
+
+                internal void SetMemoryAccountingEnabled() => MemoryAccountingEnabled = true;
 
                 internal void SetPersist() => Persist = true;
 

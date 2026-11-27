@@ -167,8 +167,9 @@ internal static class ReplicaOwnerTestKit
     /// <param name="registry">Replica group registry of the owner.</param>
     /// <param name="gateway">Follower transport double.</param>
     /// <param name="budgetClock">The time source of the commit budget and of the follower request timeouts.</param>
+    /// <param name="trackMemberPressure">Whether the leader uses reported member pressure for admission.</param>
     /// <returns>The committer.</returns>
-    internal static ReplicaGroupCommitter CreateCommitterOnBudgetClock(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeProvider budgetClock)
+    internal static ReplicaGroupCommitter CreateCommitterOnBudgetClock(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeProvider budgetClock, bool trackMemberPressure = true)
     {
         var cache = new StubCache();
         return new ReplicaGroupCommitter(registry, new ThreeNodeLocator(), gateway, cache, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
@@ -178,6 +179,7 @@ internal static class ReplicaOwnerTestKit
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"),
             BudgetTimeProvider = budgetClock,
+            TrackMemberPressure = trackMemberPressure,
         };
     }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -27,16 +28,21 @@ public sealed class SnapshotCriticalPressureTests : NodeIntegrationTestBase
     [Test]
     public async Task SnapshotAdvancesWhileMemoryIsCritical(CancellationToken cancellationToken)
     {
+        const string nodeId = "node-critical";
         await using var cluster = await StartClusterAsync(
-            "node-critical",
+            nodeId,
             new IntegrationStartOptions
             {
                 UsePersistence = true,
                 ExtraScope = "snapshot-critical",
-                ServicesConfigure = ForceCriticalEagerSnapshots,
+                MemoryPressureByNode = new Dictionary<string, PressureOptions>(StringComparer.Ordinal)
+                {
+                    [nodeId] = new() { MemoryAccountingEnabled = true, MaxEstimatedCacheBytes = 1 },
+                },
+                ServicesConfigure = ConfigureEagerSnapshots,
             },
             cancellationToken);
-        var node = cluster["node-critical"];
+        var node = cluster[nodeId];
         var coordinator = node.GetRequiredService<Coordinator>();
         var ledger = node.GetRequiredService<Ledger>();
         var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
@@ -50,10 +56,8 @@ public sealed class SnapshotCriticalPressureTests : NodeIntegrationTestBase
         _ = await Assert.That(node.GetRequiredService<ICriticalMemoryPressureReader>().IsCritical()).IsTrue();
     }
 
-    private static void ForceCriticalEagerSnapshots(TestServiceCollection services)
+    private static void ConfigureEagerSnapshots(TestServiceCollection services)
     {
-        _ = services.RemoveAll<IMemoryPressureStateEvaluator>().AddSingleton<IMemoryPressureStateEvaluator>(
-            new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1 }));
         _ = services.RemoveAll<TriggerOptions>().AddSingleton(
             new TriggerOptions { MinGapBetweenSnapshots = TimeSpan.Zero, SnapshotEveryNOps = 1 });
     }

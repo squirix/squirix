@@ -7,12 +7,14 @@ namespace Squirix.Server.Node.MemoryPressure;
 [Immutable]
 internal sealed class StateEvaluator : IMemoryPressureStateEvaluator
 {
-    private readonly PressureOptions _options;
+    private readonly long _highBytes;
+    private readonly long _criticalBytes;
 
     internal StateEvaluator(PressureOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _options = options;
+        _highBytes = options.HighBytes;
+        _criticalBytes = options.CriticalBytes;
     }
 
     /// <inheritdoc />
@@ -20,12 +22,7 @@ internal sealed class StateEvaluator : IMemoryPressureStateEvaluator
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(bytes, 0);
 
-        if (bytes == 0)
-            return PressureLevel.Normal;
-
-        var limit = _options.MaxEstimatedCacheBytes;
-        var percent = 1d * bytes / limit * 100d;
-        return (percent < _options.HighPressureThresholdPercent, percent < _options.CriticalPressureThresholdPercent) switch
+        return (bytes == 0 || bytes < _highBytes, bytes < _criticalBytes) switch
         {
             (true, _) => PressureLevel.Normal,
             (false, true) => PressureLevel.High,

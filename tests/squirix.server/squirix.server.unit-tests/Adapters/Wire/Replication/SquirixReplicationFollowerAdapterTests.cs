@@ -59,6 +59,19 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await Assert.That((critical.Success, critical.MemoryPressure)).IsEqualTo((true, true));
     }
 
+    /// <summary>A follower with memory accounting disabled accepts an append without setting the pressure flag.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UntrackedFollowerOmitsPressureFlag(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
+        var request = new AppendReplicaEntriesRequest { Header = follower.Header, PrevLogIndex = 0, PrevLogTerm = 0, LeaderCommitIndex = 0 };
+
+        var reply = await follower.Adapter.AppendReplicaEntriesAsync(request, follower.Context);
+
+        _ = await Assert.That((reply.Success, reply.MemoryPressure)).IsEqualTo((true, false));
+    }
+
     /// <summary>Verifies that GetReplicaStatus reports a ready follower.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

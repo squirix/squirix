@@ -37,6 +37,7 @@ internal static class OptionsResolver
         var options = new PressureOptions
         {
             MaxEstimatedCacheBytes = maxBytes,
+            MemoryAccountingEnabled = raw.MemoryAccountingEnabled,
             HighPressureThresholdPercent = raw.HighPressureThresholdPercent,
             CriticalPressureThresholdPercent = raw.CriticalPressureThresholdPercent,
         };

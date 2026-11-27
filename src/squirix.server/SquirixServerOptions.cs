@@ -69,6 +69,10 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.</summary>
     public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = Array.Empty<SquirixServerPeerOptions>();
 
+    /// <summary>Gets or sets the memory accounting override. <see langword="null" /> uses startup configuration, which defaults to disabled.</summary>
+    [JsonIgnore]
+    public bool? MemoryAccountingEnabled { get; set; }
+
     /// <summary>Gets or sets a value indicating whether this host collects Squirix metrics. Defaults to disabled.</summary>
     [JsonIgnore]
     public bool MetricsEnabled { get; set; }
@@ -124,6 +128,8 @@ public sealed class SquirixServerOptions
     public bool WaitForRecovery { get; set; } = true;
 
     internal EvictionOptions? Eviction { get; set; }
+
+    internal string? SettingsFilePath { get; set; }
 
     /// <summary>Validates the current configuration without throwing.</summary>
     /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>

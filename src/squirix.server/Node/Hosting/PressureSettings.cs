@@ -20,12 +20,17 @@ internal sealed class PressureSettings
     [JsonPropertyName("maxEstimatedCacheBytes")]
     internal long? MaxEstimatedCacheBytes { get; init; }
 
+    [JsonInclude]
+    [JsonPropertyName("memoryAccountingEnabled")]
+    internal bool? MemoryAccountingEnabled { get; init; }
+
     /// <summary>Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).</summary>
     /// <param name="baseline">Baseline options.</param>
     /// <returns>Merged options.</returns>
     internal UnresolvedMemoryPressureOptions MergeInto(UnresolvedMemoryPressureOptions baseline) => new()
     {
         MaxEstimatedCacheBytes = MaxEstimatedCacheBytes ?? baseline.MaxEstimatedCacheBytes,
+        MemoryAccountingEnabled = MemoryAccountingEnabled ?? baseline.MemoryAccountingEnabled,
         HighPressureThresholdPercent = HighPressureThresholdPercent ?? baseline.HighPressureThresholdPercent,
         CriticalPressureThresholdPercent = CriticalPressureThresholdPercent ?? baseline.CriticalPressureThresholdPercent,
     };

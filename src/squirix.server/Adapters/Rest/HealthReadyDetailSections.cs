@@ -8,7 +8,7 @@ internal sealed record HealthReadyDetailSections
     internal HealthReadyDetailSections(
         HealthClientPoolDetails clientPool,
         HealthCoordinationDetails coordination,
-        HealthMemoryPressureDetails memoryPressure,
+        HealthMemoryPressureDetails? memoryPressure,
         HealthRetentionCleanupDetails retentionCleanup,
         HealthJournalDiskDetails journalDisk,
         HealthReplicaGroupDetails[] replicaGroups)
@@ -27,7 +27,7 @@ internal sealed record HealthReadyDetailSections
 
     internal HealthJournalDiskDetails JournalDisk { get; }
 
-    internal HealthMemoryPressureDetails MemoryPressure { get; }
+    internal HealthMemoryPressureDetails? MemoryPressure { get; }
 
     internal HealthReplicaGroupDetails[] ReplicaGroups { get; }
 

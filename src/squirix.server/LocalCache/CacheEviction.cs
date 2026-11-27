@@ -50,7 +50,7 @@ internal sealed class CacheEviction<T>
             ? scope.Victim()?.Occupant.Key
             : null;
 
-    internal CacheSlot<T> Add(CacheKey key, int hash, NodeCacheEntry<T> entry, long bytes, out CacheSlot<T> removed)
+    internal CacheSlot<T> Add(CacheKey key, int hash, NodeCacheEntry<T> entry, long? bytes, out CacheSlot<T> removed)
     {
         removed = default;
         var scopeKey = ScopeOf(key);

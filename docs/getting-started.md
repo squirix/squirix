@@ -171,7 +171,7 @@ See [bootstrap client failover](bootstrap-client-failover.md) and [configuration
 ```bash
 squirix-server init [--settings Squirix.settings.json]
 squirix-server validate-config --settings Squirix.settings.json [--strict]
-squirix-server doctor [--settings Squirix.settings.json]
+squirix-server doctor [--settings Squirix.settings.json] [--cache-eviction memory] [--memory-accounting]
 squirix-server version
 ```
 
@@ -180,7 +180,7 @@ Square brackets in the command synopsis mark optional arguments; omit the bracke
 validation on `validate-config`; it does not add that validation to `doctor` or `run`.
 
 `run` supports `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, `--enable-replication`,
-and `--metrics`.
+`--metrics`, and `--memory-accounting`. Cache memory accounting is off by default. Enable it to track estimated cache bytes and enforce memory pressure limits.
 Run `validate-config --settings Squirix.settings.json --strict` before starting the server; passing `--strict` to
 `run` does not perform that validation. Without `--settings`, the host discovers `Squirix.settings.json` or
 `squirix.settings.json` in the working directory and application directory.

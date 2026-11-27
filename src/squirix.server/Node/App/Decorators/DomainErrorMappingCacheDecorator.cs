@@ -20,10 +20,13 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    internal DomainErrorMappingCacheDecorator(ILogicalNamespacedCache<T> inner)
+    private readonly PressureGate? _pressure;
+
+    internal DomainErrorMappingCacheDecorator(ILogicalNamespacedCache<T> inner, PressureGate? pressure = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         _inner = inner;
+        _pressure = pressure;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
@@ -87,6 +90,11 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         {
             await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
         }
+        catch (ResourceExhaustedException rejection) when (rejection.WasCritical != null && _pressure != null)
+        {
+            _pressure.ReportLocalRejection(rejection);
+            throw;
+        }
         catch (ServerCallException ex)
         {
             DomainTransportErrorMapper.Map(ex, cancellationToken);
@@ -102,6 +110,11 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         try
         {
             return await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ResourceExhaustedException rejection) when (rejection.WasCritical != null && _pressure != null)
+        {
+            _pressure.ReportLocalRejection(rejection);
+            throw;
         }
         catch (ServerCallException ex)
         {

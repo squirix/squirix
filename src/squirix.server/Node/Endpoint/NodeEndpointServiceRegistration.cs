@@ -36,10 +36,8 @@ internal static class NodeEndpointServiceRegistration
                         sp.Require<IRetentionCleanupReadinessStatus>(),
                         sp.Require<IJournalCoordinator>(),
                         sp.Require<Coordinator>(),
-                        sp.Require<TopologyOptions>(),
-                        sp.Require<IMemoryUsageAccounting>()),
-                    sp.Require<IMemoryPressureStateEvaluator>(),
-                    sp.Require<PressureOptions>(),
+                        sp.Require<TopologyOptions>()),
+                    FindMemoryPressureReader(sp),
                     sp.Find<IReplicaStatusSource>(),
                     sp.Require<TimeProvider>()));
             }
@@ -47,13 +45,21 @@ internal static class NodeEndpointServiceRegistration
             {
                 _ = services.Own<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
                     sp.Require<TopologyOptions>(),
-                    sp.Require<IMemoryUsageAccounting>(),
-                    sp.Require<IMemoryPressureStateEvaluator>(),
-                    sp.Require<PressureOptions>()));
+                    FindMemoryPressureReader(sp)));
             }
 
             return services;
         }
+    }
+
+    private static Func<HealthMemoryPressureSnapshot>? FindMemoryPressureReader(IServiceProvider services)
+    {
+        if (services.Find<IMemoryUsageAccounting>() is not { } accounting)
+            return null;
+
+        var evaluator = services.Require<IMemoryPressureStateEvaluator>();
+        var options = services.Require<PressureOptions>();
+        return () => BuildMemoryPressureSnapshot(accounting, evaluator, options);
     }
 
     private static HealthMemoryPressureSnapshot BuildMemoryPressureSnapshot(
@@ -85,24 +91,13 @@ internal static class NodeEndpointServiceRegistration
     private sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
         private readonly TopologyOptions _cluster;
-        private readonly IMemoryUsageAccounting _memoryAccounting;
-        private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
-        private readonly PressureOptions _memoryPressureOptions;
+        private readonly Func<HealthMemoryPressureSnapshot>? _readMemoryPressure;
 
-        internal EphemeralHealthReadyDetailsProvider(
-            TopologyOptions cluster,
-            IMemoryUsageAccounting memoryAccounting,
-            IMemoryPressureStateEvaluator memoryEvaluator,
-            PressureOptions memoryPressureOptions)
+        internal EphemeralHealthReadyDetailsProvider(TopologyOptions cluster, Func<HealthMemoryPressureSnapshot>? readMemoryPressure)
         {
             ArgumentNullException.ThrowIfNull(cluster);
-            ArgumentNullException.ThrowIfNull(memoryAccounting);
-            ArgumentNullException.ThrowIfNull(memoryEvaluator);
-            ArgumentNullException.ThrowIfNull(memoryPressureOptions);
             _cluster = cluster;
-            _memoryAccounting = memoryAccounting;
-            _memoryEvaluator = memoryEvaluator;
-            _memoryPressureOptions = memoryPressureOptions;
+            _readMemoryPressure = readMemoryPressure;
         }
 
         /// <inheritdoc />
@@ -111,8 +106,6 @@ internal static class NodeEndpointServiceRegistration
             var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
-            var memoryPressure = BuildMemoryPressureSnapshot(_memoryAccounting, _memoryEvaluator, _memoryPressureOptions);
-
             var healthReadyDetailsSnapshot = new HealthReadyDetailsSnapshot
             {
                 JournalBacklogOps = 0,
@@ -120,7 +113,7 @@ internal static class NodeEndpointServiceRegistration
                 SnapshotInFlight = false,
                 ClientPool = clientPool,
                 Coordination = coordination,
-                MemoryPressure = memoryPressure,
+                MemoryPressure = _readMemoryPressure?.Invoke(),
                 JournalDisk = new HealthJournalDiskSnapshot("normal", 0, 0, 0, false),
                 RetentionCleanup = new HealthRetentionCleanupSnapshot(false, 0, 0, null),
             };
@@ -136,21 +129,18 @@ internal static class NodeEndpointServiceRegistration
             IRetentionCleanupReadinessStatus retentionCleanup,
             IJournalCoordinator journal,
             Coordinator snapshot,
-            TopologyOptions cluster,
-            IMemoryUsageAccounting memoryAccounting)
+            TopologyOptions cluster)
         {
             ArgumentNullException.ThrowIfNull(manifestStore);
             ArgumentNullException.ThrowIfNull(retentionCleanup);
             ArgumentNullException.ThrowIfNull(journal);
             ArgumentNullException.ThrowIfNull(snapshot);
             ArgumentNullException.ThrowIfNull(cluster);
-            ArgumentNullException.ThrowIfNull(memoryAccounting);
             Ledger = manifestStore;
             RetentionCleanup = retentionCleanup;
             Journal = journal;
             Snapshot = snapshot;
             Cluster = cluster;
-            MemoryAccounting = memoryAccounting;
         }
 
         internal TopologyOptions Cluster { get; }
@@ -158,8 +148,6 @@ internal static class NodeEndpointServiceRegistration
         internal IJournalCoordinator Journal { get; }
 
         internal Ledger Ledger { get; }
-
-        internal IMemoryUsageAccounting MemoryAccounting { get; }
 
         internal IRetentionCleanupReadinessStatus RetentionCleanup { get; }
 
@@ -173,9 +161,7 @@ internal static class NodeEndpointServiceRegistration
         private readonly TopologyOptions _cluster;
         private readonly IJournalCoordinator _journal;
         private readonly Ledger _manifestStore;
-        private readonly IMemoryUsageAccounting _memoryAccounting;
-        private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
-        private readonly PressureOptions _memoryPressureOptions;
+        private readonly Func<HealthMemoryPressureSnapshot>? _readMemoryPressure;
         private readonly IReplicaStatusSource? _replication;
         private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
         private readonly Coordinator _snapshot;
@@ -183,8 +169,7 @@ internal static class NodeEndpointServiceRegistration
 
         internal HealthReadyDetailsProvider(
             HealthReadyDependencies deps,
-            IMemoryPressureStateEvaluator memoryEvaluator,
-            PressureOptions memoryPressureOptions,
+            Func<HealthMemoryPressureSnapshot>? readMemoryPressure,
             IReplicaStatusSource? replication,
             TimeProvider timeProvider)
         {
@@ -195,12 +180,8 @@ internal static class NodeEndpointServiceRegistration
             _journal = deps.Journal;
             _snapshot = deps.Snapshot;
             _cluster = deps.Cluster;
-            _memoryAccounting = deps.MemoryAccounting;
-            ArgumentNullException.ThrowIfNull(memoryEvaluator);
-            ArgumentNullException.ThrowIfNull(memoryPressureOptions);
             ArgumentNullException.ThrowIfNull(timeProvider);
-            _memoryEvaluator = memoryEvaluator;
-            _memoryPressureOptions = memoryPressureOptions;
+            _readMemoryPressure = readMemoryPressure;
             _timeProvider = timeProvider;
         }
 
@@ -223,7 +204,7 @@ internal static class NodeEndpointServiceRegistration
             var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
-            var memoryPressure = BuildMemoryPressureSnapshot(_memoryAccounting, _memoryEvaluator, _memoryPressureOptions);
+            var memoryPressure = _readMemoryPressure?.Invoke();
             var journalDisk = BuildJournalDiskSnapshot();
             var retentionCleanup = BuildRetentionCleanupSnapshot();
             var replicaGroups = await ReadReplicaGroupsAsync(cancellationToken).ConfigureAwait(false);
