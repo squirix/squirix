@@ -53,19 +53,19 @@ public class JournalAppendBenchmarks
     }
 
     /// <summary>Disposes the journal coordinator created during setup.</summary>
-    /// <returns>A task that completes when cleanup finishes.</returns>
     [IterationCleanup]
-    public async Task CleanupAsync()
+    public void Cleanup()
     {
         if (_host != null)
-            await _host.DisposeAsync().ConfigureAwait(false);
+            _host.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _host = null;
     }
 
     /// <summary>Creates a fresh journal for each iteration so earlier writes do not consume its segment capacity.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
     [IterationSetup]
-    public async Task SetupAsync()
+    public void Setup() => CreateHostAsync().GetAwaiter().GetResult();
+
+    private async Task CreateHostAsync()
     {
         var options = new PersistenceOptions
         {
