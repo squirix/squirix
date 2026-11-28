@@ -5,6 +5,7 @@ internal interface IRemoteInvocationScopeFactory
 {
     /// <summary>Enters a remote-invocation scope and returns a disposable that restores the previous scope.</summary>
     /// <param name="isInternalOwnerInvocation">Whether the invocation is an internal owner-routed cluster RPC.</param>
+    /// <param name="reportUnknownMutationOutcome">Whether the caller cannot replay a mutation with the same operation identifier.</param>
     /// <returns>A disposable scope handle.</returns>
-    RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation);
+    RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation, bool reportUnknownMutationOutcome);
 }

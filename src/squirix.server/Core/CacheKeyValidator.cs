@@ -6,7 +6,7 @@ namespace Squirix.Server.Core;
 internal static class CacheKeyValidator
 {
     /// <summary>Maximum allowed length for a cache key (Unicode scalar values; .NET string length).</summary>
-    private const int MaxLength = 1024;
+    internal const int MaxLength = 1024;
 
     private const char C0First = '\u0000';
     private const char C0Last = '\u001F';

@@ -136,6 +136,19 @@ internal static class ReplicaGroupCommitterWrites
             ReplicaOutcomeCodec.DecodeApplied,
             cancellationToken);
 
+        internal Task<bool> CommitReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) => committer.CommitAsync(
+            new ReplicaStateCommitRequest<(string OperationId, string CacheName, string Key, NodeCacheEntry<StoredValue> Entry)>(
+                (cacheName, operationId, key),
+                (operationId, cacheName, key, entry),
+                static write => ReplicaOperationFingerprints.ReplaceEntry(write.OperationId, write.CacheName, write.Key, write.Entry),
+                static (factory, write, index, token) => factory.PrepareReplaceEntryAsync(write.OperationId, write.CacheName, write.Key, write.Entry, index, token))
+            {
+                CommitAlone = committer.ReplacementAdmission != null,
+                ReplayBeforePrepare = true,
+            },
+            ReplicaOutcomeCodec.DecodeApplied,
+            cancellationToken);
+
         /// <summary>Commits a replicated value replacement.</summary>
         /// <param name="operationId">Client operation identifier.</param>
         /// <param name="cacheName">Target cache name.</param>

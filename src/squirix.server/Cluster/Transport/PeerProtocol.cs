@@ -25,6 +25,8 @@ internal static class PeerProtocol
         PeerOperation.SetDistributed => (OwnerPrefix + nameof(PeerOperation.SetDistributed), BinaryOperation.SetDistributed),
         PeerOperation.GetDistributed => (OwnerPrefix + nameof(PeerOperation.GetDistributed), BinaryOperation.GetDistributed),
         PeerOperation.RefreshDistributed => (OwnerPrefix + nameof(PeerOperation.RefreshDistributed), BinaryOperation.RefreshDistributed),
+        PeerOperation.ReplaceEntryIfPresent => (OwnerPrefix + nameof(PeerOperation.ReplaceEntryIfPresent), BinaryOperation.Update),
+        PeerOperation.GetRespValue => (OwnerPrefix + nameof(PeerOperation.GetRespValue), BinaryOperation.GetValue),
         PeerOperation.AppendReplicaEntries => (ReplicationPrefix + nameof(PeerOperation.AppendReplicaEntries), null),
         PeerOperation.GetReplicaStatus => (ReplicationPrefix + nameof(PeerOperation.GetReplicaStatus), null),
         PeerOperation.OfferReplicaBootstrap => (ReplicationPrefix + nameof(PeerOperation.OfferReplicaBootstrap), null),

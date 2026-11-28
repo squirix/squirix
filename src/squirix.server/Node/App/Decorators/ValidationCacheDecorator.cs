@@ -91,6 +91,16 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
 
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);
+        ArgumentNullException.ThrowIfNull(entry);
+        EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+        ValidateLocalValue(entry.Value, entry.PendingWrite);
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.TryReplaceEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+    }
+
     public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         _ = CacheKeyValidator.Validate(key, nameof(key), _keyValidation);

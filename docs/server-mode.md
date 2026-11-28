@@ -1,7 +1,8 @@
 # Server mode
 
 Run a Squirix node with the `squirix-server` tool or embed it using the `squirix.server` library.
-In both modes, applications access data through the Squirix client SDK over the binary TLS listener.
+In both modes, applications can use the Squirix client SDK over the binary TLS listener. The
+[RESP cache endpoint](resp.md) for Redis clients listens on `127.0.0.1:6379` by default.
 
 For the .NET 10 build on Linux and macOS, use .NET 10.0.15 or a later .NET 10 patch.
 Earlier .NET 10 builds can silently lose disk flush errors and are rejected at startup.

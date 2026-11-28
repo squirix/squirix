@@ -14,7 +14,7 @@ namespace Squirix.Server.Node.Services;
 /// <remarks>
 /// <para>
 /// Each write is taken from the head of the queue and prepared at the next consecutive log index. A batch holds each cache key and each operation
-/// identity once, and no identity the group already retains. A bounded factory commits one request at a time. An unbounded prepare reads only its own key and the clock, so entries of distinct keys decide the same as if
+/// identity once, and no identity the group already retains. A bounded factory commits one request at a time. A write that checks live memory usage is also committed alone so earlier writes update accounting before its decision. Other entries of distinct keys decide the same as if
 /// they were committed one by one. The write that would repeat a key or an identity ends the batch and stays queued, as does one that would no longer fit
 /// the payload bytes or the idempotency capacity. A write whose identity is retained is committed alone, where the coordinator answers a retry from the record.
 /// </para>
@@ -105,7 +105,7 @@ internal sealed class ReplicaCommitBatchFormer
         if (Entries.Count >= ReplicaGroupCommitterBatches.MaxBatchEntries || _bytes >= ReplicaGroupCommitterBatches.MaxBatchBytes)
             return Admission.Stop;
 
-        if (RepeatsEntry(candidate))
+        if ((Entries.Count != 0 && candidate.CommitAlone) || RepeatsEntry(candidate))
             return Admission.Stop;
 
         if (!candidate.TryTake())
@@ -148,8 +148,8 @@ internal sealed class ReplicaCommitBatchFormer
                 return false;
             }
 
-            // An insertion can affect a second key. Finish applying it before preparing another bounded write.
-            more = more && !retained && _factory.SelectCapacityVictim == null && FitsAnother();
+            // Other prepares may need this write to have updated memory before they run.
+            more = more && !retained && !candidate.CommitAlone && _factory.SelectCapacityVictim == null && FitsAnother();
         }
 
         if (queued)

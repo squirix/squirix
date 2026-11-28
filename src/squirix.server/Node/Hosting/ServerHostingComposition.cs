@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Adapters.Endpoint.Resp;
 using Squirix.Server.Adapters.Wire.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -15,6 +16,7 @@ using Squirix.Server.Composition;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Logging;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
@@ -160,7 +162,6 @@ internal static class ServerHostingComposition
         var replicated = FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled;
         var persistence = args.PersistenceOptions == null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions, replicated);
         var persistenceEnabled = persistence != null;
-        var uri = cluster.Uri;
         var pressure = args.MemoryPressureOptions ?? OptionsResolver.Resolve(
             await PressureBootstrap.LoadAsync(cancellationToken, args.SettingsFilePath).ConfigureAwait(false), GcMemoryBudgetProvider.Instance);
         if (args.MemoryAccountingEnabled is { } enabled)
@@ -187,10 +188,19 @@ internal static class ServerHostingComposition
         AddSquirixClusterStack(services, cluster, args);
         RegisterPersistenceAndReplication(services, cluster, persistence, mtlsOptions, args);
 
-        _ = services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled, pressure.MemoryAccountingEnabled && (persistenceEnabled || replicated));
+        RegisterCacheEndpoints(services, cluster, args, persistenceEnabled, pressure.MemoryAccountingEnabled && (persistenceEnabled || replicated));
+    }
+
+    private static void RegisterCacheEndpoints(NodeServices services, TopologyOptions cluster, CompositionArgs args, bool persistenceEnabled, bool admitBeforeCommit)
+    {
+        // A cluster owner can receive RESP operations through a peer while its own RESP listener is disabled.
+        var orderedReadCacheName = (args.RespUri != null || cluster.Peers.Count > 1) ? CacheCommands.CacheName : null;
+        _ = services.AddSquirixCachePipeline(persistenceEnabled, args.MetricsEnabled, admitBeforeCommit, orderedReadCacheName);
         _ = services.AddSquirixNodeEndpointServices(persistenceEnabled);
         var authEnabled = services.AddSquirixSecurityServices(args.SecurityOptions);
-        ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
+        ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(cluster.Uri, authEnabled);
+        if (args.RespUri is { } respUri)
+            ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(respUri, authEnabled);
         _ = services.AddSquirixFrameworkServices();
         _ = services.Own(static sp => new LargeCacheRequests(
             sp.Require<FeatureState>().NetworkReplicationEnabled,
@@ -200,7 +210,8 @@ internal static class ServerHostingComposition
             cluster,
             FeatureState.Resolve(cluster, args.FoundationOnly).NetworkReplicationEnabled,
             args.ManagementUri,
-            args.ServerCertificate));
+            args.ServerCertificate,
+            args.RespUri));
         _ = services.RunService(static sp => sp.Require<NativeClientService>());
     }
 
@@ -511,6 +522,7 @@ internal static class ServerHostingComposition
             {
                 TrackMemberPressure = sp.Require<PressureOptions>().MemoryAccountingEnabled,
                 SelectCapacityVictim = physical.HasCapacity ? physical.SelectCapacityVictim : null,
+                ReplacementAdmission = sp.Find<ReplacementAdmission<StoredValue>>(),
                 Recovery = sp.Require<IJournalCoordinator>(),
                 Applier = sp.Require<ReplicaGroupAppliers>().For(groupId),
                 Clock = sp.Require<TimeProvider>(),

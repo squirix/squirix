@@ -214,7 +214,7 @@ internal sealed class NativePeerEndpoint
             accessor.Current = call;
             try
             {
-                return await _services.Require<BinaryDispatch>().ExecuteAsync(operation, body, in request).ConfigureAwait(false);
+                return await _services.Require<BinaryDispatch>().ExecuteOwnerAsync(frame.Operation, operation, body, in request).ConfigureAwait(false);
             }
             finally
             {

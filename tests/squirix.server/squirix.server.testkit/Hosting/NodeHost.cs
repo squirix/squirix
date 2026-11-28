@@ -46,6 +46,7 @@ internal static class NodeHost
 
         internal void Configure(CompositionArgs args)
         {
+            args.RespUri = _options.Resp?.ToListenUri();
             args.ManagementUri = _options.ManagementUri ?? new Uri("https://127.0.0.1:0");
             args.ServerCertificate = _options.ServerCertificate ?? DevelopmentCertificate.Shared;
             args.WaitForRecovery = _options.WaitForRecovery;

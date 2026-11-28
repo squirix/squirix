@@ -67,6 +67,13 @@ internal static class ReplicaMutationDecisions
         _ => Upsert(in value, current.Version, current.Tags, PinnedTicks(current.ExpiresUtc)),
     };
 
+    internal static ReplicaDecision DecideReplaceEntry(NodeCacheEntry<StoredValue>? current, NodeCacheEntry<StoredValue> entry, DateTime now) => current switch
+    {
+        null => Unchanged(),
+        _ when IsExpired(current, now) => Expired(current),
+        _ => DecideSet(entry, now),
+    };
+
     /// <summary>Decides an expiration refresh: applied, writing the observed entry under the new deadline, when the key is live.</summary>
     /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>
     /// <param name="now">The prepare time.</param>

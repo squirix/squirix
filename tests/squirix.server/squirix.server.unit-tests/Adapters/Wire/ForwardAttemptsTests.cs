@@ -12,6 +12,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
@@ -100,6 +101,34 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         _ = await Assert.That(handshakeInvoker.Requests.Count).IsEqualTo(3);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(handshakeFailure)).IsTrue();
         _ = await Assert.That((ownerFailure.StatusCode, ownerFailure.Message)).IsEqualTo((FrameStatus.Internal, "owner failed"));
+    }
+
+    /// <summary>A forwarded RESP write distinguishes a transport failure from a definite refusal.</summary>
+    /// <param name="failureKind">Where the forward failed.</param>
+    /// <param name="expectedDetail">The stable outcome detail sent back to the caller.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments("connect", ServerOpContract.OwnerUnreachableDetail)]
+    [Arguments("refusal", ServerOpContract.NoWriteMajorityDetail)]
+    [Arguments("reply", ServerOpContract.CommitOutcomeUnknownDetail)]
+    public async Task ReportsForwardedRespWriteOutcome(string failureKind, string expectedDetail, CancellationToken cancellationToken)
+    {
+        var invoker = new CapturingCallInvoker(failure: () => failureKind switch
+        {
+            "connect" => new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"),
+            "refusal" => ServerOpContract.NoWriteMajority(),
+            "reply" => new ServerCallException(FrameStatus.DataLoss, "Malformed peer response."),
+            _ => throw new InvalidOperationException("Unknown test failure kind."),
+        });
+        var forwarder = CreateForwarder(invoker);
+        using var scope = RemoteInvocationContext.EnterRemoteInvocation(false, true);
+        var write = forwarder.SetEntryAsync(Owner, new SetEntryAsyncRequest { CacheName = "resp", Key = "k" }, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
+        _ = await Assert.That(error.Error.Detail).IsEqualTo(expectedDetail);
+        if (string.Equals(failureKind, "reply", StringComparison.Ordinal))
+            _ = await Assert.That(invoker.Requests.Count).IsEqualTo(1);
     }
 
     /// <summary>A forward whose attempt was canceled, as by its per-attempt timeout, reaches the caller as a timeout and never as unreachable.</summary>

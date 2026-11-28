@@ -28,6 +28,11 @@ internal static class TestNodeBuilder
         CancellationToken cancellationToken = default)
     {
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
+
+        // Parallel test hosts share loopback and need different ports.
+        if (options.Resp is { Enabled: true, Port: RespOptions.DefaultPort } resp)
+            options.Resp = new RespOptions { BindAddress = resp.BindAddress, Port = 0 };
+
         await TestNodeServices.ConfigureNodeAsync(services, options, configureComposition, cancellationToken).ConfigureAwait(false);
         return services;
     }

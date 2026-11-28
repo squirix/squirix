@@ -56,6 +56,9 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
         _journal.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _journal.TryReplaceEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         _journal.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
 }

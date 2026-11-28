@@ -48,6 +48,7 @@ M:Squirix.Server.Errors.SquirixException::.ctor(System.String)
 M:Squirix.Server.Errors.SquirixException::.ctor(System.String,System.Exception)
 M:Squirix.Server.ReplicaDoctor::BuildReportAsync(Squirix.Server.SquirixServerOptions,System.String,System.Threading.CancellationToken)
 M:Squirix.Server.ReplicaDoctorReport::.ctor(System.Boolean,System.Collections.Generic.IReadOnlyList<System.String>)
+M:Squirix.Server.RespOptions::.ctor()
 M:Squirix.Server.SquirixServer::DisposeAsync()
 M:Squirix.Server.SquirixServer::StartAsync(Squirix.Server.SquirixServerOptions,System.Threading.CancellationToken)
 M:Squirix.Server.SquirixServer::StartAsync(System.Threading.CancellationToken)
@@ -80,8 +81,15 @@ P:Squirix.Server.Errors.SquirixException::Detail:System.String.get
 P:Squirix.Server.Errors.SquirixException::Error:System.String.get
 P:Squirix.Server.ReplicaDoctorReport::HasMismatch:System.Boolean.get
 P:Squirix.Server.ReplicaDoctorReport::Lines:System.Collections.Generic.IReadOnlyList<System.String>.get
+P:Squirix.Server.RespOptions::BindAddress:System.String.get
+P:Squirix.Server.RespOptions::BindAddress:System.String.set
+P:Squirix.Server.RespOptions::Enabled:System.Boolean.get
+P:Squirix.Server.RespOptions::Enabled:System.Boolean.set
+P:Squirix.Server.RespOptions::Port:System.Int32.get
+P:Squirix.Server.RespOptions::Port:System.Int32.set
 P:Squirix.Server.SquirixServer::ApplicationStopping:System.Threading.CancellationToken.get
 P:Squirix.Server.SquirixServer::ManagementUri:System.Uri.get
+P:Squirix.Server.SquirixServer::RespUri:System.Uri.get
 P:Squirix.Server.SquirixServerBackpressureOptions::MaxInFlight:System.Int32.get
 P:Squirix.Server.SquirixServerBackpressureOptions::MaxInFlight:System.Int32.set
 P:Squirix.Server.SquirixServerBackpressureOptions::MaxQueue:System.Int32.get
@@ -140,6 +148,8 @@ P:Squirix.Server.SquirixServerOptions::ReplicaCount:System.Int32.get
 P:Squirix.Server.SquirixServerOptions::ReplicaCount:System.Int32.set
 P:Squirix.Server.SquirixServerOptions::ReplicationEnabled:System.Boolean.get
 P:Squirix.Server.SquirixServerOptions::ReplicationEnabled:System.Boolean.set
+P:Squirix.Server.SquirixServerOptions::Resp:Squirix.Server.RespOptions.get
+P:Squirix.Server.SquirixServerOptions::Resp:Squirix.Server.RespOptions.set
 P:Squirix.Server.SquirixServerOptions::Uri:System.Uri.get
 P:Squirix.Server.SquirixServerOptions::Uri:System.Uri.set
 P:Squirix.Server.SquirixServerOptions::VirtualNodes:System.Int32.get
@@ -160,6 +170,7 @@ T:Squirix.Server.Errors.SquirixErrorCode
 T:Squirix.Server.Errors.SquirixException
 T:Squirix.Server.ReplicaDoctor
 T:Squirix.Server.ReplicaDoctorReport
+T:Squirix.Server.RespOptions
 T:Squirix.Server.SquirixServer
 T:Squirix.Server.SquirixServerBackpressureOptions
 T:Squirix.Server.SquirixServerJournalOptions

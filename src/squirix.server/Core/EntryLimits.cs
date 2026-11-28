@@ -5,6 +5,9 @@ namespace Squirix.Server.Core;
 /// <summary>Limits for cache entries and the short form of peer frames.</summary>
 internal static class EntryLimits
 {
+    /// <summary>Maximum size of a RESP bulk string.</summary>
+    internal const int MaxRespBulkBytes = 1024 * 1024;
+
     /// <summary>Maximum serialized value admitted on a replication-enabled node.</summary>
     internal const int MaxReplicatedValueBytes = 32 * 1024 * 1024;
 

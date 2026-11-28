@@ -45,6 +45,12 @@ internal enum PeerOperation : byte
     /// <summary>Refreshes a distributed cache value on its owner.</summary>
     RefreshDistributed = 13,
 
+    /// <summary>Replaces an existing entry, including its deadline, on its owner.</summary>
+    ReplaceEntryIfPresent = 14,
+
+    /// <summary>Reads a value on its owner with the RESP bulk string size limit.</summary>
+    GetRespValue = 15,
+
     /// <summary>Appends entries to the replica log.</summary>
     AppendReplicaEntries = 16,
 

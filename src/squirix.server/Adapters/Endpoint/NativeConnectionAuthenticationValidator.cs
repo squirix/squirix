@@ -54,6 +54,8 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
         return hook == null ? FrameStatus.Ok : await hook.AuthorizeAsync(request).ConfigureAwait(false);
     }
 
+    internal ITimer CreateExpiryTimer(AuthenticatedConnection connection) => connection.CreateExpiryTimer(_clock);
+
     internal NodeRequestScope? CreateRequestScope() => _hasAuthorizationHook ? _scopes!.Open() : null;
 
     internal void Exit() => _pending.Release();
@@ -61,7 +63,7 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
     internal async ValueTask<bool> IsCurrentAsync(AuthenticatedConnection connection, CancellationToken cancellationToken)
     {
         var options = _options();
-        if (!connection.IsWithinLifetime(_clock.GetUtcNow().UtcDateTime) || !ReferenceEquals(connection.Options, options))
+        if (!IsWithinLifetime(connection) || !ReferenceEquals(connection.Options, options))
             return false;
 
         var configuration = await GetConfigurationAsync(options, cancellationToken).ConfigureAwait(false);
@@ -70,9 +72,14 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
                ConnectionTrustHistory.IsCurrent(connection, now);
     }
 
+    internal bool IsWithinLifetime(AuthenticatedConnection connection) => connection.IsWithinLifetime(_clock.GetUtcNow().UtcDateTime);
+
     internal bool TryEnter() => _pending.Wait(0, CancellationToken.None);
 
-    internal async ValueTask<AuthenticatedConnection?> ValidateAsync(string token, BinaryConnection connection, CancellationToken cancellationToken)
+    internal ValueTask<AuthenticatedConnection?> ValidateAsync(string token, BinaryConnection connection, CancellationToken cancellationToken) =>
+        ValidateAsync(token, connection, connection.RequestClose, cancellationToken);
+
+    internal async ValueTask<AuthenticatedConnection?> ValidateAsync(string token, BinaryConnection? connection, Action requestClose, CancellationToken cancellationToken)
     {
         var accepted = await ValidateTokenAsync(token, connection, cancellationToken).ConfigureAwait(false);
         return accepted == null
@@ -83,7 +90,7 @@ internal sealed class NativeConnectionAuthenticationValidator : IDisposable
                 accepted.Options,
                 accepted.Configuration,
                 accepted.HistoricalStarted,
-                connection.RequestClose);
+                requestClose);
     }
 
     internal async ValueTask<bool> ValidateBearerAsync(string token, CancellationToken cancellationToken)

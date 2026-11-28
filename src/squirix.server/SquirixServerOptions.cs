@@ -63,6 +63,10 @@ public sealed class SquirixServerOptions
     /// <remarks>Must not be <see langword="null" />. Requires persistence for group commit. Changes apply on the next host start.</remarks>
     public SquirixServerJournalOptions Journal { get; set; } = new();
 
+    /// <summary>Gets or sets the settings for the RESP listener.</summary>
+    [JsonIgnore]
+    public RespOptions Resp { get; set; } = new();
+
     /// <summary>Gets or sets the local node identifier.</summary>
     public string NodeId { get; set; } = "node";
 
@@ -206,7 +210,7 @@ public sealed class SquirixServerOptions
             return false;
         }
 
-        var sectionFailure = ValidateSections(options);
+        var sectionFailure = ValidateSections(options) ?? (options.Resp == null ? "Resp cannot be null." : options.Resp.Validate());
         if (sectionFailure != null)
         {
             errors = [sectionFailure];

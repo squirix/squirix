@@ -6,6 +6,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Logging;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -36,8 +37,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal const string CommitBudgetRefusalReason = "replica_commit_budget";
     internal const int MaxInFlight = 2;
     private const string PendingApplyRefusalReason = "replica_apply_pending";
-    private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
     private readonly Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<StoredValue>>> _expiration;
     private readonly IReplicaGroupLocator _locator;
@@ -88,8 +87,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _probe = new Lazy<ReplicaVerificationProbe>(
             () => new ReplicaVerificationProbe(registry, locator, gateway, identity, Topology.Fingerprint, Topology.Generation, Log),
             LazyThreadSafetyMode.ExecutionAndPublication);
-        CommitBudget = DefaultCommitBudget;
-        ShutdownBudget = DefaultShutdownBudget;
 
         // Created on first use, after the init-only budgets are set. One run of the expiry serves every caller of the key, so it takes no
         // caller token: the commit budget bounds the wait before the append, and the commit itself is budget-bounded.
@@ -137,7 +134,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
             field = value;
         }
-    }
+    } = TimeSpan.FromSeconds(5);
 
     /// <summary>Gets or initializes the longest wait of a compaction step for the followers and the commit gate; 10 seconds unless set.</summary>
     /// <remarks>A step that runs out of it is skipped until the next pass; the compaction itself, once it holds the gate, is never bounded by it.</remarks>
@@ -201,6 +198,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     internal Func<CacheKey, CacheKey?>? SelectCapacityVictim { get; init; }
 
+    internal ReplacementAdmission<StoredValue>? ReplacementAdmission { get; init; }
+
     /// <summary>Gets the record of the appends to the owned group log; it outlives the pipelines, which are recreated after a failed append.</summary>
     internal ReplicaLocalAppends LocalAppends { get; } = new();
 
@@ -240,7 +239,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
             field = value;
         }
-    }
+    } = TimeSpan.FromSeconds(30);
 
     /// <summary>Initializes the time source of the shutdown budget that bounds the dispose drain.</summary>
     internal required TimeProvider ShutdownTimeProvider { private get; init; }

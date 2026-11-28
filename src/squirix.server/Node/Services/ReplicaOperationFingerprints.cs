@@ -65,6 +65,9 @@ internal static class ReplicaOperationFingerprints
     internal static byte[] AddIfAbsent(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry) =>
         Compute(operationId, cacheName, key, ReplicaMutationKinds.TryAdd, entry.MapToWire());
 
+    internal static byte[] ReplaceEntry(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry) =>
+        Compute(operationId, cacheName, key, "replace-entry", entry.MapToWire());
+
     internal static byte[] Update(string operationId, string cacheName, string key, in StoredValue value) =>
         Compute(operationId, cacheName, key, ReplicaMutationKinds.Update, ServerWireMapping.CacheValueToWire(value));
 

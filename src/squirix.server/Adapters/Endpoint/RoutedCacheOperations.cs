@@ -86,13 +86,9 @@ internal sealed class RoutedCacheOperations<T>
             static (s, ct) => s.Adapter.GetExpirationLocalAsync(s.Request, ct),
             cancellationToken);
 
-        internal ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
-            request.CacheName,
-            request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.GetValueAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter.GetValueLocalAsync(s.Request, ct),
-            cancellationToken);
+        internal ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CancellationToken cancellationToken) => GetValueAsync(request, false, cancellationToken);
+
+        internal ValueTask<GetValueAsyncResponse> GetRespValueAsync(GetValueAsyncRequest request, CancellationToken cancellationToken) => GetValueAsync(request, true, cancellationToken);
 
         internal ValueTask<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
             request.CacheName,
@@ -104,6 +100,14 @@ internal sealed class RoutedCacheOperations<T>
                 _ = await s.Adapter.AccessDistributedLocalAsync(s.Request.OperationId, s.Request.CacheName, s.Request.Key, true, ct).ConfigureAwait(false);
                 return RefreshDistributedAsyncResponse.Instance;
             },
+            cancellationToken);
+
+        private ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, bool resp, CancellationToken cancellationToken) => _router.ExecuteAsync(
+            request.CacheName,
+            request.Key,
+            (Adapter: this, Request: request, Resp: resp),
+            static (s, owner, ct) => s.Adapter._forwarder.GetValueAsync(owner, s.Request, ct, s.Resp),
+            static (s, ct) => s.Adapter.GetValueLocalAsync(s.Request, s.Resp, ct),
             cancellationToken);
 
         private ValueTask<ReadOnlyMemory<byte>?> AccessDistributedLocalAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
@@ -147,10 +151,19 @@ internal sealed class RoutedCacheOperations<T>
             return response;
         }
 
-        private async ValueTask<GetValueAsyncResponse> GetValueLocalAsync(GetValueAsyncRequest request, CancellationToken cancellationToken)
+        private async ValueTask<GetValueAsyncResponse> GetValueLocalAsync(GetValueAsyncRequest request, bool resp, CancellationToken cancellationToken)
         {
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
             var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            if (resp && result.Found)
+            {
+                // A hit without a value represents a type mismatch to the RESP adapter.
+                if (result.Value is not StoredValue { Kind: StoredValueKind.Binary } value)
+                    return new GetValueAsyncResponse { Found = true };
+                if (value.Memory.Length > EntryLimits.MaxRespBulkBytes)
+                    throw new ServerCallException(FrameStatus.OutOfRange, "The cached binary value exceeds the response size limit.");
+            }
+
             var response = new GetValueAsyncResponse { Found = result.Found };
             if (result.Found)
                 response.Value = ServerWireMapping.CacheValueToWire(result.Value);
@@ -244,6 +257,14 @@ internal sealed class RoutedCacheOperations<T>
             (Adapter: this, Request: request),
             static (s, owner, ct) => s.Adapter._forwarder.AddEntryIfAbsentAsync(owner, s.Request, ct),
             static (s, ct) => s.Adapter._handlers.AddEntryAsyncCoreAsync(s.Request, ct),
+            cancellationToken);
+
+        internal ValueTask<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+            request.CacheName,
+            request.Key,
+            (Adapter: this, Request: request),
+            static (s, owner, ct) => s.Adapter._forwarder.ReplaceEntryIfPresentAsync(owner, s.Request, ct),
+            static (s, ct) => s.Adapter._handlers.ReplaceEntryIfPresentAsync(s.Request, ct),
             cancellationToken);
 
         internal ValueTask<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
@@ -401,6 +422,19 @@ internal sealed class RoutedCacheOperations<T>
                     request.Expiration ?? MissingExpiration(),
                     cancellationToken).ConfigureAwait(false);
                 return TouchAsyncResponse.FromResult(found);
+            }
+
+            internal async ValueTask<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken)
+            {
+                var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
+                if (_journal != null)
+                    await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
+                var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                var replaced = await _cacheOperations.ForCache(cacheName)
+                    .TryReplaceEntryAsync(operationId, request.Key, request.Entry.MapFromWire<T>(), cancellationToken).ConfigureAwait(false);
+                return new UpdateAsyncResponse { Updated = replaced };
             }
 
             internal async ValueTask<UpdateAsyncResponse> UpdateAsyncCoreAsync(UpdateAsyncRequest request, CancellationToken cancellationToken)

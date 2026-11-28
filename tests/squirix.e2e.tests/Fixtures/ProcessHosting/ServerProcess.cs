@@ -193,6 +193,7 @@ internal sealed class ServerProcess : IAsyncDisposable
         }
 
         start.Environment["SQUIRIX_TEST_ROOT"] = workingDirectory;
+        start.Environment["SQUIRIX_RESP_PORT"] = "0";
         start.Environment["DOTNET_PROCESSOR_COUNT"] = "2";
         start.Environment["Logging__LogLevel__Default"] = "Warning";
         return start;

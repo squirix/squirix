@@ -50,14 +50,18 @@ internal sealed class FusedWriteHarness
         string dir,
         StallableJournal journal,
         ILogicalNamespacedCache<StoredValue>? innerOverride = null,
-        Func<JournalLoggingCacheDecorator<StoredValue>, ILogicalNamespacedCache<StoredValue>>? chain = null)
+        Func<JournalLoggingCacheDecorator<StoredValue>, ILogicalNamespacedCache<StoredValue>>? chain = null,
+        Func<PhysicalCache<StoredValue>, ReplacementAdmission<StoredValue>>? replacementAdmission = null)
     {
         Dir = dir;
         Journal = journal;
         Clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
         Physical = new PhysicalCache<StoredValue>(Clock, new CacheEntrySizeEstimator<StoredValue>());
         Executor = new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance);
-        Cache = new JournalLoggingCacheDecorator<StoredValue>(innerOverride ?? new ClientCache<StoredValue>(Physical, Physical), journal.Journal, Executor, Clock, Physical.RawReader);
+        Cache = new JournalLoggingCacheDecorator<StoredValue>(innerOverride ?? new ClientCache<StoredValue>(Physical, Physical), journal.Journal, Executor, Clock, Physical.RawReader)
+        {
+            ReplacementAdmission = replacementAdmission?.Invoke(Physical),
+        };
         Adapter = CreateAdapter(chain?.Invoke(Cache) ?? Cache);
     }
 

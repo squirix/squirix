@@ -32,5 +32,7 @@ internal interface ILocalCacheMutationOperations<T>
     /// <returns><see langword="true" /> when the entry was stored.</returns>
     bool TryAdd(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null);
 
+    bool TryReplace(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
+
     bool Update(CacheKey key, T? value, CancellationToken cancellationToken);
 }

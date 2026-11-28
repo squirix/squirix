@@ -16,8 +16,9 @@ In Docker, mount settings read-only (for example `docker/node-a/appsettings.json
 See [containerization.md](containerization.md) for dev and release image layouts.
 
 The standalone CLI and `SquirixServer.StartAsync()` load `Squirix:Cluster` through `Configurator`.
-The host also loads `Squirix:PrometheusMetrics` from the selected settings file. An explicit `--settings custom.json`
-selects the server settings from that file, including eviction, memory pressure, and snapshots.
+The host also loads `Squirix:Resp` and `Squirix:PrometheusMetrics` from the selected settings file.
+An explicit `--settings custom.json` selects the server settings from that file, including RESP, eviction,
+memory pressure, and snapshots.
 Keep all sections in `appsettings.json` in the working directory to apply them together.
 When upgrading an existing deployment, rename `Squirix.settings.json` to `appsettings.json` or move its `Squirix` object
 into your existing `appsettings.json`. Update Docker mounts and CLI arguments that name the old file.
@@ -721,7 +722,7 @@ the same auth pipeline used by in-process overrides. Docker images set
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SQUIRIX_TLS_CERTIFICATE_PATH`                       | PFX certificate for the client and management TLS listeners.                                                                                                                                                       |
+| `SQUIRIX_TLS_CERTIFICATE_PATH`                       | PFX certificate for the client, management, and optional [RESP](resp.md) TLS listeners.                                                                                                                            |
 | `SQUIRIX_TLS_CERTIFICATE_PASSWORD`                   | Optional PFX password.                                                                                                                                                                                             |
 | `SQUIRIX_MANAGEMENT_URI`                             | HTTPS management origin. Defaults to loopback with a certificate-matching host where available. See [listener defaults](server-mode.md).                                                                           |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                                          |

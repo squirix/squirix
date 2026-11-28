@@ -45,6 +45,8 @@ internal static class BinaryEndpoint
         return connection => AcceptAsync(connection, auth, services, validator != null, accepted);
     }
 
+    internal static string GetOperationPath(BinaryOperation operation) => OperationPaths[Unsafe.BitCast<BinaryOperation, int>(operation)];
+
     private static async Task AcceptAsync(BinaryConnection connection, ConnectionAuthenticationMiddleware authenticate, IServiceProvider services, bool requiresCredentials, byte accepted)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(connection.ConnectionClosed, connection.CloseRequested);

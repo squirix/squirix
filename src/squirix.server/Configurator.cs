@@ -27,6 +27,13 @@ public static class Configurator
         ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
     }
 
+    private enum MissingCluster
+    {
+        Reject = 0,
+        UseDefaults = 1,
+        UseEphemeralDefaults = 2,
+    }
+
     /// <summary>Applies eviction flags over the settings loaded for this node.</summary>
     /// <param name="options">Server options to update.</param>
     /// <param name="mode">Optional disabled, keyCount or memory mode.</param>
@@ -94,6 +101,7 @@ public static class Configurator
 
         target.SettingsFilePath = source.SettingsFilePath;
         target.Eviction = source.Eviction;
+        target.Resp = source.Resp;
         target.ClusterId = source.ClusterId;
         target.NodeId = source.NodeId;
         target.Uri = source.Uri;
@@ -141,7 +149,8 @@ public static class Configurator
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path != null ? await LoadHostingSettingsAsync(path, settingsPath == null, false, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
+            var missingCluster = settingsPath == null ? MissingCluster.UseDefaults : MissingCluster.Reject;
+            options = await LoadHostingSettingsAsync(path, missingCluster, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -199,7 +208,7 @@ public static class Configurator
     /// <returns>The validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the file is missing, invalid, or fails validation.</exception>
     public static Task<SquirixServerOptions> LoadAsync(string settingsFilePath, CancellationToken cancellationToken = default) =>
-        LoadHostingSettingsAsync(settingsFilePath, false, false, cancellationToken);
+        LoadHostingSettingsAsync(settingsFilePath, MissingCluster.Reject, cancellationToken);
 
     /// <summary>Loads settings from the discovered settings file or, when no settings file exists, creates ephemeral local defaults.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -247,7 +256,7 @@ public static class Configurator
     /// <c language="csharp">Options</c> holds the validated options, and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
     public static Task<(bool Success, SquirixServerOptions? Options, string? Error)> LoadFromFileAsync(string path, CancellationToken cancellationToken = default) =>
-        LoadFromFileAsync(path, false, cancellationToken);
+        LoadFromFileAsync(path, MissingCluster.Reject, false, cancellationToken);
 
     /// <summary>Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.</summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
@@ -277,7 +286,7 @@ public static class Configurator
     /// <returns>Validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the settings file cannot be loaded or fails validation.</exception>
     internal static Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken) =>
-        LoadHostingSettingsAsync(discoveredPath, true, true, cancellationToken);
+        LoadHostingSettingsAsync(discoveredPath, MissingCluster.UseEphemeralDefaults, cancellationToken);
 
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
@@ -307,7 +316,7 @@ public static class Configurator
     }
 
     private static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> LoadFromFileAsync(
-        string path, bool allowMissingCluster, CancellationToken cancellationToken)
+        string path, MissingCluster missingCluster, bool applyRespEnvironment, CancellationToken cancellationToken)
     {
         string validatedPath;
         try
@@ -328,17 +337,24 @@ public static class Configurator
             using var document = JsonDocument.Parse(bytes, JsonOptions);
             var root = document.RootElement;
             var squirix = root.TryGetProperty("Squirix", out var section) ? section : root;
-            if (!squirix.TryGetProperty("Cluster", out var cluster))
-                return allowMissingCluster ? (true, null, null) : (false, null, "Settings file must define Squirix.Cluster.");
+            var hasCluster = squirix.TryGetProperty("Cluster", out var cluster);
+            if (!hasCluster && missingCluster == MissingCluster.Reject)
+                return (false, null, "Settings file must define Squirix.Cluster.");
 
-            var options = ThrowHelper.Required(
-                JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
-                "Cannot deserialize Squirix.Cluster.");
+            var options = hasCluster
+                ? ThrowHelper.Required(
+                    cluster.Deserialize(SquirixServerHostingJsonContext.Default.SquirixServerOptions),
+                    "Cannot deserialize Squirix.Cluster.")
+                : CreateDefaultOptions(missingCluster);
             options.SettingsFilePath = validatedPath;
             options.Eviction = EvictionSettings.Read(squirix);
-            if (options.DataDirectory != null)
-                options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
+            if (squirix.TryGetProperty("Resp", out var resp))
+                options.Resp = ThrowHelper.Required(resp.Deserialize(SquirixServerHostingJsonContext.Default.RespFileSettings), "Cannot deserialize Squirix.Resp.").ToOptions();
 
+            if (applyRespEnvironment)
+                options.Resp = RespSettings.ApplyEnvironment(options.Resp);
+
+            ApplyRuntimeDefaults(options);
             return options.TryValidate(out var failures) ? (true, options, null) : (false, null, string.Join(Environment.NewLine, failures));
         }
         catch (ArgumentException ex)
@@ -356,39 +372,23 @@ public static class Configurator
     }
 
     private static async Task<SquirixServerOptions> LoadHostingSettingsAsync(
-        string? path, bool allowMissingCluster, bool useEphemeralPort, CancellationToken cancellationToken)
+        string? path, MissingCluster missingCluster, CancellationToken cancellationToken)
     {
-        SquirixServerOptions? configured = null;
-        if (path != null)
+        if (path == null)
         {
-            var (success, loaded, error) = await LoadFromFileAsync(path, allowMissingCluster, cancellationToken).ConfigureAwait(false);
-            if (!success)
-                throw new InvalidOperationException(error);
-
-            configured = loaded;
+            var defaults = CreateDefaultOptions(missingCluster);
+            defaults.Resp = RespSettings.ApplyEnvironment(defaults.Resp);
+            return defaults;
         }
 
-        var options = configured ?? new SquirixServerOptions();
-        if (configured == null && useEphemeralPort)
-        {
-            options.NodeId = "node";
-            options.Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", NextFreePort()));
-        }
+        var (success, loaded, error) = await LoadFromFileAsync(path, missingCluster, true, cancellationToken).ConfigureAwait(false);
+        if (!success)
+            throw new InvalidOperationException(error);
 
-        if (path != null)
-        {
-            options.SettingsFilePath ??= path;
-            if (configured == null)
-            {
-                options.Eviction = await SettingsJson.WithSquirixRootAsync(
-                    path, options.Eviction, static (root, _) => EvictionSettings.Read(root), cancellationToken).ConfigureAwait(false);
-            }
-
-            var (_, metrics) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(path, new PrometheusMetricsEndpointOptions(), cancellationToken).ConfigureAwait(false);
-            options.PrometheusMetricsEnabled = metrics.Enabled;
-            options.PrometheusMetricsPath = metrics.Path;
-        }
-
+        var options = ThrowHelper.Required(loaded, "Settings file did not produce server options.");
+        var (_, metrics) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(path, new PrometheusMetricsEndpointOptions(), cancellationToken).ConfigureAwait(false);
+        options.PrometheusMetricsEnabled = metrics.Enabled;
+        options.PrometheusMetricsPath = metrics.Path;
         return options;
     }
 
@@ -411,13 +411,18 @@ public static class Configurator
         }
     }
 
-    private static int NextFreePort()
+    private static SquirixServerOptions CreateDefaultOptions(MissingCluster missingCluster)
     {
+        if (missingCluster != MissingCluster.UseEphemeralDefaults)
+            return new SquirixServerOptions();
+
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         try
         {
             listener.Start();
-            return listener.LocalEndpoint is not IPEndPoint endpoint ? throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.") : endpoint.Port;
+            return listener.LocalEndpoint is IPEndPoint endpoint
+                ? new SquirixServerOptions { Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", endpoint.Port)) }
+                : throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
         }
         finally
         {
@@ -430,5 +435,27 @@ public static class Configurator
                 // Best-effort probe cleanup: the listener is disposed right after and a failed release changes nothing.
             }
         }
+    }
+
+    private static class RespSettings
+    {
+        internal static RespOptions ApplyEnvironment(RespOptions configured)
+        {
+            var rawEnabled = EnvVariables.ReadString("SQUIRIX_RESP_ENABLED");
+            var enabled = rawEnabled == null ? configured.Enabled : ParseEnabled(rawEnabled);
+            return new RespOptions
+            {
+                Enabled = enabled,
+                BindAddress = enabled ? EnvVariables.ReadString("SQUIRIX_RESP_BIND_ADDRESS") ?? configured.BindAddress : configured.BindAddress,
+                Port = enabled ? EnvVariables.ReadInt("SQUIRIX_RESP_PORT") ?? configured.Port : configured.Port,
+            };
+        }
+
+        private static bool ParseEnabled(string value) => value switch
+        {
+            "1" => true,
+            "0" => false,
+            _ => bool.TryParse(value, out var enabled) ? enabled : throw new InvalidOperationException("SQUIRIX_RESP_ENABLED must be true or false."),
+        };
     }
 }

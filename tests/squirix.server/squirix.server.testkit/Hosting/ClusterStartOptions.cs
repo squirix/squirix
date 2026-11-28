@@ -89,4 +89,6 @@ public class ClusterStartOptions
     internal Action<TestServiceCollection>? ServicesConfigure { get; init; }
 
     internal long? EvictionBudgetBytes { get; init; }
+
+    internal bool EnableResp { get; init; }
 }

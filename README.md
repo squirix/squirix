@@ -128,7 +128,7 @@ See the [provider guide](docs/distributed-cache.md) and the [HybridCache sample]
 - [Persistence](docs/persistence.md) · [Clustering](docs/clustering.md) · [Observability](docs/observability.md)
 - [API](docs/api.md) · [Architecture](docs/architecture.md) · [Operations](docs/operations.md)
 - [Operational runbook](docs/operational-runbook.md) · [Security (internode mTLS)](docs/security/internode-mtls.md)
-- [Related projects](docs/related-projects.md)
+- [RESP cache endpoint](docs/resp.md) · [Related projects](docs/related-projects.md)
 
 ## Contributing
 

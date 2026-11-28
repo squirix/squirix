@@ -9,6 +9,7 @@
         <PackageReference Include="Microsoft.Extensions.Caching.Hybrid"/>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection"/>
         <PackageReference Include="Microsoft.IdentityModel.Tokens"/>
+        <PackageReference Include="StackExchange.Redis"/>
         <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
     </ItemGroup>
 

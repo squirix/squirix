@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Logging;
+using Squirix.Server.Node.App;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Replication;
@@ -54,6 +55,10 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     }
 
     internal Func<CacheKey, CacheKey?>? SelectCapacityVictim { get; }
+
+    internal ReplacementAdmission<StoredValue>? ReplacementAdmission { private get; init; }
+
+    internal Func<bool>? HasMemberPressure { private get; init; }
 
     /// <inheritdoc />
     public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
@@ -371,22 +376,24 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
         var decision = ReplicaMutationDecisions.DecideUpdate(current, in value, now);
-        var record = new ReplicaLogRecord(
-            index,
-            _term,
-            operationId,
-            cacheName,
-            ReplicaOperationFingerprints.Update(operationId, cacheName, key, in value),
-            GroupRecordKinds.UserMutation,
-            cacheName,
-            ReadOnlyMemory<byte>.Empty,
-            ReplicaMutationKinds.Update,
-            ReadOnlyMemory<byte>.Empty,
-            decision.Outcome,
-            decision.ExpiresUtcTicks,
-            now.Ticks,
-            0);
-        return Build(cacheName, record, index, key, decision.Entry);
+        return BuildUpdate(operationId, cacheName, key, index, now, ReplicaOperationFingerprints.Update(operationId, cacheName, key, in value), in decision);
+    }
+
+    internal async ValueTask<PreparedReplicaMutation> PrepareReplaceEntryAsync(
+        string operationId,
+        string cacheName,
+        string key,
+        NodeCacheEntry<StoredValue> entry,
+        ulong index,
+        CancellationToken cancellationToken)
+    {
+        var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var decision = ReplicaMutationDecisions.DecideReplaceEntry(current, entry, now);
+        if (decision.Entry != null)
+            ReplacementAdmission?.Check(new CacheKey(cacheName, key), current!, entry, HasMemberPressure);
+
+        return BuildUpdate(operationId, cacheName, key, index, now, ReplicaOperationFingerprints.ReplaceEntry(operationId, cacheName, key, entry), in decision);
     }
 
     private static ReplicaLogRecord DecodeRecord(ReadOnlyMemory<byte> payload, ulong logIndex) =>
@@ -397,6 +404,27 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         // Keep the same wire headroom as state transfer for the peer envelope and framing.
         if (bytes > ReplicaTransferOptions.MessageBudgetBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The distributed renewal record exceeds the replication message budget.");
+    }
+
+    private PreparedReplicaMutation BuildUpdate(
+        string operationId, string cacheName, string key, ulong index, DateTime now, byte[] fingerprint, in ReplicaMutationDecisions.ReplicaDecision decision)
+    {
+        var record = new ReplicaLogRecord(
+            index,
+            _term,
+            operationId,
+            cacheName,
+            fingerprint,
+            GroupRecordKinds.UserMutation,
+            cacheName,
+            ReadOnlyMemory<byte>.Empty,
+            ReplicaMutationKinds.Update,
+            ReadOnlyMemory<byte>.Empty,
+            decision.Outcome,
+            decision.ExpiresUtcTicks,
+            now.Ticks,
+            0);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Encodes a decided record and checks that its effect agrees with its outcome.</summary>

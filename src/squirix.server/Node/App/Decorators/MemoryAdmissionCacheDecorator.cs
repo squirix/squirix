@@ -169,6 +169,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _inner.TryReplaceEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {

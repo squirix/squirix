@@ -30,6 +30,7 @@ public sealed class ServerStartRetryTests
                 static shared => options =>
                 {
                     options.Uri = shared.Uri;
+                    options.Resp = new RespOptions { Port = 0 };
                     options.UsePersistence(shared.Dir);
                 });
 

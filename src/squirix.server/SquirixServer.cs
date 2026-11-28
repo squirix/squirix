@@ -26,6 +26,9 @@ public sealed class SquirixServer : IAsyncDisposable
     /// <summary>Gets the bound HTTPS address of the management listener.</summary>
     public Uri ManagementUri => _handle.ManagementUri;
 
+    /// <summary>Gets the bound TLS RESP address, or <see langword="null" /> when the listener is disabled.</summary>
+    public Uri? RespUri => _handle.RespUri;
+
     /// <summary>Gets the signal raised when the host receives a shutdown request.</summary>
     public CancellationToken ApplicationStopping => _handle.ApplicationStopping;
 
@@ -105,6 +108,7 @@ public sealed class SquirixServer : IAsyncDisposable
         }
 
         internal Uri ManagementUri => _app.Services.Require<NativeClientService>().ManagementUri!;
+        internal Uri? RespUri => _app.Services.Require<NativeClientService>().RespUri;
 
         internal CancellationToken ApplicationStopping => _app.Services.Require<INodeLifetime>().ApplicationStopping;
 

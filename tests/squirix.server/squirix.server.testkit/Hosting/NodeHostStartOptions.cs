@@ -36,6 +36,7 @@ internal sealed class NodeHostStartOptions
     internal PersistenceOptions? PersistenceOptions { get; init; }
 
     internal Uri? ManagementUri { get; init; }
+    internal RespOptions? Resp { get; init; }
 
     internal bool MetricsEnabled { get; init; }
 

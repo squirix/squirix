@@ -71,11 +71,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <summary>Restores a journal or snapshot entry without write admission checks.</summary>
         Recovery = 2,
 
+        /// <summary>Updates only when the entry is live.</summary>
+        TryReplace = 3,
+
         /// <summary>Inserts or updates using the eviction decision in the journal.</summary>
-        JournaledSet = 3,
+        JournaledSet = 4,
 
         /// <summary>Inserts only when absent, using the eviction decision in the journal.</summary>
-        JournaledTryAdd = 4,
+        JournaledTryAdd = 5,
     }
 
     int ILocalCacheStats.EntryCount
@@ -234,6 +237,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public bool TryAdd(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null) =>
         Upsert(key, entry, encodedLength, WriteKind.TryAdd, cancellationToken);
 
+    bool ILocalCacheMutationOperations<T>.TryReplace(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        Upsert(key, entry, null, WriteKind.TryReplace, cancellationToken);
+
     public bool Update(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -316,7 +322,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         CacheKey? victim = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalized = EntryPreparation.Prepare(entry, _timeProvider);
+        var normalized = WritePreparation.Prepare(entry, _timeProvider);
         var bytes = _footprint?.EstimateInsert(key, normalized, encodedLength);
         var insertOnly = writeKind is WriteKind.TryAdd or WriteKind.JournaledTryAdd;
         var capacityDecided = writeKind >= WriteKind.JournaledSet;
@@ -325,7 +331,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             _store.AdvanceGrowthLocked();
             var hash = key.GetHashCode();
             _ = _store.TryGetLocked(key, hash, out var node);
-            if (node.Exists && insertOnly && !IsExpired(node.ExpiresUtc))
+            if (WritePreparation.ConditionFailed(this, writeKind, in node))
                 return false;
 
             if (writeKind != WriteKind.Recovery)
@@ -365,7 +371,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             _footprint?.Resize(in node, bytes.GetValueOrDefault());
             _deadlines.MovedLocked(in node, previous);
             node.RecordAccess();
-            return false;
+            return writeKind == WriteKind.TryReplace;
         }
     }
 
@@ -419,8 +425,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _deadlines.CompactLocked();
     }
 
-    private static class EntryPreparation
+    private static class WritePreparation
     {
+        internal static bool ConditionFailed(PhysicalCache<T> cache, WriteKind kind, in CacheSlot<T> candidate) => kind switch
+        {
+            WriteKind.TryAdd or WriteKind.JournaledTryAdd => candidate.Exists && !cache.IsExpired(candidate.ExpiresUtc),
+            WriteKind.TryReplace => !candidate.Exists || cache.IsExpired(candidate.ExpiresUtc),
+            _ => false,
+        };
+
         internal static NodeCacheEntry<T> Prepare(NodeCacheEntry<T> entry, TimeProvider clock)
         {
             if (entry.PendingWrite is { } write)

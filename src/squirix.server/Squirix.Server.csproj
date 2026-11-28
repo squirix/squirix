@@ -68,4 +68,5 @@
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>
 
+    <Import Project="..\shared\BuildMetadata.targets"/>
 </Project>
