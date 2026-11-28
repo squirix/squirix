@@ -14,9 +14,9 @@ namespace Squirix.Internal;
 internal sealed class RemoteCache<T> : ICache<T>
 {
     private readonly string _cacheName;
-    private readonly KeyedSingleFlight<T?, CacheValueResult<T>> _getOrAddFlights = new();
     private readonly RemoteCacheRpc _rpc;
     private readonly ISquirixSerializer _serializer;
+    private KeyedSingleFlight<T?, CacheValueResult<T>>? _getOrAddFlights;
 
     internal RemoteCache(string cacheName, EndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
     {
@@ -78,7 +78,8 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         // Options that can never be written are refused before the factory runs; the lifetime is still measured from to send.
         _ = _rpc.ResolveExpiration(options);
-        return _getOrAddFlights.RunAsync(
+        var flights = LazyInitializer.EnsureInitialized(ref _getOrAddFlights, static () => new());
+        return flights.RunAsync(
             key,
             new GetOrAddFlightState(this, key, valueFactory, options),
             static (state, ct) => state.ValueFactory(state.Key, ct),
