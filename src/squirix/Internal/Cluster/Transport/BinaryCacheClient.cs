@@ -224,10 +224,11 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         private readonly Task _reader;
         private readonly Task _sender;
         private volatile bool _sending;
-        private int _aborted;
+        private BinaryConnectionLifetime _lifetime;
 
         private Connection(TcpClient socket, SslStream tls, bool supportsMutationReplay, bool supportsExtendedFrames)
         {
+            _lifetime = default;
             _socket = socket;
             _tls = tls;
             SupportsMutationReplay = supportsMutationReplay;
@@ -258,7 +259,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         internal bool SupportsExtendedFrames { get; }
 
-        internal bool IsAvailable => Volatile.Read(ref _aborted) == 0;
+        internal bool IsAvailable => _lifetime.IsOpen;
 
         public async ValueTask DisposeAsync()
         {
@@ -297,13 +298,11 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             {
                 var senderBusy = _sending;
                 var capture = senderBusy && available ? _prefixes[id] ??= new byte[128] : null;
-                request = available && !senderBusy && !options.CancellationToken.IsCancellationRequested && !BinaryCallAlarm.HasExpired(options.Expires)
+                request = available && !senderBusy
                     ? BinaryClientProtocol.Capture(operation, message, SupportsMutationReplay)
                     : BinaryClientProtocol.PrepareRequest(operation, message, SupportsMutationReplay, SupportsExtendedFrames, capture);
-                if (BinaryCallAlarm.HasExpired(options.Expires))
-                    return ValueTask.FromCanceled<T>(new CancellationToken(true));
-                if (options.CancellationToken.IsCancellationRequested)
-                    return ValueTask.FromCanceled<T>(options.CancellationToken);
+                if (BinaryCallAlarm.HasExpired(options.Expires) || options.CancellationToken.IsCancellationRequested)
+                    return ValueTask.FromCanceled<T>(ValidateCanceledRequest(in request, options.CancellationToken));
                 submitted = true;
             }
             catch (Exception error) when (error is IOException or SocketException or InvalidDataException)
@@ -330,15 +329,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         internal void Abort()
         {
-            if (Interlocked.Exchange(ref _aborted, 1) != 0)
-                return;
-
-            _ = _outgoing.Writer.TryComplete();
-            _slots.Close();
-            _alarm.Dispose();
-            _socket.Dispose();
-            for (var i = 0; i < _pending.Length; i++)
-                Interlocked.Exchange(ref _pending[i], null)?.Complete(default);
+            if (_lifetime.TryClose())
+                CloseConnection();
         }
 
         private static SquirixTransportException Unavailable(Exception? error = null) =>
@@ -348,6 +340,23 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         {
             var remaining = Math.Min((item.Deadline - now).TotalMilliseconds, RpcAttemptTimeout.PerAttempt.TotalMilliseconds);
             return item.CancellationToken.IsCancellationRequested || BinaryCallAlarm.HasExpired(item.Expires) ? 0 : Convert.ToInt32(Math.Max(0, Math.Ceiling(remaining)));
+        }
+
+        private CancellationToken ValidateCanceledRequest(in BinaryClientRequest request, CancellationToken token)
+        {
+            if (request.Size < 0)
+                _ = request.Measure(SupportsExtendedFrames, default);
+            return token.IsCancellationRequested ? token : new CancellationToken(true);
+        }
+
+        private void CloseConnection()
+        {
+            _ = _outgoing.Writer.TryComplete();
+            _slots.Close();
+            _alarm.Dispose();
+            _socket.Dispose();
+            for (var i = 0; i < _pending.Length; i++)
+                Interlocked.Exchange(ref _pending[i], null)?.Complete(default);
         }
 
         private async ValueTask<T> WaitForSlotAndSendAsync<T>(BinaryClientRequest request, WireParser<T> parser, BinaryCallOptions options, bool preventReplay)
@@ -372,32 +381,30 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         private ValueTask<T> SubmitAsync<T>(int id, in BinaryClientRequest request, WireParser<T> parser, in BinaryCallOptions options, bool preventReplay)
             where T : WireMessage
         {
+            if (!_lifetime.TryEnter())
+            {
+                _slots.Release(id);
+                return ValueTask.FromException<T>(Unavailable());
+            }
+
             var pending = options.CancellationToken.CanBeCanceled
                 ? new CancellableCall<T>(this, id, parser, in options, preventReplay)
                 : PendingCall<T>.Rent(this, id, parser, in options, preventReplay);
+            if (preventReplay && request.Size < 0)
+                pending.UnmeasuredMutation = request.Message;
             var operation = pending.Operation;
             Volatile.Write(ref _pending[id], pending);
             if (!_outgoing.Writer.TryWrite(new Outgoing(pending, request)))
             {
-                _ = Interlocked.Exchange(ref _pending[id], null);
-                return ValueTask.FromException<T>(Unavailable());
+                if (Interlocked.Exchange(ref _pending[id], null) != null)
+                    pending.Reject(Unavailable());
+                return operation;
             }
 
             pending.WatchCancellation();
             if (options.Expires != 0)
                 _alarm.Watch(options.Expires);
             return operation;
-        }
-
-        private bool HasLiveCalls()
-        {
-            for (var i = 0; i < _pending.Length; i++)
-            {
-                if (Volatile.Read(ref _pending[i]) is { IsLive: true })
-                    return true;
-            }
-
-            return false;
         }
 
         private async Task SendAsync()
@@ -719,16 +726,23 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
             internal ValueTask<T> Operation => Result.Operation;
 
+            internal WireMessage? UnmeasuredMutation { get; set; }
+
             protected bool IsCompleted => _lifetime.IsCompleted;
 
             private ReplySource<T> Result => _result ?? ThrowCompleted();
 
-            public void MarkBodyReady() => _bodyReady = true;
+            public void MarkBodyReady()
+            {
+                UnmeasuredMutation = null;
+                _bodyReady = true;
+            }
 
             public void Complete(in BinaryClientReply reply)
             {
                 if (!_lifetime.TryComplete())
                     return;
+                _connection._lifetime.Leave();
                 ReleaseRegistration();
                 if (reply.Response is T response)
                 {
@@ -754,6 +768,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             {
                 if (_lifetime.TryComplete())
                 {
+                    _connection._lifetime.Leave();
                     ReleaseRegistration();
                     Result.SetException(error);
                 }
@@ -800,9 +815,29 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 var timedOut = !_options.CallerToken.IsCancellationRequested;
                 var token = timedOut && _options.Expires != 0 ? new CancellationToken(true) : CancellationToken;
                 ReleaseRegistration();
-                Result.SetException(timedOut && _preventReplay ? BinaryClientProtocol.UnknownOutcome() : new OperationCanceledException(token));
-                if (timedOut && !_connection.HasLiveCalls())
-                    _connection.Abort();
+                var validationError = timedOut ? ValidateUnsentMutation() : null;
+                _connection._lifetime.Leave();
+                var close = timedOut && validationError == null && _connection._lifetime.TryCloseIfIdle();
+                Result.SetException(validationError ?? (timedOut && _preventReplay ? BinaryClientProtocol.UnknownOutcome() : new OperationCanceledException(token)));
+                if (close)
+                    _connection.CloseConnection();
+            }
+
+            private Exception? ValidateUnsentMutation()
+            {
+                if (UnmeasuredMutation is not { } message)
+                    return null;
+                try
+                {
+                    // A single-copy mutation omits its operation ID. Size-only validation never reads the payload bytes.
+                    var request = new BinaryClientRequest(0, message, -1, string.Empty, 0, false);
+                    _ = request.Measure(_connection.SupportsExtendedFrames, default);
+                    return null;
+                }
+                catch (Exception error) when (error is SquirixTransportException or ArgumentException or OverflowException)
+                {
+                    return error;
+                }
             }
         }
 

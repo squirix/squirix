@@ -129,7 +129,7 @@ public sealed class AsyncBinaryCompletionTests
                 : VerifyLifetimeAsync(client, stream, MutationLifetime, callerCancels, keepOtherCall, token),
             cancellationToken);
 
-    internal static async Task WithPeerAsync(Func<BinaryCacheClient, SslStream, CancellationToken, Task> scenario, CancellationToken cancellationToken, bool replay = false)
+    internal static async Task WithPeerAsync(Func<BinaryCacheClient, SslStream, CancellationToken, Task> scenario, CancellationToken cancellationToken, bool replay = false, bool legacy = false)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
@@ -151,9 +151,16 @@ public sealed class AsyncBinaryCompletionTests
         };
         await using var client = new BinaryCacheClient(uri, null, tls);
         var connecting = client.ConnectAsync(token);
+        if (legacy)
+        {
+            using var firstSocket = await listener.AcceptTcpClientAsync(token);
+            await using var firstStream = new SslStream(firstSocket.GetStream());
+            await NegotiateAsync(firstStream, certificate, Frames.Rejected, token);
+        }
+
         using var socket = await listener.AcceptTcpClientAsync(token);
         await using var stream = new SslStream(socket.GetStream());
-        await NegotiateAsync(stream, certificate, replay, token);
+        await NegotiateAsync(stream, certificate, replay ? Frames.AcceptedWithMutationReplay : Frames.Accepted, token);
         await connecting;
         await scenario(client, stream, token);
     }
@@ -179,13 +186,13 @@ public sealed class AsyncBinaryCompletionTests
         return stream.WriteAsync(frame, token);
     }
 
-    private static async Task NegotiateAsync(SslStream stream, X509Certificate2 certificate, bool replay, CancellationToken token)
+    private static async Task NegotiateAsync(SslStream stream, X509Certificate2 certificate, byte response, CancellationToken token)
     {
         await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate }, token);
         var preface = GC.AllocateUninitializedArray<byte>(Frames.PrefaceBytes);
         await stream.ReadExactlyAsync(preface, token);
         _ = await Assert.That(BinaryPrimitives.ReadUInt32BigEndian(preface)).IsEqualTo(Frames.Preface);
-        preface[0] = replay ? Frames.AcceptedWithMutationReplay : Frames.Accepted;
+        preface[0] = response;
         await stream.WriteAsync(preface.AsMemory(0, 1), token);
     }
 
