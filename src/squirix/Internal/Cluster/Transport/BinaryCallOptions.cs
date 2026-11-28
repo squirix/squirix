@@ -3,4 +3,4 @@ using System.Threading;
 
 namespace Squirix.Internal.Cluster.Transport;
 
-internal readonly record struct BinaryCallOptions(DateTime Deadline, CancellationToken CancellationToken, CancellationToken CallerToken);
+internal readonly record struct BinaryCallOptions(DateTime Deadline, CancellationToken CancellationToken, CancellationToken CallerToken, long Expires = 0);

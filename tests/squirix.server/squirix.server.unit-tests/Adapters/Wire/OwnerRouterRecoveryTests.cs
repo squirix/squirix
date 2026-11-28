@@ -251,7 +251,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
             Other,
             scene.Request,
             static (_, target, _) => Task.FromResult(target),
-            static (_, _) => Task.FromResult(Self),
+            static (_, _) => ValueTask.FromResult(Self),
             cancellationToken);
         var pending = !waiting.IsCompleted;
         scene.State.ObserveLeaderContact(Second, 4UL);
@@ -337,8 +337,8 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
             "key",
             (Scene: this, Request),
             static (s, target, _) => s.Scene.SendAsync(target, s.Request),
-            static (s, _) => s.Scene.SendAsync(Self, s.Request),
-            cancellationToken);
+            static (s, _) => new ValueTask<string>(s.Scene.SendAsync(Self, s.Request)),
+            cancellationToken).AsTask();
 
         private Task<string> SendAsync(string target, MutationRequest request)
         {

@@ -19,7 +19,9 @@ internal sealed class CacheRequestAdmission
         _clients = clients;
     }
 
-    internal InboundAdmissionScope Enter() => InboundAdmissionScope.Enter(_gate);
+    /// <summary>The async dispatch restores its caller's execution context when it returns.</summary>
+    /// <returns>A grant revoked when the dispatched operation completes.</returns>
+    internal InboundAdmissionScope.Scope EnterDispatchScope() => InboundAdmissionScope.Enter(_gate, false);
 
     internal ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string operationName, CancellationToken cancellationToken) =>
         _gate.AcquireAsync(CacheOperationNames.CacheTransport, operationName, _clients.Resolve(), cancellationToken);

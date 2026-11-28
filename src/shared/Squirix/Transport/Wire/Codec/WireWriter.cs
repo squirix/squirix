@@ -12,15 +12,17 @@ internal ref struct WireWriter
     private readonly Span<byte> _destination;
     private readonly IBufferWriter<byte>? _output;
     private readonly bool _hasDestination;
+    private readonly bool _bounded;
 
     internal WireWriter(string? mutationOperationId)
     {
         MutationOperationId = mutationOperationId;
     }
 
-    internal WireWriter(Span<byte> destination, string? mutationOperationId = null)
+    internal WireWriter(Span<byte> destination, string? mutationOperationId = null, bool bounded = false)
     {
         _destination = destination;
+        _bounded = bounded;
         _hasDestination = true;
         MutationOperationId = mutationOperationId;
     }
@@ -37,9 +39,20 @@ internal ref struct WireWriter
 
     internal string? MutationOperationId { get; }
 
+    internal static byte[] ToByteArray<T>(T body)
+        where T : IWireBody
+    {
+        var measure = default(WireWriter);
+        body.Encode(ref measure);
+        var bytes = GC.AllocateUninitializedArray<byte>(measure.Written);
+        var writer = new WireWriter(bytes);
+        body.Encode(ref writer);
+        return bytes;
+    }
+
     internal void Byte(byte value)
     {
-        if (_hasDestination)
+        if (Fits(1))
         {
             _destination[Written] = value;
         }
@@ -63,7 +76,7 @@ internal ref struct WireWriter
         }
 
         var length = (BitOperations.Log2(value) / 7) + 1;
-        if (_hasDestination || _output != null)
+        if (Fits(length) || _output != null)
         {
             var bytes = _output == null ? _destination.Slice(Written, length) : _output.GetSpan(length);
             var offset = 0;
@@ -109,9 +122,10 @@ internal ref struct WireWriter
 
     internal void TailBytes(ReadOnlyMemory<byte> value)
     {
+        if (_bounded || (!_hasDestination && _output == null))
+            HasBorrowedBytes |= !value.IsEmpty;
         if (!_hasDestination && _output == null)
         {
-            HasBorrowedBytes |= !value.IsEmpty;
             Written = checked(Written + value.Length);
         }
         else if (_output is WireSegments segments && !value.IsEmpty)
@@ -148,7 +162,7 @@ internal ref struct WireWriter
 
     internal void TraceParent(in ActivityContext parent)
     {
-        if (_hasDestination || _output != null)
+        if (Fits(WireTraceParent.ByteCount) || _output != null)
         {
             var bytes = _output == null ? _destination.Slice(Written, WireTraceParent.ByteCount) : _output.GetSpan(WireTraceParent.ByteCount);
             WireTraceParent.Write(bytes, in parent);
@@ -162,7 +176,7 @@ internal ref struct WireWriter
 
     internal void Raw(scoped ReadOnlySpan<byte> value)
     {
-        if (_hasDestination)
+        if (Fits(value.Length))
         {
             value.CopyTo(_destination[Written..]);
         }
@@ -182,12 +196,33 @@ internal ref struct WireWriter
         Written = checked(Written + value.Length);
     }
 
+    private readonly bool Fits(int bytes) => _hasDestination && (!_bounded || bytes <= _destination.Length - Written);
+
     private void Text(string value, int lengthBias, bool tail = false)
+    {
+        var prefixFits = tail || value.Length <= (127 - lengthBias) / 3;
+        var remaining = _destination.Length - Written;
+        var roomForText = !_bounded || (remaining > 0 && value.Length <= (remaining - 1) / 3);
+        if (_hasDestination && prefixFits && roomForText)
+        {
+            // This prefix always fits in one byte, even if every UTF-16 unit expands to three bytes.
+            var start = tail ? Written : checked(Written + 1);
+            var count = WireReader.Utf8.GetBytes(value, _destination[start..]);
+            if (!tail)
+                _destination[Written] = byte.CreateChecked(count + lengthBias);
+            Written = checked(start + count);
+            return;
+        }
+
+        WriteCountedText(value, lengthBias, tail);
+    }
+
+    private void WriteCountedText(string value, int lengthBias, bool tail)
     {
         var size = WireReader.Utf8.GetByteCount(value);
         if (!tail)
             Unsigned(ulong.CreateChecked(size) + uint.CreateChecked(lengthBias));
-        if (_hasDestination)
+        if (Fits(size))
         {
             _ = WireReader.Utf8.GetBytes(value, _destination[Written..]);
         }

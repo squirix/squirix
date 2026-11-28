@@ -32,35 +32,54 @@ internal abstract class CacheMutationRequest : WireMessage
     internal string OperationId { get; set; } = string.Empty;
 }
 
-internal sealed class CacheEntryWire : WireMessage
+internal readonly record struct CacheEntryWire : IWireBody
 {
-    internal static WireParser<CacheEntryWire> Parser { get; } = new(Read);
-    internal CacheValue? Value { get; set; }
-    internal DateTime? ExpiresUtc { get; set; }
-    internal TimeSpan? Expiration { get; set; }
-
-    internal override void Encode(ref WireWriter writer)
+    internal static WireBodyParser<CacheEntryWire> Parser { get; } = new(Read);
+    private readonly byte _presence;
+    internal CacheValue? Value { get; init; }
+    private readonly DateTime _expiresUtc;
+    internal DateTime? ExpiresUtc
     {
-        writer.Byte((byte)((Value != null ? 1 : 0) | (ExpiresUtc != null ? 2 : 0) | (Expiration != null ? 4 : 0)));
+        get => (_presence & 2) != 0 ? _expiresUtc : null;
+        init
+        {
+            _expiresUtc = value.GetValueOrDefault();
+            _presence = value.HasValue ? (byte)(_presence | 2) : (byte)(_presence & ~2);
+        }
+    }
+    private readonly TimeSpan _expiration;
+    internal TimeSpan? Expiration
+    {
+        get => (_presence & 4) != 0 ? _expiration : null;
+        init
+        {
+            _expiration = value.GetValueOrDefault();
+            _presence = value.HasValue ? (byte)(_presence | 4) : (byte)(_presence & ~4);
+        }
+    }
+
+    internal byte[] ToByteArray() => WireWriter.ToByteArray(this);
+    void IWireBody.Encode(ref WireWriter writer) => Encode(ref writer);
+    internal void Encode(ref WireWriter writer)
+    {
+        writer.Byte((byte)((Value != null ? 1 : 0) | _presence));
         if (Value != null)
             Value.Encode(ref writer);
-        if (ExpiresUtc != null)
-            writer.Timestamp(ExpiresUtc.Value);
-        if (Expiration != null)
-            writer.Duration(Expiration.Value);
+        if ((_presence & 2) != 0)
+            writer.Timestamp(_expiresUtc);
+        if ((_presence & 4) != 0)
+            writer.Duration(_expiration);
     }
 
     internal static CacheEntryWire Read(ref WireReader reader)
     {
-        var message = new CacheEntryWire();
         var flags = reader.Flags(7);
-        if ((flags & 1) != 0)
-            message.Value = CacheValue.Read(ref reader);
-        if ((flags & 2) != 0)
-            message.ExpiresUtc = reader.Timestamp();
-        if ((flags & 4) != 0)
-            message.Expiration = reader.Duration();
-        return message;
+        return new CacheEntryWire
+        {
+            Value = (flags & 1) != 0 ? CacheValue.Read(ref reader) : null,
+            ExpiresUtc = (flags & 2) != 0 ? reader.Timestamp() : null,
+            Expiration = (flags & 4) != 0 ? reader.Duration() : null,
+        };
     }
 }
 
@@ -70,45 +89,44 @@ internal sealed class CacheValue : WireMessage
     internal enum KindOneofCase : byte { None, NullValue, StringValue, Int64Value, DoubleValue, BoolValue, JsonUtf8, BinaryValue }
     internal KindOneofCase KindCase { get; private set; }
     private object? _reference;
-    private ReadOnlyMemory<byte> _bytes;
     private long _bits;
     internal NullValue NullValue
     {
         get => NullValue.NullValue;
-        set { _reference = null; _bytes = default;  KindCase = KindOneofCase.NullValue; }
+        set { _reference = null;  KindCase = KindOneofCase.NullValue; }
     }
     internal string StringValue
     {
         get => _reference as string ?? (EncodedTextMemory is { } bytes ? WireReader.Utf8.GetString(bytes.Span) : string.Empty);
-        set { _bytes = default; _reference = value; KindCase = KindOneofCase.StringValue; }
+        set { _reference = value; KindCase = KindOneofCase.StringValue; }
     }
     internal long Int64Value
     {
         get => KindCase == KindOneofCase.Int64Value ? _bits : 0;
-        set { _reference = null; _bytes = default; _bits = value; KindCase = KindOneofCase.Int64Value; }
+        set { _reference = null; _bits = value; KindCase = KindOneofCase.Int64Value; }
     }
     internal double DoubleValue
     {
         get => KindCase == KindOneofCase.DoubleValue ? BitConverter.Int64BitsToDouble(_bits) : 0;
-        set { _reference = null; _bytes = default; _bits = BitConverter.DoubleToInt64Bits(value); KindCase = KindOneofCase.DoubleValue; }
+        set { _reference = null; _bits = BitConverter.DoubleToInt64Bits(value); KindCase = KindOneofCase.DoubleValue; }
     }
     internal bool BoolValue
     {
         get => KindCase == KindOneofCase.BoolValue && _bits != 0;
-        set { _reference = null; _bytes = default; _bits = value ? 1 : 0; KindCase = KindOneofCase.BoolValue; }
+        set { _reference = null; _bits = value ? 1 : 0; KindCase = KindOneofCase.BoolValue; }
     }
     internal ReadOnlyMemory<byte> JsonUtf8
     {
-        get => KindCase == KindOneofCase.JsonUtf8 ? _bytes : default;
-        set { _reference = null; _bytes = value; KindCase = KindOneofCase.JsonUtf8; }
+        get => KindCase == KindOneofCase.JsonUtf8 ? WireByteRange.View(_reference, _bits) : default;
+        set { WireByteRange.Store(value, out _reference, out _bits); KindCase = KindOneofCase.JsonUtf8; }
     }
     internal ReadOnlyMemory<byte> BinaryValue
     {
-        get => KindCase == KindOneofCase.BinaryValue ? _bytes : default;
-        set { _reference = null; _bytes = value; KindCase = KindOneofCase.BinaryValue; }
+        get => KindCase == KindOneofCase.BinaryValue ? WireByteRange.View(_reference, _bits) : default;
+        set { WireByteRange.Store(value, out _reference, out _bits); KindCase = KindOneofCase.BinaryValue; }
     }
-    internal byte[]? EncodedText => KindCase == KindOneofCase.StringValue ? _reference as byte[] : null;
-    internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes };
+    internal byte[]? EncodedText => KindCase == KindOneofCase.StringValue && _bits == WireByteRange.OwnedArray ? _reference as byte[] : null;
+    internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes, _bits = WireByteRange.OwnedArray };
 
     internal ReadOnlyMemory<byte>? EncodedTextMemory
     {
@@ -116,20 +134,25 @@ internal sealed class CacheValue : WireMessage
         {
             if (KindCase != KindOneofCase.StringValue || _reference is string)
                 return null;
-            return _reference is byte[] owned ? owned : _bytes;
+            return WireByteRange.View(_reference, _bits);
         }
     }
 
-    internal static CacheValue FromTextSlice(ReadOnlyMemory<byte> bytes) => new() { KindCase = KindOneofCase.StringValue, _bytes = bytes };
+    internal static CacheValue FromTextSlice(ReadOnlyMemory<byte> bytes)
+    {
+        var value = new CacheValue { KindCase = KindOneofCase.StringValue };
+        WireByteRange.Store(bytes, out value._reference, out value._bits);
+        return value;
+    }
 
-    internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bytes = payload, _reference = payload };
+    internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bits = WireByteRange.OwnedArray, _reference = payload };
 
     internal byte[] TakeBinaryValue()
     {
-        if (KindCase != KindOneofCase.BinaryValue || _reference is not byte[] owned)
+        if (KindCase != KindOneofCase.BinaryValue || _bits != WireByteRange.OwnedArray || _reference is not byte[] owned)
             return BinaryValue.ToArray();
         _reference = null;
-        _bytes = default;
+        _bits = 0;
         return owned;
     }
 
@@ -190,6 +213,7 @@ internal sealed class CacheValue : WireMessage
             case KindOneofCase.StringValue:
                 message.KindCase = kind;
                 message._reference = TextPayloadReader.Read(ref reader, tail);
+                message._bits = WireByteRange.OwnedArray;
                 break;
             case KindOneofCase.Int64Value:
                 message.Int64Value = reader.Signed();
@@ -204,8 +228,15 @@ internal sealed class CacheValue : WireMessage
                 message.JsonUtf8 = tail ? reader.TailBytes(out _) : reader.Bytes(out _);
                 break;
             case KindOneofCase.BinaryValue:
-                message.BinaryValue = tail ? reader.TailBytes(out var owned) : reader.Bytes(out owned);
-                message._reference = owned;
+                var bytes = tail ? reader.TailBytes(out var owned) : reader.Bytes(out owned);
+                if (owned == null)
+                    message.BinaryValue = bytes;
+                else
+                {
+                    message.KindCase = kind;
+                    message._reference = owned;
+                    message._bits = WireByteRange.OwnedArray;
+                }
                 break;
             default:
                 throw new InvalidDataException("Unknown union discriminator.");
@@ -228,7 +259,7 @@ internal sealed class SetEntryAsyncRequest : CacheMutationRequest
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
-            Entry.Encode(ref writer);
+            Entry.GetValueOrDefault().Encode(ref writer);
         if (operationId.Length != 0)
             writer.OperationId(operationId);
     }
@@ -237,7 +268,7 @@ internal sealed class SetEntryAsyncRequest : CacheMutationRequest
     {
         var message = new SetEntryAsyncRequest();
         var flags = reader.Flags(3);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
@@ -250,16 +281,9 @@ internal sealed class SetEntryAsyncRequest : CacheMutationRequest
 internal sealed class SetAsyncResponse : WireMessage
 {
     internal static WireParser<SetAsyncResponse> Parser { get; } = new(Read);
-
-    internal override void Encode(ref WireWriter writer)
-    {
-    }
-
-    internal static SetAsyncResponse Read(ref WireReader reader)
-    {
-        var message = new SetAsyncResponse();
-        return message;
-    }
+    internal static SetAsyncResponse Instance { get; } = new();
+    internal static SetAsyncResponse Read(ref WireReader reader) => Instance;
+    internal override void Encode(ref WireWriter writer) { }
 }
 
 internal sealed class GetEntryAsyncRequest : WireMessage
@@ -277,7 +301,7 @@ internal sealed class GetEntryAsyncRequest : WireMessage
     internal static GetEntryAsyncRequest Read(ref WireReader reader)
     {
         var message = new GetEntryAsyncRequest();
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         return message;
     }
@@ -297,7 +321,7 @@ internal sealed class GetEntryAsyncResponse : WireMessage
             return;
         writer.Byte(flags);
         if (Entry != null)
-            Entry.Encode(ref writer);
+            Entry.GetValueOrDefault().Encode(ref writer);
         if (Remaining != null)
             writer.Duration(Remaining.Value);
     }
@@ -332,7 +356,7 @@ internal sealed class GetValueAsyncRequest : WireMessage
     internal static GetValueAsyncRequest Read(ref WireReader reader)
     {
         var message = new GetValueAsyncRequest();
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         return message;
     }
@@ -358,7 +382,7 @@ internal sealed class RemoveAsyncRequest : CacheMutationRequest
     {
         var message = new RemoveAsyncRequest();
         var flags = reader.Flags(1);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.OperationId = reader.OperationId();
@@ -369,24 +393,16 @@ internal sealed class RemoveAsyncRequest : CacheMutationRequest
 internal sealed class RemoveAsyncResponse : WireMessage
 {
     internal static WireParser<RemoveAsyncResponse> Parser { get; } = new(Read);
-    internal bool Removed { get; set; }
+    private static readonly RemoveAsyncResponse False = new();
+    private static readonly RemoveAsyncResponse True = new() { Removed = true };
+    internal bool Removed { get; init; }
+    internal static RemoveAsyncResponse FromResult(bool result) => result ? True : False;
+    internal static RemoveAsyncResponse Read(ref WireReader reader) => FromResult(reader.Remaining != 0 && reader.Flags(1) != 0);
 
     internal override void Encode(ref WireWriter writer)
     {
-        var flags = (byte)((Removed ? 1 : 0));
-        if (flags == 0)
-            return;
-        writer.Byte(flags);
-    }
-
-    internal static RemoveAsyncResponse Read(ref WireReader reader)
-    {
-        var message = new RemoveAsyncResponse();
-        if (reader.Remaining == 0)
-            return message;
-        var flags = reader.Flags(1);
-        message.Removed = (flags & 1) != 0;
-        return message;
+        if (Removed)
+            writer.Byte(1);
     }
 }
 
@@ -404,7 +420,7 @@ internal sealed class TryAddEntryAsyncRequest : CacheMutationRequest
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
-            Entry.Encode(ref writer);
+            Entry.GetValueOrDefault().Encode(ref writer);
         if (operationId.Length != 0)
             writer.OperationId(operationId);
     }
@@ -413,7 +429,7 @@ internal sealed class TryAddEntryAsyncRequest : CacheMutationRequest
     {
         var message = new TryAddEntryAsyncRequest();
         var flags = reader.Flags(3);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
@@ -426,24 +442,16 @@ internal sealed class TryAddEntryAsyncRequest : CacheMutationRequest
 internal sealed class TryAddAsyncResponse : WireMessage
 {
     internal static WireParser<TryAddAsyncResponse> Parser { get; } = new(Read);
-    internal bool Added { get; set; }
+    private static readonly TryAddAsyncResponse False = new();
+    private static readonly TryAddAsyncResponse True = new() { Added = true };
+    internal bool Added { get; init; }
+    internal static TryAddAsyncResponse FromResult(bool result) => result ? True : False;
+    internal static TryAddAsyncResponse Read(ref WireReader reader) => FromResult(reader.Remaining != 0 && reader.Flags(1) != 0);
 
     internal override void Encode(ref WireWriter writer)
     {
-        var flags = (byte)((Added ? 1 : 0));
-        if (flags == 0)
-            return;
-        writer.Byte(flags);
-    }
-
-    internal static TryAddAsyncResponse Read(ref WireReader reader)
-    {
-        var message = new TryAddAsyncResponse();
-        if (reader.Remaining == 0)
-            return message;
-        var flags = reader.Flags(1);
-        message.Added = (flags & 1) != 0;
-        return message;
+        if (Added)
+            writer.Byte(1);
     }
 }
 
@@ -470,7 +478,7 @@ internal sealed class TouchAsyncRequest : CacheMutationRequest
     {
         var message = new TouchAsyncRequest();
         var flags = reader.Flags(3);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Expiration = reader.Duration();
@@ -483,24 +491,16 @@ internal sealed class TouchAsyncRequest : CacheMutationRequest
 internal sealed class TouchAsyncResponse : WireMessage
 {
     internal static WireParser<TouchAsyncResponse> Parser { get; } = new(Read);
-    internal bool Found { get; set; }
+    private static readonly TouchAsyncResponse False = new();
+    private static readonly TouchAsyncResponse True = new() { Found = true };
+    internal bool Found { get; init; }
+    internal static TouchAsyncResponse FromResult(bool result) => result ? True : False;
+    internal static TouchAsyncResponse Read(ref WireReader reader) => FromResult(reader.Remaining != 0 && reader.Flags(1) != 0);
 
     internal override void Encode(ref WireWriter writer)
     {
-        var flags = (byte)((Found ? 1 : 0));
-        if (flags == 0)
-            return;
-        writer.Byte(flags);
-    }
-
-    internal static TouchAsyncResponse Read(ref WireReader reader)
-    {
-        var message = new TouchAsyncResponse();
-        if (reader.Remaining == 0)
-            return message;
-        var flags = reader.Flags(1);
-        message.Found = (flags & 1) != 0;
-        return message;
+        if (Found)
+            writer.Byte(1);
     }
 }
 
@@ -524,7 +524,7 @@ internal sealed class RemoveExpirationAsyncRequest : CacheMutationRequest
     {
         var message = new RemoveExpirationAsyncRequest();
         var flags = reader.Flags(1);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.OperationId = reader.OperationId();
@@ -535,24 +535,16 @@ internal sealed class RemoveExpirationAsyncRequest : CacheMutationRequest
 internal sealed class RemoveExpirationAsyncResponse : WireMessage
 {
     internal static WireParser<RemoveExpirationAsyncResponse> Parser { get; } = new(Read);
-    internal bool Found { get; set; }
+    private static readonly RemoveExpirationAsyncResponse False = new();
+    private static readonly RemoveExpirationAsyncResponse True = new() { Found = true };
+    internal bool Found { get; init; }
+    internal static RemoveExpirationAsyncResponse FromResult(bool result) => result ? True : False;
+    internal static RemoveExpirationAsyncResponse Read(ref WireReader reader) => FromResult(reader.Remaining != 0 && reader.Flags(1) != 0);
 
     internal override void Encode(ref WireWriter writer)
     {
-        var flags = (byte)((Found ? 1 : 0));
-        if (flags == 0)
-            return;
-        writer.Byte(flags);
-    }
-
-    internal static RemoveExpirationAsyncResponse Read(ref WireReader reader)
-    {
-        var message = new RemoveExpirationAsyncResponse();
-        if (reader.Remaining == 0)
-            return message;
-        var flags = reader.Flags(1);
-        message.Found = (flags & 1) != 0;
-        return message;
+        if (Found)
+            writer.Byte(1);
     }
 }
 
@@ -570,7 +562,7 @@ internal sealed class UpdateAsyncRequest : CacheMutationRequest
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
-            Entry.Encode(ref writer);
+            Entry.GetValueOrDefault().Encode(ref writer);
         if (operationId.Length != 0)
             writer.OperationId(operationId);
     }
@@ -579,7 +571,7 @@ internal sealed class UpdateAsyncRequest : CacheMutationRequest
     {
         var message = new UpdateAsyncRequest();
         var flags = reader.Flags(3);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
@@ -592,24 +584,16 @@ internal sealed class UpdateAsyncRequest : CacheMutationRequest
 internal sealed class UpdateAsyncResponse : WireMessage
 {
     internal static WireParser<UpdateAsyncResponse> Parser { get; } = new(Read);
-    internal bool Updated { get; set; }
+    private static readonly UpdateAsyncResponse False = new();
+    private static readonly UpdateAsyncResponse True = new() { Updated = true };
+    internal bool Updated { get; init; }
+    internal static UpdateAsyncResponse FromResult(bool result) => result ? True : False;
+    internal static UpdateAsyncResponse Read(ref WireReader reader) => FromResult(reader.Remaining != 0 && reader.Flags(1) != 0);
 
     internal override void Encode(ref WireWriter writer)
     {
-        var flags = (byte)((Updated ? 1 : 0));
-        if (flags == 0)
-            return;
-        writer.Byte(flags);
-    }
-
-    internal static UpdateAsyncResponse Read(ref WireReader reader)
-    {
-        var message = new UpdateAsyncResponse();
-        if (reader.Remaining == 0)
-            return message;
-        var flags = reader.Flags(1);
-        message.Updated = (flags & 1) != 0;
-        return message;
+        if (Updated)
+            writer.Byte(1);
     }
 }
 
@@ -628,7 +612,7 @@ internal sealed class GetExpirationAsyncRequest : WireMessage
     internal static GetExpirationAsyncRequest Read(ref WireReader reader)
     {
         var message = new GetExpirationAsyncRequest();
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         return message;
     }
@@ -679,7 +663,7 @@ internal sealed class GetOrAddAsyncRequest : CacheMutationRequest
         writer.Text(CacheName);
         writer.Text(Key);
         if (Entry != null)
-            Entry.Encode(ref writer);
+            Entry.GetValueOrDefault().Encode(ref writer);
         if (operationId.Length != 0)
             writer.OperationId(operationId);
     }
@@ -688,7 +672,7 @@ internal sealed class GetOrAddAsyncRequest : CacheMutationRequest
     {
         var message = new GetOrAddAsyncRequest();
         var flags = reader.Flags(3);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.Entry = CacheEntryWire.Read(ref reader);
@@ -766,7 +750,7 @@ internal sealed class SetDistributedAsyncRequest : CacheMutationRequest
     {
         var message = new SetDistributedAsyncRequest();
         var flags = reader.Flags(15);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.ExpiresAtUnixMs = reader.Signed();
@@ -796,7 +780,7 @@ internal sealed class GetDistributedAsyncRequest : WireMessage
     internal static GetDistributedAsyncRequest Read(ref WireReader reader)
     {
         var message = new GetDistributedAsyncRequest();
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         return message;
     }
@@ -909,7 +893,7 @@ internal sealed class RefreshDistributedAsyncRequest : CacheMutationRequest
     {
         var message = new RefreshDistributedAsyncRequest();
         var flags = reader.Flags(1);
-        message.CacheName = reader.Text();
+        message.CacheName = reader.Text(cacheName: true);
         message.Key = reader.Text();
         if ((flags & 1) != 0)
             message.OperationId = reader.OperationId();
@@ -920,14 +904,7 @@ internal sealed class RefreshDistributedAsyncRequest : CacheMutationRequest
 internal sealed class RefreshDistributedAsyncResponse : WireMessage
 {
     internal static WireParser<RefreshDistributedAsyncResponse> Parser { get; } = new(Read);
-
-    internal override void Encode(ref WireWriter writer)
-    {
-    }
-
-    internal static RefreshDistributedAsyncResponse Read(ref WireReader reader)
-    {
-        var message = new RefreshDistributedAsyncResponse();
-        return message;
-    }
+    internal static RefreshDistributedAsyncResponse Instance { get; } = new();
+    internal static RefreshDistributedAsyncResponse Read(ref WireReader reader) => Instance;
+    internal override void Encode(ref WireWriter writer) { }
 }

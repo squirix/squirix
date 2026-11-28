@@ -63,11 +63,16 @@ internal static class BinaryClientProtocol
         return mutation.OperationId;
     }
 
-    internal static BinaryClientRequest PrepareRequest(BinaryOperation operation, WireMessage request, bool supportsMutationReplay, bool supportsExtendedFrames = true)
+    internal static BinaryClientRequest PrepareRequest(BinaryOperation operation, WireMessage request, bool supportsMutationReplay, bool supportsExtendedFrames = true, byte[]? capture = null)
     {
-        // The send worker can still serialize an earlier attempt after a retry starts.
+        var captured = Capture(operation, request, supportsMutationReplay);
+        return captured.Measure(supportsExtendedFrames, capture, capture);
+    }
+
+    internal static BinaryClientRequest Capture(BinaryOperation operation, WireMessage request, bool supportsMutationReplay)
+    {
+        // Freeze call-specific trace and mutation identity before handing the immutable request to the writer.
         var mutationOperationId = PrepareMutationIdentity(request, supportsMutationReplay);
-        var original = request;
         var control = Unsafe.BitCast<BinaryOperation, int>(operation) << 16;
         if (Activity.Current is { IdFormat: ActivityIdFormat.W3C } activity)
         {
@@ -77,15 +82,7 @@ internal static class BinaryClientProtocol
             control |= Frames.TracedRequest;
         }
 
-        var bodySize = request.CalculateSize(mutationOperationId, out var hasBorrowedBytes);
-        var frameLimit = supportsExtendedFrames ? Frames.MaxExtendedBodyBytes : Frames.MaxRequestBytes;
-        if (bodySize > frameLimit)
-            throw RequestTooLarge();
-
-        var valueSize = bodySize <= Frames.MaxRequestBytes ? 0 : CacheWritePayload.Length(original);
-        return valueSize is { } size
-            ? new BinaryClientRequest(control, request, bodySize, mutationOperationId, size, hasBorrowedBytes)
-            : throw RequestTooLarge();
+        return new BinaryClientRequest(control, request, -1, mutationOperationId, 0, false);
     }
 
     internal static bool IsOutcomeUnconfirmed(SquirixTransportException? failure) =>
@@ -148,17 +145,42 @@ internal static class BinaryClientProtocol
         }
     }
 
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    internal static async ValueTask<BinaryClientReply> ReadLargeLookupReplyAsync(Stream stream, IWireParser parser, int size, byte[] scratch, CancellationToken cancellationToken)
+    internal static async ValueTask<BinaryClientReply> ReadPartialReplyAsync(Stream stream, IWireParser parser, int status, int size, byte[] scratch, ReadOnlyMemory<byte> prefix, CancellationToken cancellationToken)
     {
-        await stream.ReadExactlyAsync(scratch.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
-        var flags = scratch[0];
+        if (CanReadLargeLookupReply(parser, status))
+            return await ReadLargeLookupReplyAsync(stream, parser, size, scratch, cancellationToken, prefix).ConfigureAwait(false);
+
+        var body = ArrayPool<byte>.Shared.Rent(size);
+        try
+        {
+            prefix.CopyTo(body);
+            await stream.ReadExactlyAsync(body.AsMemory(prefix.Length, size - prefix.Length), cancellationToken).ConfigureAwait(false);
+            return ParseReply(parser, status, body.AsSpan(0, size));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(body);
+        }
+    }
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    internal static async ValueTask<BinaryClientReply> ReadLargeLookupReplyAsync(Stream stream, IWireParser parser, int size, byte[] scratch, CancellationToken cancellationToken, ReadOnlyMemory<byte> prefix = default)
+    {
+        if (prefix.IsEmpty)
+        {
+            await stream.ReadExactlyAsync(scratch.AsMemory(0, 1), cancellationToken).ConfigureAwait(false);
+            prefix = scratch.AsMemory(0, 1);
+        }
+
+        var flags = prefix.Span[0];
         var distributed = ReferenceEquals(parser, GetDistributedAsyncResponse.Parser);
         if (distributed || GetValueAsyncResponse.HasRawPayload(flags))
         {
             var found = distributed && DecodeDistributedFlag(flags);
             var payload = GC.AllocateUninitializedArray<byte>(size - 1);
-            await stream.ReadExactlyAsync(payload, cancellationToken).ConfigureAwait(false);
+            var received = prefix[1..];
+            received.CopyTo(payload);
+            await stream.ReadExactlyAsync(payload.AsMemory(received.Length), cancellationToken).ConfigureAwait(false);
             WireMessage response = distributed
                 ? GetDistributedAsyncResponse.FromOwnedPayload(found, payload)
                 : GetValueAsyncResponse.FromOwnedRawPayload(flags, payload);
@@ -168,8 +190,8 @@ internal static class BinaryClientProtocol
         var body = ArrayPool<byte>.Shared.Rent(size);
         try
         {
-            body[0] = flags;
-            await stream.ReadExactlyAsync(body.AsMemory(1, size - 1), cancellationToken).ConfigureAwait(false);
+            prefix.CopyTo(body);
+            await stream.ReadExactlyAsync(body.AsMemory(prefix.Length, size - prefix.Length), cancellationToken).ConfigureAwait(false);
             return ParseReply(parser, 0, body.AsSpan(0, size));
         }
         finally
@@ -216,9 +238,6 @@ internal static class BinaryClientProtocol
 
         return new SquirixTransportException(new CallStatus(code, error.Detail));
     }
-
-    private static SquirixTransportException RequestTooLarge() =>
-        new(new CallStatus(CacheTransportStatusCode.ResourceExhausted, "Binary cache request is too large.", PayloadTooLarge: true));
 
     private static bool HasOwnedDistributedPayload(IWireParser parser, int status) =>
         status == 0 && ReferenceEquals(parser, GetDistributedAsyncResponse.Parser);

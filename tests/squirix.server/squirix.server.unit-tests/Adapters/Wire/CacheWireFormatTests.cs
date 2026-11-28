@@ -33,6 +33,20 @@ public sealed class CacheWireFormatTests
         _ = await Assert.That(entry.ToByteArray().AsSpan().SequenceEqual(frame)).IsTrue();
     }
 
+    /// <summary>Changing one expiration field on a copy preserves the other field and the original entry.</summary>
+    [Test]
+    public async Task ExpirationFlagsAreIndependent()
+    {
+        var original = CacheEntryWire.Parser.ParseFrom([6, 0, 0]);
+        var withoutDuration = original with { Expiration = null };
+        var withoutTimestamp = original with { ExpiresUtc = null };
+        var restored = withoutTimestamp with { ExpiresUtc = original.ExpiresUtc };
+        _ = await Assert.That(Convert.ToHexString(withoutDuration.ToByteArray())).IsEqualTo("0200");
+        _ = await Assert.That(Convert.ToHexString(withoutTimestamp.ToByteArray())).IsEqualTo("0400");
+        _ = await Assert.That(Convert.ToHexString(restored.ToByteArray())).IsEqualTo("060000");
+        _ = await Assert.That(Convert.ToHexString(original.ToByteArray())).IsEqualTo("060000");
+    }
+
     /// <summary>The full duration range and UTC timestamp range survive a wire round trip.</summary>
     /// <param name="ticks">The signed duration.</param>
     [Test]
@@ -200,6 +214,46 @@ public sealed class CacheWireFormatTests
         ];
         foreach (var frame in frames)
             _ = NodeExceptionAssert.For<InvalidDataException>().Throws(frame, static bytes => _ = CacheEntryWire.Parser.ParseFrom(bytes));
+    }
+
+    /// <summary>One connection can switch namespaces, and a prior name cannot hide malformed UTF-8.</summary>
+    [Test]
+    public async Task FramesKeepTheirOwnNamespace()
+    {
+        var names = new WireNameCache();
+        foreach (var name in new[] { "red", "Red", "red", "緑" })
+        {
+            var frame = new GetValueAsyncRequest { CacheName = name, Key = "x" }.ToByteArray();
+            var decoded = GetValueAsyncRequest.Parser.ParseBorrowed(frame, names);
+            _ = await Assert.That(decoded.CacheName).IsEqualTo(name);
+            _ = await Assert.That(decoded.Key).IsEqualTo("x");
+        }
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(names, static remembered =>
+            _ = GetValueAsyncRequest.Parser.ParseFrom([1, 255, 1, 120], remembered));
+    }
+
+    /// <summary>Both array and memory-manager slices keep their original bounds and ownership.</summary>
+    /// <param name="managed">Selects a memory manager as the owner of the backing storage.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task BorrowedValueKeepsItsRange(bool managed)
+    {
+        using var owner = Squirix.Server.Adapters.Endpoint.BinaryReadPage.Pool.Rent(32);
+        Memory<byte> storage = managed ? owner.Memory : new byte[32];
+        var slice = storage.Slice(13, 2);
+        slice.Span[0] = 65;
+        slice.Span[1] = 66;
+
+        var wire = new CacheValue { BinaryValue = slice };
+        var copy = wire.TakeBinaryValue();
+        copy[0] = 90;
+        _ = await Assert.That(Convert.ToHexString(wire.BinaryValue.Span)).IsEqualTo("4142");
+        var text = CacheValue.FromTextSlice(slice);
+        _ = await Assert.That(text.EncodedText).IsNull();
+        slice.Span[1] = 67;
+        _ = await Assert.That(text.StringValue).IsEqualTo("AC");
     }
 
     private sealed class CountingWriter : IBufferWriter<byte>

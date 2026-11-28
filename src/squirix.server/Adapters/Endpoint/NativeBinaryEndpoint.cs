@@ -50,7 +50,7 @@ internal sealed class NativeBinaryEndpoint
 
     internal sealed class StreamPipe : IDuplexPipe
     {
-        private static readonly StreamPipeReaderOptions ReaderOptions = new(BinaryReadPage.Pool, leaveOpen: true);
+        private static readonly StreamPipeReaderOptions ReaderOptions = new(BinaryReadPage.Pool, Frames.MaxBatchBytes, leaveOpen: true, useZeroByteReads: true);
         private static readonly StreamPipeWriterOptions WriterOptions = new(minimumBufferSize: Frames.MaxBatchBytes, leaveOpen: true);
 
         internal StreamPipe(Stream stream)

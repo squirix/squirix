@@ -128,9 +128,14 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (_sharedClient == null)
             _sweeper.SweepIfDue();
 
-        return string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal)
-            ? AcquireForwarded(transport, operation)
-            : null;
+        if (string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal))
+            return AcquireForwarded(transport, operation);
+
+        // TryAcquire also checks for existing waiters before taking the permit.
+        if (_sharedClient != null && _nodeRateLimiter == null && InFlight < _options.SlowdownThreshold && _slots.TryAcquire())
+            return (Decision.Accepted(), AcquireLease(clientId, _sharedClient));
+
+        return null;
     }
 
     private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(

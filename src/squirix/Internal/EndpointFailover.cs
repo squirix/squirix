@@ -56,6 +56,16 @@ internal sealed class EndpointFailover
     /// <summary>Gets the client clock: absolute expirations are given on it and operation deadlines count down on it.</summary>
     internal TimeProvider Clock { get; }
 
+    internal string? SoleEndpoint => _bootstrapNodeIds.Count == 1 ? _bootstrapNodeIds[0] : null;
+
+    internal DeadlineBudget BeginOperation(string node)
+    {
+        var budget = DeadlineBudget.Start((Clock.GetUtcNow() + _operationDeadline).UtcDateTime, Clock);
+        if (IsExpired(in budget))
+            ThrowIfExpired(in budget, node);
+        return budget;
+    }
+
     /// <summary>
     /// Executes the action with at most one stale-term reroute under the single absolute operation deadline shared
     /// with the per-endpoint transport retries.

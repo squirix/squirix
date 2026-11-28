@@ -6,6 +6,7 @@ using System.Text;
 using Squirix.Server.Core;
 using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Utils;
+using Squirix.Transport.Wire.Cache;
 using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Node.Services;
@@ -73,21 +74,38 @@ internal static class ReplicaOperationFingerprints
     /// <param name="key">Target key.</param>
     /// <param name="mutationKind">Cache mutation kind.</param>
     /// <param name="mutationPayload">Cache mutation bytes.</param>
-    /// <param name="message">The native binary payload instead of <paramref name="mutationPayload" />, when supplied.</param>
     /// <returns>The SHA-256 fingerprint bytes.</returns>
     /// <remarks>
     /// Each string field contributes its 32-bit little-endian UTF-8 byte count followed by the bytes
     /// themselves, in field order, so concatenations that only differ at field boundaries hash
     /// differently.
     /// </remarks>
-    private static byte[] Compute(string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> mutationPayload, WireMessage? message = null)
+    private static byte[] Compute(string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> mutationPayload) =>
+        Compute(operationId, cacheName, key, mutationKind, mutationPayload, default(CacheEntryWire), false);
+
+    private static byte[] Compute<T>(string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> mutationPayload, T message, bool encodeMessage)
+        where T : IWireBody
     {
-        var payloadLength = message?.CalculateSize() ?? mutationPayload.Length;
+        var measure = default(WireWriter);
+        if (encodeMessage)
+            message.Encode(ref measure);
+        var payloadLength = encodeMessage ? measure.Written : mutationPayload.Length;
         var length = checked(FieldBytes(FingerprintDomain) + FieldBytes(cacheName) + FieldBytes(operationId) + FieldBytes(key) + FieldBytes(mutationKind) + payloadLength);
         if (length <= StackBufferBytes)
         {
             Span<byte> buffer = stackalloc byte[length];
-            return HashRequest(buffer, operationId, cacheName, key, mutationKind, mutationPayload, message);
+            var written = WriteRequestFields(buffer, operationId, cacheName, key, mutationKind);
+            if (!encodeMessage)
+            {
+                mutationPayload.CopyTo(buffer[written..]);
+            }
+            else
+            {
+                var encoder = new WireWriter(buffer[written..]);
+                message.Encode(ref encoder);
+            }
+
+            return SHA256.HashData(buffer);
         }
 
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -97,10 +115,15 @@ internal static class ReplicaOperationFingerprints
         AppendField(writer, cacheName);
         AppendField(writer, key);
         AppendField(writer, mutationKind);
-        if (message == null)
+        if (!encodeMessage)
+        {
             hash.AppendData(mutationPayload);
+        }
         else
-            message.WriteTo(writer);
+        {
+            var encoder = new WireWriter(writer);
+            message.Encode(ref encoder);
+        }
 
         return hash.GetHashAndReset();
     }
@@ -110,10 +133,12 @@ internal static class ReplicaOperationFingerprints
     /// <param name="cacheName">Target cache name, which is also the operation scope.</param>
     /// <param name="key">Target key.</param>
     /// <param name="mutationKind">Cache mutation kind.</param>
+    /// <typeparam name="T">The canonical wire body.</typeparam>
     /// <param name="mutationPayload">The message whose serialized bytes are the cache mutation bytes.</param>
     /// <returns>The SHA-256 fingerprint bytes, equal to those of the serialized message passed to the span overload.</returns>
-    private static byte[] Compute(string operationId, string cacheName, string key, string mutationKind, WireMessage mutationPayload) =>
-        Compute(operationId, cacheName, key, mutationKind, [], mutationPayload);
+    private static byte[] Compute<T>(string operationId, string cacheName, string key, string mutationKind, T mutationPayload)
+        where T : IWireBody =>
+        Compute(operationId, cacheName, key, mutationKind, [], mutationPayload, true);
 
     private static void AppendField(IncrementalHashBufferWriter writer, string value)
     {
@@ -139,19 +164,14 @@ internal static class ReplicaOperationFingerprints
         while (!completed);
     }
 
-    private static byte[] HashRequest(Span<byte> buffer, string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> payload, WireMessage? message)
+    private static int WriteRequestFields(Span<byte> buffer, string operationId, string cacheName, string key, string mutationKind)
     {
         var written = WriteField(buffer, FingerprintDomain);
         written += WriteField(buffer[written..], operationId);
         written += WriteField(buffer[written..], cacheName);
         written += WriteField(buffer[written..], key);
         written += WriteField(buffer[written..], mutationKind);
-        if (message == null)
-            payload.CopyTo(buffer[written..]);
-        else
-            message.WriteTo(buffer[written..]);
-
-        return SHA256.HashData(buffer);
+        return written;
     }
 
     private static int FieldBytes(string value) => checked(sizeof(int) + Encoding.UTF8.GetByteCount(value));

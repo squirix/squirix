@@ -106,12 +106,12 @@ internal sealed class OwnerRouter
     /// the key's group, or the refusal of the group view when a node that leads it gets no authority within the wait; or <see cref="FrameStatus.Unavailable" /> when no leader is known within the wait, the route went stale again after the
     /// single reroute, or a forward could not connect to its target, or its target had no leader, and no reroute was left.
     /// </exception>
-    internal Task<TResponse> ExecuteAsync<TState, TResponse>(
+    internal ValueTask<TResponse> ExecuteAsync<TState, TResponse>(
         string cacheName,
         string key,
         TState state,
         Func<TState, string, CancellationToken, Task<TResponse>> forward,
-        Func<TState, CancellationToken, Task<TResponse>> local,
+        Func<TState, CancellationToken, ValueTask<TResponse>> local,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(forward);
@@ -157,12 +157,12 @@ internal sealed class OwnerRouter
         ServerOpContract.NoLeaderAuthorityDetail,
         StringComparison.Ordinal);
 
-    private Task<TResponse> AttemptAsync<TState, TResponse>(
+    private ValueTask<TResponse> AttemptAsync<TState, TResponse>(
         in LeaderRoute route,
         TState state,
         Func<TState, string, CancellationToken, Task<TResponse>> forward,
-        Func<TState, CancellationToken, Task<TResponse>> local,
-        CancellationToken cancellationToken) => IsSelf(in route) ? local(state, cancellationToken) : forward(state, route.NodeId, cancellationToken);
+        Func<TState, CancellationToken, ValueTask<TResponse>> local,
+        CancellationToken cancellationToken) => IsSelf(in route) ? local(state, cancellationToken) : new ValueTask<TResponse>(forward(state, route.NodeId, cancellationToken));
 
     /// <summary>Tells whether this node leads a group without authority yet and has seen no higher term, so it may still get the authority.</summary>
     /// <param name="groupId">The group.</param>
@@ -189,12 +189,12 @@ internal sealed class OwnerRouter
     /// sees a higher term. Any other node refuses at once.
     /// </remarks>
     /// <exception cref="ServerCallException">The refusal of <see cref="RefuseInternal" /> when this node does not get authority within the wait.</exception>
-    private async Task<TResponse> AwaitAuthorityAsync<TState, TResponse>(
+    private async ValueTask<TResponse> AwaitAuthorityAsync<TState, TResponse>(
         string groupId,
         LeaderRoute route,
         ServerDeadlineBudget call,
         TState state,
-        Func<TState, CancellationToken, Task<TResponse>> local,
+        Func<TState, CancellationToken, ValueTask<TResponse>> local,
         CancellationToken cancellationToken)
     {
         return await _table.WaitForAuthorityAsync(groupId, LeaderWait(in call), cancellationToken).ConfigureAwait(false)
@@ -410,13 +410,13 @@ internal sealed class OwnerRouter
     /// The budget, created at the first stale or unreachable answer, allows one reroute, so at most two logical attempts run: a third is
     /// refused. The forward runs under the attempt budget of the call, so it carries that budget as its deadline. A member the fallback reached that serves the call is learned as the leader of the group.
     /// </remarks>
-    private async Task<TResponse> RouteAsync<TState, TResponse>(
+    private async ValueTask<TResponse> RouteAsync<TState, TResponse>(
         string groupId,
         LeaderRoute known,
         ServerDeadlineBudget call,
         TState state,
         Func<TState, string, CancellationToken, Task<TResponse>> forward,
-        Func<TState, CancellationToken, Task<TResponse>> local,
+        Func<TState, CancellationToken, ValueTask<TResponse>> local,
         CancellationToken cancellationToken)
     {
         var route = string.IsNullOrEmpty(known.NodeId) ? await ResolveAsync(groupId, call, cancellationToken).ConfigureAwait(false) : known;

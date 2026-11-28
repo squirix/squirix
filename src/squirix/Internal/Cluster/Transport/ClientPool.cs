@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -21,7 +20,7 @@ internal sealed class ClientPool : IClientPool
 {
     private static readonly BootstrapConnectOptions DefaultConnectOptions = new(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
 
-    private readonly ConcurrentDictionary<string, NodeClient> _clients = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, NodeClient> _clients;
 
     private readonly BootstrapConnectOptions _connectOptions;
     private readonly string[] _nodeIds;
@@ -38,6 +37,7 @@ internal sealed class ClientPool : IClientPool
     {
         _connectOptions = connectOptions ?? DefaultConnectOptions;
         _timeProvider = timeProvider;
+        _clients = new Dictionary<string, NodeClient>(peers.Length, StringComparer.OrdinalIgnoreCase);
         _nodeIds = RegisterPeers(peers, policyFactory, tlsOptions, bearerTokenProvider);
         BootstrapNodeIds = _nodeIds;
     }

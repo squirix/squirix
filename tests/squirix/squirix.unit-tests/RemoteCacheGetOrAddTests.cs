@@ -169,7 +169,7 @@ public sealed class RemoteCacheGetOrAddTests
             lock (_gate)
             {
                 OperationIds.Add(getOrAdd.OperationId);
-                SentEntries.Add(getOrAdd.Entry!.Value!.Int64Value);
+                SentEntries.Add(getOrAdd.Entry.GetValueOrDefault().Value!.Int64Value);
                 response = _answerAsAdded
                     ? new GetOrAddAsyncResponse { Added = true, Found = true }
                     : new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };

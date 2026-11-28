@@ -13,6 +13,23 @@ namespace Squirix.Server.UnitTests;
 /// <summary>Exercises the server store across sealing, slot reuse and relocation with outstanding readers.</summary>
 public sealed class PackedPhysicalCacheTests
 {
+    /// <summary>Compares the entire packed key when a supplementary character crosses the decoding boundary.</summary>
+    [Test]
+    public async Task ComparesWholePackedUnicodeKey()
+    {
+        var prefix = new string('a', 255);
+        var suffix = new string('ж', 300);
+        var key = CacheKey.Default($"{prefix}🦊{suffix}");
+        var incoming = new SlotPayload<StoredValue>(key, StoredValue.FromInteger(42));
+        var slot = PackedSlotPage<StoredValue>.Seal(new SlotPayload<StoredValue>[1], 0, incoming).Read(0);
+
+        _ = await Assert.That(slot.Matches(key)).IsTrue();
+        _ = await Assert.That(slot.Matches(CacheKey.Default($"{prefix}🦊{suffix}z"))).IsFalse();
+        _ = await Assert.That(slot.Matches(CacheKey.Default($"{prefix}🦊{suffix[..^1]}"))).IsFalse();
+        _ = await Assert.That(slot.Matches(CacheKey.Default($"{prefix}🦉{suffix}"))).IsFalse();
+        _ = await Assert.That(slot.Matches(CacheKey.Default($"{prefix}🦊{suffix[..^1]}Ж"))).IsFalse();
+    }
+
     /// <summary>Returned binary values remain usable across later writes, reclamation and reinsertion.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
 using Squirix.Internal;
-using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 
 namespace Squirix.Benchmarks.Client;
@@ -19,14 +18,6 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     private readonly Consumer _consumer = new();
     private EndpointFailover? _failover;
     private CallPolicy? _policy;
-
-    /// <summary>Records the queue-wait metric alone, isolating metric tag overhead from timeout and semaphore costs.</summary>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public void QueueWaitMetricObserveBatched()
-    {
-        for (var i = 0; i < Batch; i++)
-            CallPolicyMetrics.ObserveQueueWaitSeconds("node-a", TimeSpan.Zero);
-    }
 
     /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape with a stub cache transport.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]

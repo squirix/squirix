@@ -45,7 +45,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     {
         var request = new GetDistributedAsyncRequest { CacheName = _cacheName, Key = key };
         var reply = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<GetDistributedAsyncResponse>(client.GetDistributedAsync(wire, in options)),
+            static (client, wire, options) => client.GetDistributedAsync(wire, in options),
             request,
             cancellationToken).ConfigureAwait(false);
         return reply.Found ? reply.TakeValue() : null;
@@ -63,7 +63,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     {
         var request = BinaryClientProtocol.CreateSetRequest(_cacheName, key, ownedValue, expiresAtUnixMs, ttlTicks, slidingTicks);
         _ = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<SetAsyncResponse>(client.SetDistributedAsync(wire, in options)),
+            static (client, wire, options) => client.SetDistributedAsync(wire, in options),
             request,
             cancellationToken).ConfigureAwait(false);
     }
@@ -72,7 +72,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     {
         var request = new RefreshDistributedAsyncRequest { CacheName = _cacheName, Key = key };
         _ = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<RefreshDistributedAsyncResponse>(client.RefreshDistributedAsync(wire, in options)),
+            static (client, wire, options) => client.RefreshDistributedAsync(wire, in options),
             request,
             cancellationToken).ConfigureAwait(false);
     }
@@ -81,7 +81,7 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     {
         var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key };
         _ = await _rpc.ExecuteAsync(
-            static (client, wire, options) => new ValueTask<RemoveAsyncResponse>(client.RemoveAsync(wire, in options)),
+            static (client, wire, options) => client.RemoveAsync(wire, in options),
             request,
             cancellationToken).ConfigureAwait(false);
     }

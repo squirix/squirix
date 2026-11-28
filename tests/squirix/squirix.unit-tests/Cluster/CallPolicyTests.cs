@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,6 +26,38 @@ namespace Squirix.UnitTests.Cluster;
 public sealed class CallPolicyTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
+
+    /// <summary>Distinguishes an expired connect attempt from an expired operation even before the budget clock catches up.</summary>
+    /// <exception cref="InvalidOperationException">The loopback listener did not expose an IP endpoint.</exception>
+    /// <param name="boundedByOperation">Whether the overall operation supplies the tighter deadline.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task ConnectTimeoutKeepsLimitingDeadline(bool boundedByOperation, CancellationToken cancellationToken)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        if (listener.LocalEndpoint is not IPEndPoint endpoint)
+            throw new InvalidOperationException("Missing loopback endpoint.");
+
+        var uri = new UriBuilder(Uri.UriSchemeHttps, "localhost", endpoint.Port).Uri;
+        await using var client = new BinaryCacheClient(uri, null, null);
+        var clock = TimeProvider.System;
+        var deadline = clock.GetUtcNow().UtcDateTime.AddMinutes(2);
+        var budget = DeadlineBudget.Start(deadline, clock);
+        await using var policy = new CallPolicy(clock, TimeSpan.FromMinutes(boundedByOperation ? 3 : 1), 1);
+
+        // Deliver the connection timer first while leaving the policy's monotonic budget unspent.
+        var call = policy.ExecuteTransportAsync(
+            static (state, token, _) => state.Client.GetValueAsync(new GetValueAsyncRequest(), new BinaryCallOptions(state.Deadline, token, token, BinaryCallAlarm.DueAfter(TimeSpan.Zero))),
+            (Client: client, Deadline: deadline),
+            budget,
+            null,
+            cancellationToken);
+        var failure = await AsyncAssert.ThrowsAsync<SquirixTransportException, GetValueAsyncResponse>(call, Bound, clock, cancellationToken);
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(boundedByOperation ? CacheTransportStatusCode.DeadlineExceeded : CacheTransportStatusCode.Unavailable);
+    }
 
     /// <summary>Rejects new calls after BeginDrain.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

@@ -222,7 +222,7 @@ public sealed class OwnerRouterTests
             "k",
             guard,
             static (_, _, _) => throw new InvalidOperationException("The request must stay local."),
-            static (cache, token) => cache.GetValueAsync("c", "k", token).AsTask(),
+            static (cache, token) => cache.GetValueAsync("c", "k", token),
             cancellationToken);
 
         view.Value = new GroupLeaderView(true, false, false, 2, 2, new LeaderRoute(Remote, 2));
@@ -278,8 +278,8 @@ public sealed class OwnerRouterTests
             key,
             this,
             static (calls, target, _) => calls.RecordAsync(target, calls._forwardFailure),
-            static (calls, _) => calls.RecordAsync(Local, null),
-            CancellationToken.None);
+            static (calls, _) => new ValueTask<string>(calls.RecordAsync(Local, null)),
+            CancellationToken.None).AsTask();
 
         private Task<string> RecordAsync(string target, Exception? failure)
         {

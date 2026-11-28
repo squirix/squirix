@@ -54,7 +54,7 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
         _ = await harness.Adapter.Mutations.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1), "a", ttl: TimeSpan.FromSeconds(1)), CancellationToken.None);
         journal.Writer.Flush.Arm();
 
-        var remove = harness.Adapter.Mutations.RemoveAsync(FusedWriteHarness.Remove(FusedWriteHarness.OpId(2)), CancellationToken.None);
+        var remove = harness.Adapter.Mutations.RemoveAsync(FusedWriteHarness.Remove(FusedWriteHarness.OpId(2)), CancellationToken.None).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         harness.Clock.Advance(TimeSpan.FromSeconds(2));
         journal.Writer.Flush.Release();

@@ -34,11 +34,15 @@
         <Compile Include="..\shared\Squirix\Transport\Wire\GetValueAsyncResponse.cs" Link="Transport\Wire\GetValueAsyncResponse.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\BinaryTracedRequest.cs" Link="Transport\Wire\BinaryTracedRequest.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireMessage.cs" Link="Transport\Wire\Codec\WireMessage.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\IWireBody.cs" Link="Transport\Wire\Codec\IWireBody.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireTraceParent.cs" Link="Transport\Wire\Codec\WireTraceParent.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireDecoder.cs" Link="Transport\Wire\Codec\WireDecoder.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\IWireParser.cs" Link="Transport\Wire\Codec\IWireParser.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireParser.cs" Link="Transport\Wire\Codec\WireParser.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireBodyParser.cs" Link="Transport\Wire\Codec\WireBodyParser.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireReader.cs" Link="Transport\Wire\Codec\WireReader.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireNameCache.cs" Link="Transport\Wire\Codec\WireNameCache.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireByteRange.cs" Link="Transport\Wire\Codec\WireByteRange.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireWriter.cs" Link="Transport\Wire\Codec\WireWriter.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Wire\Codec\WireSegments.cs" Link="Transport\Wire\Codec\WireSegments.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Binary\Frames.cs" Link="Transport\Binary\Frames.cs"/>

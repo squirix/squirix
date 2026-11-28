@@ -92,11 +92,11 @@ public sealed class RemoteCacheHugeExpirationTests
             switch (request)
             {
                 case SetEntryAsyncRequest set:
-                    Expiration = set.Entry!.Expiration;
+                    Expiration = set.Entry?.Expiration;
                     response = new SetAsyncResponse();
                     break;
                 case TryAddEntryAsyncRequest tryAdd:
-                    Expiration = tryAdd.Entry!.Expiration;
+                    Expiration = tryAdd.Entry?.Expiration;
                     response = new TryAddAsyncResponse { Added = true };
                     break;
                 case TouchAsyncRequest touch:

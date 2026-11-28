@@ -1,0 +1,27 @@
+{
+  "baselineTag": "binary-transport@bf7199cc0",
+  "baselineCommit": "bf7199cc0c195de55e1d611129c9142553194ff2",
+  "timeTolerance": 0.1,
+  "allocationTolerance": 0.1,
+  "maxRelativeStandardError": 0.05,
+  "minSamples": 24,
+  "suites": [
+    {
+      "name": "pipelined-fill",
+      "project": "benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj",
+      "entryPoint": "tools/ci/performance-guard/Program.cs",
+      "sources": [
+        "Cache/PipelinedCacheFillBenchmarks.cs"
+      ],
+      "filters": [
+        "*PipelinedCacheFillBenchmarks.FillAsync"
+      ],
+      "cases": [
+        {
+          "name": "PipelinedCacheFillBenchmarks.FillAsync",
+          "checkTime": true
+        }
+      ]
+    }
+  ]
+}

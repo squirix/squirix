@@ -280,8 +280,8 @@ public sealed class OwnerRouterFallbackTests
             "key",
             (Attempts: this, Request: _request),
             static (s, target, _) => s.Attempts.RecordAsync(target, s.Request),
-            static (s, _) => s.Attempts.RecordAsync("local", s.Request),
-            cancellationToken);
+            static (s, _) => new ValueTask<string>(s.Attempts.RecordAsync("local", s.Request)),
+            cancellationToken).AsTask();
 
         private Task<string> RecordAsync(string target, object request)
         {

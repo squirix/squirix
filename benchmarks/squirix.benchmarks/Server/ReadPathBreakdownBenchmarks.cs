@@ -74,14 +74,13 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
         return;
 
-        static async ValueTask<GetValueAsyncResponse> GetValueViaClientAsync(
+        static ValueTask<GetValueAsyncResponse> GetValueViaClientAsync(
             BinaryCacheClient client,
             string cacheName,
             string key,
             CancellationToken cancellationToken)
         {
-            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, new BinaryCallOptions(DateTime.MaxValue, cancellationToken, cancellationToken))
-                               .ConfigureAwait(false);
+            return client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, new BinaryCallOptions(DateTime.MaxValue, cancellationToken, cancellationToken));
         }
     }
 

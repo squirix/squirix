@@ -22,6 +22,9 @@ internal sealed class ServerCallCorrelation
 
     internal static Activity? StartActivity(string method, string? traceParent, string? traceState)
     {
+        if (!ActivitySourceHolder.HasListeners)
+            return null;
+
         ActivityContext parent = default;
         if (!string.IsNullOrEmpty(traceParent))
             _ = ActivityContext.TryParse(traceParent, traceState, out parent);

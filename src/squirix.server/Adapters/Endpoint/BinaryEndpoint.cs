@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Composition;
 using Squirix.Server.Logging;
+using Squirix.Server.Node.Observability;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
 using Squirix.Transport.Wire.Cache;
@@ -107,7 +108,8 @@ internal static class BinaryEndpoint
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(connection.ConnectionClosed, connection.CloseRequested);
         var accessor = services.Require<BinaryRequestAccessor>();
         var operations = services.Require<BinaryDispatch>();
-        var state = new CallState(connection, validator, accessor, operations);
+        using var deadlines = new BinaryRequestDeadlines(TimeProvider.System, connection.ConnectionClosed);
+        var state = new CallState(connection, validator, accessor, operations, deadlines);
         var log = services.Require<IServerLoggerFactory>().CreateLogger<BinaryConnectionPump>();
         var pump = new BinaryConnectionPump(
             connection.Transport,
@@ -126,8 +128,8 @@ internal static class BinaryEndpoint
         if (timeout <= TimeSpan.Zero)
             return new BinaryResponse(FrameStatus.DeadlineExceeded);
         var operationId = Frames.ReadOperationId(frame.Control);
-        var deadlineUtc = (TimeProvider.System.GetUtcNow() + timeout).UtcDateTime;
-        using var deadline = new TimedCancellation(timeout, TimeProvider.System, state.Connection.ConnectionClosed);
+        var budget = new ServerDeadlineBudget(TimeProvider.System, timeout, TimeProvider.System.GetTimestamp());
+        using var deadline = state.Deadlines.Start(timeout);
         var scope = state.Validator?.CreateRequestScope();
         try
         {
@@ -141,7 +143,7 @@ internal static class BinaryEndpoint
             if (!TryReadTrace(call, frame.Control, ref body))
                 return new BinaryResponse(FrameStatus.InvalidArgument);
 
-            var callContext = new BinaryDispatch.Request(call, deadlineUtc, predecessor, ValueBytes: frame.ValueBytes);
+            var callContext = new BinaryDispatch.Request(call, budget, predecessor, ValueBytes: frame.ValueBytes);
             return await state.Operations.ExecuteAsync(Unsafe.BitCast<int, BinaryOperation>(operationId), body, in callContext).ConfigureAwait(false);
         }
         catch (ServerCallException error)
@@ -192,5 +194,6 @@ internal static class BinaryEndpoint
         BinaryConnection Connection,
         NativeConnectionAuthenticationValidator? Validator,
         BinaryRequestAccessor Accessor,
-        BinaryDispatch Operations);
+        BinaryDispatch Operations,
+        BinaryRequestDeadlines Deadlines);
 }

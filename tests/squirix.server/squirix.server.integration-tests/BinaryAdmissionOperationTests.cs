@@ -1,9 +1,13 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 using Squirix.Transport.Wire.Codec;
@@ -51,6 +55,81 @@ public sealed class BinaryAdmissionOperationTests : NodeIntegrationTestBase
             _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.ResourceExhausted);
             _ = await Assert.That(error.Message).Contains($"(cache/{label})");
         }
+    }
+
+    /// <summary>A flow captured by an admitted request loses its grant before the response reaches the client.</summary>
+    /// <param name="cancellationToken">Test cancellation token.</param>
+    [Test]
+    public async Task CompletedRequestRevokesInheritedGrant(CancellationToken cancellationToken)
+    {
+        const string node = "inherited-admission";
+        var observed = new TaskCompletionSource<(ExecutionContext? Flow, bool Admitted)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var options = new IntegrationStartOptions
+        {
+            ServicesConfigure = services => services.AddSingleton(provider =>
+            {
+                var gate = provider.GetRequiredService<IBackpressureGate>();
+                return new BinaryCallObserver(_ => observed.SetResult((ExecutionContext.Capture(), InboundAdmissionScope.IsAdmitted(gate))));
+            }),
+        };
+        await using var cluster = await StartClusterAsync(node, options, cancellationToken);
+        var host = cluster[node];
+        using var channel = CreateBinaryChannel(host.Uri);
+        var read = await channel.ExchangeAsync(
+            BinaryOperation.GetValue,
+            new GetValueAsyncRequest { CacheName = "default", Key = "missing" },
+            GetValueAsyncResponse.Parser,
+            null,
+            cancellationToken);
+        _ = await Assert.That(read.Found).IsFalse();
+        var (flow, admitted) = await observed.Task.WaitAsync(cancellationToken);
+        _ = await Assert.That(admitted).IsTrue();
+        var inherited = true;
+        var hostGate = host.GetRequiredService<IBackpressureGate>();
+        ExecutionContext.Run(flow!, _ => inherited = InboundAdmissionScope.IsAdmitted(hostGate), null);
+        _ = await Assert.That(inherited).IsFalse();
+    }
+
+    /// <summary>The cache hook sees the request deadline and the enclosing trace ends after that deadline scope exits.</summary>
+    /// <param name="cancellationToken">Test cancellation token.</param>
+    [Test]
+    public async Task RequestDeadlineEndsBeforeServerActivity(CancellationToken cancellationToken)
+    {
+        var marker = new object();
+        var after = new TaskCompletionSource<ServerDeadlineBudget?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.Ordinal),
+            Sample = static (ref _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity =>
+            {
+                if (ReferenceEquals(activity.GetCustomProperty(nameof(RequestDeadlineEndsBeforeServerActivity)), marker))
+                    after.SetResult(ServerRpcDeadlineContext.CurrentBudget);
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var inside = new TaskCompletionSource<ServerDeadlineBudget?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var options = new IntegrationStartOptions
+        {
+            ServicesConfigure = services => services.AddSingleton(new BinaryCallObserver(_ =>
+            {
+                Activity.Current!.SetCustomProperty(nameof(RequestDeadlineEndsBeforeServerActivity), marker);
+                inside.SetResult(ServerRpcDeadlineContext.CurrentBudget);
+            })),
+        };
+        const string node = "dispatch-deadline";
+        await using var cluster = await StartClusterAsync(node, options, cancellationToken);
+        using var channel = CreateBinaryChannel(cluster[node].Uri);
+        var response = await channel.ExchangeAsync(
+            BinaryOperation.GetValue,
+            new GetValueAsyncRequest { CacheName = "default", Key = "missing" },
+            GetValueAsyncResponse.Parser,
+            null,
+            cancellationToken);
+
+        _ = await Assert.That(response.Found).IsFalse();
+        _ = await Assert.That(await inside.Task.WaitAsync(cancellationToken)).IsNotNull();
+        _ = await Assert.That(await after.Task.WaitAsync(cancellationToken)).IsNull();
     }
 
     private sealed class RejectingGate : IBackpressureGate

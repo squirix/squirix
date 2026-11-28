@@ -96,7 +96,7 @@ public sealed class BinaryValueTests
         byte[] serialized = [34, 99, 117, 115, 116, 111, 109, 34];
         var expectations = new ISquirixSerializerCreateExpectations();
         _ = expectations.Setups.SerializeToUtf8Bytes(Arg.Any<byte[]?>()).ReturnValue(serialized);
-        var wire = WireMapping.MapEntryToWire(new CacheEntry<byte[]> { Value = [0, 255] }, expectations.Instance());
+        var wire = WireMapping.CreateWireEntry<byte[]>([0, 255], expectations.Instance());
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(wire.Value.JsonUtf8.Span.SequenceEqual(serialized)).IsTrue();
     }

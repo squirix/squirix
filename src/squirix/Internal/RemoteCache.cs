@@ -1,11 +1,9 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Core;
+using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport;
 using Squirix.Transport.Wire.Cache;
@@ -16,9 +14,9 @@ namespace Squirix.Internal;
 internal sealed class RemoteCache<T> : ICache<T>
 {
     private readonly string _cacheName;
-    private readonly KeyedSingleFlight<T?, CacheValueResult<T>> _getOrAddFlights = new();
     private readonly RemoteCacheRpc _rpc;
     private readonly ISquirixSerializer _serializer;
+    private KeyedSingleFlight<T?, CacheValueResult<T>>? _getOrAddFlights;
 
     internal RemoteCache(string cacheName, EndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
     {
@@ -38,12 +36,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options)
-;
-                return new ValueTask<GetEntryAsyncResponse>(responseAsync);
-            },
+            static (client, state, options) => client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options),
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
@@ -60,12 +53,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options)
-;
-                return new ValueTask<GetExpirationAsyncResponse>(responseAsync);
-            },
+            static (client, state, options) => client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options),
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
@@ -90,7 +78,8 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         // Options that can never be written are refused before the factory runs; the lifetime is still measured from to send.
         _ = _rpc.ResolveExpiration(options);
-        return _getOrAddFlights.RunAsync(
+        var flights = LazyInitializer.EnsureInitialized(ref _getOrAddFlights, static () => new());
+        return flights.RunAsync(
             key,
             new GetOrAddFlightState(this, key, valueFactory, options),
             static (state, ct) => state.ValueFactory(state.Key, ct),
@@ -102,12 +91,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var r = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options)
-;
-                return new ValueTask<GetValueAsyncResponse>(responseAsync);
-            },
+            static (client, state, options) => client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, in options),
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
@@ -119,7 +103,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var request = new RemoveAsyncRequest { CacheName = _cacheName, Key = key };
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) => new ValueTask<RemoveAsyncResponse>(client.RemoveAsync(state, in options)),
+            static (client, state, options) => client.RemoveAsync(state, in options),
             request,
             cancellationToken).ConfigureAwait(false);
 
@@ -131,7 +115,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var request = new RemoveExpirationAsyncRequest { CacheName = _cacheName, Key = key };
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) => new ValueTask<RemoveExpirationAsyncResponse>(client.RemoveExpirationAsync(state, in options)),
+            static (client, state, options) => client.RemoveExpirationAsync(state, in options),
             request,
             cancellationToken).ConfigureAwait(false);
 
@@ -141,15 +125,11 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var request = _rpc.ToSetEntryAsyncRequest(key, new CacheEntry<T> { Value = value });
-        _rpc.ApplyExpiration(request.Entry, options);
+        var request = _rpc.ToSetEntryAsyncRequest(key, value);
+        request.Entry = _rpc.WithExpiration(request.Entry, options);
 
         _ = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.SetEntryAsync(state, in options);
-                return new ValueTask<SetAsyncResponse>(responseAsync);
-            },
+            static (client, state, options) => client.SetEntryAsync(state, in options),
             request,
             cancellationToken).ConfigureAwait(false);
     }
@@ -160,7 +140,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         expiration.ThrowIfNegativeOrZero(nameof(expiration), "expiration must be greater than zero.");
         var request = new TouchAsyncRequest { CacheName = _cacheName, Key = key, Expiration = expiration };
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) => new ValueTask<TouchAsyncResponse>(client.TouchAsync(state, in options)),
+            static (client, state, options) => client.TouchAsync(state, in options),
             request,
             cancellationToken).ConfigureAwait(false);
 
@@ -177,15 +157,11 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var request = _rpc.ToTryAddEntryAsyncRequest(key, new CacheEntry<T> { Value = value });
-        _rpc.ApplyExpiration(request.Entry, options);
+        var request = _rpc.ToTryAddEntryAsyncRequest(key, value);
+        request.Entry = _rpc.WithExpiration(request.Entry, options);
 
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.AddEntryIfMissingAsync(state, in options);
-                return new ValueTask<TryAddAsyncResponse>(responseAsync);
-            },
+            static (client, state, options) => client.AddEntryIfMissingAsync(state, in options),
             request,
             cancellationToken).ConfigureAwait(false);
 
@@ -199,15 +175,11 @@ internal sealed class RemoteCache<T> : ICache<T>
         {
             CacheName = _cacheName,
             Key = key,
-            Entry = WireMapping.MapEntryToWire(new CacheEntry<T> { Value = value }, _serializer),
+            Entry = WireMapping.CreateWireEntry(value, _serializer),
         };
 
         var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.UpdateAsync(state, in options);
-                return new ValueTask<UpdateAsyncResponse>(responseAsync);
-            },
+            static (client, state, options) => client.UpdateAsync(state, in options),
             request,
             cancellationToken).ConfigureAwait(false);
 
@@ -217,14 +189,10 @@ internal sealed class RemoteCache<T> : ICache<T>
     private static async Task<CacheValueResult<T>> SendGetOrAddAsync(GetOrAddFlightState state, T? created, CancellationToken cancellationToken)
     {
         var cache = state.Cache;
-        var request = cache._rpc.ToGetOrAddAsyncRequest(state.Key, new CacheEntry<T> { Value = created });
-        cache._rpc.ApplyExpiration(request.Entry, state.Options);
+        var request = cache._rpc.ToGetOrAddAsyncRequest(state.Key, created);
+        request.Entry = cache._rpc.WithExpiration(request.Entry, state.Options);
         var r = await cache._rpc.ExecuteAsync(
-            static (client, requestState, options) =>
-            {
-                var responseAsync = client.GetOrAddAsync(requestState, in options);
-                return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
-            },
+            static (client, requestState, options) => client.GetOrAddAsync(requestState, in options),
             request,
             cancellationToken).ConfigureAwait(false);
 
@@ -270,11 +238,9 @@ internal sealed class RemoteCache<T> : ICache<T>
         /// <param name="options">The entry options.</param>
         /// <exception cref="ArgumentException">Both an absolute and a relative expiration are set.</exception>
         /// <exception cref="ArgumentOutOfRangeException">The absolute expiration is not in the future on the client clock.</exception>
-        internal void ApplyExpiration(CacheEntryWire? entry, CacheEntryOptions? options)
-        {
-            if (ResolveExpiration(options) is { } expiration && entry != null)
-                entry.Expiration = expiration;
-        }
+        /// <returns>The entry with its resolved expiration.</returns>
+        internal CacheEntryWire? WithExpiration(CacheEntryWire? entry, CacheEntryOptions? options) =>
+            ResolveExpiration(options) is { } expiration && entry is { } present ? present with { Expiration = expiration } : entry;
 
         /// <summary>Returns the relative expiration to send for <paramref name="options" />, measured now on the client clock.</summary>
         /// <param name="options">The entry options.</param>
@@ -307,35 +273,57 @@ internal sealed class RemoteCache<T> : ICache<T>
         internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
             Func<BinaryCacheClient, TState, BinaryCallOptions, ValueTask<TResult>> action,
             TState state,
-            CancellationToken cancellationToken) => AwaitRpcGuardedAsync(ExecuteCoreAsync(action, state, cancellationToken));
+            CancellationToken cancellationToken)
+        {
+            if (_failover.SoleEndpoint is not { } node)
+                return ExecuteWithFailoverAsync(action, state, cancellationToken);
 
-        internal GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, CacheEntry<T> entry) => new()
+            ValueTask<TResult> operation;
+            try
+            {
+                operation = ExecuteOnNodeAsync(node, action, state, _failover.BeginOperation(node), cancellationToken, RemoteRpcErrorMapper.Map);
+            }
+            catch (SquirixTransportException ex)
+            {
+                RemoteRpcErrorMapper.Map(ex);
+                throw;
+            }
+
+            return operation;
+        }
+
+        internal GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, T? value) => new()
         {
             CacheName = _cacheName,
             Key = key,
-            Entry = WireMapping.MapEntryToWire(entry, _serializer),
+            Entry = WireMapping.CreateWireEntry(value, _serializer),
         };
 
-        internal SetEntryAsyncRequest ToSetEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
+        internal SetEntryAsyncRequest ToSetEntryAsyncRequest(string key, T? value) => new()
         {
             CacheName = _cacheName,
             Key = key,
-            Entry = WireMapping.MapEntryToWire(entry, _serializer),
+            Entry = WireMapping.CreateWireEntry(value, _serializer),
         };
 
-        internal TryAddEntryAsyncRequest ToTryAddEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
+        internal TryAddEntryAsyncRequest ToTryAddEntryAsyncRequest(string key, T? value) => new()
         {
             CacheName = _cacheName,
             Key = key,
-            Entry = WireMapping.MapEntryToWire(entry, _serializer),
+            Entry = WireMapping.CreateWireEntry(value, _serializer),
         };
 
-        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-        private static async ValueTask<TResult> AwaitRpcGuardedAsync<TResult>(ValueTask<TResult> task)
+        private async ValueTask<TResult> ExecuteWithFailoverAsync<TState, TResult>(
+            Func<BinaryCacheClient, TState, BinaryCallOptions, ValueTask<TResult>> action,
+            TState state,
+            CancellationToken cancellationToken)
         {
             try
             {
-                return await task.ConfigureAwait(false);
+                return await _failover.ExecuteAsync(
+                    static (node, execution, budget, ct) => execution.Cache.ExecuteOnNodeAsync(node, execution.Action, execution.State, in budget, ct),
+                    (Cache: this, Action: action, State: state),
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (SquirixTransportException ex)
             {
@@ -344,58 +332,17 @@ internal sealed class RemoteCache<T> : ICache<T>
             }
         }
 
-        private ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
-            Func<BinaryCacheClient, TState, BinaryCallOptions, ValueTask<TResult>> action,
-            TState state,
-            CancellationToken cancellationToken) => _failover.ExecuteAsync(
-            static (nodeId, execution, budget, ct) =>
-            {
-                var node = execution.Cache._clients.ForNode(nodeId);
-                return node.Policy.ExecuteAsync(
-                    static (policyState, token) => policyState.Action(
-                        policyState.Client,
-                        policyState.State,
-                        new BinaryCallOptions(policyState.Budget.ForwardDeadlineUtc, token, policyState.CallerToken)),
-                    (execution.Action, node.Client, execution.State, Budget: budget, execution.CallerToken),
-                    ct,
-                    budget);
-            },
-            (Cache: this, Action: action, State: state, CallerToken: cancellationToken),
-            cancellationToken);
-
-        private static class CacheOperationContract
+        private ValueTask<TResult> ExecuteOnNodeAsync<TState, TResult>(
+            string nodeId, Func<BinaryCacheClient, TState, BinaryCallOptions, ValueTask<TResult>> action, TState state, in DeadlineBudget budget, CancellationToken cancellationToken, Action<SquirixTransportException>? onFailure = null)
         {
-            internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
-
-            internal static bool IsOperationIdReuseMismatchMessage(string? message) =>
-                string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
-        }
-
-        private static class RemoteRpcErrorMapper
-        {
-            /// <summary>Applies remote RPC error mapping and always throws (never returns normally).</summary>
-            /// <param name="ex">The transport exception from the remote cache pipeline.</param>
-            /// <exception cref="OperationIdRequiredException">When the server rejected a missing operation id.</exception>
-            /// <exception cref="OperationIdReuseMismatchException">When the server rejected an operation-id reuse mismatch.</exception>
-            /// <exception cref="CommitOutcomeUnknownException">When the server reports an ambiguous durable commit outcome.</exception>
-            /// <exception cref="SquirixTransportException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
-            [DoesNotReturn]
-            internal static void Map(SquirixTransportException ex)
-            {
-                ArgumentNullException.ThrowIfNull(ex);
-
-                if (ex.StatusCode is CacheTransportStatusCode.InvalidArgument && CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
-                    throw new OperationIdRequiredException(ex.Status.Detail, ex);
-
-                if (ex.StatusCode is CacheTransportStatusCode.FailedPrecondition && CacheOperationContract.IsOperationIdReuseMismatchMessage(ex.Status.Detail))
-                    throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
-
-                var commitUnknown = CommitOutcomeUnknownClassifier.Map(ex);
-                if (commitUnknown != null)
-                    throw commitUnknown;
-
-                ExceptionDispatchInfo.Capture(ex).Throw();
-            }
+            var node = _clients.ForNode(nodeId);
+            return node.Policy.ExecuteTransportAsync(
+                static (execution, token, expires) => execution.Action(
+                    execution.Client, execution.State, new BinaryCallOptions(execution.Budget.ForwardDeadlineUtc, token, execution.CallerToken, expires)),
+                (Action: action, node.Client, State: state, Budget: budget, CallerToken: cancellationToken),
+                budget,
+                onFailure,
+                cancellationToken);
         }
     }
 }

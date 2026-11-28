@@ -80,6 +80,32 @@ public sealed class BinaryReplyReadTests
         _ = await Assert.That(stream.ReadByte()).IsEqualTo(29);
     }
 
+    /// <summary>A buffered prefix and bytes from the stream form exactly one lookup reply.</summary>
+    /// <param name="prefixLength">How much of the reply arrived alongside its header.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(197)]
+    public async Task BufferedLookupPreservesNextFrame(int prefixLength, CancellationToken cancellationToken)
+    {
+        var frame = new byte[32770];
+        frame[0] = 1;
+        for (var i = 1; i < frame.Length; i++)
+            frame[i] = byte.CreateTruncating(i * 17);
+        var scratch = new byte[1024];
+        frame.AsSpan(0, prefixLength).CopyTo(scratch);
+        await using var stream = new MemoryStream(frame) { Position = prefixLength };
+
+        var read = await BinaryClientProtocol.ReadPartialReplyAsync(
+            stream, GetDistributedAsyncResponse.Parser, 0, frame.Length - 1, scratch, scratch.AsMemory(0, prefixLength), cancellationToken);
+
+        var response = await Assert.That(read.Response).IsTypeOf<GetDistributedAsyncResponse>();
+        _ = await Assert.That(response!.Found).IsTrue();
+        _ = await Assert.That(response.TakeValue().AsSpan().SequenceEqual(frame.AsSpan(1, frame.Length - 2))).IsTrue();
+        _ = await Assert.That(stream.ReadByte()).IsEqualTo(int.CreateChecked(frame[^1]));
+    }
+
     /// <summary>Reads fragmented JSON into the published payload and leaves the next frame unread.</summary>
     /// <param name="found">Whether the found flag is present.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>

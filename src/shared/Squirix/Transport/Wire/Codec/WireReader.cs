@@ -14,12 +14,14 @@ internal ref struct WireReader
     private static readonly SearchValues<char> Hex = SearchValues.Create("0123456789abcdef");
     private readonly ReadOnlySpan<byte> _frame;
     private readonly ReadOnlyMemory<byte> _borrowed;
+    private readonly WireNameCache? _names;
     private int _offset;
 
-    internal WireReader(ReadOnlySpan<byte> frame, ReadOnlyMemory<byte> borrowed = default)
+    internal WireReader(ReadOnlySpan<byte> frame, ReadOnlyMemory<byte> borrowed = default, WireNameCache? names = null)
     {
         _frame = frame;
         _borrowed = borrowed;
+        _names = names;
     }
 
     internal readonly int Remaining => _frame.Length - _offset;
@@ -111,7 +113,8 @@ internal ref struct WireReader
         return id;
     }
 
-    internal string Text(bool tail = false) => Text(tail ? Remaining : Count());
+    internal string Text(bool tail = false, bool cacheName = false) =>
+        Text(tail ? Remaining : Count(), cacheName ? _names : null);
 
     internal double Double()
     {
@@ -150,13 +153,17 @@ internal ref struct WireReader
 
     private static InvalidDataException Invalid() => new("Malformed binary message.");
 
-    private string Text(int length)
+    private string Text(int length, WireNameCache? names = null)
     {
         var text = _frame.Slice(_offset, length);
         _offset += length;
         try
         {
-            return Utf8.GetString(text);
+            if (names?.Find(text) is { } last)
+                return last;
+            var decoded = Utf8.GetString(text);
+            names?.Remember(decoded);
+            return decoded;
         }
         catch (DecoderFallbackException error)
         {

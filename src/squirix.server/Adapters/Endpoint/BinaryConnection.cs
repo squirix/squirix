@@ -3,6 +3,7 @@ using System.IO.Pipelines;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Transport.Wire.Codec;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -35,6 +36,8 @@ internal sealed class BinaryConnection : IDisposable
     internal CancellationToken CloseRequested => _draining.Token;
 
     internal AuthenticatedConnection? Identity { get; set; }
+
+    internal WireNameCache Names { get; } = new();
 
     internal bool SupportsExtendedFrames { get; set; }
 

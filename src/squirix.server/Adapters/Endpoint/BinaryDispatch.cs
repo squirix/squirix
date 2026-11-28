@@ -61,25 +61,25 @@ internal sealed class BinaryDispatch
     private ValueTask<BinaryResponse> InvokeDistributedSetAsync(ReadOnlyMemory<byte> body, in Request context) =>
         DispatchAsync(
             CacheOperationNames.Set,
-            SetDistributedAsyncRequest.Parser.ParseBorrowed(body),
+            SetDistributedAsyncRequest.Parser.ParseBorrowed(body, context.Call.Connection?.Names),
             static (ops, request, token) => ops.Mutations.SetDistributedAsync(request, token),
             context);
 
     private ValueTask<BinaryResponse> InvokeAsync<TRequest, TResponse>(
         string operationName,
         WireParser<TRequest> parser,
-        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, Task<TResponse>> method,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, ValueTask<TResponse>> method,
         ReadOnlyMemory<byte> body,
         in Request context)
         where TRequest : WireMessage
         where TResponse : WireMessage =>
-        DispatchAsync(operationName, body.Length > Frames.MaxRequestBytes ? parser.ParseBorrowed(body) : parser.ParseFrom(body.Span), method, context);
+        DispatchAsync(operationName, body.Length > Frames.MaxRequestBytes ? parser.ParseBorrowed(body, context.Call.Connection?.Names) : parser.ParseFrom(body.Span, context.Call.Connection?.Names), method, context);
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<BinaryResponse> DispatchAsync<TRequest, TResponse>(
         string operationName,
         TRequest request,
-        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, Task<TResponse>> method,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, ValueTask<TResponse>> method,
         Request context)
         where TRequest : WireMessage
         where TResponse : WireMessage
@@ -99,26 +99,7 @@ internal sealed class BinaryDispatch
             using var invocation = _scopes.EnterRemoteInvocation(context.Forwarded);
             using var activity = ServerCallCorrelation.StartActivity(path, call.TraceParent, call.TraceState);
             using var log = _correlation.BeginLogScope(path);
-            using var deadline = context.Forwarded ? null : ServerRpcDeadlineContext.Push(context.Deadline, TimeProvider.System);
-            var (decision, lease) = await _admission.AcquireAsync(operationName, call.RequestAborted).ConfigureAwait(false);
-            if (!decision.IsAccepted)
-                return BinaryResponse.FromError(ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown"));
-
-            using (lease)
-            using (_admission.Enter())
-            {
-                try
-                {
-                    if (_observer != null)
-                        await _observer.EnterAsync(call).ConfigureAwait(false);
-                    var response = await method(_operations, request, call.RequestAborted).ConfigureAwait(false);
-                    return new BinaryResponse(FrameStatus.Ok, response);
-                }
-                finally
-                {
-                    _observer?.Exit();
-                }
-            }
+            return await AdmitWithDeadlineAsync(operationName, request, method, context).ConfigureAwait(false);
         }
         catch (Exception error) when (error is ResourceExhaustedException or JournalCapacityExceededException or ServerOpIdMismatchException or SquirixException)
         {
@@ -126,5 +107,46 @@ internal sealed class BinaryDispatch
         }
     }
 
-    internal readonly record struct Request(BinaryRequestContext Call, DateTime Deadline, Task Predecessor, bool Forwarded = false, int? ValueBytes = null);
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<BinaryResponse> AdmitWithDeadlineAsync<TRequest, TResponse>(
+        string operationName,
+        TRequest request,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, ValueTask<TResponse>> method,
+        Request context)
+        where TRequest : WireMessage
+        where TResponse : WireMessage
+    {
+        var call = context.Call;
+        using var deadline = context.Forwarded ? null : ServerRpcDeadlineContext.Push(context.Deadline, false);
+        var (decision, lease) = await _admission.AcquireAsync(operationName, call.RequestAborted).ConfigureAwait(false);
+        if (!decision.IsAccepted)
+            return BinaryResponse.FromError(ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown"));
+
+        using (lease)
+            return await InvokeAdmittedAsync(call, request, method).ConfigureAwait(false);
+    }
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<BinaryResponse> InvokeAdmittedAsync<TRequest, TResponse>(
+        BinaryRequestContext call,
+        TRequest request,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, ValueTask<TResponse>> method)
+        where TRequest : WireMessage
+        where TResponse : WireMessage
+    {
+        using var scope = _admission.EnterDispatchScope();
+        try
+        {
+            if (_observer != null)
+                await _observer.EnterAsync(call).ConfigureAwait(false);
+            var response = await method(_operations, request, call.RequestAborted).ConfigureAwait(false);
+            return new BinaryResponse(FrameStatus.Ok, response);
+        }
+        finally
+        {
+            _observer?.Exit();
+        }
+    }
+
+    internal readonly record struct Request(BinaryRequestContext Call, ServerDeadlineBudget Deadline, Task Predecessor, bool Forwarded = false, int? ValueBytes = null);
 }

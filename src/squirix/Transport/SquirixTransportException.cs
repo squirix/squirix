@@ -35,5 +35,7 @@ public sealed class SquirixTransportException : Exception
     /// <summary>Gets the classified transport failure.</summary>
     public CacheTransportStatusCode StatusCode => Status.Code;
 
+    internal bool ConnectAttemptTimedOut { get; init; }
+
     internal CallStatus Status { get; }
 }

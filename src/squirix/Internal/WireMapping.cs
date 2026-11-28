@@ -21,17 +21,10 @@ internal static class WireMapping
         return Decode<T>(value, serializer);
     }
 
-    internal static CacheEntryWire MapEntryToWire<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
+    internal static CacheEntryWire CreateWireEntry<T>(T? value, ISquirixSerializer serializer)
     {
-        ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(serializer);
-
-        return new CacheEntryWire
-        {
-            Value = ToCacheValue(entry.Value, serializer),
-            ExpiresUtc = entry.ExpiresUtc,
-            Expiration = entry.Expiration,
-        };
+        return new CacheEntryWire { Value = ToCacheValue(value, serializer) };
     }
 
     internal static CacheEntry<T> MapWireEntryToCacheEntry<T>(CacheEntryWire? entry, ISquirixSerializer serializer, DateTime? rebasedDeadline = null)

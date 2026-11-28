@@ -209,7 +209,7 @@ internal sealed class NativePeerEndpoint
             else
                 agreement.EnsureInboundAgreement(frame.Fingerprint == 0 ? null : PeerFrames.Text.GetString(meta, 0, frame.Fingerprint), peer);
             var call = new BinaryRequestContext { Path = fullPath, RequestAborted = cancellationToken, TraceParent = parent, TraceState = state };
-            var request = new BinaryDispatch.Request(call, DateTime.MaxValue, Task.CompletedTask, true);
+            var request = new BinaryDispatch.Request(call, default, Task.CompletedTask, true);
             var accessor = _services.Require<BinaryRequestAccessor>();
             accessor.Current = call;
             try

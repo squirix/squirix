@@ -42,13 +42,33 @@ internal readonly record struct SlotPayload<T>(CacheKey Key, T? Value)
     private static bool Matches(T? raw, string key)
     {
         var saved = KeyBytes(raw);
-        if (saved.Length == key.Length && Ascii.Equals(saved, key))
-            return true;
-        if (key.Length > saved.Length)
+        if (saved.Length == key.Length)
+            return Ascii.Equals(saved, key);
+        if (saved.Length < key.Length)
             return false;
-        var chars = key.Length <= 256 ? stackalloc char[key.Length] : new char[key.Length];
+        if (key.Length > 256)
+            return MatchesLongKey(saved, key);
+
+        Span<char> chars = stackalloc char[key.Length];
         return System.Text.Unicode.Utf8.ToUtf16(saved, chars, out _, out var written) == System.Buffers.OperationStatus.Done &&
             chars[..written].SequenceEqual(key);
+    }
+
+    private static bool MatchesLongKey(ReadOnlySpan<byte> saved, ReadOnlySpan<char> remaining)
+    {
+        Span<char> chars = stackalloc char[256];
+        while (true)
+        {
+            var status = System.Text.Unicode.Utf8.ToUtf16(saved, chars, out var consumed, out var written);
+            if (!remaining.StartsWith(chars[..written], StringComparison.Ordinal))
+                return false;
+            remaining = remaining[written..];
+            if (status == System.Buffers.OperationStatus.Done)
+                return remaining.IsEmpty;
+            if (status != System.Buffers.OperationStatus.DestinationTooSmall || consumed == 0)
+                return false;
+            saved = saved[consumed..];
+        }
     }
 
     private static ReadOnlySpan<byte> KeyBytes(T? raw)
