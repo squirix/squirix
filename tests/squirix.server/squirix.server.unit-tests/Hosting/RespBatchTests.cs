@@ -112,6 +112,31 @@ public sealed class RespBatchTests
         _ = await Assert.That(Encoding.ASCII.GetString(stream.Output)).IsEqualTo("+OK\r\n+PONG\r\n+OK\r\n");
     }
 
+    /// <summary>A failed batch write cancels and observes the command already using the request.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(30_000)]
+    public async Task WriteFailureCancelsPendingCommand(CancellationToken cancellationToken)
+    {
+        var observer = new BlockRenewal();
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        var token = TestJwtHelper.CreateBearerToken(credentials);
+        await using var host = await RespTestHost.StartAsync(cancellationToken, jwt: credentials, register: services =>
+            _ = services.AddSingleton<IConnectionTokenObserver>(observer));
+        var services = host.Server.Services;
+        var validator = services.Require<NativeConnectionAuthenticationValidator>();
+        var cache = new CacheCommands(services.Require<BinaryRequestAccessor>(), services.Require<BinaryDispatch>(), validator, TimeProvider.System, false);
+        var session = new Session(validator, cache, 1, TimeProvider.System);
+        var requests = RespTestHost.Command("AUTH", token) + RespTestHost.Command("PING") + RespTestHost.Command("AUTH", token);
+        await using var stream = new RecordingReplyStream(Encoding.ASCII.GetBytes(requests), int.MaxValue, true);
+
+        var error = await NodeAsyncAssert.ThrowsAsync<IOException>(session.RunAsync(stream, cancellationToken, cancellationToken), TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(error.Message).IsEqualTo("Write failed.");
+        _ = await Assert.That(observer.Cancelled.Task.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(Encoding.ASCII.GetString(stream.Output)).IsEqualTo("+OK\r\n");
+    }
+
     private sealed class BlockRenewal : IConnectionTokenObserver
     {
         private int _calls;
@@ -120,12 +145,22 @@ public sealed class RespBatchTests
 
         internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        internal TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public async ValueTask<ClaimsPrincipal?> OnValidatedAsync(ClaimsPrincipal principal, IServiceProvider services, BinaryConnection? connection, CancellationToken cancellationToken)
         {
             if (Interlocked.Increment(ref _calls) == 2)
             {
                 _ = Entered.TrySetResult();
-                await Release.Task.WaitAsync(cancellationToken);
+                try
+                {
+                    await Release.Task.WaitAsync(cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    _ = Cancelled.TrySetResult();
+                    throw;
+                }
             }
 
             return principal;
@@ -136,12 +171,14 @@ public sealed class RespBatchTests
     {
         private readonly MemoryStream _output = new();
         private readonly int _readLimit;
+        private readonly bool _failSecondWrite;
         private int _reads;
 
-        internal RecordingReplyStream(byte[] requests, int readLimit)
+        internal RecordingReplyStream(byte[] requests, int readLimit, bool failSecondWrite = false)
             : base(requests, false)
         {
             _readLimit = readLimit;
+            _failSecondWrite = failSecondWrite;
         }
 
         internal int Writes { get; private set; }
@@ -162,6 +199,8 @@ public sealed class RespBatchTests
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             Writes++;
+            if (Writes == 2 && _failSecondWrite)
+                return ValueTask.FromException(new IOException("Write failed."));
             var write = _output.WriteAsync(buffer, cancellationToken);
             if (Writes == 2)
                 _ = SecondWrite.TrySetResult();

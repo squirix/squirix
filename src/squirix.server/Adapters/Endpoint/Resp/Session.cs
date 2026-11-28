@@ -84,6 +84,28 @@ internal sealed partial class Session
         await stream.WriteAsync(batch.WrittenMemory, writing.Token).ConfigureAwait(false);
     }
 
+    private static async ValueTask FlushBatchAndCancelAsync(Stream stream, ReplyBatch batch, TimedCancellation deadline, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FlushBatchAsync(stream, batch, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            try
+            {
+                await deadline.CancelAsync().ConfigureAwait(false);
+            }
+            catch (AggregateException error)
+            {
+                // Keep the write failure as the session's error if a cancellation callback fails.
+                _ = error.InnerExceptions;
+            }
+
+            throw;
+        }
+    }
+
     private async ValueTask WriteAsync(Stream stream, Response response, CancellationToken cancellationToken)
     {
         using var batch = new ReplyBatch();
@@ -115,11 +137,14 @@ internal sealed partial class Session
                 break;
             }
 
-            var pending = ExecuteWithDeadlineAsync(null, abort);
+#pragma warning disable CA2000 // The loop owns the deadline until both the command and flush complete.
+            using var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, TimeProvider.System, abort);
+#pragma warning restore CA2000
+            var pending = ExecuteWithDeadlineAsync(deadline, abort);
             if (!pending.IsCompletedSuccessfully)
             {
                 var command = pending.AsTask();
-                await Task.WhenAll(FlushBatchAsync(stream, batch, abort).AsTask(), command).ConfigureAwait(false);
+                await Task.WhenAll(FlushBatchAndCancelAsync(stream, batch, deadline, abort).AsTask(), command).ConfigureAwait(false);
                 batch.Clear();
                 count = 0;
                 response = await command.ConfigureAwait(false);
@@ -259,6 +284,11 @@ internal sealed partial class Session
     {
         var commandToken = authentication?.Token ?? abort;
         using var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, TimeProvider.System, commandToken);
+        return await ExecuteWithDeadlineAsync(deadline, commandToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<Response> ExecuteWithDeadlineAsync(TimedCancellation deadline, CancellationToken commandToken)
+    {
         try
         {
             return await ExecuteAsync(deadline.Token).ConfigureAwait(false);
