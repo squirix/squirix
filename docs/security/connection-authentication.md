@@ -66,13 +66,14 @@ Exceptions thrown by custom clones remain host hook errors.
 ## Transport
 
 The authenticated cache transport uses a versioned authentication exchange on the selected transport before the first cache request.
-The token is encrypted on the wire. Tokens must fit within the protocol's 8,192-byte UTF-8 limit.
+A `tcp://` connection sends the bearer token in plaintext. A TLS connection (`https://` in the SDK) encrypts it in transit.
+Tokens must fit within the protocol's 8,192-byte UTF-8 limit.
 The server bounds authentication input, waiting and concurrent work.
 
-Use a direct SDK-to-server connection or a layer-4 proxy that passes the encrypted transport through unchanged.
+Use a direct SDK-to-server connection or a layer-4 proxy that forwards the connection unchanged, including the TLS handshake when TLS is enabled.
 Do not put bearer metadata on data RPCs or share one physical authenticated connection between different identities.
 
-Ordinary HTTP health probes still use the primary HTTPS port without the cache authentication exchange.
+Health probes use the separate HTTP or HTTPS management listener without the cache authentication exchange.
 Remote `/metrics` and `/health/ready/details` retain their separate HTTP bearer-token access rules; those rules do not authenticate cache RPCs.
 Internode forwarding and replication retain their dedicated [mTLS transport](internode-mtls.md).
 
