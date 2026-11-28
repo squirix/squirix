@@ -19,7 +19,7 @@ internal sealed class BinaryTracedRequest : WireMessage
 
     internal string TraceState { get; init; } = string.Empty;
 
-    internal WireMessage? PayloadMessage { private get; init; }
+    internal WireMessage? PayloadMessage { get; init; }
 
     internal ReadOnlyMemory<byte> Payload { get; init; }
 

@@ -26,11 +26,11 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal);
         var request = FusedWriteHarness.Set(FusedWriteHarness.OpId(1));
-        request.Entry!.Value = JsonValueKit.Wire(BrokenJson);
+        request.Entry = request.Entry!.Value with { Value = JsonValueKit.Wire(BrokenJson) };
         var flushesBefore = harness.FlushCount;
 
-        var first = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.SetEntryAsync(request, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var retry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.SetEntryAsync(request, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var first = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.SetEntryAsync(request, CancellationToken.None).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.SetEntryAsync(request, CancellationToken.None).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(first.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         _ = await Assert.That(retry.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
@@ -50,15 +50,15 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         _ = await harness.Adapter.Mutations.SetEntryAsync(FusedWriteHarness.Set(FusedWriteHarness.OpId(1)), CancellationToken.None);
         var framesBefore = harness.ReadFrames(cancellationToken).Count;
         var update = FusedWriteHarness.Update(FusedWriteHarness.OpId(2), "x");
-        update.Entry!.Value = JsonValueKit.Wire(BrokenJson);
+        update.Entry = update.Entry!.Value with { Value = JsonValueKit.Wire(BrokenJson) };
         var add = FusedWriteHarness.AddIfAbsent(FusedWriteHarness.OpId(3), "x", "other");
-        add.Entry!.Value = JsonValueKit.Wire(BrokenJson);
+        add.Entry = add.Entry!.Value with { Value = JsonValueKit.Wire(BrokenJson) };
         var getOrAdd = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(4), "x", "another");
-        getOrAdd.Entry!.Value = JsonValueKit.Wire(BrokenJson);
+        getOrAdd.Entry = getOrAdd.Entry!.Value with { Value = JsonValueKit.Wire(BrokenJson) };
 
-        var updateFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.UpdateAsync(update, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var addFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.AddEntryIfAbsentAsync(add, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var getOrAddFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.GetOrAddAsync(getOrAdd, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var updateFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.UpdateAsync(update, CancellationToken.None).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var addFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.AddEntryIfAbsentAsync(add, CancellationToken.None).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var getOrAddFailure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(harness.Adapter.Mutations.GetOrAddAsync(getOrAdd, CancellationToken.None).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(updateFailure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);
         _ = await Assert.That(addFailure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);

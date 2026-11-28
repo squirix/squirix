@@ -83,7 +83,7 @@ public sealed class CacheValueWireReadTests : ServerUnitTestBase
     [Test]
     public async Task MissingValueIsInvalidArgument()
     {
-        foreach (var entry in new[] { new CacheEntryWire(), new CacheEntryWire { Value = new CacheValue() } })
+        foreach (var entry in new[] { default(CacheEntryWire), new CacheEntryWire { Value = new CacheValue() } })
         {
             var failure = NodeExceptionAssert.For<ServerCallException>().Throws(entry, static value => _ = value.MapFromWire<StoredValue>());
             _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.InvalidArgument);

@@ -25,7 +25,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     public void QueueWaitMetricObserveBatched()
     {
         for (var i = 0; i < Batch; i++)
-            CallPolicyMetrics.ObserveQueueWaitSeconds("node-a", TimeSpan.Zero);
+            CallPolicyMetrics.FinishQueueWait("node-a", CallPolicyMetrics.StartQueueWait());
     }
 
     /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape with a stub cache transport.</summary>

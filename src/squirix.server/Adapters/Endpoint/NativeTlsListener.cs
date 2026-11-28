@@ -75,7 +75,7 @@ internal sealed class NativeTlsListener
 #pragma warning restore CA2025
             }
         }
-        catch (OperationCanceledException) when (accepting.IsCancellationRequested)
+        catch (Exception error) when (accepting.IsCancellationRequested && error is OperationCanceledException or SocketException { SocketErrorCode: SocketError.OperationAborted })
         {
             // Accepted operations keep their independent abort token while draining.
         }

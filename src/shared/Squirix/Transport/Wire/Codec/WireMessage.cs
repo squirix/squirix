@@ -3,8 +3,10 @@ using System.Buffers;
 
 namespace Squirix.Transport.Wire.Codec;
 
-internal abstract class WireMessage
+internal abstract class WireMessage : IWireBody
 {
+    void IWireBody.Encode(ref WireWriter writer) => Encode(ref writer);
+
     internal abstract void Encode(ref WireWriter writer);
 
     internal int CalculateSize(string? mutationOperationId = null) => CalculateSize(mutationOperationId, out _);
@@ -14,6 +16,14 @@ internal abstract class WireMessage
         var writer = new WireWriter(mutationOperationId);
         Encode(ref writer);
         hasBorrowedBytes = writer.HasBorrowedBytes;
+        return writer.Written;
+    }
+
+    internal int WriteOrMeasure(Span<byte> destination, string? identity, out bool borrowed)
+    {
+        var writer = new WireWriter(destination, identity, true);
+        Encode(ref writer);
+        borrowed = writer.HasBorrowedBytes;
         return writer.Written;
     }
 
@@ -29,10 +39,5 @@ internal abstract class WireMessage
         Encode(ref writer);
     }
 
-    internal byte[] ToByteArray()
-    {
-        var result = GC.AllocateUninitializedArray<byte>(CalculateSize());
-        WriteTo(result);
-        return result;
-    }
+    internal byte[] ToByteArray() => WireWriter.ToByteArray(this);
 }

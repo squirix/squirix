@@ -34,10 +34,7 @@ internal sealed class BinaryConnectionPump
     private readonly TimeProvider _timeProvider;
     private readonly Func<RequestFrame, ReadOnlyMemory<byte>, TimeSpan, Task, ValueTask<BinaryResponse>> _process;
     private readonly LargeCacheRequests? _largeRequests;
-    private readonly Task[] _jobs = new Task[MaxPending];
-    private readonly Channel<int> _slots = Channel.CreateBounded<int>(MaxPending);
-    private readonly Channel<ResponseBatch> _outgoing = Channel.CreateBounded<ResponseBatch>(
-        new BoundedChannelOptions(MaxPending) { SingleReader = true });
+    private MultiplexedQueues? _queues;
 
     private ResponseBatch _ready;
     private Task _previousOrdered = Task.CompletedTask;
@@ -58,30 +55,36 @@ internal sealed class BinaryConnectionPump
         _timeProvider = timeProvider;
         _process = process;
         _largeRequests = largeRequests;
-        for (var i = 0; i < _jobs.Length; i++)
-        {
-            _jobs[i] = Task.CompletedTask;
-            _ = _slots.Writer.TryWrite(i);
-        }
     }
+
+    /// <summary>Gets the queues initialized by the reader before it starts concurrent dispatch.</summary>
+    private MultiplexedQueues Queues => _queues!;
 
     internal async Task RunAsync(CancellationToken readStop)
     {
-        var writer = ResponseWriter.RunAsync(this);
+        using var flush = new ConnectionFlush(_timeProvider, _connectionClosed);
+        await RunPumpsAsync(flush, readStop).ConfigureAwait(false);
+    }
+
+    private async Task RunPumpsAsync(ConnectionFlush flush, CancellationToken readStop)
+    {
+        Task? writer = null;
         try
         {
+            if (!await BufferedDispatch.RunAsync(this, flush, readStop).ConfigureAwait(false))
+                return;
+            _queues ??= new MultiplexedQueues(false);
+            writer = ResponseWriter.RunAsync(this, flush);
             await ReadAsync(readStop).ConfigureAwait(false);
         }
         finally
         {
-            await CompleteAsync(writer).ConfigureAwait(false);
+            if (_queues != null)
+            {
+                writer ??= ResponseWriter.RunAsync(this, flush);
+                await CompleteAsync(writer).ConfigureAwait(false);
+            }
         }
-    }
-
-    private static void LogCallFailure(IServerLogger logger, int requestId, Exception exception)
-    {
-        if (logger.IsEnabled(ServerLogLevel.Error))
-            Events.LogCallFailureEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create(requestId));
     }
 
     private async Task ReadAsync(CancellationToken stop)
@@ -117,7 +120,7 @@ internal sealed class BinaryConnectionPump
 
     private ValueTask<bool> WaitForSlotAsync(CancellationToken stop)
     {
-        var slots = _slots.Reader.WaitToReadAsync(stop);
+        var slots = Queues.Slots.Reader.WaitToReadAsync(stop);
         PublishBeforeWait(slots.IsCompletedSuccessfully);
         return slots;
     }
@@ -142,7 +145,7 @@ internal sealed class BinaryConnectionPump
 
             while (buffer.Length >= Frames.RequestBytes && !stop.IsCancellationRequested)
             {
-                if (!_slots.Reader.TryRead(out var slot))
+                if (!Queues.Slots.Reader.TryRead(out var slot))
                 {
                     waitingForSlot = true;
                     return null;
@@ -186,15 +189,14 @@ internal sealed class BinaryConnectionPump
         var reachedEof = result.IsCompleted && remaining == result.Buffer.Length;
 
         // Drain an already accepted call before closing a full connection at EOF.
-        return reachedEof && _slots.Reader.TryPeek(out _) ? throw new EndOfStreamException() : reachedEof;
+        return reachedEof && Queues.Slots.Reader.TryPeek(out _) ? throw new EndOfStreamException() : reachedEof;
     }
 
     private void Dispatch(int slot, in RequestFrame frame, in FrameBody body, ref QueuedCall[]? batch, ref int count)
     {
-        var operation = Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(frame.Control));
         var predecessor = _previousOrdered;
         TaskCompletionSource? completion = null;
-        if (operation is not (BinaryOperation.GetDistributed or BinaryOperation.GetValue))
+        if (frame.RequiresMutationOrder)
         {
             if (frame.Size <= InlineRequestBytes && predecessor.IsCompletedSuccessfully)
             {
@@ -219,7 +221,7 @@ internal sealed class BinaryConnectionPump
         var pending = ExecuteCallAsync(call, call.Body.Page != null);
         if (pending.IsCompletedSuccessfully)
         {
-            _jobs[call.Slot] = Task.CompletedTask;
+            Queues.Jobs[call.Slot] = Task.CompletedTask;
 #pragma warning disable MA0045 // Completion was checked before taking the synchronous result.
             if (pending.Result is { } response)
 #pragma warning restore MA0045
@@ -228,8 +230,15 @@ internal sealed class BinaryConnectionPump
         else
         {
             PublishReady();
-            _previousOrdered = _jobs[call.Slot] = PublishOnCompletionAsync(pending);
+            _previousOrdered = Queues.Jobs[call.Slot] = PublishOnCompletionAsync(pending);
         }
+    }
+
+    private void HandOffPending(int slot, in RequestFrame frame, ValueTask<PendingResponse?> pending)
+    {
+        var job = Queues.Jobs[slot] = PublishOnCompletionAsync(pending);
+        if (frame.RequiresMutationOrder)
+            _previousOrdered = job;
     }
 
     private void PublishBeforeWait(bool completed)
@@ -261,7 +270,7 @@ internal sealed class BinaryConnectionPump
             TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default).Unwrap();
         for (var i = 0; i < count; i++)
-            _jobs[slots[i]] = job;
+            Queues.Jobs[slots[i]] = job;
     }
 
     private async Task ExecuteQueuedAsync(QueuedCall[] batch, int count)
@@ -333,7 +342,7 @@ internal sealed class BinaryConnectionPump
         if (admission.Admit(size, valueBytes) is { } refusal)
         {
             var response = new PendingResponse(partial.Slot, partial.Frame.Id, refusal);
-            _ = _outgoing.Writer.TryWrite(new ResponseBatch(in response));
+            _ = Queues.Outgoing.Writer.TryWrite(new ResponseBatch(in response));
             await FrameIO.SkipBodyAsync(stream, size, cancellationToken).ConfigureAwait(false);
             return true;
         }
@@ -368,7 +377,7 @@ internal sealed class BinaryConnectionPump
         if (ready.Count == 0)
             return;
 
-        if (!_outgoing.Writer.TryWrite(ready))
+        if (!Queues.Outgoing.Writer.TryWrite(ready))
             ready.Release();
         ready = default;
     }
@@ -376,7 +385,7 @@ internal sealed class BinaryConnectionPump
     private async Task PublishOnCompletionAsync(ValueTask<PendingResponse?> pending)
     {
         if (await pending.ConfigureAwait(false) is { } response)
-            _ = _outgoing.Writer.TryWrite(new ResponseBatch(in response));
+            _ = Queues.Outgoing.Writer.TryWrite(new ResponseBatch(in response));
     }
 
     private async Task CompleteAsync(Task writer)
@@ -384,18 +393,18 @@ internal sealed class BinaryConnectionPump
         try
         {
 #pragma warning disable VSTHRD003 // The connection tasks use ConfigureAwait(false) and unblock on peer disconnect.
-            await Task.WhenAll(_jobs).ConfigureAwait(false);
+            await Task.WhenAll(Queues.Jobs).ConfigureAwait(false);
         }
         finally
         {
-            _ = _outgoing.Writer.TryComplete();
+            _ = Queues.Outgoing.Writer.TryComplete();
             try
             {
                 await writer.ConfigureAwait(false);
             }
             finally
             {
-                while (_outgoing.Reader.TryRead(out var pending))
+                while (Queues.Outgoing.Reader.TryRead(out var pending))
                     pending.Release();
             }
 #pragma warning restore VSTHRD003
@@ -431,7 +440,8 @@ internal sealed class BinaryConnectionPump
         catch (Exception error)
 #pragma warning restore CA1031
         {
-            LogCallFailure(_log, call.Frame.Id, error);
+            if (_log.IsEnabled(ServerLogLevel.Error))
+                Events.CallFailure.Write(_log, ServerLogLevel.Error, error, ValueTuple.Create(call.Frame.Id));
             return new PendingResponse(call.Slot, call.Frame.Id, new BinaryResponse(FrameStatus.Unknown));
         }
         finally
@@ -450,7 +460,11 @@ internal sealed class BinaryConnectionPump
     }
 
     [StructLayout(LayoutKind.Auto)]
-    internal readonly record struct RequestFrame(int Id, int Size, int Control, int? ValueBytes = null);
+    internal readonly record struct RequestFrame(int Id, int Size, int Control, int? ValueBytes = null)
+    {
+        internal bool RequiresMutationOrder => Unsafe.BitCast<int, BinaryOperation>(Frames.ReadOperationId(Control))
+            is not (BinaryOperation.GetDistributed or BinaryOperation.GetValue);
+    }
 
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct PartialFrame(int Slot, RequestFrame Frame);
@@ -617,16 +631,138 @@ internal sealed class BinaryConnectionPump
             return ReadHeader(header);
         }
 
-        private static RequestFrame ReadHeader(ReadOnlySpan<byte> header)
+        internal static RequestFrame ReadHeader(ReadOnlySpan<byte> header)
         {
             var (id, size, control) = Frames.ReadRequest(header);
             return new RequestFrame(id, size, control);
         }
     }
 
+    /// <summary>Dispatches contiguous pages directly until an operation needs the multiplexed reader and writer.</summary>
+    private static class BufferedDispatch
+    {
+        private const int MaxFrames = 128;
+
+        internal static async Task<bool> RunAsync(BinaryConnectionPump pump, ConnectionFlush output, CancellationToken stop)
+        {
+            try
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    var read = await pump._transport.Input.ReadAsync(stop).ConfigureAwait(false);
+                    var (transfer, eof, bytes) = await ConsumeAsync(pump, read, stop).ConfigureAwait(false);
+                    if (bytes != 0 && !await FlushAsync(pump, output).ConfigureAwait(false))
+                        return false;
+                    if (transfer || eof)
+                        return transfer;
+                }
+            }
+            catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException)
+            {
+                if (!stop.IsCancellationRequested)
+                    pump._abort();
+            }
+
+            return false;
+        }
+
+        private static async ValueTask<(bool Transfer, bool Eof, int Bytes)> ConsumeAsync(BinaryConnectionPump pump, ReadResult read, CancellationToken stop)
+        {
+            var buffer = read.Buffer;
+            var consumed = 0;
+            var bytes = 0;
+            try
+            {
+                if (ShouldStop(read))
+                    return (false, read.IsCanceled || read.IsCompleted, 0);
+                if (BinaryReadPage.Find(in buffer) is not ({ } page, var offset))
+                    return (true, false, 0);
+
+                var input = buffer.First;
+                var output = Memory<byte>.Empty;
+                for (var count = 0; count < MaxFrames && consumed < input.Length && !stop.IsCancellationRequested; count++)
+                {
+                    if (!TryRead(input.Span[consumed..], out var frame))
+                        return (true, false, bytes);
+
+                    var body = new FrameBody(page.Bytes, offset + consumed + Frames.RequestBytes, page);
+                    consumed += Frames.RequestBytes + frame.Size;
+                    var call = new QueuedCall(0, frame, body, pump._timeProvider.GetTimestamp(), Task.CompletedTask, null);
+                    var pending = pump.ExecuteCallAsync(call, true);
+                    if (!pending.IsCompletedSuccessfully)
+                    {
+                        pump._queues = new MultiplexedQueues(true);
+                        pump.HandOffPending(0, in frame, pending);
+                        return (true, false, bytes);
+                    }
+
+                    if (await pending.ConfigureAwait(false) is not { } reply)
+                        break;
+                    var written = EncodeOrTransfer(pump, in reply, ref output, bytes);
+                    if (written < 0)
+                        return (true, false, bytes);
+                    bytes += written;
+                }
+
+                return (false, read.IsCompleted && consumed == input.Length, bytes);
+            }
+            finally
+            {
+                if (bytes != 0)
+                    pump._transport.Output.Advance(bytes);
+                var position = buffer.GetPosition(consumed);
+                pump._transport.Input.AdvanceTo(position, position);
+            }
+        }
+
+        private static bool ShouldStop(ReadResult read) => read.IsCanceled || read.Buffer.IsEmpty;
+
+        private static int EncodeOrTransfer(BinaryConnectionPump pump, in PendingResponse reply, ref Memory<byte> output, int used)
+        {
+            if (output.IsEmpty)
+                output = pump._transport.Output.GetMemory(Frames.MaxBatchBytes)[..Frames.MaxBatchBytes];
+            var target = output.Span[used..];
+            var payload = reply.Response.Payload;
+            var size = payload?.CalculateSize() ?? 0;
+            var length = Frames.ReplyBytes + size;
+            if (length > target.Length)
+            {
+                pump._queues = new MultiplexedQueues(true);
+                _ = pump._queues.Outgoing.Writer.TryWrite(new ResponseBatch(in reply));
+                return -1;
+            }
+
+            var status = Unsafe.BitCast<FrameStatus, int>(reply.Response.Status);
+            if (size == 0 || payload == null)
+                Frames.WriteReply(target, reply.Id, 0, status);
+            else
+                Frames.WriteReplyMessage(target, reply.Id, size, status, payload);
+            return length;
+        }
+
+        private static async ValueTask<bool> FlushAsync(BinaryConnectionPump pump, ConnectionFlush output)
+        {
+            var flush = await output.WriteAsync(pump._transport.Output).ConfigureAwait(false);
+            if (!flush.IsCanceled && !flush.IsCompleted)
+                return true;
+
+            pump._abort();
+            return false;
+        }
+
+        private static bool TryRead(ReadOnlySpan<byte> bytes, out RequestFrame frame)
+        {
+            frame = default;
+            if (bytes.Length < Frames.RequestBytes)
+                return false;
+            frame = FrameIO.ReadHeader(bytes);
+            return frame.Size <= InlineRequestBytes && bytes.Length >= Frames.RequestBytes + frame.Size;
+        }
+    }
+
     private static class ResponseWriter
     {
-        internal static async Task RunAsync(BinaryConnectionPump connection)
+        internal static async Task RunAsync(BinaryConnectionPump connection, ConnectionFlush output)
         {
             var writer = connection._transport.Output;
             var stop = connection._connectionClosed;
@@ -634,12 +770,12 @@ internal sealed class BinaryConnectionPump
             var index = 0;
             try
             {
-                while (index < current.Count || await connection._outgoing.Reader.WaitToReadAsync(stop).ConfigureAwait(false))
+                while (index < current.Count || await connection.Queues.Outgoing.Reader.WaitToReadAsync(stop).ConfigureAwait(false))
                 {
                     stop.ThrowIfCancellationRequested();
                     var bytes = 0;
                     var count = 0;
-                    for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && ResponseBatch.TryRead(connection._outgoing.Reader, ref current, ref index, out var frame); count++)
+                    for (; count < Frames.MaxBatch && bytes < Frames.MaxBatchBytes && ResponseBatch.TryRead(connection.Queues.Outgoing.Reader, ref current, ref index, out var frame); count++)
                     {
                         var size = frame.Response.Payload?.CalculateSize() ?? 0;
                         if (connection._largeRequests != null && size is > Frames.MaxResponseBytes and <= Frames.MaxExtendedBodyBytes)
@@ -653,11 +789,10 @@ internal sealed class BinaryConnectionPump
                             bytes += WriteResponse(writer, in frame, size);
                         }
 
-                        _ = connection._slots.Writer.TryWrite(frame.Slot);
+                        _ = connection.Queues.Slots.Writer.TryWrite(frame.Slot);
                     }
 
-                    using var boundedFlush = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, connection._timeProvider, stop);
-                    var flush = await writer.FlushAsync(boundedFlush.Token).ConfigureAwait(false);
+                    var flush = await output.WriteAsync(writer).ConfigureAwait(false);
                     if (flush is { IsCanceled: false, IsCompleted: false })
                         continue;
 
@@ -675,24 +810,7 @@ internal sealed class BinaryConnectionPump
             }
         }
 
-        private static async ValueTask WriteExtendedResponseAsync(PipeWriter writer, PendingResponse frame, int size, CancellationToken cancellationToken)
-        {
-            using var segments = new WireSegments();
-            const int headerBytes = Frames.ReplyBytes + Frames.ExtendedReplyBytes;
-            var header = segments.GetMemory(headerBytes);
-            Frames.WriteReply(header.Span, frame.Id, Frames.ExtendedSize, Unsafe.BitCast<FrameStatus, int>(frame.Response.Status));
-            Frames.WriteExtendedSize(header.Span[Frames.ReplyBytes..], size);
-            segments.Advance(headerBytes);
-            frame.Response.Payload!.WriteTo(segments);
-            foreach (var chunk in segments.Chunks())
-            {
-                var flush = await writer.WriteAsync(chunk, cancellationToken).ConfigureAwait(false);
-                if (flush.IsCanceled || flush.IsCompleted)
-                    throw new IOException("Extended cache reply was interrupted.");
-            }
-        }
-
-        private static int WriteResponse(PipeWriter writer, in PendingResponse frame, int size)
+        internal static int WriteResponse(PipeWriter writer, in PendingResponse frame, int size)
         {
             var payload = frame.Response.Payload;
             var status = frame.Response.Status;
@@ -712,12 +830,46 @@ internal sealed class BinaryConnectionPump
             writer.Advance(length);
             return length;
         }
+
+        private static async ValueTask WriteExtendedResponseAsync(PipeWriter writer, PendingResponse frame, int size, CancellationToken cancellationToken)
+        {
+            using var segments = new WireSegments();
+            const int headerBytes = Frames.ReplyBytes + Frames.ExtendedReplyBytes;
+            var header = segments.GetMemory(headerBytes);
+            Frames.WriteReply(header.Span, frame.Id, Frames.ExtendedSize, Unsafe.BitCast<FrameStatus, int>(frame.Response.Status));
+            Frames.WriteExtendedSize(header.Span[Frames.ReplyBytes..], size);
+            segments.Advance(headerBytes);
+            frame.Response.Payload!.WriteTo(segments);
+            foreach (var chunk in segments.Chunks())
+            {
+                var flush = await writer.WriteAsync(chunk, cancellationToken).ConfigureAwait(false);
+                if (flush.IsCanceled || flush.IsCompleted)
+                    throw new IOException("Extended cache reply was interrupted.");
+            }
+        }
     }
 
     private sealed record QueuedDispatch(BinaryConnectionPump Pump, QueuedCall[] Batch, int Count);
 
     private static class Events
     {
-        internal static readonly LogEvent LogCallFailureEvent = new(3032, nameof(LogCallFailure), "Binary cache request {RequestId} failed");
+        internal static readonly LogEvent CallFailure = new(3032, "LogCallFailure", "Binary cache request {RequestId} failed");
+    }
+
+    private sealed class MultiplexedQueues
+    {
+        internal MultiplexedQueues(bool firstSlotInUse)
+        {
+            Array.Fill(Jobs, Task.CompletedTask);
+            for (var slot = firstSlotInUse ? 1 : 0; slot < MaxPending; slot++)
+                _ = Slots.Writer.TryWrite(slot);
+        }
+
+        internal Task[] Jobs { get; } = new Task[MaxPending];
+
+        internal Channel<int> Slots { get; } = Channel.CreateBounded<int>(MaxPending);
+
+        internal Channel<ResponseBatch> Outgoing { get; } = Channel.CreateBounded<ResponseBatch>(
+            new BoundedChannelOptions(MaxPending) { SingleReader = true });
     }
 }

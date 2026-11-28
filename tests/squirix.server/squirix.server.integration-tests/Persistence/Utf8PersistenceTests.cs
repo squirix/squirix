@@ -85,7 +85,7 @@ public sealed class Utf8PersistenceTests : NodeIntegrationTestBase
             Entry = new CacheEntryWire { Value = new CacheValue { StringValue = replacement } },
         };
         var parsed = UpdateAsyncRequest.Parser.ParseFrom(request.ToByteArray());
-        var bytes = parsed.Entry!.Value!.EncodedText;
+        var bytes = parsed.Entry!.Value.Value!.EncodedText;
         _ = await Assert.That(bytes).IsNotNull();
 
         var response = await mutations.UpdateAsync(parsed, cancellationToken);

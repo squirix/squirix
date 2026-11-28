@@ -109,7 +109,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
         await using var policy = CreatePolicy();
         var adapter = CreateAdapter(invoker, policy, false);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adapter.Mutations.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(adapter.Mutations.SetEntryAsync(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, CancellationToken.None).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(FrameStatus.FailedPrecondition);
         _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");

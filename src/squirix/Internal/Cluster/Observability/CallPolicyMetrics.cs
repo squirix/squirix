@@ -21,7 +21,13 @@ internal static class CallPolicyMetrics
 
     internal static void ObserveBackoffSeconds(string peer, TimeSpan value) => BackoffSeconds.Observe(peer, value);
 
-    internal static void ObserveQueueWaitSeconds(string peer, TimeSpan value) => QueueWaitSeconds.Observe(peer, value);
+    internal static long StartQueueWait() => QueueWaitSeconds.Histogram.Enabled ? Stopwatch.GetTimestamp() : 0;
+
+    internal static void FinishQueueWait(string peer, long started)
+    {
+        if (started != 0)
+            QueueWaitSeconds.Observe(peer, Stopwatch.GetElapsedTime(started));
+    }
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)

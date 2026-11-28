@@ -166,9 +166,9 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
             static (sent, _) =>
             {
                 sent.Add("local");
-                return Task.FromResult("local");
+                return ValueTask.FromResult("local");
             },
-            CancellationToken.None);
+            CancellationToken.None).AsTask();
     }
 
     private static async Task<ReplicaGroupRegistry> OpenRegistryAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)

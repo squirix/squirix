@@ -306,8 +306,8 @@ public sealed class OwnerRouterAttemptBudgetTests
             "key",
             this,
             static (chain, target, cancellationToken) => chain.ForwardAsync(target, cancellationToken),
-            static (_, _) => Task.FromResult("served"),
-            CancellationToken.None);
+            static (_, _) => ValueTask.FromResult("served"),
+            CancellationToken.None).AsTask();
 
         private OwnerRouter RouterOf(string node)
         {
@@ -330,7 +330,7 @@ public sealed class OwnerRouterAttemptBudgetTests
                     "key",
                     this,
                     static (_, _, _) => Task.FromResult("forwarded again"),
-                    static (_, _) => Task.FromResult("served"),
+                    static (_, _) => ValueTask.FromResult("served"),
                     cancellationToken).ConfigureAwait(false);
         }
     }

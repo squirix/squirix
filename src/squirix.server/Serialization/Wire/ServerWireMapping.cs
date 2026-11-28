@@ -52,11 +52,13 @@ internal static class ServerWireMapping
         return ReadTyped<T>(present);
     }
 
-    internal static NodeCacheEntry<T> MapFromWire<T>(this RpcEntry? entry) => new()
+    internal static NodeCacheEntry<T> MapFromWire<T>(this RpcEntry? entry) => entry.GetValueOrDefault().MapFromWire<T>();
+
+    internal static NodeCacheEntry<T> MapFromWire<T>(this in RpcEntry entry) => new()
     {
-        Value = MapCacheValue<T>(entry?.Value),
-        ExpiresUtc = entry?.ExpiresUtc,
-        Expiration = entry?.Expiration,
+        Value = MapCacheValue<T>(entry.Value),
+        ExpiresUtc = entry.ExpiresUtc,
+        Expiration = entry.Expiration,
     };
 
     internal static RpcEntry MapToWire<T>(this NodeCacheEntry<T> e, bool includeDeadline = true) => new()

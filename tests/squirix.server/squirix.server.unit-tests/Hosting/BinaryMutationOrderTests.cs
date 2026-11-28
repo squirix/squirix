@@ -25,11 +25,14 @@ public sealed class BinaryMutationOrderTests
     private const int RejectedWrite = 3;
 
     /// <summary>A rejected write does not let later calls pass an earlier blocked mutation.</summary>
+    /// <param name="buffered">Use a transport page and complete the first mutation before the next one blocks.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BufferedWritesKeepOrder(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task BufferedWritesKeepOrder(bool buffered, CancellationToken cancellationToken)
     {
-        await using var connection = new ConnectionPrefaceTests.ProbeConnection();
+        await using var connection = new ConnectionPrefaceTests.ProbeConnection(buffered ? new PipeOptions(BinaryReadPage.Pool) : null);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         stop.CancelAfter(TimeSpan.FromSeconds(5));
         var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -48,7 +51,7 @@ public sealed class BinaryMutationOrderTests
                     _ = getWaiting.TrySetResult(!predecessor.IsCompleted);
                 await predecessor.WaitAsync(stop.Token).ConfigureAwait(false);
 
-                if (frame.Id == 1)
+                if (frame.Id == (buffered ? 2 : 1))
                     await unblock.Task.WaitAsync(stop.Token).ConfigureAwait(false);
                 if (frame.Id != ReadId)
                     mutations.Enqueue(frame.Id);
@@ -62,7 +65,7 @@ public sealed class BinaryMutationOrderTests
         try
         {
             _ = await Assert.That(await getWaiting.Task.WaitAsync(stop.Token)).IsTrue();
-            _ = await Assert.That(mutations.IsEmpty).IsTrue();
+            _ = await Assert.That(mutations.ToArray().AsSpan().SequenceEqual(buffered ? [1] : Array.Empty<int>())).IsTrue();
             unblock.SetResult();
 
             await AssertRepliesAsync(connection.Outgoing.Reader, stop.Token);

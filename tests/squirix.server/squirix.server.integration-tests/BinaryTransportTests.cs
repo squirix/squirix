@@ -406,7 +406,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var policy = new DistributedCachePolicy(cap, TimeSpan.FromMinutes(5).Ticks);
         byte[] payload = [255, 0, 128];
         var seed = Request(key, policy.Encode(payload));
-        seed.Entry!.ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(cap).AddMinutes(-1).UtcDateTime;
+        seed.Entry = seed.Entry!.Value with { ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(cap).AddMinutes(-1).UtcDateTime };
         _ = await client.SetEntryAsync(seed, cancellationToken: cancellationToken);
 
         var operationId = Guid.NewGuid().ToString("N");
@@ -473,7 +473,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             },
             cancellationToken: cancellationToken);
         var seed = Request(key, policy.Encode(bytes));
-        seed.Entry!.ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(cap).AddMinutes(-1).UtcDateTime;
+        seed.Entry = seed.Entry!.Value with { ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(cap).AddMinutes(-1).UtcDateTime };
         _ = await client.SetEntryAsync(seed, cancellationToken: cancellationToken);
         var beforeGet = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
         var read = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), key, false, cancellationToken);
@@ -614,7 +614,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var cap = TimeProvider.System.GetUtcNow().AddMinutes(5).ToUnixTimeMilliseconds();
         var policy = new DistributedCachePolicy(cap, TimeSpan.FromMinutes(10).Ticks);
         var seed = Request(key, policy.Encode([1, 255]));
-        seed.Entry!.ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(cap).UtcDateTime;
+        seed.Entry = seed.Entry!.Value with { ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(cap).UtcDateTime };
         _ = await client.SetEntryAsync(seed, cancellationToken: cancellationToken);
         var log = WipedCluster.Log(owner, "node-a");
         var before = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
@@ -764,7 +764,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         clock.Advance(TimeSpan.FromMinutes(1));
         var read = await client.GetEntryAsync(readRequest, cancellationToken: cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
-        _ = await Assert.That(read.Entry!.ExpiresUtc).IsNull();
+        _ = await Assert.That(read.Entry!.Value.ExpiresUtc).IsNull();
     }
 
     private static async Task AssertInvalidPolicyRejectedAsync(CacheWireClient client, SetDistributedAsyncRequest request, CancellationToken cancellationToken)

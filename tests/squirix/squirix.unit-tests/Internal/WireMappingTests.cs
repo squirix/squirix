@@ -78,7 +78,7 @@ public sealed class WireMappingTests
         const decimal precise = 12345678901234567.123456789m;
         var serializer = new SystemTextJsonSerializer();
 
-        var wire = WireMapping.MapEntryToWire(new CacheEntry<decimal> { Value = precise }, serializer);
+        var wire = WireMapping.CreateWireEntry<decimal>(precise, serializer);
 
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(WireMapping.Read<decimal>(wire.Value, serializer)).IsEqualTo(precise);
@@ -111,12 +111,12 @@ public sealed class WireMappingTests
     {
         var serializer = new SystemTextJsonSerializer();
 
-        _ = await Assert.That(WireMapping.MapEntryToWire(new CacheEntry<string?> { Value = null }, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
-        _ = await Assert.That(WireMapping.MapEntryToWire(new CacheEntry<string> { Value = "s" }, serializer).Value!.StringValue).IsEqualTo("s");
-        _ = await Assert.That(WireMapping.MapEntryToWire(new CacheEntry<int> { Value = 0 }, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.Int64Value);
-        _ = await Assert.That(WireMapping.MapEntryToWire(new CacheEntry<long> { Value = long.MinValue }, serializer).Value!.Int64Value).IsEqualTo(long.MinValue);
-        _ = await Assert.That(WireMapping.MapEntryToWire(new CacheEntry<double> { Value = 0.0 }, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.DoubleValue);
-        _ = await Assert.That(WireMapping.MapEntryToWire(new CacheEntry<bool> { Value = false }, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.BoolValue);
+        _ = await Assert.That(WireMapping.CreateWireEntry<string?>(null, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.NullValue);
+        _ = await Assert.That(WireMapping.CreateWireEntry<string>("s", serializer).Value!.StringValue).IsEqualTo("s");
+        _ = await Assert.That(WireMapping.CreateWireEntry<int>(0, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.Int64Value);
+        _ = await Assert.That(WireMapping.CreateWireEntry<long>(long.MinValue, serializer).Value!.Int64Value).IsEqualTo(long.MinValue);
+        _ = await Assert.That(WireMapping.CreateWireEntry<double>(0.0, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.DoubleValue);
+        _ = await Assert.That(WireMapping.CreateWireEntry<bool>(false, serializer).Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.BoolValue);
     }
 
     /// <summary>A JSON element is written as its scalar kind, or for a number, an object or an array as its own text.</summary>
@@ -133,7 +133,7 @@ public sealed class WireMappingTests
     {
         var serializer = new SystemTextJsonSerializer();
 
-        var wire = WireMapping.MapEntryToWire(new CacheEntry<JsonElement> { Value = JsonElement.Parse(text) }, serializer);
+        var wire = WireMapping.CreateWireEntry<JsonElement>(JsonElement.Parse(text), serializer);
 
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(System.Enum.Parse<CacheValue.KindOneofCase>(kind));
         _ = await Assert.That(!string.Equals(kind, nameof(CacheValue.KindOneofCase.JsonUtf8), StringComparison.Ordinal) || string.Equals(Encoding.UTF8.GetString(wire.Value.JsonUtf8.Span), text, StringComparison.Ordinal)).IsTrue();
@@ -146,7 +146,7 @@ public sealed class WireMappingTests
         var serializer = new SystemTextJsonSerializer();
         var element = JsonElement.Parse("""{"x":1, /* note */ "y":[true,],}""", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
 
-        var wire = WireMapping.MapEntryToWire(new CacheEntry<JsonElement> { Value = element }, serializer);
+        var wire = WireMapping.CreateWireEntry<JsonElement>(element, serializer);
 
         _ = await Assert.That(Encoding.UTF8.GetString(wire.Value!.JsonUtf8.Span)).IsEqualTo("""{"x":1,"y":[true]}""");
     }
@@ -159,7 +159,7 @@ public sealed class WireMappingTests
         var expectations = new ISquirixSerializerCreateExpectations();
         _ = expectations.Setups.SerializeToUtf8Bytes(Arg.Any<CustomCacheValue?>()).ReturnValue(produced);
 
-        var wire = WireMapping.MapEntryToWire(new CacheEntry<CustomCacheValue> { Value = new CustomCacheValue { Count = 1, Name = "n" } }, expectations.Instance());
+        var wire = WireMapping.CreateWireEntry<CustomCacheValue>(new CustomCacheValue { Count = 1, Name = "n" }, expectations.Instance());
 
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(wire.Value.JsonUtf8.Span.Overlaps(produced, out var offset)).IsTrue();
@@ -178,11 +178,9 @@ public sealed class WireMappingTests
             Expiration = TimeSpan.FromMinutes(2),
         };
 
-        var wire = WireMapping.MapEntryToWire(entry, serializer);
+        var wire = WireMapping.CreateWireEntry(entry.Value, serializer) with { ExpiresUtc = entry.ExpiresUtc, Expiration = entry.Expiration };
 
         _ = await Assert.That(wire.Value!.StringValue).IsEqualTo("payload");
-        _ = await Assert.That(wire.ExpiresUtc).IsEqualTo(entry.ExpiresUtc);
-        _ = await Assert.That(wire.Expiration).IsEqualTo(entry.Expiration);
 
         var roundTrip = WireMapping.MapWireEntryToCacheEntry<string>(wire, serializer);
 

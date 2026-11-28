@@ -1,11 +1,11 @@
 using System;
-using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
+using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport;
 using Squirix.Transport.Wire;
 
@@ -17,7 +17,9 @@ internal sealed class CallPolicy : ICallPolicy
     private readonly Lock _disposeGate = new();
     private readonly CallPolicyExecutor _executor;
     private readonly string _peer;
-    private readonly SemaphoreSlim _semaphore;
+    private readonly int _capacity;
+    private int _available;
+    private SemaphoreSlim? _semaphore;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
     private int _disposed;
@@ -35,14 +37,15 @@ internal sealed class CallPolicy : ICallPolicy
     {
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
         var cap = Math.Max(1, maxConcurrentPerPeer);
-        _semaphore = new SemaphoreSlim(cap, cap);
+        _capacity = cap;
+        _available = cap;
         var settings = new CallPolicySettings(
             _peer,
             Math.Max(1, maxAttempts),
             timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
             baseBackoff ?? TimeSpan.FromMilliseconds(50),
             maxBackoff ?? TimeSpan.FromMilliseconds(500));
-        _executor = new CallPolicyExecutor(settings, timeProvider, _semaphore, IsDraining);
+        _executor = new CallPolicyExecutor(settings, timeProvider, this);
     }
 
     public void BeginDrain() => _draining = true;
@@ -71,32 +74,17 @@ internal sealed class CallPolicy : ICallPolicy
         }
     }
 
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<T> ExecuteAsync<TState, T>(Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken, DeadlineBudget? budget = null)
+    public ValueTask<T> ExecuteAsync<TState, T>(Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken, DeadlineBudget? budget = null, Action<SquirixTransportException>? onFailure = null) =>
+        _executor.RunQueuedExecutionAsync(static (call, token, _) => call.Action(call.State, token), (Action: action, State: state), budget, onFailure, false, cancellationToken);
+
+    public ValueTask<T> ExecuteTransportAsync<TState, T>(Func<TState, CancellationToken, long, ValueTask<T>> action, TState state, DeadlineBudget budget, Action<SquirixTransportException>? onFailure, CancellationToken cancellationToken) =>
+        _executor.RunQueuedExecutionAsync(action, state, budget, onFailure, true, cancellationToken);
+
+    private void CheckCanEnter(CancellationToken cancellationToken)
     {
-        _activeOperations.Enter();
-
-        try
-        {
-            // Disposal outranks draining so callers observe the same failure mode as before the
-            // claim-then-recheck reorder; the post-enter recheck is what closes the race with a concurrent dispose.
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            ThrowIfDraining();
-            cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
-
-            if (budget is not { } deadlineBudget || _executor.UsesClock(deadlineBudget.Clock))
-                return await _executor.RunQueuedExecutionAsync(action, state, budget, cancellationToken, cancellationToken).ConfigureAwait(false);
-
-            // Independent clocks require an operation-wide budget token alongside the attempt timer.
-            var budgetRemaining = deadlineBudget.Remaining;
-            var budgetDelay = budgetRemaining > TimeSpan.Zero ? budgetRemaining : TimeSpan.Zero;
-            using var budgetScope = new TimedCancellation(budgetDelay, deadlineBudget.Clock, cancellationToken);
-            return await _executor.RunQueuedExecutionAsync(action, state, budget, budgetScope.Token, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            ReleaseActiveOperation();
-        }
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ThrowIfDraining();
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private void DisposeSemaphoreUnderLockIfIdle()
@@ -104,12 +92,58 @@ internal sealed class CallPolicy : ICallPolicy
         if (Volatile.Read(ref _disposed) == 0 || _semaphoreDisposed || !_activeOperations.IsIdle())
             return;
 
-        _semaphore.Dispose();
+        _semaphore?.Dispose();
         _semaphoreDisposed = true;
         _ = _disposeTcs?.TrySetResult(true);
     }
 
-    private bool IsDraining() => _draining;
+    private Task<bool> TryAdmitAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        return TryDirectGrant() ? Task.FromResult(true) : _semaphore!.WaitAsync(0, token);
+    }
+
+    private Task AdmitAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        return TryDirectGrant() ? Task.CompletedTask : _semaphore!.WaitAsync(token);
+    }
+
+    private bool TryDirectGrant()
+    {
+        var available = Volatile.Read(ref _available);
+        while (available >= 0)
+        {
+            if (available == 0 && Volatile.Read(ref _semaphore) == null)
+            {
+                var queue = new SemaphoreSlim(0, _capacity);
+                if (Interlocked.CompareExchange(ref _semaphore, queue, null) != null)
+                    queue.Dispose();
+            }
+
+            var seen = Interlocked.CompareExchange(ref _available, available - 1, available);
+            if (seen == available)
+                return available != 0;
+            available = seen;
+        }
+
+        return false;
+    }
+
+    private void ReleasePermit()
+    {
+        var available = Volatile.Read(ref _available);
+        while (available >= 0)
+        {
+            var seen = Interlocked.CompareExchange(ref _available, available + 1, available);
+            if (seen == available)
+                return;
+            available = seen;
+        }
+
+        // After the first saturation, every grant is returned to the same bounded waiter queue.
+        _ = _semaphore!.Release();
+    }
 
     private void ReleaseActiveOperation()
     {
@@ -147,15 +181,14 @@ internal sealed class CallPolicy : ICallPolicy
     private sealed class CallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
-        private readonly Func<bool> _isDraining;
+        private readonly CallPolicy _owner;
         private readonly int _maxAttempts;
         private readonly TimeSpan _maxBackoff;
         private readonly string _peer;
-        private readonly SemaphoreSlim _semaphore;
         private readonly TimeProvider _timeProvider;
         private readonly TimeSpan _timeoutPerAttempt;
 
-        internal CallPolicyExecutor(CallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore, Func<bool> isDraining)
+        internal CallPolicyExecutor(CallPolicySettings settings, TimeProvider timeProvider, CallPolicy owner)
         {
             _peer = settings.Peer;
             _maxAttempts = settings.MaxAttempts;
@@ -163,66 +196,76 @@ internal sealed class CallPolicy : ICallPolicy
             _baseBackoff = settings.BaseBackoff;
             _maxBackoff = settings.MaxBackoff;
             _timeProvider = timeProvider;
-            _semaphore = semaphore;
-            _isDraining = isDraining;
+            _owner = owner;
         }
 
-        internal bool UsesClock(TimeProvider clock) => ReferenceEquals(_timeProvider, clock);
-
-        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+        [AsyncMethodBuilder(typeof(PolicyMethodBuilder<>))]
         internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
-            Func<TState, CancellationToken, ValueTask<T>> action,
+            Func<TState, CancellationToken, long, ValueTask<T>> action,
             TState state,
             DeadlineBudget? budget,
-            CancellationToken effectiveToken,
+            Action<SquirixTransportException>? onFailure,
+            bool nativeTransport,
             CancellationToken cancellationToken)
         {
-            var queueWaitStarted = Stopwatch.GetTimestamp();
-            var sharedClock = budget is { } value && UsesClock(value.Clock);
-            var acquired = sharedClock && await _semaphore.WaitAsync(0, effectiveToken).ConfigureAwait(false);
-            using var queuedScope = CreateQueuedScope(acquired, budget, effectiveToken);
-            if (queuedScope != null)
-                effectiveToken = queuedScope.Token;
-
             try
             {
+                using var operation = new ActiveOperation(_owner);
+                _owner.CheckCanEnter(cancellationToken);
+                using var budgetScope = CreateIndependentBudget(budget, cancellationToken);
+                var effectiveToken = budgetScope?.Token ?? cancellationToken;
+                var queueWaitStarted = CallPolicyMetrics.StartQueueWait();
+                var sharedClock = budget is { } value && UsesClock(value.Clock);
+                var acquired = sharedClock && await _owner.TryAdmitAsync(effectiveToken).ConfigureAwait(false);
+                using var queuedScope = CreateQueuedScope(acquired, budget, effectiveToken);
+                effectiveToken = queuedScope?.Token ?? effectiveToken;
+
                 if (!acquired)
-                    await _semaphore.WaitAsync(effectiveToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (budget != null && !cancellationToken.IsCancellationRequested)
-            {
-                // The operation deadline can expire while queued on the per-peer semaphore. Surface it as
-                // the same deadline-budget SquirixTransportException the retry loop produces instead of leaking a raw
-                // OperationCanceledException.
-                throw CreateBudgetExceeded();
-            }
+                    await WaitForSlotAsync(budget, effectiveToken, cancellationToken).ConfigureAwait(false);
 
-            CallPolicyMetrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
-            try
-            {
-                ThrowIfDraining();
-                var attempt = 0;
-                Exception? last = null;
-
-                while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts && !IsSharedBudgetSpent(budget))
+                CallPolicyMetrics.FinishQueueWait(_peer, queueWaitStarted);
+                try
                 {
-                    attempt++;
-                    var outcome = await OneAttemptAsync(action, state, attempt, budget, effectiveToken, cancellationToken).ConfigureAwait(false);
-                    if (outcome.Succeeded)
-                        return outcome.Value!;
+                    _owner.ThrowIfDraining();
+                    var attempt = 0;
+                    Exception? last = null;
 
-                    last = outcome.LastException;
-                    if (!outcome.ShouldRetry)
-                        break;
+                    while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts && !IsSharedBudgetSpent(budget))
+                    {
+                        attempt++;
+                        var attemptScope = CreateAttemptScope(budget, sharedClock && effectiveToken == cancellationToken, nativeTransport, effectiveToken, out var attemptBoundsBudget, out var expires);
+                        var attemptToken = attemptScope?.Token ?? effectiveToken;
+                        Exception failure;
+                        try
+                        {
+                            return await action(state, attemptToken, expires).ConfigureAwait(false);
+                        }
+                        catch (Exception ex) when (ex is OperationCanceledException or SquirixTransportException or HttpRequestException)
+                        {
+                            failure = ex;
+                        }
+                        finally
+                        {
+                            attemptScope?.Dispose();
+                        }
+
+                        var outcome = await MapFailedAttemptAsync(failure, attemptBoundsBudget, attempt, budget, effectiveToken, cancellationToken, BinaryCallAlarm.FailureToken(expires, failure, attemptToken)).ConfigureAwait(false);
+                        last = outcome.LastException;
+                        if (!outcome.ShouldRetry)
+                            break;
+                    }
+
+                    return FinishFailedAttempts<T>(last, budget, effectiveToken, cancellationToken);
                 }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                ThrowAfterFailedAttempts(last, budget, effectiveToken);
-                throw new InvalidOperationException("Unreachable retry loop exit.");
+                finally
+                {
+                    _owner.ReleasePermit();
+                }
             }
-            finally
+            catch (SquirixTransportException error) when (onFailure != null)
             {
-                _ = _semaphore.Release();
+                onFailure(error);
+                throw;
             }
         }
 
@@ -234,6 +277,37 @@ internal sealed class CallPolicy : ICallPolicy
         };
 
         private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining != null && perAttempt >= budgetRemaining.Value;
+
+        private async Task WaitForSlotAsync(DeadlineBudget? budget, CancellationToken effectiveToken, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _owner.AdmitAsync(effectiveToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (budget != null && !cancellationToken.IsCancellationRequested)
+            {
+                // The operation deadline can expire while queued on the per-peer semaphore. Surface it as
+                // the same deadline-budget SquirixTransportException the retry loop produces instead of leaking a raw
+                // OperationCanceledException.
+                throw CreateBudgetExceeded();
+            }
+        }
+
+        private TimedCancellation? CreateAttemptScope(DeadlineBudget? budget, bool sharedClockBudget, bool nativeTransport, CancellationToken effectiveToken, out bool attemptBoundsBudget, out long expires)
+        {
+            var remainingBudget = budget?.Remaining;
+            var remaining = GetAttemptTimeoutForRemaining(remainingBudget);
+
+            attemptBoundsBudget = sharedClockBudget && remainingBudget is { } bound && remaining >= bound;
+            expires = nativeTransport && sharedClockBudget && UsesClock(TimeProvider.System) && remaining >= TimeSpan.Zero && remaining.TotalMilliseconds <= uint.MaxValue - 1
+                ? BinaryCallAlarm.DueAfter(remaining)
+                : 0;
+
+            // Queued calls retain an operation-wide token; uncontended shared-clock calls use one timer for both limits.
+            return expires != 0 || (!sharedClockBudget && ShouldUseEffectiveTokenDirectly(remainingBudget, remaining))
+                ? null
+                : new TimedCancellation(remaining, _timeProvider, effectiveToken);
+        }
 
         private bool IsSharedBudgetSpent(DeadlineBudget? budget) => budget is { } value && UsesClock(value.Clock) && value.Remaining <= TimeSpan.Zero;
 
@@ -300,19 +374,19 @@ internal sealed class CallPolicy : ICallPolicy
             return new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
-        private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken)
+        private async ValueTask<AttemptFailure> MapHttpFailureAsync(HttpRequestException ex, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken)
         {
             if (ConnectionRejectedException.Map(ex) is { } rejected)
-                return AttemptOutcome<T>.Stop(rejected);
+                return AttemptFailure.Stop(rejected);
 
             if (attempt >= _maxAttempts || !OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) || IsSharedBudgetSpent(budget))
-                return AttemptOutcome<T>.Stop(ex);
+                return AttemptFailure.Stop(ex);
 
             CallPolicyMetrics.IncrementRetriesTotal(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(ex));
-            return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), ex, budget, effectiveToken).ConfigureAwait(false));
+            return AttemptFailure.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), ex, budget, effectiveToken).ConfigureAwait(false));
         }
 
-        private async ValueTask<AttemptOutcome<T>> MapOperationCanceledFailureAsync<T>(
+        private async ValueTask<AttemptFailure> MapOperationCanceledFailureAsync(
             OperationCanceledException oce,
             int attempt,
             DeadlineBudget? budget,
@@ -321,27 +395,27 @@ internal sealed class CallPolicy : ICallPolicy
             CancellationToken attemptToken)
         {
             if (!cancellationToken.IsCancellationRequested && IsSharedBudgetSpent(budget))
-                return AttemptOutcome<T>.Stop(oce);
+                return AttemptFailure.Stop(oce);
 
             var cancelKind = OperationCancellationClassifier.ClassifyPeerCallAttemptCancellation(cancellationToken, effectiveToken, attemptToken);
             if (cancelKind != CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
-                return AttemptOutcome<T>.Stop(oce);
+                return AttemptFailure.Stop(oce);
 
             RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "attempt", "operation_canceled");
             CallPolicyMetrics.IncrementRetriesTotal(_peer, "operation_canceled");
-            return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
+            return AttemptFailure.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
         }
 
-        private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(SquirixTransportException rx, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken, CancellationToken cancellationToken)
+        private async ValueTask<AttemptFailure> MapRpcFailureAsync(SquirixTransportException rx, int attempt, DeadlineBudget? budget, CancellationToken effectiveToken, CancellationToken cancellationToken)
         {
             if (ConnectionRejectedException.Map(rx) is { } rejected)
-                return AttemptOutcome<T>.Stop(rejected);
+                return AttemptFailure.Stop(rejected);
 
             // A mutation may have committed durably even though its outcome is unknown (server write-ahead
             // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
             // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
             if (rx.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rx.Status.Detail))
-                return AttemptOutcome<T>.Stop(rx);
+                return AttemptFailure.Stop(rx);
 
             // The transport deadline timer and the budget timer expire at the same instant: when the server reports the
             // expiry first, it is the exhausted operation budget, not a per-attempt timeout to retry.
@@ -351,24 +425,26 @@ internal sealed class CallPolicy : ICallPolicy
 
             var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget);
             if (!canRetry)
-                return AttemptOutcome<T>.Stop(rx);
+                return AttemptFailure.Stop(rx);
 
             if (rx.StatusCode == CacheTransportStatusCode.Cancelled || rx.StatusCode == CacheTransportStatusCode.DeadlineExceeded)
             {
                 var reason = rx.StatusCode == CacheTransportStatusCode.DeadlineExceeded ? CallPolicyRetryClassifier.DeadlineExceeded : CallPolicyRetryClassifier.Canceled;
                 RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "attempt", reason);
                 CallPolicyMetrics.IncrementRetriesTotal(_peer, reason);
-                return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
+                return AttemptFailure.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
             }
 
             if (rx.StatusCode is not (CacheTransportStatusCode.Unavailable or CacheTransportStatusCode.Internal or CacheTransportStatusCode.ResourceExhausted))
-                return AttemptOutcome<T>.Stop(rx);
+                return AttemptFailure.Stop(rx);
             CallPolicyMetrics.IncrementRetriesTotal(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(rx));
-            return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
+            return AttemptFailure.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
         }
 
-        private void ThrowAfterFailedAttempts(Exception? last, DeadlineBudget? budget, CancellationToken effectiveToken)
+        private T FinishFailedAttempts<T>(Exception? last, DeadlineBudget? budget, CancellationToken effectiveToken, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // An ambiguous durable outcome must retain its no-retry contract even at the deadline boundary.
             if (last is SquirixTransportException rpc && (rpc.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail)))
                 throw rpc;
@@ -379,75 +455,50 @@ internal sealed class CallPolicy : ICallPolicy
             throw CreateBudgetExceeded();
         }
 
-        private void ThrowIfDraining()
-        {
-            if (!_isDraining())
-                return;
+        private bool UsesClock(TimeProvider clock) => ReferenceEquals(_timeProvider, clock);
 
-            CallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
-            throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "Peer client pool is draining."));
+        private TimedCancellation? CreateIndependentBudget(DeadlineBudget? budget, CancellationToken token)
+        {
+            if (budget is not { } value || UsesClock(value.Clock))
+                return null;
+            var remaining = value.Remaining;
+            return new TimedCancellation(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, value.Clock, token);
         }
 
-        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-        private async ValueTask<AttemptOutcome<T>> OneAttemptAsync<TState, T>(
-            Func<TState, CancellationToken, ValueTask<T>> action,
-            TState state,
-            int attempt,
-            DeadlineBudget? deadlineBudget,
-            CancellationToken effectiveToken,
-            CancellationToken cancellationToken)
+        private async ValueTask<AttemptFailure> MapFailedAttemptAsync(
+            Exception failure, bool attemptBoundsBudget, int attempt, DeadlineBudget? deadlineBudget, CancellationToken effectiveToken, CancellationToken cancellationToken, CancellationToken attemptToken)
         {
-            var budget = deadlineBudget?.Remaining;
-            var remaining = GetAttemptTimeoutForRemaining(budget);
-
-            // Queued calls retain an operation-wide token; uncontended shared-clock calls use one timer for both limits.
-            var sharedClockBudget = deadlineBudget is { } value && UsesClock(value.Clock) && effectiveToken == cancellationToken;
-            var attemptScope = !sharedClockBudget && ShouldUseEffectiveTokenDirectly(budget, remaining) ? null : new TimedCancellation(remaining, _timeProvider, effectiveToken);
-            var attemptToken = attemptScope?.Token ?? effectiveToken;
-            var attemptBoundsBudget = sharedClockBudget && budget is { } budgetRemaining && remaining >= budgetRemaining;
-            Exception failure;
-            try
-            {
-                return AttemptOutcome<T>.Success(await action(state, attemptToken).ConfigureAwait(false));
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or SquirixTransportException or HttpRequestException)
-            {
-                failure = ex;
-            }
-            finally
-            {
-                // Attempt cancellation is no longer needed while failure mapping waits for retry backoff.
-                attemptScope?.Dispose();
-            }
-
             // The timer records which limit won even if its callback precedes the next timestamp observation.
             return failure switch
             {
-                SquirixTransportException rpc when rpc.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptOutcome<T>.Stop(rpc),
+                SquirixTransportException rpc when rpc.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptFailure.Stop(rpc),
                 _ when attemptBoundsBudget && attemptToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested => throw CreateBudgetExceeded(),
-                OperationCanceledException oce => await MapOperationCanceledFailureAsync<T>(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
-                SquirixTransportException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),
-                HttpRequestException http => await MapHttpFailureAsync<T>(http, attempt, deadlineBudget, effectiveToken).ConfigureAwait(false),
+                OperationCanceledException oce => await MapOperationCanceledFailureAsync(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
+                SquirixTransportException rx => await MapRpcFailureAsync(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),
+                HttpRequestException http => await MapHttpFailureAsync(http, attempt, deadlineBudget, effectiveToken).ConfigureAwait(false),
                 _ => throw new InvalidOperationException("Unreachable attempt failure classification."),
             };
         }
 
-        [Immutable]
-        private readonly record struct AttemptOutcome<T>
+        private readonly struct ActiveOperation : IDisposable
         {
-            internal Exception? LastException { get; private init; }
+            private readonly CallPolicy _owner;
 
-            internal bool ShouldRetry { get; private init; }
+            internal ActiveOperation(CallPolicy owner)
+            {
+                _owner = owner;
+                owner._activeOperations.Enter();
+            }
 
-            internal bool Succeeded { get; private init; }
+            public void Dispose() => _owner.ReleaseActiveOperation();
+        }
 
-            internal T? Value { get; private init; }
+        [Immutable]
+        private readonly record struct AttemptFailure(Exception LastException, bool ShouldRetry)
+        {
+            internal static AttemptFailure Retry(Exception error) => new(error, true);
 
-            internal static AttemptOutcome<T> Retry(Exception last) => new() { ShouldRetry = true, LastException = last };
-
-            internal static AttemptOutcome<T> Stop(Exception last) => new() { ShouldRetry = false, LastException = last };
-
-            internal static AttemptOutcome<T> Success(T value) => new() { Succeeded = true, Value = value };
+            internal static AttemptFailure Stop(Exception error) => new(error, false);
         }
 
         private static class CallPolicyRetryClassifier

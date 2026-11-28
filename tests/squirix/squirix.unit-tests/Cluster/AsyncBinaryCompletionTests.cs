@@ -25,20 +25,20 @@ namespace Squirix.UnitTests.Cluster;
 /// <summary>Exercises shared asynchronous request completion over a single TLS connection.</summary>
 public sealed class AsyncBinaryCompletionTests
 {
-    private static readonly LifetimeOperation<GetDistributedAsyncRequest, GetDistributedAsyncResponse> ReadLifetime = new(
+    internal static readonly LifetimeOperation<GetDistributedAsyncRequest, GetDistributedAsyncResponse> ReadLifetime = new(
         BinaryOperation.GetDistributed,
         new GetDistributedAsyncRequest { CacheName = "default", Key = "read" },
         new GetDistributedAsyncResponse(),
         new GetDistributedAsyncResponse { Found = true, Value = Encoding.UTF8.GetBytes("cached") },
-        static (peer, request, options) => peer.GetDistributedAsync(request, in options),
+        static (peer, request, options) => peer.GetDistributedAsync(request, in options).AsTask(),
         false);
 
-    private static readonly LifetimeOperation<RemoveAsyncRequest, RemoveAsyncResponse> MutationLifetime = new(
+    internal static readonly LifetimeOperation<RemoveAsyncRequest, RemoveAsyncResponse> MutationLifetime = new(
         BinaryOperation.Remove,
         new RemoveAsyncRequest { CacheName = "default", Key = "mutation" },
         new RemoveAsyncResponse(),
         new RemoveAsyncResponse { Removed = true },
-        static (peer, request, options) => peer.RemoveAsync(request, in options),
+        static (peer, request, options) => peer.RemoveAsync(request, in options).AsTask(),
         true);
 
     /// <summary>Checks every asynchronous wire operation against its request and response type.</summary>
@@ -91,6 +91,25 @@ public sealed class AsyncBinaryCompletionTests
         await AssertDistributedSetFrameAsync(replicatedRetry, request.OperationId, value);
     }
 
+    /// <summary>Checks that inline encoding preserves UTF-8, lengths and binary tails at the frame boundary.</summary>
+    /// <param name="length">The size of the inline destination relative to the encoded message.</param>
+    [Test]
+    [Arguments(-1)]
+    [Arguments(0)]
+    [Arguments(1)]
+    public async Task InlineFramesMatchTheFullEncoding(int length)
+    {
+        var payload = new byte[] { 11, 19, 0, 255 };
+        var request = new SetDistributedAsyncRequest { CacheName = "кэш", Key = "項目😀", Value = payload };
+        var expected = request.ToByteArray();
+        var destination = new byte[expected.Length + length];
+        var measured = request.WriteOrMeasure(destination, null, out var borrowsPayload);
+        _ = await Assert.That(measured).IsEqualTo(expected.Length);
+        _ = await Assert.That(borrowsPayload).IsTrue();
+        if (length >= 0)
+            _ = await Assert.That(destination.AsSpan(0, measured).SequenceEqual(expected)).IsTrue();
+    }
+
     /// <summary>Checks cancellation, deadline outcomes, and connection reuse after a late reply.</summary>
     /// <param name="read">Whether the operation can be retried after a deadline.</param>
     /// <param name="callerCancels">Whether cancellation comes directly from the caller.</param>
@@ -110,7 +129,7 @@ public sealed class AsyncBinaryCompletionTests
                 : VerifyLifetimeAsync(client, stream, MutationLifetime, callerCancels, keepOtherCall, token),
             cancellationToken);
 
-    private static async Task WithPeerAsync(Func<BinaryCacheClient, SslStream, CancellationToken, Task> scenario, CancellationToken cancellationToken, bool replay = false)
+    internal static async Task WithPeerAsync(Func<BinaryCacheClient, SslStream, CancellationToken, Task> scenario, CancellationToken cancellationToken, bool replay = false)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
@@ -139,6 +158,37 @@ public sealed class AsyncBinaryCompletionTests
         await scenario(client, stream, token);
     }
 
+    internal static async Task<int> ReadRequestAsync(SslStream stream, BinaryOperation operation, WireMessage expected, CancellationToken token)
+    {
+        var header = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes);
+        await stream.ReadExactlyAsync(header, token);
+        var (id, size, control) = Frames.ReadRequest(header);
+        _ = await Assert.That(Frames.ReadOperationId(control)).IsEqualTo(Unsafe.BitCast<BinaryOperation, int>(operation));
+        var body = GC.AllocateUninitializedArray<byte>(size);
+        await stream.ReadExactlyAsync(body, token);
+        var payload = (control & Frames.TracedRequest) == 0 ? body : BinaryTracedRequest.Parser.ParseFrom(body).Payload;
+        _ = await Assert.That(payload.Span.SequenceEqual(expected.ToByteArray())).IsTrue();
+        return id;
+    }
+
+    internal static ValueTask ReplyAsync(SslStream stream, int id, WireMessage reply, CancellationToken token)
+    {
+        var size = reply.CalculateSize();
+        var frame = GC.AllocateUninitializedArray<byte>(Frames.ReplyBytes + size);
+        Frames.WriteReplyMessage(frame, id, size, 0, reply);
+        return stream.WriteAsync(frame, token);
+    }
+
+    private static async Task NegotiateAsync(SslStream stream, X509Certificate2 certificate, bool replay, CancellationToken token)
+    {
+        await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate }, token);
+        var preface = GC.AllocateUninitializedArray<byte>(Frames.PrefaceBytes);
+        await stream.ReadExactlyAsync(preface, token);
+        _ = await Assert.That(BinaryPrimitives.ReadUInt32BigEndian(preface)).IsEqualTo(Frames.Preface);
+        preface[0] = replay ? Frames.AcceptedWithMutationReplay : Frames.Accepted;
+        await stream.WriteAsync(preface.AsMemory(0, 1), token);
+    }
+
     private static async Task VerifyFragmentedRepliesAsync(BinaryCacheClient client, SslStream stream, CancellationToken token)
     {
         var request = new GetDistributedAsyncRequest { CacheName = "default", Key = "buffer" };
@@ -147,7 +197,7 @@ public sealed class AsyncBinaryCompletionTests
         var replies = new GetDistributedAsyncResponse[sizes.Length];
         for (var i = 0; i < sizes.Length; i++)
         {
-            var pending = client.GetDistributedAsync(request, LiveCallOptions(token));
+            var pending = client.GetDistributedAsync(request, LiveCallOptions(token)).AsTask();
             var id = await ReadRequestAsync(stream, BinaryOperation.GetDistributed, request, token);
             var expected = new byte[sizes[i]];
             Array.Fill(expected, byte.CreateChecked(i + 1));
@@ -180,7 +230,7 @@ public sealed class AsyncBinaryCompletionTests
     {
         var request = new RemoveAsyncRequest { CacheName = "default", Key = "mutation" };
         var reply = new RemoveAsyncResponse { Removed = true };
-        await RoundTripAsync(client, stream, BinaryOperation.Remove, request, reply, static (peer, wire, options) => peer.RemoveAsync(wire, in options), token);
+        await RoundTripAsync(client, stream, BinaryOperation.Remove, request, reply, static (peer, wire, options) => peer.RemoveAsync(wire, in options).AsTask(), token);
 
         var firstIdentity = request.OperationId;
         if (replay)
@@ -188,7 +238,7 @@ public sealed class AsyncBinaryCompletionTests
         else
             _ = await Assert.That(firstIdentity).IsEmpty();
 
-        await RoundTripAsync(client, stream, BinaryOperation.Remove, request, reply, static (peer, wire, options) => peer.RemoveAsync(wire, in options), token);
+        await RoundTripAsync(client, stream, BinaryOperation.Remove, request, reply, static (peer, wire, options) => peer.RemoveAsync(wire, in options).AsTask(), token);
         _ = await Assert.That(request.OperationId).IsEqualTo(firstIdentity);
     }
 
@@ -215,7 +265,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.GetEntry,
             new GetEntryAsyncRequest { CacheName = "default", Key = "round-trip" },
             new GetEntryAsyncResponse { Found = true },
-            static (peer, request, options) => peer.GetEntryAsync(request, in options),
+            static (peer, request, options) => peer.GetEntryAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -223,7 +273,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.GetValue,
             new GetValueAsyncRequest { CacheName = "default", Key = "round-trip" },
             new GetValueAsyncResponse { Found = true },
-            static (peer, request, options) => peer.GetValueAsync(request, in options),
+            static (peer, request, options) => peer.GetValueAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -231,7 +281,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.GetExpiration,
             new GetExpirationAsyncRequest { CacheName = "default", Key = "round-trip" },
             new GetExpirationAsyncResponse { Found = true },
-            static (peer, request, options) => peer.GetExpirationAsync(request, in options),
+            static (peer, request, options) => peer.GetExpirationAsync(request, in options).AsTask(),
             token);
     }
 
@@ -243,7 +293,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.SetEntry,
             new SetEntryAsyncRequest { CacheName = "default", Key = "round-trip" },
             new SetAsyncResponse(),
-            static (peer, request, options) => peer.SetEntryAsync(request, in options),
+            static (peer, request, options) => peer.SetEntryAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -251,7 +301,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.Remove,
             new RemoveAsyncRequest { CacheName = "default", Key = "round-trip" },
             new RemoveAsyncResponse { Removed = true },
-            static (peer, request, options) => peer.RemoveAsync(request, in options),
+            static (peer, request, options) => peer.RemoveAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -259,7 +309,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.TryAddEntry,
             new TryAddEntryAsyncRequest { CacheName = "default", Key = "round-trip" },
             new TryAddAsyncResponse { Added = true },
-            static (peer, request, options) => peer.AddEntryIfMissingAsync(request, in options),
+            static (peer, request, options) => peer.AddEntryIfMissingAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -267,7 +317,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.Touch,
             new TouchAsyncRequest { CacheName = "default", Key = "round-trip" },
             new TouchAsyncResponse { Found = true },
-            static (peer, request, options) => peer.TouchAsync(request, in options),
+            static (peer, request, options) => peer.TouchAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -275,7 +325,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.RemoveExpiration,
             new RemoveExpirationAsyncRequest { CacheName = "default", Key = "round-trip" },
             new RemoveExpirationAsyncResponse { Found = true },
-            static (peer, request, options) => peer.RemoveExpirationAsync(request, in options),
+            static (peer, request, options) => peer.RemoveExpirationAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -283,7 +333,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.Update,
             new UpdateAsyncRequest { CacheName = "default", Key = "round-trip" },
             new UpdateAsyncResponse { Updated = true },
-            static (peer, request, options) => peer.UpdateAsync(request, in options),
+            static (peer, request, options) => peer.UpdateAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -291,7 +341,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.GetOrAdd,
             new GetOrAddAsyncRequest { CacheName = "default", Key = "round-trip" },
             new GetOrAddAsyncResponse { Found = true, Added = true },
-            static (peer, request, options) => peer.GetOrAddAsync(request, in options),
+            static (peer, request, options) => peer.GetOrAddAsync(request, in options).AsTask(),
             token);
     }
 
@@ -303,7 +353,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.SetDistributed,
             new SetDistributedAsyncRequest { CacheName = "default", Key = "round-trip" },
             new SetAsyncResponse(),
-            static (peer, request, options) => peer.SetDistributedAsync(request, in options),
+            static (peer, request, options) => peer.SetDistributedAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -311,7 +361,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.GetDistributed,
             new GetDistributedAsyncRequest { CacheName = "default", Key = "round-trip" },
             new GetDistributedAsyncResponse { Found = true },
-            static (peer, request, options) => peer.GetDistributedAsync(request, in options),
+            static (peer, request, options) => peer.GetDistributedAsync(request, in options).AsTask(),
             token);
         await RoundTripAsync(
             client,
@@ -319,7 +369,7 @@ public sealed class AsyncBinaryCompletionTests
             BinaryOperation.RefreshDistributed,
             new RefreshDistributedAsyncRequest { CacheName = "default", Key = "round-trip" },
             new RefreshDistributedAsyncResponse(),
-            static (peer, request, options) => peer.RefreshDistributedAsync(request, in options),
+            static (peer, request, options) => peer.RefreshDistributedAsync(request, in options).AsTask(),
             token);
     }
 
@@ -400,38 +450,7 @@ public sealed class AsyncBinaryCompletionTests
 
     private static BinaryCallOptions LiveCallOptions(CancellationToken token) => new(DateTime.UtcNow.AddSeconds(15), token, token);
 
-    private static async Task<int> ReadRequestAsync(SslStream stream, BinaryOperation operation, WireMessage expected, CancellationToken token)
-    {
-        var header = GC.AllocateUninitializedArray<byte>(Frames.RequestBytes);
-        await stream.ReadExactlyAsync(header, token);
-        var (id, size, control) = Frames.ReadRequest(header);
-        _ = await Assert.That(Frames.ReadOperationId(control)).IsEqualTo(Unsafe.BitCast<BinaryOperation, int>(operation));
-        var body = GC.AllocateUninitializedArray<byte>(size);
-        await stream.ReadExactlyAsync(body, token);
-        var payload = (control & Frames.TracedRequest) == 0 ? body : BinaryTracedRequest.Parser.ParseFrom(body).Payload;
-        _ = await Assert.That(payload.Span.SequenceEqual(expected.ToByteArray())).IsTrue();
-        return id;
-    }
-
-    private static ValueTask ReplyAsync(SslStream stream, int id, WireMessage reply, CancellationToken token)
-    {
-        var size = reply.CalculateSize();
-        var frame = GC.AllocateUninitializedArray<byte>(Frames.ReplyBytes + size);
-        Frames.WriteReplyMessage(frame, id, size, 0, reply);
-        return stream.WriteAsync(frame, token);
-    }
-
-    private static async Task NegotiateAsync(SslStream stream, X509Certificate2 certificate, bool replay, CancellationToken token)
-    {
-        await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate }, token);
-        var preface = GC.AllocateUninitializedArray<byte>(Frames.PrefaceBytes);
-        await stream.ReadExactlyAsync(preface, token);
-        _ = await Assert.That(BinaryPrimitives.ReadUInt32BigEndian(preface)).IsEqualTo(Frames.Preface);
-        preface[0] = replay ? Frames.AcceptedWithMutationReplay : Frames.Accepted;
-        await stream.WriteAsync(preface.AsMemory(0, 1), token);
-    }
-
-    private sealed record LifetimeOperation<TRequest, TResponse>(
+    internal sealed record LifetimeOperation<TRequest, TResponse>(
         BinaryOperation Code,
         TRequest Request,
         TResponse LateReply,

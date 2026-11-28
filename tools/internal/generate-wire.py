@@ -108,12 +108,38 @@ def model(name, fields, models, empty_response=False, status_body=False):
     add = lines.append
     mutation = any(kind == "?OperationId" for kind, _ in fields)
     base = "CacheMutationRequest" if mutation else "WireMessage"
-    add(f"internal sealed class {name} : {base}")
+    inline = name == "CacheEntryWire"
+    add(f"internal readonly record struct {name} : IWireBody" if inline else f"internal sealed class {name} : {base}")
     add("{")
-    add(f"    internal static WireParser<{name}> Parser {{ get; }} = new(Read);")
+    parser = "WireBodyParser" if inline else "WireParser"
+    add(f"    internal static {parser}<{name}> Parser {{ get; }} = new(Read);")
+    if empty_response and (not fields or (len(fields) == 1 and fields[0][0] == "Bool")):
+        if fields:
+            prop = fields[0][1]
+            add(f"    private static readonly {name} False = new();")
+            add(f"    private static readonly {name} True = new() {{ {prop} = true }};")
+            add(f"    internal bool {prop} {{ get; init; }}")
+            add(f"    internal static {name} FromResult(bool result) => result ? True : False;")
+            add(f"    internal static {name} Read(ref WireReader reader) => FromResult(reader.Remaining != 0 && reader.Flags(1) != 0);")
+            add("")
+            add("    internal override void Encode(ref WireWriter writer)")
+            add("    {")
+            add(f"        if ({prop})")
+            add("            writer.Byte(1);")
+            add("    }")
+        else:
+            add(f"    internal static {name} Instance {{ get; }} = new();")
+            add(f"    internal static {name} Read(ref WireReader reader) => Instance;")
+            add("    internal override void Encode(ref WireWriter writer) { }")
+        add("}")
+        return lines
     regular = [(kind, prop) for kind, prop in fields if kind[0] != "|"]
     variants = [(kind[1:], prop) for kind, prop in fields if kind[0] == "|"]
     flags = {}
+    packed = {prop: "_" + prop[0].lower() + prop[1:]
+              for kind, prop in regular if inline and kind in ("?Timestamp", "?Duration")}
+    if packed:
+        add("    private readonly byte _presence;")
     for kind, prop in regular:
         optional = kind.startswith("?")
         repeated = kind.startswith("*")
@@ -128,7 +154,21 @@ def model(name, fields, models, empty_response=False, status_body=False):
             flags[prop] = (condition, 1 << len(flags))
         if optional and kind == "OperationId":
             continue
-        if repeated:
+        if prop in packed:
+            backing = packed[prop]
+            bit = flags[prop][1]
+            flags[prop] = (f"(_presence & {bit}) != 0", bit)
+            add(f"    private readonly {type_name} {backing};")
+            add(f"    internal {type_name}? {prop}")
+            add("    {")
+            add(f"        get => (_presence & {bit}) != 0 ? {backing} : null;")
+            add("        init")
+            add("        {")
+            add(f"            {backing} = value.GetValueOrDefault();")
+            add(f"            _presence = value.HasValue ? (byte)(_presence | {bit}) : (byte)(_presence & ~{bit});")
+            add("        }")
+            add("    }")
+        elif repeated:
             add(f"    internal List<{type_name}> {prop} {{ get; }} = [];")
         elif optional and kind == "Int64":
             backing = "_" + prop[0].lower() + prop[1:]
@@ -138,7 +178,8 @@ def model(name, fields, models, empty_response=False, status_body=False):
         else:
             default = " = string.Empty;" if kind in ("String", "OperationId") else ""
             nullable = "?" if optional else ""
-            add(f"    internal {type_name}{nullable} {prop} {{ get; set; }}{default}")
+            setter = "init" if inline else "set"
+            add(f"    internal {type_name}{nullable} {prop} {{ get; {setter}; }}{default}")
     if variants:
         union = UNIONS[name]
         tag = union + "Case"
@@ -149,9 +190,10 @@ def model(name, fields, models, empty_response=False, status_body=False):
             add("    private WireMessage? _step;")
         else:
             add("    private object? _reference;" if name == "CacheValue" else "    private string? _text;")
-            add("    private ReadOnlyMemory<byte> _bytes;")
             if name == "CacheValue":
                 add("    private long _bits;")
+            else:
+                add("    private ReadOnlyMemory<byte> _bytes;")
         for kind, prop in variants:
             case = f"{enum}.{prop}"
             if name == "TransferReplicaStateRequest":
@@ -172,7 +214,10 @@ def model(name, fields, models, empty_response=False, status_body=False):
                     assign = "_reference = value;"
                 clear = ("_text = null; " if kind != "String" else "") + ("_bytes = default; " if kind != "Bytes" else "")
                 if name == "CacheValue":
-                    clear = clear.replace("_text", "_reference")
+                    clear = "" if kind in ("Bytes", "String") else "_reference = null; "
+                    if kind == "Bytes":
+                        getter = f"{tag} == {case} ? WireByteRange.View(_reference, _bits) : default"
+                        assign = "WireByteRange.Store(value, out _reference, out _bits);"
                 setter = f"{clear}{assign} {tag} = {case};".strip()
             add(f"    internal {declaration(kind)} {prop}")
             add("    {")
@@ -181,8 +226,8 @@ def model(name, fields, models, empty_response=False, status_body=False):
             add("    }")
 
     if name == "CacheValue":
-        add("    internal byte[]? EncodedText => KindCase == KindOneofCase.StringValue ? _reference as byte[] : null;")
-        add("    internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes };")
+        add("    internal byte[]? EncodedText => KindCase == KindOneofCase.StringValue && _bits == WireByteRange.OwnedArray ? _reference as byte[] : null;")
+        add("    internal static CacheValue FromText(byte[] bytes) => new() { KindCase = KindOneofCase.StringValue, _reference = bytes, _bits = WireByteRange.OwnedArray };")
         # The reference slot holds text or the exact array of a parsed binary result.
         # Shared byte fields have no owner and retain their independent-copy semantics.
         add("")
@@ -192,24 +237,33 @@ def model(name, fields, models, empty_response=False, status_body=False):
         add("        {")
         add("            if (KindCase != KindOneofCase.StringValue || _reference is string)")
         add("                return null;")
-        add("            return _reference is byte[] owned ? owned : _bytes;")
+        add("            return WireByteRange.View(_reference, _bits);")
         add("        }")
         add("    }")
         add("")
-        add("    internal static CacheValue FromTextSlice(ReadOnlyMemory<byte> bytes) => new() { KindCase = KindOneofCase.StringValue, _bytes = bytes };")
+        add("    internal static CacheValue FromTextSlice(ReadOnlyMemory<byte> bytes)")
+        add("    {")
+        add("        var value = new CacheValue { KindCase = KindOneofCase.StringValue };")
+        add("        WireByteRange.Store(bytes, out value._reference, out value._bits);")
+        add("        return value;")
+        add("    }")
         add("")
-        add("    internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bytes = payload, _reference = payload };")
+        add("    internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bits = WireByteRange.OwnedArray, _reference = payload };")
         add("")
         add("    internal byte[] TakeBinaryValue()")
         add("    {")
-        add("        if (KindCase != KindOneofCase.BinaryValue || _reference is not byte[] owned)")
+        add("        if (KindCase != KindOneofCase.BinaryValue || _bits != WireByteRange.OwnedArray || _reference is not byte[] owned)")
         add("            return BinaryValue.ToArray();")
         add("        _reference = null;")
-        add("        _bytes = default;")
+        add("        _bits = 0;")
         add("        return owned;")
         add("    }")
     add("")
-    add("    internal override void Encode(ref WireWriter writer)")
+    if inline:
+        add("    internal byte[] ToByteArray() => WireWriter.ToByteArray(this);")
+        add("    void IWireBody.Encode(ref WireWriter writer) => Encode(ref writer);")
+    modifier = "" if inline else "override "
+    add(f"    internal {modifier}void Encode(ref WireWriter writer)")
     add("    {")
     if status_body:
         add("        if (Detail.Length == 0 && Trailers.Count == 0)")
@@ -218,7 +272,10 @@ def model(name, fields, models, empty_response=False, status_body=False):
         add("        var operationId = writer.MutationOperationId ?? OperationId;")
     if flags:
         assert len(flags) <= 8
-        condition = " | ".join(f"({condition} ? {bit} : 0)" for condition, bit in flags.values())
+        terms = [f"({condition} ? {bit} : 0)" for prop, (condition, bit) in flags.items() if prop not in packed]
+        if packed:
+            terms.append("_presence")
+        condition = " | ".join(terms)
         if empty_response:
             add(f"        var flags = (byte)({condition});")
             empty = ["flags == 0"] + [f"{prop}.IsEmpty" for kind, prop in regular if kind in ("Bytes", "TailBytes")]
@@ -238,6 +295,10 @@ def model(name, fields, models, empty_response=False, status_body=False):
             condition, _ = flags[prop]
             add(f"        if ({condition})")
             expr = prop + ".Value" if kind in ("?Duration", "?Timestamp") else prop
+            if prop in packed:
+                expr = packed[prop]
+            if kind == "?CacheEntryWire":
+                expr = f"{prop}.GetValueOrDefault()"
             if kind == "?OperationId":
                 expr = "operationId"
             add("            " + write(kind[1:], expr))
@@ -281,6 +342,16 @@ def model(name, fields, models, empty_response=False, status_body=False):
     else:
         add(f"    internal static {name} Read(ref WireReader reader)")
     add("    {")
+    if inline:
+        add(f"        var flags = reader.Flags({(1 << len(flags)) - 1});")
+        add(f"        return new {name}")
+        add("        {")
+        for kind, prop in regular:
+            add(f"            {prop} = (flags & {flags[prop][1]}) != 0 ? {read(kind[1:])} : null,")
+        add("        };")
+        add("    }")
+        add("}")
+        return lines
     add(f"        var message = new {name}();")
     if (empty_response and flags) or status_body:
         add("        if (reader.Remaining == 0)")
@@ -299,6 +370,8 @@ def model(name, fields, models, empty_response=False, status_body=False):
             else:
                 add(f"        if ((flags & {bit}) != 0)")
                 add(f"            message.{prop} = {read(kind[1:])};")
+        elif kind == "String" and prop == "CacheName":
+            add("        message.CacheName = reader.Text(cacheName: true);")
         else:
             add(f"        message.{prop} = {read(kind)};")
     if variants:
@@ -309,13 +382,21 @@ def model(name, fields, models, empty_response=False, status_body=False):
         for kind, prop in variants:
             add(f"            case {enum}.{prop}:")
             if name == "CacheValue" and prop == "BinaryValue":
-                add("                message.BinaryValue = tail ? reader.TailBytes(out var owned) : reader.Bytes(out owned);")
-                add("                message._reference = owned;")
+                add("                var bytes = tail ? reader.TailBytes(out var owned) : reader.Bytes(out owned);")
+                add("                if (owned == null)")
+                add("                    message.BinaryValue = bytes;")
+                add("                else")
+                add("                {")
+                add("                    message.KindCase = kind;")
+                add("                    message._reference = owned;")
+                add("                    message._bits = WireByteRange.OwnedArray;")
+                add("                }")
             elif name == "CacheValue" and kind == "Bytes":
                 add(f"                message.{prop} = tail ? reader.TailBytes(out _) : reader.Bytes(out _);")
             elif name == "CacheValue" and kind == "String":
                 add("                message.KindCase = kind;")
                 add("                message._reference = TextPayloadReader.Read(ref reader, tail);")
+                add("                message._bits = WireByteRange.OwnedArray;")
             else:
                 add(f"                message.{prop} = {read(kind)};")
             add("                break;")

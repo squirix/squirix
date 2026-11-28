@@ -375,8 +375,8 @@ public sealed class OwnerRouterRerouteTests
             "key",
             this,
             static (attempts, target, _) => attempts.RecordAsync(target),
-            static (attempts, _) => attempts.RecordAsync(Local),
-            cancellationToken);
+            static (attempts, _) => new ValueTask<string>(attempts.RecordAsync(Local)),
+            cancellationToken).AsTask();
 
         private Task<string> RecordAsync(string target)
         {
