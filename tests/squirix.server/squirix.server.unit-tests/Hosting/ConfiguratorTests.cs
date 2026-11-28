@@ -164,6 +164,22 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         _ = await Assert.That(options.SettingsFilePath).IsEqualTo(path);
     }
 
+    /// <summary>Renaming a settings file preserves a cluster configured at the root.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DiscoveryPreservesRootCluster(CancellationToken cancellationToken)
+    {
+        var path = PathKit.Combine(Dir, "appsettings.json");
+        await File.WriteAllTextAsync(
+            path, """{"Cluster":{"NodeId":"renamed","Uri":"https://localhost:6001","PersistenceEnabled":true}}""", cancellationToken);
+
+        var options = await Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
+
+        _ = await Assert.That(options.NodeId).IsEqualTo("renamed");
+        _ = await Assert.That(options.Uri.Port).IsEqualTo(6001);
+        _ = await Assert.That(options.PersistenceEnabled).IsTrue();
+    }
+
     /// <summary>Without a settings file the default loader creates ephemeral local options.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

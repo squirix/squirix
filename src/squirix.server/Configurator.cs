@@ -327,10 +327,8 @@ public static class Configurator
             var bytes = await File.ReadAllBytesAsync(validatedPath, cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(bytes, JsonOptions);
             var root = document.RootElement;
-            var hasSquirix = root.TryGetProperty("Squirix", out var squirix);
-            if (!hasSquirix && !allowMissingCluster)
-                squirix = root;
-            if (squirix.ValueKind == JsonValueKind.Undefined || !squirix.TryGetProperty("Cluster", out var cluster))
+            var squirix = root.TryGetProperty("Squirix", out var section) ? section : root;
+            if (!squirix.TryGetProperty("Cluster", out var cluster))
                 return allowMissingCluster ? (true, null, null) : (false, null, "Settings file must define Squirix.Cluster.");
 
             var options = ThrowHelper.Required(

@@ -149,6 +149,7 @@ static string BuildSettingsJson(string uri)
         ["Squirix"] = new JsonObject
         {
             ["Cluster"] = cluster,
+            ["Client"] = new JsonObject { ["Endpoints"] = new JsonArray(JsonValue.Create(uri)) },
         },
     };
 
