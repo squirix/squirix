@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures.ProcessHosting;
@@ -65,17 +66,17 @@ public sealed class HostLoggingTests
         start.Environment["DOTNET_ENVIRONMENT"] = "Production";
         if (configuration is FileConfig or EnvironmentOverFileConfig)
         {
-            await File.WriteAllTextAsync(
-                Path.Join(start.WorkingDirectory, "appsettings.json"),
-                """{"Logging":{"LogLevel":{"Default":"Information","Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Information"}}}""",
+            await WriteLoggingSettingsAsync(
+                start.WorkingDirectory,
+                """{"LogLevel":{"Default":"Information","Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Information"}}""",
                 cancellationToken);
         }
 
         if (configuration == EnvironmentFileConfig)
         {
-            await File.WriteAllTextAsync(
-                Path.Join(start.WorkingDirectory, "appsettings.json"),
-                """{"Logging":{"LogLevel":{"Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Warning"}}}""",
+            await WriteLoggingSettingsAsync(
+                start.WorkingDirectory,
+                """{"LogLevel":{"Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint":"Warning"}}""",
                 cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Join(start.WorkingDirectory, "appsettings.Production.json"),
@@ -88,5 +89,14 @@ public sealed class HostLoggingTests
 
         if (configuration is EnvironmentConfig or EnvironmentOverFileConfig)
             start.Environment["Logging__LogLevel__Squirix.Server.Adapters.Endpoint.NativeManagementEndpoint"] = configuration == EnvironmentConfig ? "Information" : "Warning";
+    }
+
+    private static async Task WriteLoggingSettingsAsync(string directory, string loggingJson, CancellationToken cancellationToken)
+    {
+        var path = Path.Join(directory, "appsettings.json");
+        var json = await File.ReadAllTextAsync(path, cancellationToken);
+        var settings = JsonNode.Parse(json)!;
+        settings["Logging"] = JsonNode.Parse(loggingJson);
+        await File.WriteAllTextAsync(path, settings.ToJsonString(), cancellationToken);
     }
 }

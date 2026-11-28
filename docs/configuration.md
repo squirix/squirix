@@ -58,7 +58,6 @@ The SDK reads this file when connecting. Keep it in the working directory or cop
 Use `ConnectFromSettingsAsync` to add a bearer token provider or serializer to the file-based configuration.
 To supply all connection settings in code, use the URI or options callback overload of `SquirixClient.ConnectAsync`.
 
-
 | Member                   | Purpose                                                                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Endpoints`              | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md).                                    |
