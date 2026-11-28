@@ -118,7 +118,7 @@ public sealed class ConnectTimeoutOptionsTests : IsolatedStorageTestBase
 
     private async Task<string> WriteSettingsAsync(string timeout, CancellationToken cancellationToken)
     {
-        var path = Path.Join(Dir, "Squirix.settings.json");
+        var path = Path.Join(Dir, "appsettings.json");
         await File.WriteAllTextAsync(path, SettingsTemplate.Replace("TIMEOUT", timeout, StringComparison.Ordinal), cancellationToken);
         return path;
     }

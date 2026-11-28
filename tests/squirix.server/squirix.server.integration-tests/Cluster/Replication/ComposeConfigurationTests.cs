@@ -38,9 +38,9 @@ public sealed class ComposeConfigurationTests
     public async Task SharedSettingsMatchRfThreeLayout(CancellationToken cancellationToken)
     {
         var root = RepositoryRootFinder.Find();
-        await AssertSettingsAsync(Path.Join(root, "docker", "node-a", "Squirix.settings.json"), "A", cancellationToken);
-        await AssertSettingsAsync(Path.Join(root, "docker", "node-b", "Squirix.settings.json"), "B", cancellationToken);
-        await AssertSettingsAsync(Path.Join(root, "docker", "node-c", "Squirix.settings.json"), "C", cancellationToken);
+        await AssertSettingsAsync(Path.Join(root, "docker", "node-a", "appsettings.json"), "A", cancellationToken);
+        await AssertSettingsAsync(Path.Join(root, "docker", "node-b", "appsettings.json"), "B", cancellationToken);
+        await AssertSettingsAsync(Path.Join(root, "docker", "node-c", "appsettings.json"), "C", cancellationToken);
     }
 
     private static async Task<string> AssertComposeFileAsync(

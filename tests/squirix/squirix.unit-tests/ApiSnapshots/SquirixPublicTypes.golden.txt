@@ -104,7 +104,9 @@ M:Squirix.ISquirixSerializer::SerializeToElement(!0,System.Text.Json.Serializati
 M:Squirix.ISquirixSerializer::SerializeToUtf8Bytes(!0,System.Text.Json.Serialization.Metadata.JsonTypeInfo<!0>)
 T:Squirix.Client.SquirixClient
 M:Squirix.Client.SquirixClient::ConnectAsync(System.Action<Squirix.Client.SquirixClientOptions>,System.Threading.CancellationToken)
+M:Squirix.Client.SquirixClient::ConnectAsync(System.Threading.CancellationToken)
 M:Squirix.Client.SquirixClient::ConnectAsync(System.Uri,System.Threading.CancellationToken)
+M:Squirix.Client.SquirixClient::ConnectFromSettingsAsync(System.Action<Squirix.Client.SquirixClientOptions>,System.Threading.CancellationToken)
 M:Squirix.Client.SquirixClient::DisposeAsync()
 M:Squirix.Client.SquirixClient::GetCacheAsync(System.String,System.Threading.CancellationToken)
 T:Squirix.Client.SquirixClientOptions

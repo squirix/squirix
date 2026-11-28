@@ -22,7 +22,7 @@ internal static class Program
 
     private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
     {
-        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
+        var json = await File.ReadAllTextAsync("appsettings.json", cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
         var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ?? ThrowMissingClusterUri();
         return new Uri(uri, UriKind.Absolute);
@@ -40,7 +40,7 @@ internal static class Program
             var server = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
             await using (server.ConfigureAwait(false))
             {
-                var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
+                var client = await SquirixClient.ConnectAsync(CancellationToken.None).ConfigureAwait(false);
                 await using var clientLifetime = client.ConfigureAwait(false);
                 await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
                 await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
@@ -163,7 +163,7 @@ internal static class Program
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static string ThrowMissingClusterUri() => throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+    private static string ThrowMissingClusterUri() => throw new InvalidOperationException("appsettings.json does not contain Squirix:Cluster:Uri.");
 
     private sealed class RejectPostingContext : SynchronizationContext
     {

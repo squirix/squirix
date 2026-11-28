@@ -169,9 +169,9 @@ See [bootstrap client failover](bootstrap-client-failover.md) and [configuration
 ## CLI reference
 
 ```bash
-squirix-server init [--settings Squirix.settings.json]
-squirix-server validate-config --settings Squirix.settings.json [--strict]
-squirix-server doctor [--settings Squirix.settings.json] [--cache-eviction memory] [--memory-accounting]
+squirix-server init [--settings appsettings.json]
+squirix-server validate-config --settings appsettings.json [--strict]
+squirix-server doctor [--settings appsettings.json] [--cache-eviction memory] [--memory-accounting]
 squirix-server version
 ```
 
@@ -181,11 +181,10 @@ validation on `validate-config`; it does not add that validation to `doctor` or 
 
 `run` supports `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, `--enable-replication`,
 `--metrics`, and `--memory-accounting`. Cache memory accounting is off by default. Enable it to track estimated cache bytes and enforce memory pressure limits.
-Run `validate-config --settings Squirix.settings.json --strict` before starting the server; passing `--strict` to
-`run` does not perform that validation. Without `--settings`, the host discovers `Squirix.settings.json` or
-`squirix.settings.json` in the working directory and application directory.
+Run `validate-config --settings appsettings.json --strict` before starting the server; passing `--strict` to
+`run` does not perform that validation. Without `--settings`, the host looks for `appsettings.json` in the working directory, then in the application directory.
 
-Use paths such as `Squirix.settings.json` or `config/node.json`; operator-supplied paths containing `.` or `..`
+Use paths such as `appsettings.json` or `config/node.json`; operator-supplied paths containing `.` or `..`
 segments are rejected. Relative paths are resolved against the process working directory.
 
 For settings outside the standard discovery locations, `--settings` selects the cluster and Prometheus export settings.

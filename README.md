@@ -124,7 +124,7 @@ See the [provider guide](docs/distributed-cache.md) and the [HybridCache sample]
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md) · [Client & server](docs/client-server.md) · [Configuration](docs/configuration.md)
+- [SDK and server appsettings.json](docs/configuration.md) · [Getting started](docs/getting-started.md) · [Client & server](docs/client-server.md)
 - [Persistence](docs/persistence.md) · [Clustering](docs/clustering.md) · [Observability](docs/observability.md)
 - [API](docs/api.md) · [Architecture](docs/architecture.md) · [Operations](docs/operations.md)
 - [Operational runbook](docs/operational-runbook.md) · [Security (internode mTLS)](docs/security/internode-mtls.md)

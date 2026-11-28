@@ -34,7 +34,7 @@ Readiness stays unhealthy until journal recovery completes (`journal_recovery` g
 affect readiness — see [observability](observability.md).
 
 Journal on-disk growth is bounded by `JournalMaxTotalBytesMb` (default 2048 MiB on host `PersistenceOptions`; not a
-`Squirix.settings.json` section in v0.1 public hosting). Oversize durable appends fail with `JOURNAL_DISK_QUOTA`
+`appsettings.json` section in v0.1 public hosting). Oversize durable appends fail with `JOURNAL_DISK_QUOTA`
 and `/health/ready/details` exposes `journalDisk` pressure. Quota pressure alone does not change readiness. See
 [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
 

@@ -21,6 +21,24 @@ public sealed class SquirixClient : ISquirixClient
         _remoteSession = remoteSession;
     }
 
+    /// <summary>Connects using the endpoints defined in the application's appsettings.json.</summary>
+    /// <param name="cancellationToken">Cancellation token for loading settings and client warm-up.</param>
+    /// <returns>A remote <see cref="ISquirixClient" /> session.</returns>
+    public static ValueTask<ISquirixClient> ConnectAsync(CancellationToken cancellationToken = default) =>
+        ConnectFromSettingsAsync(cancellationToken: cancellationToken);
+
+    /// <summary>Connects using appsettings.json with optional programmatic configuration.</summary>
+    /// <param name="configure">Applies overrides and sets runtime options such as the bearer token provider.</param>
+    /// <param name="cancellationToken">Cancellation token for loading settings and client warm-up.</param>
+    /// <returns>A remote <see cref="ISquirixClient" /> session.</returns>
+    public static async ValueTask<ISquirixClient> ConnectFromSettingsAsync(
+        Action<SquirixClientOptions>? configure = null, CancellationToken cancellationToken = default)
+    {
+        var options = await AppSettings.LoadAsync(cancellationToken).ConfigureAwait(false);
+        configure?.Invoke(options);
+        return await ConnectAsync(options, null, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Connects to a Squirix server endpoint.</summary>
     /// <param name="endpoint">The Squirix server endpoint URI.</param>
     /// <param name="cancellationToken">Cancellation token for client warm-up.</param>

@@ -99,7 +99,7 @@ internal sealed class ServerProcess : IAsyncDisposable
         }
 
         var uri = port.Uri;
-        var settingsPath = Path.Join(directory.FullName, "Squirix.settings.json");
+        var settingsPath = Path.Join(directory.FullName, "appsettings.json");
         var settings = $$$$"""{"Squirix":{"Cluster":{"ClusterId":"process-smoke","NodeId":"node-a","Uri":"{{{{uri}}}}","PersistenceEnabled":false,"Peers":[{"NodeId":"node-a","Uri":"{{{{uri}}}}"}]}}}""";
         ProcessPortReservation? management = null;
         Process? process = null;

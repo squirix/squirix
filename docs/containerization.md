@@ -11,9 +11,9 @@ Contents:
 - `docker/docker-compose.yml`: three-node RF=3 HA example (sources image)
 - `docker/docker-compose.release.yml`: three-node RF=3 example (release image, local package drop; secrets via `.env`)
 - `docker/.env.example`: template for release compose (copy to `.env` for local testing only)
-- `docker/node-a/Squirix.settings.json`
-- `docker/node-b/Squirix.settings.json`
-- `docker/node-c/Squirix.settings.json`
+- `docker/node-a/appsettings.json`
+- `docker/node-b/appsettings.json`
+- `docker/node-c/appsettings.json`
 
 ## Build (from sources)
 
@@ -116,7 +116,7 @@ Endpoints (three-node RF=3 `docker compose` example):
 - Node B HTTPS: `https://localhost:5002`
 - Node C HTTPS: `https://localhost:5003`
 - Management HTTPS on the host uses `https://localhost:5201`, `https://localhost:5202` and `https://localhost:5203` respectively.
-- The container binds client traffic on port **5000** from the mounted `Squirix.settings.json` and management traffic on **5002**.
+- The container binds client traffic on port **5000** from the mounted `appsettings.json` and management traffic on **5002**.
 
 Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squirix-node-a:5000`,
 `https://squirix-node-b:5000`, `https://squirix-node-c:5000`). Host applications use the **published** ports

@@ -51,16 +51,16 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
     [Test]
     public async Task ResolveFileAcceptsRelativeName()
     {
-        var full = FilePathValidator.ResolveValidatedFilePath("Squirix.settings.json");
+        var full = FilePathValidator.ResolveValidatedFilePath("appsettings.json");
         _ = await Assert.That(Path.IsPathRooted(full)).IsTrue();
-        _ = await Assert.That(full).EndsWith("Squirix.settings.json", StringComparison.OrdinalIgnoreCase);
+        _ = await Assert.That(full).EndsWith("appsettings.json", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Rejects parent-directory segments in operator paths.</summary>
     /// <param name="path">Path containing <c language="csharp">.</c> or <c language="csharp">..</c> segments.</param>
     [Test]
     [Arguments("..")]
-    [Arguments("../Squirix.settings.json")]
+    [Arguments("../appsettings.json")]
     [Arguments("foo/../bar.json")]
     [Arguments("foo/./bar.json")]
     public async Task ResolveFileRejectsDotSegments(string path)

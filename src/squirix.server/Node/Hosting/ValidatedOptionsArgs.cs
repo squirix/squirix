@@ -12,6 +12,8 @@ namespace Squirix.Server.Node.Hosting;
 [Immutable]
 internal sealed class ValidatedOptionsArgs
 {
+    internal string? SettingsFilePath { get; init; }
+
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
     internal required MtlsCertificate Certificate { get; init; }

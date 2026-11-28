@@ -35,4 +35,5 @@ current working directory.
 
 The standard `appsettings.json` and `appsettings.{Environment}.json` in the working directory override the packaged
 defaults at startup. Restart the standalone host to apply changes to these files. Environment variables have higher
-priority. Set `Logging__LogLevel__Default=Warning` to reduce application logs. Use `Squirix.settings.json` to configure the node.
+priority. Set `Logging__LogLevel__Default=Warning` to reduce application logs.
+Put node settings under `Squirix:Cluster` in the same `appsettings.json`. `squirix-server init` creates an example file.

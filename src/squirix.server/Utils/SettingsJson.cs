@@ -6,12 +6,12 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>Shared helpers for reading optional sections from <c language="csharp">Squirix.settings.json</c>.</summary>
+/// <summary>Shared helpers for reading optional sections from <c language="csharp">appsettings.json</c>.</summary>
 internal static class SettingsJson
 {
     private static readonly JsonDocumentOptions DocumentOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
 
-    internal static string? FindSettingsPath() => FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"]);
+    internal static string? FindSettingsPath() => FileEx.FindFile(["appsettings.json"]);
 
     internal static async Task<T> WithSquirixRootAsync<TState, T>(string settingsFilePath, TState state, Func<JsonElement, TState, T> action, CancellationToken cancellationToken)
     {

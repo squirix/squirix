@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
@@ -14,6 +15,20 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class ConnectTests
 {
+    /// <summary>Verifies client endpoint order and ignores settings for the server.</summary>
+    [Test]
+    public async Task SettingsReadClientEndpoints()
+    {
+        using var json = JsonDocument.Parse(
+            """{"Squirix":{"Cluster":{"Uri":"https://node:5001"},"Client":{"Endpoints":["https://first:5001","https://second:5001"]}}}""");
+
+        var options = AppSettings.Read(json.RootElement);
+
+        _ = await Assert.That(options.Endpoints.Count).IsEqualTo(2);
+        _ = await Assert.That(options.Endpoints[0].Host).IsEqualTo("first");
+        _ = await Assert.That(options.Endpoints[1].Host).IsEqualTo("second");
+    }
+
     /// <summary>Verifies explicit remote mode requires at least one endpoint.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
