@@ -151,6 +151,7 @@ internal static class FailoverSteps
     /// <param name="faultStarted">When the fault started, in <see cref="Stopwatch" /> ticks.</param>
     /// <param name="attempts">Receives one entry per attempt.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="retryPendingReplicaApply">Whether to retry a probe write refused while earlier entries are being applied.</param>
     /// <returns>The value read back, and the time from the start of the fault until it was read.</returns>
     internal static async Task<(CacheValueResult<long> Read, TimeSpan Elapsed)> RecoverAsync(
         ICache<long> cache,
@@ -158,11 +159,12 @@ internal static class FailoverSteps
         long value,
         long faultStarted,
         List<EventualAttempt> attempts,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool retryPendingReplicaApply = false)
     {
         // The bound leaves room past the recovery bound, so a slow recovery fails the bound assertion with its timeline, not this wait.
         var read = await Eventually.SucceedsAsync(
-            (Cache: cache, Key: key, Value: value),
+            (Cache: cache, Key: key, Value: value, RetryPendingReplicaApply: retryPendingReplicaApply),
             static async (s, token) =>
             {
                 try
@@ -172,6 +174,13 @@ internal static class FailoverSteps
                 catch (CommitOutcomeUnknownException exception)
                 {
                     throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, "The commit outcome of the probe write is unknown; writing it again is idempotent.", exception));
+                }
+                catch (SquirixTransportException exception) when (
+                    s.RetryPendingReplicaApply &&
+                    exception.StatusCode == CacheTransportStatusCode.ResourceExhausted &&
+                    string.Equals(exception.Message, "Server is overloaded (replica_apply_pending).", StringComparison.Ordinal))
+                {
+                    throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.Unavailable, exception.Message, exception));
                 }
 
                 return await s.Cache.GetValueAsync(s.Key, token);

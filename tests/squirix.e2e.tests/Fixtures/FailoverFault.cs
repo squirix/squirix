@@ -41,13 +41,15 @@ internal static class FailoverFault
     /// <see langword="null" /> stops the node gracefully.
     /// </param>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="retryPendingReplicaApply">Whether the probe can wait for pending replica apply after this fault.</param>
     /// <returns>What the fault recorded.</returns>
     internal static async Task<FaultRun> RunAsync(
         Scene scene,
         string[] clientNodes,
         string prefix,
         (string NodeId, string What, Func<HostedCluster, string, ValueTask>? Stop) fault,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool retryPendingReplicaApply = false)
     {
         var writer = await (await scene.Cluster.ConnectClientAsync(clientNodes[0], cancellationToken)).GetCacheAsync<long>(scene.CacheName, cancellationToken);
         var reader = await (await scene.Cluster.ConnectClientAsync(clientNodes[1], cancellationToken)).GetCacheAsync<long>(scene.CacheName, cancellationToken);
@@ -72,7 +74,7 @@ internal static class FailoverFault
 
             // The probe starts only once the node is down, so a stopped leader cannot acknowledge it in its own term.
             var attempts = new List<EventualAttempt>();
-            var (read, elapsed) = await FailoverSteps.RecoverAsync(writer, probeKey, 1L, started, attempts, cancellationToken);
+            var (read, elapsed) = await FailoverSteps.RecoverAsync(writer, probeKey, 1L, started, attempts, cancellationToken, retryPendingReplicaApply);
             var acked = ledger.Observe();
             var stoppedWhileAcked = !scene.Cluster.Cluster.TryGetNode(fault.NodeId, out _);
             scene.Timeline.Mark($"a write and a read through {clientNodes[0]} succeed under {acked.NodeId} in term {acked.Term}");
