@@ -98,7 +98,7 @@ await using var client = await SquirixClient.ConnectAsync(
     cancellationToken);
 ```
 
-Client authentication uses `BearerTokenProvider` once per new physical TLS transport when the server requires JWT authentication.
+Client authentication uses `BearerTokenProvider` once per new physical connection when the server requires JWT authentication.
 RPCs then use the connection identity without bearer metadata. See [cache connection authentication](security/connection-authentication.md)
 for credential refresh, transport compatibility and migration from per-RPC authentication.
 
@@ -174,7 +174,7 @@ standalone host and `SquirixServer.StartAsync()`.
 | -------------------------- | -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NodeId`                   | string   | loader fallback                        | Required, non-empty, maximum 128 characters; with `ReplicaCount` above 1 also at most 125 UTF-8 bytes (it names a replica group directory)                                            |
 | `ClusterId`                | string   | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                                                                           |
-| `Uri`                      | URI      | loader fallback                        | Absolute `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                                                                   |
+| `Uri`                      | URI      | loader fallback                        | Absolute `tcp` (with port) or `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                                              |
 | `VirtualNodes`             | int      | `128`                                  | `> 0` and `<= 16384`                                                                                                                                                                  |
 | `ReplicaCount`             | int      | `1`                                    | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
 | `ConfigurationGeneration`  | ulong    | `1`                                    | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                                    |
@@ -213,7 +213,8 @@ Example:
 }
 ```
 
-For local standalone hosts, `https://localhost:5001` is the default public TLS listen URL. In Docker Compose and other container
+For local standalone hosts, `tcp://localhost:5001` is the default public listen URL. Use `--tls` or an explicit `https://` origin to enable TLS.
+In Docker Compose and other container
 networks, set `Uri` and the local peer entry to the **service hostname** reachable by other nodes (for example
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Uri` must exactly match `Cluster.Uri`.
 
@@ -229,7 +230,7 @@ section in settings (mapped into the same options model).
 | -------------------------- | -------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ClusterId`                | string   | `cluster`                | Non-empty; validated with topology                                                                                                                                                    |
 | `NodeId`                   | string   | `node`                   | Non-empty; validated with topology                                                                                                                                                    |
-| `Uri`                      | `Uri`    | `https://localhost:5001` | Absolute HTTPS URI                                                                                                                                                                    |
+| `Uri`                      | `Uri`    | `tcp://localhost:5001`   | Absolute TCP or HTTPS URI                                                                                                                                                             |
 | `Peers`                    | peers    | empty (local added)      | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules                                                                                                                            |
 | `VirtualNodes`             | int      | `128`                    | `1..16384`                                                                                                                                                                            |
 | `ReplicaCount`             | int      | `1`                      | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
@@ -724,7 +725,7 @@ the same auth pipeline used by in-process overrides. Docker images set
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SQUIRIX_TLS_CERTIFICATE_PATH`                       | PFX certificate for the client, management, and optional [RESP](resp.md) TLS listeners.                                                                                                                            |
 | `SQUIRIX_TLS_CERTIFICATE_PASSWORD`                   | Optional PFX password.                                                                                                                                                                                             |
-| `SQUIRIX_MANAGEMENT_URI`                             | HTTPS management origin. Defaults to loopback with a certificate-matching host where available. See [listener defaults](server-mode.md).                                                                           |
+| `SQUIRIX_MANAGEMENT_URI`                             | Explicit HTTPS management origin. The default uses loopback HTTP for TCP and HTTPS for TLS. See [listener defaults](server-mode.md).                                                                               |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                                          |
 | `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value. Required whenever JWT authentication is enabled.                                                                                                                                    |
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
@@ -768,7 +769,7 @@ JWT authentication is enabled by `SQUIRIX_JWT_AUTHORITY` or a valid `SQUIRIX_JWT
 Setting only `SQUIRIX_JWT_AUDIENCE` does not protect cache routes on a loopback listener. Symmetric mode also requires
 an issuer and audience; authority mode requires an audience. Token lifetime validation allows two minutes of clock skew.
 
-- Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
+- Operational routes (`/health`, `/metrics`) are served on the separate management listener.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
   internode mTLS is required at startup. Peer binary traffic uses the dedicated internal TLS listener
   (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Each node certificate CN must match

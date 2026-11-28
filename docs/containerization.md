@@ -37,15 +37,14 @@ docker build -f docker/Dockerfile.release -t squirix-server:release .
 ```
 
 Verify a not-yet-published tool package locally. Packing from source requires the SDK selected by
-[`global.json`](../global.json). The version below matches the current `SquirixPackageVersion`; if you change that
-property, update the build argument to the same version:
+[`global.json`](../global.json). Read the package version from the project and pass it to Docker:
 
 ```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -p:SquirixPackAllFrameworks=true -o docker/nuget-packages
 docker build -f docker/Dockerfile.release -t squirix-server:local \
   --build-arg LOCAL_PACKAGES=true \
-  --build-arg SQUIRIX_VERSION=0.2.0-preview.1 .
+  --build-arg SQUIRIX_VERSION="$(dotnet msbuild src/squirix.server.host/Squirix.Server.Host.csproj -getProperty:SquirixPackageVersion)" .
 ```
 
 Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). Its build arguments pin

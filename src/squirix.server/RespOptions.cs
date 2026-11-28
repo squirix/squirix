@@ -4,7 +4,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server;
 
-/// <summary>Configures the RESP endpoint over TLS.</summary>
+/// <summary>Configures the RESP endpoint.</summary>
 [Immutable]
 public sealed class RespOptions
 {
@@ -25,14 +25,13 @@ public sealed class RespOptions
     /// <summary>Gets the TCP port to bind. The default is 6379. Use zero to allocate a port.</summary>
     public int Port { get; init; } = DefaultPort;
 
-    internal Uri? ToListenUri()
+    internal Uri? ToListenUri(Uri primary)
     {
         if (!Enabled)
             return null;
         var error = Validate();
-        return error == null
-            ? new UriBuilder("rediss", BindAddress, Port).Uri
-            : throw new InvalidOperationException(error);
+        var scheme = string.Equals(primary.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) ? "rediss" : "redis";
+        return error == null ? new UriBuilder(scheme, BindAddress, Port).Uri : throw new InvalidOperationException(error);
     }
 
     internal string? Validate()

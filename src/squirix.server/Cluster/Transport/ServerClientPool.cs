@@ -350,7 +350,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
             const string message = "Cluster peer URI is invalid.";
             var primaryUri = peer.Uri;
-            return peer.Uri.IsAbsoluteUri ? new UriBuilder(primaryUri.Scheme, primaryUri.Host, options.InternalListenPort).Uri : throw new InvalidOperationException(message);
+            return peer.Uri.IsAbsoluteUri ? new UriBuilder(Uri.UriSchemeHttps, primaryUri.Host, options.InternalListenPort).Uri : throw new InvalidOperationException(message);
         }
     }
 }

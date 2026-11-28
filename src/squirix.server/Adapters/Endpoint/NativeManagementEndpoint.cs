@@ -17,7 +17,7 @@ using Squirix.Server.Runtime.Diagnostics;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
-/// <summary>Serves health and metrics requests on the dedicated HTTPS management listener.</summary>
+/// <summary>Serves health and metrics requests on the dedicated management listener.</summary>
 internal sealed class NativeManagementEndpoint
 {
     internal static readonly FrozenSet<string> Probes = new[] { "/health", "/health/live", "/health/ready", "/health/ready/details" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);

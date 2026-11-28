@@ -5,7 +5,7 @@ NuGet global tool package for the **`squirix-server`** CLI (standalone process h
 For the .NET 10 build on Linux and macOS, use .NET Runtime 10.0.15 or a later .NET 10 patch.
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
+dotnet tool install --global squirix.server.tool --prerelease
 squirix-server run
 squirix-server run --persist --data-dir data
 ```
@@ -27,6 +27,9 @@ Docker images: see [containerization](../../docs/containerization.md) (`docker/D
 Run `squirix-server help` for operational commands and flags.
 
 ## Logging
+
+The host starts the binary and RESP listeners over plain TCP by default. Use `squirix-server run --tls` to encrypt both listeners.
+Connect the SDK with `tcp://host:port` for TCP or `https://host:port` for TLS.
 
 The host ships `appsettings.defaults.json` next to its executable and loads it as the lowest-priority configuration.
 The default level is `Information`.

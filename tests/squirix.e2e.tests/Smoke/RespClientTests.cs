@@ -18,18 +18,21 @@ namespace Squirix.E2ETests.Smoke;
 [Property("Suite", "Smoke")]
 public sealed class RespClientTests
 {
-    /// <summary>Connects with TLS and a JWT, then exercises single-key operations over the requested protocol.</summary>
+    /// <summary>Connects with a JWT, then exercises single-key operations over the requested protocol.</summary>
     /// <param name="protocol">The protocol the client requests during connection setup.</param>
+    /// <param name="tls">Whether to enable TLS with the server flag.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(RedisProtocol.Resp2)]
-    [Arguments(RedisProtocol.Resp3)]
+    [Arguments(RedisProtocol.Resp2, false)]
+    [Arguments(RedisProtocol.Resp3, false)]
+    [Arguments(RedisProtocol.Resp2, true)]
+    [Arguments(RedisProtocol.Resp3, true)]
     [Timeout(60_000)]
-    public async Task StackExchangeRedisUsesRespOverTls(RedisProtocol protocol, CancellationToken cancellationToken)
+    public async Task RedisAndSdkShareValuesAcrossTransports(RedisProtocol protocol, bool tls, CancellationToken cancellationToken)
     {
         using var port = ProcessPortReservation.Reserve();
-        await using var server = await StartRespAsync(port, cancellationToken);
-        await using var connection = await ConnectAsync(server, port, protocol, cancellationToken);
+        await using var server = await StartRespAsync(port, cancellationToken, tls: tls);
+        await using var connection = await ConnectAsync(server, port, protocol, cancellationToken, tls);
         var endpoint = connection.GetServer(IPAddress.Loopback, port.Uri.Port);
         _ = await Assert.That(endpoint.Protocol).IsEqualTo(protocol);
         var database = connection.GetDatabase(0);
@@ -43,7 +46,7 @@ public sealed class RespClientTests
         _ = await Assert.That(await database.StringSetAsync(key, "other", expiry, When.NotExists)).IsFalse();
         _ = await Assert.That(await database.KeyExistsAsync(key)).IsTrue();
         _ = await Assert.That(await database.StringGetAsync(key)).IsEqualTo(value);
-        await VerifySdkReadAsync(server, key, binary, cancellationToken);
+        await VerifySdkReadAsync(server, tls, key, binary, cancellationToken);
         var ttl = await database.KeyTimeToLiveAsync(key);
         _ = await Assert.That(ttl > TimeSpan.Zero && ttl <= expiry).IsTrue();
 
@@ -94,7 +97,7 @@ public sealed class RespClientTests
         }
     }
 
-    private static Task<ServerProcess> StartRespAsync(ProcessPortReservation port, CancellationToken cancellationToken, string? dataDir = null) =>
+    private static Task<ServerProcess> StartRespAsync(ProcessPortReservation port, CancellationToken cancellationToken, string? dataDir = null, bool tls = true) =>
         ServerProcess.StartAsync(
             true,
             cancellationToken,
@@ -102,6 +105,11 @@ public sealed class RespClientTests
             {
                 var path = start.ArgumentList[start.ArgumentList.IndexOf("--settings") + 1];
                 var settings = JsonNode.Parse(await File.ReadAllTextAsync(path, token))!;
+                var primary = new Uri(settings["Squirix"]!["Cluster"]!["Uri"]!.GetValue<string>());
+                start.ArgumentList.Add("--urls");
+                start.ArgumentList.Add(new UriBuilder(primary) { Scheme = "tcp" }.Uri.AbsoluteUri);
+                if (tls)
+                    start.ArgumentList.Add("--tls");
                 settings["Squirix"]!["Resp"] = new JsonObject
                 {
                     ["Port"] = -1,
@@ -122,27 +130,27 @@ public sealed class RespClientTests
                 port.ReleaseForStart();
             });
 
-    private static Task<ConnectionMultiplexer> ConnectAsync(ServerProcess server, ProcessPortReservation port, RedisProtocol protocol, CancellationToken cancellationToken)
+    private static Task<ConnectionMultiplexer> ConnectAsync(ServerProcess server, ProcessPortReservation port, RedisProtocol protocol, CancellationToken cancellationToken, bool tls = true)
     {
         var options = new ConfigurationOptions
         {
             EndPoints = { { IPAddress.Loopback, port.Uri.Port } },
             AbortOnConnectFail = true,
             Protocol = protocol,
-            Ssl = true,
-            SslHost = server.Uri.Host,
+            Ssl = tls,
+            SslHost = tls ? server.Uri.Host : null,
             User = "default",
             Password = server.BearerToken,
         };
         return ConnectionMultiplexer.ConnectAsync(options).WaitAsync(cancellationToken);
     }
 
-    private static async Task VerifySdkReadAsync(ServerProcess server, string key, byte[] expected, CancellationToken cancellationToken)
+    private static async Task VerifySdkReadAsync(ServerProcess server, bool tls, string key, byte[] expected, CancellationToken cancellationToken)
     {
         await using var client = await SquirixClient.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(server.Uri);
+                options.Endpoints.Add(tls ? server.Uri : new UriBuilder(server.Uri) { Scheme = "tcp" }.Uri);
                 options.BearerTokenProvider = _ => ValueTask.FromResult(server.BearerToken!);
             },
             cancellationToken);

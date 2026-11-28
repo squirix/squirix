@@ -363,8 +363,8 @@ internal static class ServerHostingComposition
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(TopologyOptions cluster, CompositionArgs args, bool persistenceEnabled)
     {
         var uri = cluster.Uri;
-        if (!uri.IsAbsoluteUri || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext HTTP is not supported.");
+        if (!uri.IsAbsoluteUri || uri.Scheme is not ("https" or "tcp"))
+            throw new InvalidOperationException("Squirix transport requires a TCP or HTTPS endpoint.");
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
 

@@ -171,7 +171,7 @@ internal sealed class ClientPool : IClientPool
         for (var i = 0; i < peers.Length; i++)
         {
             var peer = peers[i];
-            BinaryCacheClient.RequireHttps(peer.Uri);
+            BinaryCacheClient.ValidateEndpoint(peer.Uri);
             var policy = policyFactory.Invoke(peer.NodeId);
 #pragma warning disable CA2000 // The pool owns clients published in its per-peer registry and disposes all of them.
             _clients[peer.NodeId] = new NodeClient(new BinaryCacheClient(peer.Uri, bearerTokenProvider, tlsOptions), policy);

@@ -31,7 +31,7 @@ With the local HTTPS server running, create a .NET 10 console app and add the cl
 
 ```bash
 dotnet new console --framework net10.0 -o TypedCacheDemo
-dotnet add TypedCacheDemo/TypedCacheDemo.csproj package squirix --version 0.2.0-preview.1
+dotnet add TypedCacheDemo/TypedCacheDemo.csproj package squirix --prerelease
 ```
 
 Replace `TypedCacheDemo/Program.cs` with:

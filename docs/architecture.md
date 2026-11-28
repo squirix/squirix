@@ -57,7 +57,7 @@ standalone process lifecycle.
 `Squirix` owns cache value/result types (`ICache<T>`, entry/result types, `ISquirixSerializer`). The exported v0.1 client
 entry surface lives in `Squirix.Client` (`SquirixClient`, `ISquirixClient`, `SquirixClientOptions`), typed facade,
 serializer boundary, and server-backed client connection configuration with bootstrap failover. Applications connect to
-`Squirix.Server` over binary TLS for cache calls and HTTPS for health and metrics; the client package does not host cache state or run the
+`Squirix.Server` over TCP with optional TLS for cache calls and HTTP or HTTPS for health and metrics; the client package does not host cache state or run the
 durability stack in the application process.
 
 v0.1 `ICache<T>` is limited to basic async key/value and expiration operations (`AddAsync`, `TryAddAsync`, `SetAsync`,

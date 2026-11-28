@@ -9,7 +9,7 @@ Evaluate it before production use.**
 If your HybridCache app uses Redis or Garnet through `AddStackExchangeRedisCache`, install the Squirix provider:
 
 ```shell
-dotnet add package squirix.extensions.caching --version 0.2.0-preview.1
+dotnet add package squirix.extensions.caching --prerelease
 ```
 
 Replace the `AddStackExchangeRedisCache(...)` registration with `AddSquirixCache`. Keep the existing `AddHybridCache()` registration.
@@ -22,12 +22,12 @@ builder.Services.AddSquirixCache(options =>
 builder.Services.AddHybridCache();
 ```
 
-Use the HTTPS URL of your Squirix server. Existing `GetOrCreateAsync` calls stay the same.
+Use the endpoint printed by the server: `tcp://` for plain TCP or `https://` for TLS. Existing `GetOrCreateAsync` calls stay the same.
 
 Use a dedicated Squirix deployment per application to keep keys isolated.
 Switch all instances of the app together. Redis or Garnet and Squirix do not share cached entries or tag invalidations.
 
-Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.BearerTokenProvider` when the server requires a token.
+Use endpoints for the same logical Squirix service. Set `ClientOptions.BearerTokenProvider` when the server requires a token.
 `AddSquirixCache` replaces existing unkeyed `IDistributedCache` registrations. It registers one singleton that connects on first use and shuts down with the service provider.
 
 ## Expiration and errors

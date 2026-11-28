@@ -122,8 +122,8 @@ public sealed class SquirixServerOptions
     /// </summary>
     public bool ReplicationEnabled { get; set; }
 
-    /// <summary>Gets or sets the TLS origin used by binary cache clients.</summary>
-    public Uri Uri { get; set; } = new("https://localhost:5001");
+    /// <summary>Gets or sets the binary cache endpoint. Use tcp for plain TCP or https for TLS.</summary>
+    public Uri Uri { get; set; } = new("tcp://localhost:5001");
 
     /// <summary>Gets or sets the number of consistent-hash virtual nodes.</summary>
     public int VirtualNodes { get; set; } = 128;

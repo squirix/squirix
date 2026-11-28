@@ -10,7 +10,7 @@ namespace Squirix.Client;
 public sealed class SquirixClientOptions
 {
     /// <summary>
-    /// Gets or sets a delegate that authenticates each new physical TLS connection.
+    /// Gets or sets a delegate that authenticates each new physical cache connection.
     /// Called again when a transport reconnects or credentials expire, never for each RPC on an accepted connection.
     /// Implementations should return a current token and support concurrent invocation for independent connections.
     /// </summary>

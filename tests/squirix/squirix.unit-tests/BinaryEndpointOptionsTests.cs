@@ -12,16 +12,17 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class BinaryEndpointOptionsTests
 {
-    /// <summary>Requires an absolute URI and TLS at every SDK bootstrap endpoint.</summary>
+    /// <summary>Requires an absolute TCP or HTTPS address at every SDK bootstrap endpoint.</summary>
     /// <param name="address">The endpoint address.</param>
     [Test]
     [Arguments("http://localhost:7443")]
     [Arguments("relative")]
-    public async Task RefusesEndpointsWithoutAbsoluteTls(string address)
+    [Arguments("tcp://localhost")]
+    public async Task RejectsInvalidEndpoint(string address)
     {
         var error = TestKit.ExceptionAssert.For<ArgumentException>().Throws(
             new Uri(address, UriKind.RelativeOrAbsolute),
-            BinaryCacheClient.RequireHttps);
+            BinaryCacheClient.ValidateEndpoint);
 
         _ = await Assert.That(error.ParamName).IsEqualTo("uri");
     }

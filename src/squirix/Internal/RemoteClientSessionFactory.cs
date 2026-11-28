@@ -124,7 +124,7 @@ internal static class RemoteClientSessionFactory
     private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, string paramName, ref int count)
     {
         var validated = RequireAbsoluteEndpoint(endpoint, paramName);
-        BinaryCacheClient.RequireHttps(validated);
+        BinaryCacheClient.ValidateEndpoint(validated);
         if (!seen.Add(validated.GetLeftPart(UriPartial.Authority)))
             return false;
 

@@ -11,22 +11,21 @@ using Squirix.Server.Logging;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
-/// <summary>Accepts bounded TLS sessions and waits for admitted work before releasing the listener.</summary>
+/// <summary>Accepts bounded TCP and TLS sessions and waits for admitted work before releasing the listener.</summary>
 internal sealed class NativeTlsListener
 {
     private readonly int _capacity;
     private readonly Socket _listener;
     private readonly IServerLogger _log;
-    private readonly Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> _serve;
-    private readonly Func<EndPoint, SslServerAuthenticationOptions> _tls;
+    private readonly Func<Stream, IPEndPoint, CancellationToken, CancellationToken, Task> _serve;
 
     internal NativeTlsListener(
         Socket listener,
-        SslServerAuthenticationOptions tls,
-        Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
+        SslServerAuthenticationOptions? tls,
+        Func<Stream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
         IServerLogger log,
         int capacity)
-        : this(listener, _ => tls, serve, log, capacity)
+        : this(listener, log, capacity, tls == null ? serve : (network, remote, graceful, abort) => ServeTlsAsync(network, remote, tls, serve, graceful, abort))
     {
     }
 
@@ -36,10 +35,14 @@ internal sealed class NativeTlsListener
         Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
         IServerLogger log,
         int capacity)
+        : this(listener, log, capacity, (network, remote, graceful, abort) => ServeTlsAsync(network, remote, tls(remote), serve, graceful, abort))
+    {
+    }
+
+    private NativeTlsListener(Socket listener, IServerLogger log, int capacity, Func<Stream, IPEndPoint, CancellationToken, CancellationToken, Task> serve)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
         _listener = listener;
-        _tls = tls;
         _serve = serve;
         _log = log;
         _capacity = capacity;
@@ -103,6 +106,25 @@ internal sealed class NativeTlsListener
             Events.LogSessionFailureEvent.Write(logger, ServerLogLevel.Error, exception, ValueTuple.Create());
     }
 
+    private static async Task ServeTlsAsync(
+        Stream network,
+        IPEndPoint remote,
+        SslServerAuthenticationOptions options,
+        Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve,
+        CancellationToken graceful,
+        CancellationToken abort)
+    {
+        var tls = new SslStream(network, true);
+        await using var tlsLifetime = tls.ConfigureAwait(false);
+        using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(graceful, abort))
+        {
+            handshake.CancelAfter(TimeSpan.FromSeconds(5));
+            await tls.AuthenticateAsServerAsync(options, handshake.Token).ConfigureAwait(false);
+        }
+
+        await serve(tls, remote, graceful, abort).ConfigureAwait(false);
+    }
+
     private async Task ServeAsync(Socket socket, ChannelWriter<int> slots, int slot, CancellationToken graceful, CancellationToken abort)
     {
         try
@@ -113,16 +135,8 @@ internal sealed class NativeTlsListener
                 return;
             var network = new NetworkStream(socket, false);
             await using var networkLifetime = network.ConfigureAwait(false);
-            var tls = new SslStream(network, true);
-            await using var tlsLifetime = tls.ConfigureAwait(false);
             await using var interrupt = abort.UnsafeRegister(static state => (state as Socket)?.Dispose(), socket).ConfigureAwait(false);
-            using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(graceful, abort))
-            {
-                handshake.CancelAfter(TimeSpan.FromSeconds(5));
-                await tls.AuthenticateAsServerAsync(_tls(remote), handshake.Token).ConfigureAwait(false);
-            }
-
-            await _serve(tls, remote, graceful, abort).ConfigureAwait(false);
+            await _serve(network, remote, graceful, abort).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or SocketException or AuthenticationException or OperationCanceledException || (abort.IsCancellationRequested && exception is ObjectDisposedException))
         {
@@ -142,8 +156,8 @@ internal sealed class NativeTlsListener
 
     private static class Events
     {
-        internal static readonly LogEvent LogConnectionFailureEvent = new(3033, nameof(LogConnectionFailure), "TLS connection ended before completing its session");
+        internal static readonly LogEvent LogConnectionFailureEvent = new(3033, nameof(LogConnectionFailure), "Connection ended before completing its session");
 
-        internal static readonly LogEvent LogSessionFailureEvent = new(3034, nameof(LogSessionFailure), "TLS session handler failed");
+        internal static readonly LogEvent LogSessionFailureEvent = new(3034, nameof(LogSessionFailure), "Session handler failed");
     }
 }

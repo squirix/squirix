@@ -33,17 +33,17 @@ public sealed class InvariantDigitStringsTests : ServerUnitTestBase
         _ = await Assert.That(InvariantDigitStrings.Format(value)).IsEqualTo(value.ToString("G17", CultureInfo.InvariantCulture));
     }
 
-    /// <summary>HTTPS origin formatting builds a single absolute URL string.</summary>
+    /// <summary>TCP origin formatting builds a single absolute URL string.</summary>
     [Test]
-    public async Task FormatHttpsOriginBuildsAbsoluteUrl()
+    public async Task FormatTcpOriginBuildsAbsoluteUrl()
     {
-        _ = await Assert.That(InvariantDigitStrings.FormatHttpsOrigin("localhost", 5001)).IsEqualTo("https://localhost:5001");
-        _ = await Assert.That(InvariantDigitStrings.FormatHttpsOrigin("127.0.0.1", 0)).IsEqualTo("https://127.0.0.1:0");
-        _ = await Assert.That(InvariantDigitStrings.FormatHttpsOrigin("host", -1)).IsEqualTo("https://host:-1");
-        _ = await Assert.That(InvariantDigitStrings.FormatHttpsOrigin("::1", 443)).IsEqualTo("https://[::1]:443");
-        _ = await Assert.That(InvariantDigitStrings.FormatHttpsOrigin("2001:db8::1", 8443)).IsEqualTo("https://[2001:db8::1]:8443");
-        _ = await Assert.That(new Uri(InvariantDigitStrings.FormatHttpsOrigin("::1", 443)).AbsoluteUri).IsEqualTo(new Uri("https://[::1]:443").AbsoluteUri);
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(default(string?), static host => _ = InvariantDigitStrings.FormatHttpsOrigin(host!, 80));
+        _ = await Assert.That(InvariantDigitStrings.FormatTcpOrigin("localhost", 5001)).IsEqualTo("tcp://localhost:5001");
+        _ = await Assert.That(InvariantDigitStrings.FormatTcpOrigin("127.0.0.1", 0)).IsEqualTo("tcp://127.0.0.1:0");
+        _ = await Assert.That(InvariantDigitStrings.FormatTcpOrigin("host", -1)).IsEqualTo("tcp://host:-1");
+        _ = await Assert.That(InvariantDigitStrings.FormatTcpOrigin("::1", 443)).IsEqualTo("tcp://[::1]:443");
+        _ = await Assert.That(InvariantDigitStrings.FormatTcpOrigin("2001:db8::1", 8443)).IsEqualTo("tcp://[2001:db8::1]:8443");
+        _ = await Assert.That(new Uri(InvariantDigitStrings.FormatTcpOrigin("::1", 443)).AbsoluteUri).IsEqualTo(new Uri("tcp://[::1]:443").AbsoluteUri);
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(default(string?), static host => _ = InvariantDigitStrings.FormatTcpOrigin(host!, 80));
     }
 
     /// <summary>Cached non-negative ints and longs reuse interned strings; out-of-range values format normally.</summary>

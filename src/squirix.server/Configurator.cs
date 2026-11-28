@@ -421,7 +421,7 @@ public static class Configurator
         {
             listener.Start();
             return listener.LocalEndpoint is IPEndPoint endpoint
-                ? new SquirixServerOptions { Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", endpoint.Port)) }
+                ? new SquirixServerOptions { Uri = new Uri(InvariantDigitStrings.FormatTcpOrigin("localhost", endpoint.Port)) }
                 : throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
         }
         finally

@@ -22,7 +22,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     private const string ConnectionClosedMessage = "The binary cache connection closed.";
 
     private readonly TcpClient _socket;
-    private readonly SslStream _tls;
+    private readonly Stream _stream;
     private readonly SemaphoreSlim _slots = new(128);
     private readonly BlockingCollection<Request> _outgoing = new(new ConcurrentQueue<Request>(), 128);
     private readonly ConcurrentDictionary<int, Pending> _pending = [];
@@ -34,10 +34,10 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     private int _closed;
     private int _users = 3;
 
-    private SynchronousBinaryConnection(TcpClient socket, SslStream tls, bool supportsMutationReplay, bool supportsExtendedFrames)
+    private SynchronousBinaryConnection(TcpClient socket, Stream stream, bool supportsMutationReplay, bool supportsExtendedFrames)
     {
         _socket = socket;
-        _tls = tls;
+        _stream = stream;
         _supportsMutationReplay = supportsMutationReplay;
         _supportsExtendedFrames = supportsExtendedFrames;
     }
@@ -241,7 +241,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
     {
         while (IsAvailable)
         {
-            var read = _tls.Read(buffer);
+            var read = _stream.Read(buffer);
             if (read == 0)
                 break;
 
@@ -271,7 +271,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         else
         {
             ReadyReply.Publish(ready, ref count);
-            result = BinaryClientProtocol.ReadBlockingReply(_tls, pending?.Parser, status, size, buffer, bytes);
+            result = BinaryClientProtocol.ReadBlockingReply(_stream, pending?.Parser, status, size, buffer, bytes);
             bytes = default;
         }
 
@@ -295,7 +295,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         var available = bytes.Length;
         bytes.CopyTo(buffer);
         bytes = default;
-        _tls.ReadExactly(buffer.AsSpan(available, size - available));
+        _stream.ReadExactly(buffer.AsSpan(available, size - available));
         return buffer.AsSpan(0, size);
     }
 
@@ -334,7 +334,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         if (Interlocked.Decrement(ref _users) != 0)
             return;
 
-        _tls.Dispose();
+        _stream.Dispose();
         _slots.Dispose();
         _outgoing.Dispose();
     }
@@ -361,7 +361,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         var header = request.Frame.WriteTo(message, request.Id);
         WriteTimeout(header.Span, request.Deadline, TimeProvider.System.GetUtcNow());
         foreach (var chunk in message.Chunks())
-            _tls.Write(chunk.Span);
+            _stream.Write(chunk.Span);
     }
 
     private void FlushBatch(Span<byte> bytes, ReadOnlySpan<BufferedFrame> frames)
@@ -374,7 +374,7 @@ internal sealed class SynchronousBinaryConnection : IDisposable
         foreach (ref readonly var frame in frames)
             WriteTimeout(bytes[frame.Offset..], frame.Deadline, now);
 
-        _tls.Write(bytes);
+        _stream.Write(bytes);
     }
 
     [Immutable]

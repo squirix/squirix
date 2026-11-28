@@ -18,12 +18,12 @@ using Squirix.Server;
 var options = new SquirixServerOptions
 {
     NodeId = "node-a",
-    Uri = new Uri("https://localhost:5001"),
+    Uri = new Uri("tcp://localhost:5001"),
 };
 await using var server = await SquirixServer.StartAsync(options);
 ```
 
-The standalone tool and embedded node share the same runtime. Clients connect over binary TLS, and health and
+The standalone tool and embedded node share the same runtime. Clients connect over TCP with optional TLS, and health and
 metrics are available through the management listener. See [server mode](../../docs/server-mode.md) for a
 complete client/server example and [configuration](../../docs/configuration.md) for certificates and ports.
 

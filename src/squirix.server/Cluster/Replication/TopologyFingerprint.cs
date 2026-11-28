@@ -200,7 +200,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         _ when !interNodeEnabled => peer.Uri,
         _ when peer.InterNodeUri is { } configured => configured,
         _ when mtlsOptions.InternalListenPort <= 0 => peer.Uri,
-        _ => new UriBuilder(peer.Uri.Scheme, peer.Uri.Host, mtlsOptions.InternalListenPort).Uri,
+        _ => new UriBuilder(Uri.UriSchemeHttps, peer.Uri.Host, mtlsOptions.InternalListenPort).Uri,
     };
 
     private static FingerprintPeer[] SortPeers(IReadOnlyList<FingerprintPeer> peers)

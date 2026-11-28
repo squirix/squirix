@@ -22,9 +22,9 @@ internal static class Program
         private const string DoctorReplicaMismatch =
             "Durable replica state in the data directory does not match the configured topology; see the MISMATCH, UNREADABLE, or MISSING lines above.";
 
-        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--metrics] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" +
+        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--tls] [--persist] [--enable-replication] [--metrics] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
-                                        "  doctor [--strict] [--persist] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
+                                        "  doctor [--strict] [--tls] [--persist] [--memory-accounting] [--urls URL] [--data-dir PATH] [--settings PATH] [--cache-eviction disabled|keyCount|memory] [--max-keys COUNT]\n" + "  version\n" + "  help\n";
 
         internal static async Task<int> RunAsync(string[] args)
         {
@@ -237,6 +237,8 @@ internal static class Program
         {
             private string? EvictionMode { get; init; }
 
+            private bool Tls { get; init; }
+
             private int? MaxKeys { get; init; }
 
             private bool MemoryAccountingEnabled { get; init; }
@@ -255,7 +257,10 @@ internal static class Program
                     options.MemoryAccountingEnabled = true;
 
                 Configurator.ApplyCacheEvictionOverrides(options, EvictionMode, MaxKeys);
-                Configurator.ApplyCommandLineOverrides(options, Uri, DataDirectory, Persist, EnableReplication);
+                var endpoint = Uri ?? options.Uri;
+                if (Tls && string.Equals(endpoint.Scheme, "tcp", StringComparison.Ordinal))
+                    endpoint = new UriBuilder(endpoint) { Scheme = System.Uri.UriSchemeHttps }.Uri;
+                Configurator.ApplyCommandLineOverrides(options, endpoint, DataDirectory, Persist, EnableReplication);
             }
 
             private static SquirixServerCommand ApplyFlags(string[] args, int start, string name)
@@ -267,11 +272,14 @@ internal static class Program
                         return HelpCommand();
                 }
 
+                if (state.Tls && name is not ("run" or "doctor"))
+                    throw new InvalidOperationException("--tls applies only to run and doctor.");
                 if (state.MemoryAccountingEnabled && name is not ("run" or "doctor"))
                     throw new InvalidOperationException("--memory-accounting applies only to run and doctor.");
 
                 var command = new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.EnableMetrics, state.SettingsPath)
                 {
+                    Tls = state.Tls,
                     EvictionMode = state.EvictionMode,
                     MaxKeys = state.MaxKeys,
                     MemoryAccountingEnabled = state.MemoryAccountingEnabled,
@@ -310,6 +318,9 @@ internal static class Program
             {
                 switch (flag)
                 {
+                    case "--tls":
+                        state.Tls = true;
+                        return true;
                     case "--strict":
                         state.SetStrict();
                         return true;
@@ -393,6 +404,8 @@ internal static class Program
                 internal bool Persist { get; private set; }
 
                 internal string? SettingsPath { get; private set; }
+
+                internal bool Tls { get; set; }
 
                 internal bool Strict { get; private set; }
 

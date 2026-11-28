@@ -16,7 +16,7 @@ internal static class NodeHost
     {
         var services = TestNodeBuilder.CreateServices(options.ConsoleLogging);
 
-        var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
+        var configureArgs = new CompositionArgsConfigurator(options, cluster);
         await TestNodeServices.ConfigureBuilderAsync(services, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
         configureArgs.ConfigureServices(services);
@@ -35,18 +35,18 @@ internal static class NodeHost
     [Immutable]
     private sealed class CompositionArgsConfigurator
     {
-        private readonly string _nodeId;
+        private readonly TopologyOptions _cluster;
         private readonly NodeHostStartOptions _options;
 
-        internal CompositionArgsConfigurator(NodeHostStartOptions options, string nodeId)
+        internal CompositionArgsConfigurator(NodeHostStartOptions options, TopologyOptions cluster)
         {
             _options = options;
-            _nodeId = nodeId;
+            _cluster = cluster;
         }
 
         internal void Configure(CompositionArgs args)
         {
-            args.RespUri = _options.Resp?.ToListenUri();
+            args.RespUri = _options.Resp?.ToListenUri(_cluster.Uri);
             args.ManagementUri = _options.ManagementUri ?? new Uri("https://127.0.0.1:0");
             args.ServerCertificate = _options.ServerCertificate ?? DevelopmentCertificate.Shared;
             args.WaitForRecovery = _options.WaitForRecovery;
@@ -67,7 +67,7 @@ internal static class NodeHost
             args.FoundationOnly = _options.FoundationOnly;
         }
 
-        internal void ConfigureServices(TestServiceCollection services) => ComposeServices(_options, _nodeId)?.Invoke(services);
+        internal void ConfigureServices(TestServiceCollection services) => ComposeServices(_options, _cluster.NodeId)?.Invoke(services);
 
         private static Action<TestServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
         {

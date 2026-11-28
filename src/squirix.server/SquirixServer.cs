@@ -23,10 +23,10 @@ public sealed class SquirixServer : IAsyncDisposable
         _handle = handle;
     }
 
-    /// <summary>Gets the bound HTTPS address of the management listener.</summary>
+    /// <summary>Gets the bound HTTP or HTTPS address of the management listener.</summary>
     public Uri ManagementUri => _handle.ManagementUri;
 
-    /// <summary>Gets the bound TLS RESP address, or <see langword="null" /> when the listener is disabled.</summary>
+    /// <summary>Gets the bound RESP address, or <see langword="null" /> when the listener is disabled.</summary>
     public Uri? RespUri => _handle.RespUri;
 
     /// <summary>Gets the signal raised when the host receives a shutdown request.</summary>

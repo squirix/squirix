@@ -26,7 +26,7 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 
 Warm-up establishes TCP reachability; it does not execute a cache RPC or complete TLS and connection authentication. `ConnectAsync` can
 succeed against a JWT-protected server without a token, while the first cache operation fails with `Unauthenticated`.
-A fresh physical transport obtains credentials from `BearerTokenProvider` once, during the binary TLS connection handshake.
+A fresh physical transport obtains credentials from `BearerTokenProvider` once, during the binary connection handshake.
 See [cache connection authentication](security/connection-authentication.md) for expiry and automatic transport renewal.
 It also does not establish that recovery has finished or that a replica group has a leader.
 
