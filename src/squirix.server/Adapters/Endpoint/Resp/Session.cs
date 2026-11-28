@@ -58,11 +58,16 @@ internal sealed partial class Session
                 if (response == null || authentication?.IsCancellationRequested == true)
                     return;
 
-                using var writing = CancellationTokenSource.CreateLinkedTokenSource(authentication?.Token ?? abort);
-                writing.CancelAfter(TimeSpan.FromSeconds(5));
-                await response.Value.WriteAsync(stream, _resp3, writing.Token).ConfigureAwait(false);
-                if (_identity != null)
-                    authentication?.CancelAfter(Timeout.InfiniteTimeSpan);
+                if (authentication != null)
+                {
+                    await WriteAsync(stream, response.Value, authentication.Token).ConfigureAwait(false);
+                    if (_identity != null)
+                        authentication.CancelAfter(Timeout.InfiniteTimeSpan);
+                }
+                else
+                {
+                    await WriteReadyResponsesAsync(stream, response.Value, reading, abort).ConfigureAwait(false);
+                }
             }
         }
         finally
@@ -70,6 +75,87 @@ internal sealed partial class Session
             if (_expiry != null)
                 await _expiry.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    private static async ValueTask FlushBatchAsync(Stream stream, ReplyBatch batch, CancellationToken cancellationToken)
+    {
+        using var writing = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        writing.CancelAfter(TimeSpan.FromSeconds(5));
+        await stream.WriteAsync(batch.WrittenMemory, writing.Token).ConfigureAwait(false);
+    }
+
+    private static async ValueTask FlushBatchAndCancelAsync(Stream stream, ReplyBatch batch, TimedCancellation deadline, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FlushBatchAsync(stream, batch, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            try
+            {
+                await deadline.CancelAsync().ConfigureAwait(false);
+            }
+            catch (AggregateException error)
+            {
+                // Keep the write failure as the session's error if a cancellation callback fails.
+                _ = error.InnerExceptions;
+            }
+
+            throw;
+        }
+    }
+
+    private async ValueTask WriteAsync(Stream stream, Response response, CancellationToken cancellationToken)
+    {
+        using var batch = new ReplyBatch();
+        response.AppendTo(batch, _resp3);
+        await FlushBatchAsync(stream, batch, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask WriteReadyResponsesAsync(Stream stream, Response first, CancellationTokenSource reading, CancellationToken abort)
+    {
+        using var batch = new ReplyBatch();
+        var response = first;
+        var count = 0;
+        while (true)
+        {
+            response.AppendTo(batch, _resp3);
+            count++;
+            if (count == 16 || batch.WrittenCount >= 65536 || Volatile.Read(ref _closeRequested) != 0 || reading.IsCancellationRequested)
+                break;
+
+            try
+            {
+                if (!_request.TryReadBuffered())
+                    break;
+            }
+            catch (InvalidDataException)
+            {
+                RequestClose();
+                ProtocolError.AppendTo(batch, _resp3);
+                break;
+            }
+
+#pragma warning disable CA2000 // The loop owns the deadline until both the command and flush complete.
+            using var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, TimeProvider.System, abort);
+#pragma warning restore CA2000
+            var pending = ExecuteWithDeadlineAsync(deadline, abort);
+            if (!pending.IsCompletedSuccessfully)
+            {
+                var command = pending.AsTask();
+                await Task.WhenAll(FlushBatchAndCancelAsync(stream, batch, deadline, abort).AsTask(), command).ConfigureAwait(false);
+                batch.Clear();
+                count = 0;
+                response = await command.ConfigureAwait(false);
+            }
+            else
+            {
+                response = await pending.ConfigureAwait(false);
+            }
+        }
+
+        await FlushBatchAsync(stream, batch, abort).ConfigureAwait(false);
     }
 
     private async ValueTask<Response?> AuthenticateAsync(ReadOnlyMemory<byte> token, CancellationToken cancellationToken)
@@ -191,8 +277,18 @@ internal sealed partial class Session
         }
 
         reading.CancelAfter(Timeout.InfiniteTimeSpan);
+        return await ExecuteWithDeadlineAsync(authentication, abort).ConfigureAwait(false);
+    }
+
+    private async ValueTask<Response> ExecuteWithDeadlineAsync(CancellationTokenSource? authentication, CancellationToken abort)
+    {
         var commandToken = authentication?.Token ?? abort;
         using var deadline = new TimedCancellation(RpcAttemptTimeout.OperationDeadline, TimeProvider.System, commandToken);
+        return await ExecuteWithDeadlineAsync(deadline, commandToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<Response> ExecuteWithDeadlineAsync(TimedCancellation deadline, CancellationToken commandToken)
+    {
         try
         {
             return await ExecuteAsync(deadline.Token).ConfigureAwait(false);
